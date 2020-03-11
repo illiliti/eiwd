@@ -4137,20 +4137,6 @@ static void netdev_initial_up_cb(int error, uint16_t type, const void *data,
 	netdev->events_ready = true;
 }
 
-static void netdev_set_mac_cb(int error, uint16_t type, const void *data,
-					uint32_t len, void *user_data)
-{
-	struct netdev *netdev = user_data;
-
-	if (error)
-		l_error("Error setting mac address on %d: %s", netdev->index,
-			strerror(-error));
-
-	netdev->set_powered_cmd_id =
-		l_rtnl_set_powered(rtnl, netdev->index, true,
-					netdev_initial_up_cb, netdev, NULL);
-}
-
 static bool netdev_check_set_mac(struct netdev *netdev)
 {
 	if (util_mem_is_zero(netdev->set_mac_once, 6))
@@ -4159,8 +4145,8 @@ static bool netdev_check_set_mac(struct netdev *netdev)
 	l_debug("Setting initial address on ifindex: %d to: " MAC,
 		netdev->index, MAC_STR(netdev->set_mac_once));
 	netdev->set_powered_cmd_id =
-		l_rtnl_set_mac(rtnl, netdev->index, netdev->set_mac_once,
-				netdev_set_mac_cb, netdev, NULL);
+		l_rtnl_set_mac(rtnl, netdev->index, netdev->set_mac_once, true,
+				netdev_initial_up_cb, netdev, NULL);
 	memset(netdev->set_mac_once, 0, 6);
 	return true;
 }
