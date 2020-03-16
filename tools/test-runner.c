@@ -989,7 +989,7 @@ static void stop_ofono(pid_t pid)
 }
 
 static pid_t start_hostapd(char **config_files, struct wiphy **wiphys,
-				const char *test_name)
+				const char *test_name, const char *radius_conf)
 {
 	char **argv;
 	pid_t pid;
@@ -1028,6 +1028,9 @@ static pid_t start_hostapd(char **config_files, struct wiphy **wiphys,
 
 		argv[idx++] = config_files[i];
 	}
+
+	if (radius_conf)
+		argv[idx++] = (void *)radius_conf;
 
 	if (verbose) {
 		argv[idx++] = "-d";
@@ -1358,6 +1361,7 @@ static bool configure_hostapd_instances(struct l_settings *hw_settings,
 	int i;
 	char **hostapd_config_file_paths;
 	struct wiphy **wiphys;
+	const char *radius_config = NULL;
 
 	*phys_used = 0;
 
@@ -1398,8 +1402,12 @@ static bool configure_hostapd_instances(struct l_settings *hw_settings,
 			goto done;
 		}
 
-		if (!strcmp(hostap_keys[i], "radius_server"))
+		if (!strcmp(hostap_keys[i], "radius_server")) {
+			radius_config = l_settings_get_value(hw_settings,
+						HW_CONFIG_GROUP_HOSTAPD,
+						"radius_server");
 			continue;
+		}
 
 		for (wiphy_entry = l_queue_get_entries(wiphy_list);
 					wiphy_entry;
@@ -1478,7 +1486,8 @@ hostapd_done:
 	}
 
 	hostapd_pids_out[0] = start_hostapd(hostapd_config_file_paths, wiphys,
-						basename(config_dir_path));
+						basename(config_dir_path),
+						radius_config);
 	hostapd_pids_out[1] = -1;
 
 done:
