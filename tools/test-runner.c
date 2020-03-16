@@ -2073,7 +2073,7 @@ static void create_network_and_run_tests(void *data, void *user_data)
 	if (chdir(config_dir_path) < 0) {
 		l_error("Failed to change to test directory: %s",
 							strerror(errno));
-		goto exit_hwsim;
+		goto free_hw_settings;
 	}
 
 	tmpfs_extra_stuff =
@@ -2097,7 +2097,7 @@ static void create_network_and_run_tests(void *data, void *user_data)
 
 			if (!ofono_found || !phonesim_found) {
 				l_info("ofono or phonesim not found, skipping");
-				goto exit_hwsim;
+				goto free_tmpfs_extra;
 			}
 
 			ofono_req = true;
@@ -2268,7 +2268,6 @@ exit_hostapd:
 remove_abs_paths:
 	remove_absolute_path_dirs(tmpfs_extra_stuff);
 
-exit_hwsim:
 	/*
 	 * If running in hwsim mode, we want to completely free/destroy the
 	 * wiphy list since it will be re-populated on the next test. For the
@@ -2280,8 +2279,10 @@ exit_hwsim:
 	else
 		l_queue_foreach(wiphy_list, wiphy_reset, NULL);
 
-	l_settings_free(hw_settings);
+free_tmpfs_extra:
 	l_strfreev(tmpfs_extra_stuff);
+free_hw_settings:
+	l_settings_free(hw_settings);
 }
 
 struct stat_totals {
