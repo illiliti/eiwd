@@ -1373,7 +1373,7 @@ static bool configure_hostapd_instances(struct l_settings *hw_settings,
 
 	hostapd_config_file_paths = l_new(char *, i + 1);
 	wiphys = alloca(sizeof(struct wiphy *) * (i + 1));
-	wiphys[i] = NULL;
+	memset(wiphys, 0, sizeof(struct wiphy *) * (i + 1));
 
 	hostapd_pids_out[0] = -1;
 
