@@ -2413,7 +2413,9 @@ static int netdev_connect_common(struct netdev *netdev,
 					NL80211_EXT_FEATURE_CAN_REPLACE_PTK0))
 		handshake_state_set_no_rekey(hs, true);
 
-	auth_proto_start(netdev->ap);
+	/* set connected since the auth protocols cannot do so internally */
+	if (netdev->ap && auth_proto_start(netdev->ap))
+		netdev->connected = true;
 
 	return 0;
 }
