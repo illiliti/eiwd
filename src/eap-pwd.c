@@ -435,7 +435,6 @@ error:
 	eap_method_error(eap);
 }
 
-
 static void eap_pwd_handle_confirm(struct eap_state *eap,
 					const uint8_t *pkt, size_t len)
 {

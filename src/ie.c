@@ -2406,7 +2406,6 @@ int ie_parse_neighbor_report(struct ie_tlv_iter *iter,
 	return 0;
 }
 
-
 int ie_parse_roaming_consortium(struct ie_tlv_iter *iter, size_t *num_anqp_out,
 				const uint8_t **oi1_out, size_t *oi1_len_out,
 				const uint8_t **oi2_out, size_t *oi2_len_out,

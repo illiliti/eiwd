@@ -28,7 +28,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-
 bool mschapv2_get_asymmetric_start_key(const uint8_t master_key[static 16],
 				uint8_t *session_key, size_t session_len,
 				bool server, bool send);

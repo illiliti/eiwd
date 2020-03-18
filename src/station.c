@@ -2066,7 +2066,6 @@ void station_ap_directed_roam(struct station *station,
 	l_timeout_remove(station->roam_trigger_timeout);
 	station->roam_trigger_timeout = NULL;
 
-
 	if (req_mode & WNM_REQUEST_MODE_PREFERRED_CANDIDATE_LIST) {
 		l_debug("roam: AP sent a preferred candidate list");
 		station_neighbor_report_cb(station->netdev, 0, body + pos,
@@ -2559,7 +2558,6 @@ static void station_disconnect_cb(struct netdev *netdev, bool success,
 			l_dbus_message_set_arguments(reply, "");
 		} else
 			reply = dbus_error_failed(station->disconnect_pending);
-
 
 		dbus_pending_reply(&station->disconnect_pending, reply);
 
