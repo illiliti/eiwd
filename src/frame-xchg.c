@@ -472,6 +472,12 @@ static void frame_watch_register_cb(struct l_genl_msg *msg, void *user_data)
 			L_PTR_TO_UINT(user_data), l_genl_msg_get_error(msg));
 }
 
+static void frame_watch_notify_empty(const struct mmpdu_header *mpdu,
+					const void *body, size_t body_len,
+					int rssi, void *user_data)
+{
+}
+
 struct frame_duplicate_info {
 	uint64_t wdev_id;
 	uint16_t frame_type;
@@ -506,6 +512,17 @@ static bool frame_watch_check_duplicate(void *data, void *user_data)
 		 */
 		info->registered = true;
 
+	/*
+	 * If we previously had a watch registered on this socket,
+	 * with the same or a more specific prefix, we can now forget
+	 * its entry as the new watch is going to hold enough
+	 * information to keep us from registering redundant prefixes
+	 * in the future.
+	 */
+	if (info->prefix_len <= watch->prefix_len &&
+			watch->super.notify == frame_watch_notify_empty)
+		goto drop;
+
 	if (info->handler != watch->super.notify ||
 			info->user_data != watch->super.notify_data)
 		return false;
@@ -522,6 +539,7 @@ static bool frame_watch_check_duplicate(void *data, void *user_data)
 		return false;
 	}
 
+drop:
 	/* Drop the existing watch as a duplicate of the new one */
 	frame_watch_free(&watch->super);
 	return true;
@@ -665,11 +683,19 @@ static bool frame_watch_item_remove_by_handler(void *data, void *user_data)
 			watch->super.notify_data != info->user_data)
 		return false;
 
-	if (watch->super.destroy)
+	if (watch->super.destroy) {
 		watch->super.destroy(watch->super.notify_data);
+		watch->super.destroy = NULL;
+	}
 
-	frame_watch_free(&watch->super);
-	return true;
+	/*
+	 * Keep the entry, with a dummy callback, in order to keep us from
+	 * re-registering its prefix in future frame_watch_add calls.  We
+	 * can drop the entry in some circumstances but checking the
+	 * conditions for this costs more than it is worth right now.
+	 */
+	watch->super.notify = frame_watch_notify_empty;
+	return false;
 }
 
 /*
