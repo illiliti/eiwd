@@ -656,7 +656,8 @@ struct frame_watch_handler_check_info {
 
 static bool frame_watch_item_remove_by_handler(void *data, void *user_data)
 {
-	struct frame_watch *watch = data;
+	struct frame_watch *watch =
+		l_container_of(data, struct frame_watch, super);
 	struct frame_watch_handler_check_info *info = user_data;
 
 	if (watch->super.notify != info->handler ||
