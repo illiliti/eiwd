@@ -759,9 +759,6 @@ static int manager_init(void)
 			randomize = true;
 		else if (!strcmp(randomize_str, "disabled"))
 			randomize = false;
-		else
-			l_warn("Invalid [General].AddressRandomization"
-				" value: %s", randomize_str);
 	}
 
 	if (!l_settings_get_bool(config, "General",
