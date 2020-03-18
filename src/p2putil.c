@@ -193,7 +193,12 @@ static bool extract_p2p_channel_list(const uint8_t *attr, size_t len,
 {
 	struct p2p_channel_list_attr *out = data;
 
-	if (len < 6)
+	/*
+	 * Some devices reply with an empty Channel Entry List inside the
+	 * Channel List attribute of a GO Negotiation Response (status 1),
+	 * so tolerate a length of 3.
+	 */
+	if (len < 3)
 		return false;
 
 	out->country[0] = *attr++;
