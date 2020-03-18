@@ -108,6 +108,7 @@ struct frame_xchg_data {
 	unsigned int retry_interval;
 	unsigned int resp_timeout;
 	bool in_frame_cb : 1;
+	bool stale : 1;
 };
 
 struct frame_xchg_watch_data {
@@ -723,6 +724,7 @@ static void frame_xchg_wait_cancel(struct frame_xchg_data *fx)
 static void frame_xchg_reset(struct frame_xchg_data *fx)
 {
 	fx->in_frame_cb = false;
+	fx->stale = false;
 
 	frame_xchg_wait_cancel(fx);
 
@@ -970,7 +972,7 @@ static void frame_xchg_resp_cb(const struct mmpdu_header *mpdu,
 
 		fx->in_frame_cb = false;
 
-		if (done) {
+		if (done || fx->stale) {
 			fx->cb = NULL;
 			frame_xchg_done(fx, 0);
 			return;
@@ -1114,6 +1116,11 @@ void frame_xchg_stop(uint64_t wdev_id)
 
 	if (!fx)
 		return;
+
+	if (fx->in_frame_cb) {
+		fx->stale = true;
+		return;
+	}
 
 	frame_xchg_reset(fx);
 	l_free(fx);
