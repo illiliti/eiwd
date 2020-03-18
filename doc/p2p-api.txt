@@ -40,7 +40,7 @@ Methods		array(on) GetPeers()
 			discovered peer devices to avoid keeping the Wi-Fi
 			adapter occupied unnecessarily.
 
-			Possible errors: [service].Error.NotAvailable
+			Possible errors: [service].Error.NotFound
 
 		void RegisterSignalLevelAgent(object path,
 						 array(int16) levels)

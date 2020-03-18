@@ -12,8 +12,8 @@ Methods		Disconnect()
 			the net.connman.iwd.SimpleConfiguration interface
 			on the same object -- see wsc-api.txt.
 
-			Possible errors: [service].Failed
-					 [service].NotConnected
+			Possible errors: [service].Error.Failed
+					 [service].Error.NotConnected
 
 Properties	string Name [readonly]
 
