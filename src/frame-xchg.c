@@ -522,6 +522,7 @@ static bool frame_watch_check_duplicate(void *data, void *user_data)
 	}
 
 	/* Drop the existing watch as a duplicate of the new one */
+	frame_watch_free(&watch->super);
 	return true;
 }
 
