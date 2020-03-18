@@ -127,6 +127,11 @@ static void __watchlist_clear(struct watchlist *watchlist)
 
 void watchlist_destroy(struct watchlist *watchlist)
 {
+	if (watchlist->in_notify) {
+		watchlist->pending_destroy = true;
+		return;
+	}
+
 	__watchlist_clear(watchlist);
 	l_queue_destroy(watchlist->items, NULL);
 	watchlist->items = NULL;
