@@ -82,7 +82,7 @@ The group ``[General]`` contains general settings.
        this setting.
 
    * - AddressRandomization
-     - Values: **disabled**, once
+     - Values: **disabled**, once, network
 
        If ``AddressRandomization`` is set to ``disabled``, the default kernel
        behavior is used.  This means the kernel will assign a mac address from
@@ -93,6 +93,12 @@ The group ``[General]`` contains general settings.
        If ``AddressRandomization`` is set to ``once``, MAC address is
        randomized a single time when **iwd** starts or when the hardware is
        detected for the first time (due to hotplug, etc.)
+
+       If ``AddressRandomization`` is set to ``network``, the MAC address is
+       randomized on each connection to a network. The MAC is generated based on
+       the SSID and permanent address of the adapter. This allows the same MAC
+       to be generated each time connecting to a given SSID while still hiding
+       the permanent address.
 
    * - AddressRandomizationRange
      - Values: **full**, nic
