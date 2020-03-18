@@ -435,12 +435,10 @@ const uint8_t *wiphy_get_rm_enabled_capabilities(struct wiphy *wiphy)
 	return wiphy->rm_enabled_capabilities;
 }
 
-void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6])
+static void wiphy_address_constrain(struct wiphy *wiphy, uint8_t addr[static 6])
 {
 	switch (mac_randomize_bytes) {
 	case 6:
-		l_getrandom(addr, 6);
-
 		/* Set the locally administered bit */
 		addr[0] |= 0x2;
 
@@ -448,7 +446,6 @@ void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6])
 		addr[0] &= 0xfe;
 		break;
 	case 3:
-		l_getrandom(addr + 3, 3);
 		memcpy(addr, wiphy->permanent_addr, 3);
 		break;
 	}
@@ -462,6 +459,35 @@ void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6])
 	addr[5] &= 0xfe;
 	if (util_mem_is_zero(addr + 3, 3))
 		addr[5] = 0x01;
+}
+
+void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6])
+{
+	switch (mac_randomize_bytes) {
+	case 6:
+		l_getrandom(addr, 6);
+		break;
+	case 3:
+		l_getrandom(addr + 3, 3);
+		break;
+	}
+
+	wiphy_address_constrain(wiphy, addr);
+}
+
+void wiphy_generate_address_from_ssid(struct wiphy *wiphy, const char *ssid,
+					uint8_t addr[static 6])
+{
+	struct l_checksum *sha = l_checksum_new(L_CHECKSUM_SHA256);
+
+	l_checksum_update(sha, ssid, strlen(ssid));
+	l_checksum_update(sha, wiphy->permanent_addr,
+				sizeof(wiphy->permanent_addr));
+	l_checksum_get_digest(sha, addr, mac_randomize_bytes);
+
+	l_checksum_free(sha);
+
+	wiphy_address_constrain(wiphy, addr);
 }
 
 bool wiphy_constrain_freq_set(const struct wiphy *wiphy,
