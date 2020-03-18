@@ -1266,9 +1266,10 @@ error:
 static void frame_xchg_exit(void)
 {
 	struct l_queue *groups = watch_groups;
+	struct l_queue *xchgs = frame_xchgs;
 
-	l_queue_destroy(frame_xchgs, frame_xchg_cancel);
 	frame_xchgs = NULL;
+	l_queue_destroy(xchgs, frame_xchg_cancel);
 
 	watch_groups = NULL;
 	l_queue_destroy(groups, frame_watch_group_destroy);
