@@ -109,6 +109,21 @@ The group ``[Settings]`` contains general settings.
 
        Whether the network is hidden, i.e. its SSID must be included in an
        active scan request
+   * - AlwaysRandomizeAddress
+     - Values: true, **false**
+
+       If enabled, the MAC address will be fully randomized on each connection.
+       This option is only used if [General].AddressRandomization is set to
+       'network'. See iwd.config. This value should not be used with
+       [Settings].AddressOverride, if both are set AddressOverride will be used.
+   * - AddressOverride
+     - MAC address string
+
+       Override the MAC address used for connecting to this network. This option
+       is only used if [General].AddressRandomization is set to 'network'. See
+       iwd.config. This value should not be used with
+       [Settings].FullAddressRandomization, if both are set AddressOverride will
+       be used.
 
 Network Authentication Settings
 -------------------------------
