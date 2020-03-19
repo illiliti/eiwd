@@ -1111,7 +1111,7 @@ static struct l_dbus_message *wsc_push_button(struct l_dbus *dbus,
 	if (!l_dbus_message_get_arguments(message, ""))
 		return dbus_error_invalid_args(message);
 
-	if (wsc->pending_connect)
+	if (wsc->pending_connect || wsc->pending_cancel)
 		return dbus_error_busy(message);
 
 	wsc->pending_connect = l_dbus_message_ref(message);
@@ -1150,7 +1150,7 @@ static struct l_dbus_message *wsc_start_pin(struct l_dbus *dbus,
 
 	l_debug("");
 
-	if (wsc->pending_connect)
+	if (wsc->pending_connect || wsc->pending_cancel)
 		return dbus_error_busy(message);
 
 	if (!l_dbus_message_get_arguments(message, "s", &pin))
