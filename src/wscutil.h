@@ -606,6 +606,9 @@ uint8_t *wsc_build_credential(const struct wsc_credential *in, size_t *out_len);
 
 uint8_t *wsc_build_probe_request(const struct wsc_probe_request *probe_request,
 				size_t *out_len);
+uint8_t *wsc_build_probe_response(
+		const struct wsc_probe_response *probe_response,
+		size_t *out_len);
 uint8_t *wsc_build_association_request(
 		const struct wsc_association_request *association_request,
 		size_t *out_len);
