@@ -255,6 +255,13 @@ static void eap_tls_tunnel_ready(const char *peer_identity, void *user_data)
 		l_tls_close(eap_tls->tunnel);
 }
 
+static void eap_tls_debug_hint(void)
+{
+	if (!getenv("IWD_TLS_DEBUG"))
+		l_debug("set the IWD_TLS_DEBUG environment variable to see "
+			"more information");
+}
+
 static void eap_tls_tunnel_disconnected(enum l_tls_alert_desc reason,
 						bool remote, void *user_data)
 {
@@ -592,6 +599,7 @@ static bool eap_tls_tunnel_init(struct eap_state *eap)
 
 			l_error("%s: Failed to set auth data.",
 					eap_get_method_name(eap));
+			eap_tls_debug_hint();
 			return false;
 		}
 
@@ -606,6 +614,7 @@ static bool eap_tls_tunnel_init(struct eap_state *eap)
 			eap_tls->ca_cert = NULL;
 			l_error("%s: Error settings CA certificates.",
 					eap_get_method_name(eap));
+			eap_tls_debug_hint();
 			return false;
 		}
 
@@ -618,6 +627,7 @@ static bool eap_tls_tunnel_init(struct eap_state *eap)
 	if (!l_tls_start(eap_tls->tunnel)) {
 		l_error("%s: Failed to start the TLS client",
 						eap_get_method_name(eap));
+		eap_tls_debug_hint();
 		return false;
 	}
 
