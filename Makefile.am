@@ -339,6 +339,15 @@ man_MANS += wired/ead.8
 endif
 endif
 
+noinst_PROGRAMS += tools/probe-req
+
+tools_probe_req_SOURCES = tools/probe-req.c src/mpdu.h src/mpdu.c \
+					src/ie.h src/ie.c \
+					src/nl80211util.h src/nl80211util.c \
+					src/util.h src/util.c \
+					src/common.h src/common.c
+tools_probe_req_LDADD = $(ell_ldadd)
+
 if HWSIM
 bin_PROGRAMS += tools/hwsim
 

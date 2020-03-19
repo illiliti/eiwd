@@ -34,6 +34,7 @@ wired/ead.service
 tools/hwsim
 tools/hwsim.1
 tools/test-runner
+tools/probe-req
 unit/test-cmac-aes
 unit/test-arc4
 unit/test-hmac-md5
