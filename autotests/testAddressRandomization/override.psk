@@ -1,0 +1,6 @@
+[Security]
+Passphrase=secret123
+
+[Settings]
+AddressOverride=e6:f6:38:a9:02:02
+AutoConnect=false

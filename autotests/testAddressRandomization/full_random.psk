@@ -1,0 +1,6 @@
+[Security]
+Passphrase=secret123
+
+[Settings]
+AlwaysRandomizeAddress=true
+AutoConnect=false
