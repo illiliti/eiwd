@@ -38,6 +38,7 @@ const char *util_address_to_string(const uint8_t *addr);
 bool util_string_to_address(const char *str, uint8_t *addr);
 bool util_is_group_address(const uint8_t *addr);
 bool util_is_broadcast_address(const uint8_t *addr);
+bool util_is_valid_sta_address(const uint8_t *addr);
 
 const char *util_get_domain(const char *identity);
 const char *util_get_username(const char *identity);

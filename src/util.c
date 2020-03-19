@@ -166,6 +166,11 @@ bool util_is_broadcast_address(const uint8_t *addr)
 	return !memcmp(addr, bcast_addr, 6);
 }
 
+bool util_is_valid_sta_address(const uint8_t *addr)
+{
+	return !util_is_broadcast_address(addr) && !util_is_group_address(addr);
+}
+
 /* This function assumes that identity is not bigger than 253 bytes */
 const char *util_get_domain(const char *identity)
 {
