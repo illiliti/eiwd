@@ -45,6 +45,6 @@ bool frame_watch_wdev_remove(uint64_t wdev_id);
 
 void frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 			unsigned int retry_interval, unsigned int resp_timeout,
-			uint32_t group_id, frame_xchg_cb_t cb, void *user_data,
-			va_list resp_args);
+			unsigned int retries_on_ack, uint32_t group_id,
+			frame_xchg_cb_t cb, void *user_data, va_list resp_args);
 void frame_xchg_stop(uint64_t wdev_id);

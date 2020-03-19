@@ -107,6 +107,7 @@ struct frame_xchg_data {
 	unsigned int retry_cnt;
 	unsigned int retry_interval;
 	unsigned int resp_timeout;
+	unsigned int retries_on_ack;
 	bool in_frame_cb : 1;
 	bool stale : 1;
 };
@@ -726,6 +727,9 @@ static bool frame_watch_remove_by_handler(uint64_t wdev_id, uint32_t group_id,
 }
 
 static void frame_xchg_tx_retry(struct frame_xchg_data *fx);
+static bool frame_xchg_resp_handle(const struct mmpdu_header *mpdu,
+					const void *body, size_t body_len,
+					int rssi, void *user_data);
 static void frame_xchg_resp_cb(const struct mmpdu_header *mpdu,
 				const void *body, size_t body_len,
 				int rssi, void *user_data);
@@ -805,12 +809,20 @@ static void frame_xchg_timeout_cb(struct l_timeout *timeout,
 	frame_xchg_tx_retry(fx);
 }
 
-static void frame_xchg_resp_timeout_cb(struct l_timeout *timeout,
+static void frame_xchg_listen_end_cb(struct l_timeout *timeout,
 					void *user_data)
 {
 	struct frame_xchg_data *fx = user_data;
 
-	frame_xchg_done(fx, 0);
+	if (!fx->retries_on_ack) {
+		frame_xchg_done(fx, 0);
+		return;
+	}
+
+	l_timeout_remove(fx->timeout);
+	fx->retries_on_ack--;
+	fx->retry_cnt = 0;
+	frame_xchg_tx_retry(fx);
 }
 
 static void frame_xchg_tx_status(struct frame_xchg_data *fx, bool acked)
@@ -850,17 +862,20 @@ static void frame_xchg_tx_status(struct frame_xchg_data *fx, bool acked)
 		fx->have_cookie = false;
 
 		l_debug("Processing an early frame");
-		frame_xchg_resp_cb(fx->early_frame.mpdu, fx->early_frame.body,
-					fx->early_frame.body_len,
-					fx->early_frame.rssi, fx);
 
-		frame_xchg_done(fx, 0);
+		if (frame_xchg_resp_handle(fx->early_frame.mpdu,
+						fx->early_frame.body,
+						fx->early_frame.body_len,
+						fx->early_frame.rssi, fx))
+			return;
+
+		frame_xchg_listen_end_cb(NULL, fx);
 		return;
 	}
 
 	/* Txed frame ACKed, listen for response frames */
 	fx->timeout = l_timeout_create_ms(fx->resp_timeout,
-						frame_xchg_resp_timeout_cb, fx,
+						frame_xchg_listen_end_cb, fx,
 						frame_xchg_timeout_destroy);
 }
 
@@ -946,9 +961,9 @@ static void frame_xchg_tx_retry(struct frame_xchg_data *fx)
 	fx->retry_cnt++;
 }
 
-static void frame_xchg_resp_cb(const struct mmpdu_header *mpdu,
-				const void *body, size_t body_len,
-				int rssi, void *user_data)
+static bool frame_xchg_resp_handle(const struct mmpdu_header *mpdu,
+					const void *body, size_t body_len,
+					int rssi, void *user_data)
 {
 	struct frame_xchg_data *fx = user_data;
 	const struct l_queue_entry *entry;
@@ -957,10 +972,10 @@ static void frame_xchg_resp_cb(const struct mmpdu_header *mpdu,
 	l_debug("");
 
 	if (memcmp(mpdu->address_1, fx->tx_mpdu->address_2, 6))
-		return;
+		return false;
 
 	if (memcmp(mpdu->address_2, fx->tx_mpdu->address_1, 6))
-		return;
+		return false;
 
 	/*
 	 * Is the received frame's BSSID same as the transmitted frame's
@@ -970,7 +985,7 @@ static void frame_xchg_resp_cb(const struct mmpdu_header *mpdu,
 	 */
 	if (memcmp(mpdu->address_3, fx->tx_mpdu->address_3, 6) &&
 			!util_mem_is_zero(mpdu->address_3, 6))
-		return;
+		return false;
 
 	for (entry = l_queue_get_entries(fx->rx_watches);
 			entry; entry = entry->next) {
@@ -994,18 +1009,18 @@ static void frame_xchg_resp_cb(const struct mmpdu_header *mpdu,
 		 * to just exit without touching anything.
 		 */
 		if (!fx->in_frame_cb)
-			return;
+			return true;
 
 		fx->in_frame_cb = false;
 
 		if (done || fx->stale) {
 			fx->cb = NULL;
 			frame_xchg_done(fx, 0);
-			return;
+			return true;
 		}
 	}
 
-	return;
+	return false;
 
 early_frame:
 	/*
@@ -1016,13 +1031,21 @@ early_frame:
 	 * Save the response frame to be processed in the Tx done callback.
 	 */
 	if (fx->early_frame.mpdu)
-		return;
+		return false;
 
 	hdr_len = (const uint8_t *) body - (const uint8_t *) mpdu;
 	fx->early_frame.mpdu = l_memdup(mpdu, body_len + hdr_len);
 	fx->early_frame.body = (const uint8_t *) fx->early_frame.mpdu + hdr_len;
 	fx->early_frame.body_len = body_len;
 	fx->early_frame.rssi = rssi;
+	return false;
+}
+
+static void frame_xchg_resp_cb(const struct mmpdu_header *mpdu,
+				const void *body, size_t body_len,
+				int rssi, void *user_data)
+{
+	frame_xchg_resp_handle(mpdu, body, body_len, rssi, user_data);
 }
 
 static bool frame_xchg_match(const void *a, const void *b)
@@ -1050,8 +1073,8 @@ static bool frame_xchg_match(const void *a, const void *b)
  */
 void frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 			unsigned int retry_interval, unsigned int resp_timeout,
-			uint32_t group_id, frame_xchg_cb_t cb, void *user_data,
-			va_list resp_args)
+			unsigned int retries_on_ack, uint32_t group_id,
+			frame_xchg_cb_t cb, void *user_data, va_list resp_args)
 {
 	struct frame_xchg_data *fx;
 	size_t frame_len;
@@ -1095,6 +1118,7 @@ void frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 	fx->freq = freq;
 	fx->retry_interval = retry_interval;
 	fx->resp_timeout = resp_timeout;
+	fx->retries_on_ack = retries_on_ack;
 	fx->cb = cb;
 	fx->user_data = user_data;
 	fx->group_id = group_id;
