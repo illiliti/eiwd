@@ -201,6 +201,23 @@ void *ie_tlv_extract_p2p_payload(const unsigned char *ies, size_t len,
 }
 
 /*
+ * Wi-Fi Display Technical Specification v2.1.0, Section 5.1.1:
+ * "More than one WFD IE may be included in a single frame.  If multiple WFD
+ * IEs are present, the complete WFD subelement data consists of the
+ * concatenation of the WFD subelement fields of the WFD IEs.  The WFD
+ * subelements field of each WFD IE may be any length up to the maximum
+ * (251 octets).  The order of the concatenated WFD subelement data shall be
+ * preserved in the ordering of the WFD IEs in the frame.  All of the WFD IEs
+ * shall fit within a single frame and shall be adjacent in the frame."
+ */
+void *ie_tlv_extract_wfd_payload(const unsigned char *ies, size_t len,
+							ssize_t *out_len)
+{
+	return ie_tlv_vendor_ie_concat(wifi_alliance_oui, 0x0a,
+					ies, len, true, out_len);
+}
+
+/*
  * Encapsulate & Fragment data into Vendor IE with a given OUI + type
  *
  * Returns a newly allocated buffer with the contents of encapsulated into
