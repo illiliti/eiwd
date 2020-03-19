@@ -152,6 +152,73 @@ static inline const uint8_t *p2p_attr_iter_get_data(struct p2p_attr_iter *iter)
 	return iter->pos + 3;
 }
 
+/* Wi-Fi Display Technical Specification v2.1.0 Table 27 */
+enum wfd_subelem_type {
+	WFD_SUBELEM_WFD_DEVICE_INFORMATION	= 0,
+	WFD_SUBELEM_ASSOCIATED_BSSID		= 1,
+	WFD_SUBELEM_COUPLED_SINK_INFORMATION	= 6,
+	WFD_SUBELEM_EXTENDED_CAPABILITY		= 7,
+	WFD_SUBELEM_LOCAL_IP_ADDRESS		= 8,
+	WFD_SUBELEM_SESION_INFORMATION		= 9,
+	WFD_SUBELEM_ALTERNATIVE_MAC_ADDRESS	= 10,
+	WFD_SUBELEM_R2_DEVICE_INFORMATION	= 11,
+};
+
+enum wfd_dev_info_bits {
+	WFD_DEV_INFO_DEVICE_TYPE		= 0x0003,
+	WFD_DEV_INFO_COUPLED_SINK_AT_SOURCE_OK	= 0x0004,
+	WFD_DEV_INFO_COUPLED_SINK_AT_SINK_OK	= 0x0008,
+	WFD_DEV_INFO_SESSION_AVAILABILITY	= 0x0030,
+	WFD_DEV_INFO_SERVICE_DISCOVERY_SUPPORT	= 0x0040,
+	WFD_DEV_INFO_PREFER_TDLS_CONNECTIVITY	= 0x0080,
+	WFD_DEV_INFO_CONTENT_PROTECTION_SUPPORT	= 0x0100,
+	WFD_DEV_INFO_8021AS_TIME_SYNC_SUPPORT	= 0x0200,
+	WFD_DEV_INFO_NO_AUDIO_AT_PRIMARY_SINK	= 0x0400,
+	WFD_DEV_INFO_AUDIO_ONLY_AT_SOURCE	= 0x0800,
+	WFD_DEV_INFO_TDLS_PERSISTENT_GROUP	= 0x1000,
+	WFD_DEV_INFO_REINVOKE_TDLS_GROUP	= 0x2000,
+};
+
+enum wfd_dev_info_type {
+	WFD_DEV_INFO_TYPE_SOURCE		= 0x0000,
+	WFD_DEV_INFO_TYPE_PRIMARY_SINK		= 0x0001,
+	WFD_DEV_INFO_TYPE_SECONDARY_SINK	= 0x0002,
+	WFD_DEV_INFO_TYPE_DUAL_ROLE		= 0x0003,
+};
+
+enum wfd_dev_info_session_availability {
+	WFD_DEV_INFO_SESSION_NOT_AVAILABLE	= 0x0000,
+	WFD_DEV_INFO_SESSION_AVAILABLE		= 0x0010,
+};
+
+struct wfd_subelem_iter {
+	const uint8_t *pos;
+	const uint8_t *end;
+	enum wfd_subelem_type type;
+	size_t len;
+};
+
+void wfd_subelem_iter_init(struct wfd_subelem_iter *iter, const uint8_t *pdu,
+				size_t len);
+bool wfd_subelem_iter_next(struct wfd_subelem_iter *iter);
+
+static inline enum wfd_subelem_type wfd_subelem_iter_get_type(
+						struct wfd_subelem_iter *iter)
+{
+	return iter->type;
+}
+
+static inline size_t wfd_subelem_iter_get_length(struct wfd_subelem_iter *iter)
+{
+	return iter->len;
+}
+
+static inline const uint8_t *wfd_subelem_iter_get_data(
+						struct wfd_subelem_iter *iter)
+{
+	return iter->pos + 3;
+}
+
 struct p2p_capability_attr {
 	uint8_t device_caps;
 	uint8_t group_caps;
