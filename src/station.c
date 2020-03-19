@@ -875,6 +875,10 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 	struct handshake_state *hs;
 	const char *ssid;
 	uint32_t eapol_proto_version;
+	const char *value;
+	bool full_random;
+	bool override = false;
+	uint8_t new_addr[ETH_ALEN];
 
 	hs = netdev_handshake_state_new(station->netdev);
 
@@ -933,6 +937,42 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |
 				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
 		hs->erp_cache = erp_cache_get(network_get_ssid(network));
+
+	/*
+	 * We have three possible options here:
+	 * 1. per-network MAC generation (default, no option in network config)
+	 * 2. per-network full MAC randomization
+	 * 3. per-network MAC override
+	 */
+
+	if (!l_settings_get_bool(settings, "Settings",
+					"AlwaysRandomizeAddress",
+					&full_random))
+		full_random = false;
+
+	value = l_settings_get_value(settings, "Settings",
+					"AddressOverride");
+	if (value) {
+		if (util_string_to_address(value, new_addr) &&
+					util_is_valid_sta_address(new_addr))
+			override = true;
+		else
+			l_warn("[Network].AddressOverride is not a valid "
+				"MAC address");
+	}
+
+	if (override && full_random) {
+		l_warn("Cannot use both AlwaysRandomizeAddress and "
+			"AddressOverride concurrently, defaulting to override");
+		full_random = false;
+	}
+
+	if (override)
+		handshake_state_set_supplicant_address(hs, new_addr);
+	else if (full_random) {
+		wiphy_generate_random_address(wiphy, new_addr);
+		handshake_state_set_supplicant_address(hs, new_addr);
+	}
 
 	return hs;
 
