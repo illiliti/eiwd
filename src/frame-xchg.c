@@ -1071,6 +1071,19 @@ static bool frame_xchg_match(const void *a, const void *b)
  * @resp_timeout was 0.  @frame is an iovec array terminated by an iovec
  * struct with NULL-iov_base.
  */
+void frame_xchg_start(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
+			unsigned int retry_interval, unsigned int resp_timeout,
+			unsigned int retries_on_ack, uint32_t group_id,
+			frame_xchg_cb_t cb, void *user_data, ...)
+{
+	va_list args;
+
+	va_start(args, user_data);
+	frame_xchg_startv(wdev_id, frame, freq, retry_interval, resp_timeout,
+				retries_on_ack, group_id, cb, user_data, args);
+	va_end(args);
+}
+
 void frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 			unsigned int retry_interval, unsigned int resp_timeout,
 			unsigned int retries_on_ack, uint32_t group_id,

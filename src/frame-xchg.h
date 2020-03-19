@@ -43,6 +43,10 @@ bool frame_watch_add(uint64_t wdev_id, uint32_t group, uint16_t frame_type,
 bool frame_watch_group_remove(uint64_t wdev_id, uint32_t group);
 bool frame_watch_wdev_remove(uint64_t wdev_id);
 
+void frame_xchg_start(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
+			unsigned int retry_interval, unsigned int resp_timeout,
+			unsigned int retries_on_ack, uint32_t group_id,
+			frame_xchg_cb_t cb, void *user_data, ...);
 void frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 			unsigned int retry_interval, unsigned int resp_timeout,
 			unsigned int retries_on_ack, uint32_t group_id,
