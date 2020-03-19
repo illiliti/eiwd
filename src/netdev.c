@@ -2560,8 +2560,13 @@ static int netdev_start_powered_mac_change(struct netdev *netdev,
 	struct rtnl_data *req;
 	uint8_t new_addr[6];
 
-	wiphy_generate_address_from_ssid(netdev->wiphy, (const char *)bss->ssid,
+	/* No address set in handshake, use per-network MAC generation */
+	if (util_mem_is_zero(netdev->handshake->spa, ETH_ALEN))
+		wiphy_generate_address_from_ssid(netdev->wiphy,
+						(const char *)bss->ssid,
 						new_addr);
+	else
+		memcpy(new_addr, netdev->handshake->spa, ETH_ALEN);
 
 	/*
 	 * MAC has already been changed previously, no need to again
