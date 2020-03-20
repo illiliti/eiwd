@@ -361,19 +361,6 @@ static bool frame_watch_group_io_read(struct l_io *io, void *user_data)
 	return true;
 }
 
-static void frame_watch_group_io_destroy(void *user_data)
-{
-	struct watch_group *group = user_data;
-
-	group->io = NULL;
-
-	if (l_queue_remove(watch_groups, group)) {
-		l_error("Frame watch group socket closed");
-
-		frame_watch_group_destroy(group);
-	}
-}
-
 static struct watch_group *frame_watch_group_new(uint64_t wdev_id, uint32_t id)
 {
 	struct watch_group *group = l_new(struct watch_group, 1);
@@ -435,7 +422,7 @@ static struct watch_group *frame_watch_group_new(uint64_t wdev_id, uint32_t id)
 
 	l_io_set_close_on_destroy(group->io, true);
 	l_io_set_read_handler(group->io, frame_watch_group_io_read, group,
-				frame_watch_group_io_destroy);
+				NULL);
 	group->write_queue = l_queue_new();
 
 	return group;
