@@ -86,6 +86,7 @@ struct wiphy {
 	bool support_rekey_offload:1;
 	bool support_adhoc_rsn:1;
 	bool support_qos_set_map:1;
+	bool support_cmds_auth_assoc:1;
 	bool soft_rfkill : 1;
 	bool hard_rfkill : 1;
 	bool offchannel_tx_ok : 1;
@@ -328,16 +329,32 @@ bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss)
 					rsn_info.group_management_cipher))
 			return false;
 
-		/*
-		 * if the AP ONLY supports SAE/WPA3, then we can only connect
-		 * if the wiphy feature is supported. Otherwise the AP may list
-		 * SAE as one of the AKM's but also support PSK (hybrid). In
-		 * this case we still want to allow a connection even if SAE
-		 * is not supported.
-		 */
-		if (IE_AKM_IS_SAE(rsn_info.akm_suites) &&
-				!wiphy_has_feature(wiphy, NL80211_FEATURE_SAE))
-			return false;
+
+		switch (rsn_info.akm_suites) {
+		case IE_RSN_AKM_SUITE_SAE_SHA256:
+		case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
+			/*
+			 * if the AP ONLY supports SAE/WPA3, then we can only
+			 * connect if the wiphy feature is supported. Otherwise
+			 * the AP may list SAE as one of the AKM's but also
+			 * support PSK (hybrid). In this case we still want to
+			 * allow a connection even if SAE is not supported.
+			 */
+			if (!wiphy_has_feature(wiphy, NL80211_FEATURE_SAE) ||
+						!wiphy->support_cmds_auth_assoc)
+				return false;
+
+			break;
+		case IE_RSN_AKM_SUITE_OWE:
+		case IE_RSN_AKM_SUITE_FILS_SHA256:
+		case IE_RSN_AKM_SUITE_FILS_SHA384:
+		case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
+		case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
+			if (!wiphy->support_cmds_auth_assoc)
+				return false;
+
+			break;
+		}
 	} else if (r != -ENOENT)
 		return false;
 
@@ -614,6 +631,8 @@ static void parse_supported_commands(struct wiphy *wiphy,
 {
 	uint16_t type, len;
 	const void *data;
+	bool auth = false;
+	bool assoc = false;
 
 	while (l_genl_attr_next(attr, &type, &len, &data)) {
 		uint32_t cmd = *(uint32_t *)data;
@@ -628,8 +647,17 @@ static void parse_supported_commands(struct wiphy *wiphy,
 		case NL80211_CMD_SET_QOS_MAP:
 			wiphy->support_qos_set_map = true;
 			break;
+		case NL80211_CMD_AUTHENTICATE:
+			auth = true;
+			break;
+		case NL80211_CMD_ASSOCIATE:
+			assoc = true;
+			break;
 		}
 	}
+
+	if (auth && assoc)
+		wiphy->support_cmds_auth_assoc = true;
 }
 
 static void parse_supported_ciphers(struct wiphy *wiphy, const void *data,
