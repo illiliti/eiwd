@@ -410,14 +410,22 @@ bool handshake_state_derive_ptk(struct handshake_state *s)
 
 	s->ptk_complete = false;
 
-	if (s->akm_suite & (IE_RSN_AKM_SUITE_FILS_SHA384 |
+	if (s->akm_suite & IE_RSN_AKM_SUITE_OWE) {
+		if (s->pmk_len == 32)
+			type = L_CHECKSUM_SHA256;
+		else if (s->pmk_len == 48)
+			type = L_CHECKSUM_SHA384;
+		else if (s->pmk_len == 64)
+			type = L_CHECKSUM_SHA512;
+		else
+			return false;
+	} else if (s->akm_suite & (IE_RSN_AKM_SUITE_FILS_SHA384 |
 			IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
 		type = L_CHECKSUM_SHA384;
 	else if (s->akm_suite & (IE_RSN_AKM_SUITE_8021X_SHA256 |
 			IE_RSN_AKM_SUITE_PSK_SHA256 |
 			IE_RSN_AKM_SUITE_SAE_SHA256 |
 			IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256 |
-			IE_RSN_AKM_SUITE_OWE |
 			IE_RSN_AKM_SUITE_FILS_SHA256 |
 			IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |
 			IE_RSN_AKM_SUITE_OSEN))
