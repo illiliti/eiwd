@@ -2203,7 +2203,7 @@ static void create_network_and_run_tests(void *data, void *user_data)
 						HW_CONFIG_GROUP_SETUP,
 						HW_CONFIG_SETUP_IWD_CONF_DIR);
 		if (!iwd_config_dir)
-			iwd_config_dir = DAEMON_CONFIGDIR;
+			iwd_config_dir = "/tmp";
 
 		iwd_pid = start_iwd(iwd_config_dir, wiphy_list,
 				iwd_ext_options, iwd_phys, test_name);
