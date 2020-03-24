@@ -38,7 +38,7 @@ class Test(unittest.TestCase):
         return device.address
 
     def test_connection_success(self):
-        wd = IWD(True)
+        wd = IWD()
 
         devices = wd.list_devices(1)
         device = devices[0]
