@@ -1606,14 +1606,24 @@ static void terminate_iwd(pid_t iwd_pid)
 
 static pid_t start_monitor(const char *test_name)
 {
-	char *argv[4];
+	char *argv[6];
+	char *write_arg;
+	pid_t pid;
+
+	write_arg = l_strdup_printf("%s/%s/monitor.pcap", log_dir, test_name);
 
 	argv[0] = "iwmon";
 	argv[1] = "--nortnl";
 	argv[2] = "--nowiphy";
-	argv[3] = NULL;
+	argv[3] = "--write";
+	argv[4] = write_arg;
+	argv[5] = NULL;
 
-	return execute_program(argv, environ, false, test_name);
+	pid = execute_program(argv, environ, false, test_name);
+
+	l_free(write_arg);
+
+	return pid;
 }
 
 static bool create_tmpfs_extra_stuff(char **tmpfs_extra_stuff)
