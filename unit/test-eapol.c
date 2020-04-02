@@ -2487,7 +2487,7 @@ static void verify_install_tk(struct handshake_state *hs,
 	verify_install_tk_called = true;
 }
 
-static void verify_install_gtk(struct handshake_state *hs, uint8_t key_index,
+static void verify_install_gtk(struct handshake_state *hs, uint16_t key_index,
 				const uint8_t *gtk, uint8_t gtk_len,
 				const uint8_t *rsc, uint8_t rsc_len,
 				uint32_t cipher)
