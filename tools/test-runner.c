@@ -3093,6 +3093,8 @@ int main(int argc, char *argv[])
 	uint8_t actions = 0;
 	struct tm *timeinfo;
 	time_t t;
+	char *gid;
+	char *uid;
 
 	l_log_set_stderr();
 
@@ -3193,8 +3195,16 @@ int main(int argc, char *argv[])
 			time(&t);
 			timeinfo = localtime(&t);
 
-			log_gid = atoi(getenv("SUDO_GID"));
-			log_uid = atoi(getenv("SUDO_UID"));
+			gid = getenv("SUDO_GID");
+			uid = getenv("SUDO_UID");
+
+			if (!gid || !uid) {
+				log_gid = getgid();
+				log_uid = getuid();
+			} else {
+				log_gid = strtol(gid, NULL, 10);
+				log_uid = strtol(uid, NULL, 10);
+			}
 
 			snprintf(log_dir, sizeof(log_dir), "%s/run-%d-%d-%d-%d",
 					optarg, timeinfo->tm_year + 1900,
