@@ -1297,6 +1297,14 @@ static void netdev_set_igtk(struct handshake_state *hs, uint16_t key_index,
 		return;
 	}
 
+	if (key_index == 0x0400 || key_index == 0x0500) {
+		l_warn("Received an invalid IGTK key index (%04hx)"
+				" that is likely in"
+				" big endian format.  Trying to fix and"
+				" proceed anyway", key_index);
+		key_index = bswap_16(key_index);
+	}
+
 	msg = nl80211_build_new_key_group(netdev->index, cipher, key_index,
 					igtk_buf, igtk_len, ipn, ipn_len, NULL);
 
