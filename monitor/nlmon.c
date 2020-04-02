@@ -216,8 +216,9 @@ static void print_packet(const struct timeval *tv, char ident,
 				ts_pos += n;
 		}
 
-		n = sprintf(ts_str + ts_pos, " %lu.%06lu",
-					tv->tv_sec - time_offset, tv->tv_usec);
+		n = sprintf(ts_str + ts_pos, " %" PRId64 ".%06" PRId64,
+					(int64_t)tv->tv_sec - time_offset,
+					(int64_t)tv->tv_usec);
 		if (n > 0) {
 			ts_pos += n;
 			ts_len += n;
