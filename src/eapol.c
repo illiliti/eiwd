@@ -943,7 +943,7 @@ static void eapol_install_gtk(struct eapol_sm *sm, uint8_t gtk_key_index,
 	sm->installed_gtk_len = gtk_len;
 }
 
-static void eapol_install_igtk(struct eapol_sm *sm, uint8_t igtk_key_index,
+static void eapol_install_igtk(struct eapol_sm *sm, uint16_t igtk_key_index,
 					const uint8_t *igtk, size_t igtk_len)
 {
 	/*
@@ -1504,7 +1504,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	const uint8_t *rsne;
 	const uint8_t *optional_rsne = NULL;
 	uint8_t gtk_key_index;
-	uint8_t igtk_key_index;
+	uint16_t igtk_key_index;
 
 	l_debug("ifindex=%u", sm->handshake->ifindex);
 
@@ -1799,7 +1799,7 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 	uint8_t gtk_key_index;
 	const uint8_t *igtk;
 	size_t igtk_len;
-	uint8_t igtk_key_index;
+	uint16_t igtk_key_index;
 
 	if (!eapol_verify_gtk_1_of_2(ek, sm->handshake->wpa_ie, sm->mic_len)) {
 		handshake_failed(sm, MMPDU_REASON_CODE_UNSPECIFIED);
