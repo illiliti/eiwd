@@ -61,12 +61,12 @@ typedef bool (*handshake_get_nonce_func_t)(uint8_t nonce[]);
 typedef void (*handshake_install_tk_func_t)(struct handshake_state *hs,
 					const uint8_t *tk, uint32_t cipher);
 typedef void (*handshake_install_gtk_func_t)(struct handshake_state *hs,
-					uint8_t key_index,
+					uint16_t key_index,
 					const uint8_t *gtk, uint8_t gtk_len,
 					const uint8_t *rsc, uint8_t rsc_len,
 					uint32_t cipher);
 typedef void (*handshake_install_igtk_func_t)(struct handshake_state *hs,
-					uint8_t key_index,
+					uint16_t key_index,
 					const uint8_t *igtk, uint8_t igtk_len,
 					const uint8_t *ipn, uint8_t ipn_len,
 					uint32_t cipher);
@@ -194,12 +194,12 @@ const uint8_t *handshake_state_get_kek(struct handshake_state *s);
 void handshake_state_install_ptk(struct handshake_state *s);
 
 void handshake_state_install_gtk(struct handshake_state *s,
-					uint8_t gtk_key_index,
+					uint16_t gtk_key_index,
 					const uint8_t *gtk, size_t gtk_len,
 					const uint8_t *rsc, uint8_t rsc_len);
 
 void handshake_state_install_igtk(struct handshake_state *s,
-					uint8_t igtk_key_index,
+					uint16_t igtk_key_index,
 					const uint8_t *igtk, size_t igtk_len,
 					const uint8_t *ipn);
 

@@ -573,7 +573,7 @@ void handshake_state_install_ptk(struct handshake_state *s)
 }
 
 void handshake_state_install_gtk(struct handshake_state *s,
-					uint8_t gtk_key_index,
+					uint16_t gtk_key_index,
 					const uint8_t *gtk, size_t gtk_len,
 					const uint8_t *rsc, uint8_t rsc_len)
 {
@@ -587,7 +587,7 @@ void handshake_state_install_gtk(struct handshake_state *s,
 }
 
 void handshake_state_install_igtk(struct handshake_state *s,
-					uint8_t igtk_key_index,
+					uint16_t igtk_key_index,
 					const uint8_t *igtk, size_t igtk_len,
 					const uint8_t *ipn)
 {

@@ -1219,7 +1219,7 @@ static const uint8_t *netdev_choose_key_address(
 	return (nhs->super.authenticator) ? nhs->super.spa : nhs->super.aa;
 }
 
-static void netdev_set_gtk(struct handshake_state *hs, uint8_t key_index,
+static void netdev_set_gtk(struct handshake_state *hs, uint16_t key_index,
 				const uint8_t *gtk, uint8_t gtk_len,
 				const uint8_t *rsc, uint8_t rsc_len,
 				uint32_t cipher)
@@ -1266,7 +1266,7 @@ static void netdev_set_gtk(struct handshake_state *hs, uint8_t key_index,
 	netdev_setting_keys_failed(nhs, -EIO);
 }
 
-static void netdev_set_igtk(struct handshake_state *hs, uint8_t key_index,
+static void netdev_set_igtk(struct handshake_state *hs, uint16_t key_index,
 				const uint8_t *igtk, uint8_t igtk_len,
 				const uint8_t *ipn, uint8_t ipn_len,
 				uint32_t cipher)
