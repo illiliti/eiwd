@@ -843,11 +843,11 @@ static void eap_wsc_handle_m2(struct eap_state *eap,
 	l_checksum_get_digest(sha256, dhkey, sizeof(dhkey));
 	l_checksum_free(sha256);
 
-	memset(shared_secret, 0, shared_secret_len);
+	explicit_bzero(shared_secret, shared_secret_len);
 
 	hmac_sha256 = l_checksum_new_hmac(L_CHECKSUM_SHA256,
 							dhkey, sizeof(dhkey));
-	memset(dhkey, 0, sizeof(dhkey));
+	explicit_bzero(dhkey, sizeof(dhkey));
 
 	if (!hmac_sha256)
 		return;
@@ -864,7 +864,7 @@ static void eap_wsc_handle_m2(struct eap_state *eap,
 	l_checksum_free(hmac_sha256);
 
 	r = wsc_kdf(kdk, &keys, sizeof(keys));
-	memset(kdk, 0, sizeof(kdk));
+	explicit_bzero(kdk, sizeof(kdk));
 	if (!r)
 		return;
 
@@ -888,7 +888,7 @@ static void eap_wsc_handle_m2(struct eap_state *eap,
 						sizeof(keys.keywrap_key));
 
 clear_keys:
-	memset(&keys, 0, sizeof(keys));
+	explicit_bzero(&keys, sizeof(keys));
 }
 
 static void eap_wsc_handle_nack(struct eap_state *eap,
@@ -1228,12 +1228,12 @@ static bool eap_wsc_load_settings(struct eap_state *eap,
 		if (!l_key_validate_dh_payload(private_key, 192,
 						crypto_dh5_prime,
 						crypto_dh5_prime_size)) {
-			memset(private_key, 0, 192);
+			explicit_bzero(private_key, 192);
 			goto err;
 		}
 
 		wsc->private = l_key_new(L_KEY_RAW, private_key, 192);
-		memset(private_key, 0, 192);
+		explicit_bzero(private_key, 192);
 	} else
 		wsc->private = l_key_generate_dh_private(crypto_dh5_prime,
 							crypto_dh5_prime_size);
