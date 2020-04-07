@@ -131,10 +131,12 @@ static void adhoc_reset(struct adhoc_state *adhoc)
 				dbus_error_aborted(adhoc->pending));
 
 	l_free(adhoc->ssid);
+	adhoc->ssid = NULL;
 
 	netdev_station_watch_remove(adhoc->netdev, adhoc->sta_watch_id);
 
 	l_queue_destroy(adhoc->sta_states, adhoc_sta_free);
+	adhoc->sta_states = NULL;
 
 	adhoc->started = false;
 
