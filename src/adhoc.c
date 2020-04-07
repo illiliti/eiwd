@@ -576,8 +576,10 @@ static struct l_dbus_message *adhoc_dbus_stop(struct l_dbus *dbus,
 	if (!adhoc->started)
 		return l_dbus_message_new_method_return(message);
 
-	if (!netdev_leave_adhoc(adhoc->netdev, adhoc_leave_cb, adhoc))
+	if (netdev_leave_adhoc(adhoc->netdev, adhoc_leave_cb, adhoc))
 		return dbus_error_failed(message);
+
+	adhoc->pending = l_dbus_message_ref(message);
 
 	return NULL;
 }
