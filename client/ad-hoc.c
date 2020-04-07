@@ -189,7 +189,7 @@ static enum cmd_status cmd_start_open(const char *device_name,
 		return CMD_STATUS_INVALID_VALUE;
 	}
 
-	proxy_interface_method_call(adhoc_i, "Start", "s",
+	proxy_interface_method_call(adhoc_i, "StartOpen", "s",
 						check_errors_method_callback,
 						argv[0]);
 
