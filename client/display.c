@@ -534,7 +534,14 @@ void display_enable_cmd_prompt(void)
 
 	rl_set_prompt(IWD_PROMPT);
 
-	display("");
+	/*
+	 * The following sequence of rl_* commands forces readline to properly
+	 * update its internal state and re-display the new prompt.
+	 */
+	rl_save_prompt();
+	rl_redisplay();
+	rl_restore_prompt();
+	rl_forced_update_display();
 }
 
 void display_disable_cmd_prompt(void)
