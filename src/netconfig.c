@@ -1215,14 +1215,7 @@ static int netconfig_init(void)
 		return 0;
 	}
 
-	rtnl = l_netlink_new(NETLINK_ROUTE);
-	if (!rtnl) {
-		l_error("netconfig: Failed to open route netlink socket");
-		return -EPERM;
-	}
-
-	if (getenv("IWD_RTNL_DEBUG"))
-		l_netlink_set_debug(rtnl, do_debug, "[NETCONFIG RTNL] ", NULL);
+	rtnl = iwd_get_rtnl();
 
 	r = l_netlink_register(rtnl, RTNLGRP_IPV4_IFADDR,
 					netconfig_ifaddr_notify, NULL, NULL);
@@ -1264,7 +1257,6 @@ static int netconfig_init(void)
 	return 0;
 
 error:
-	l_netlink_destroy(rtnl);
 	rtnl = NULL;
 
 	return r;
@@ -1275,7 +1267,6 @@ static void netconfig_exit(void)
 	if (!netconfig_list)
 		return;
 
-	l_netlink_destroy(rtnl);
 	rtnl = NULL;
 
 	l_queue_destroy(netconfig_list, netconfig_free);
