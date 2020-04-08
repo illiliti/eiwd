@@ -303,7 +303,7 @@ static struct l_dbus_message *request_user_password_method_call(
 
 	username_prompt = l_strdup_printf(COLOR_BLUE PROMPT_USERNAME " "
 						COLOR_OFF "%s\n", username);
-	display(username_prompt);
+	display("%s", username_prompt);
 	l_free(username_prompt);
 
 	display_agent_prompt(PROMPT_PASSWORD, true);

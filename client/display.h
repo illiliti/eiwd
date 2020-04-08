@@ -32,8 +32,10 @@ struct command_family;
 #define CLEAR_SCREEN	"\033[2J"
 #define MARGIN		"  "
 
-void display(const char *format, ...);
-void display_table_header(const char *caption, const char *fmt, ...);
+void display(const char *format, ...)
+		__attribute__((format(printf, 1, 2)));
+void display_table_header(const char *caption, const char *fmt, ...)
+		__attribute__((format(printf, 2, 3)));
 void display_table_footer(void);
 void display_error(const char *error);
 void display_command_line(const char *command_family,
