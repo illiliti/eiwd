@@ -168,13 +168,6 @@ static struct watchlist netdev_watches;
 static bool pae_over_nl80211;
 static bool mac_per_ssid;
 
-static void do_debug(const char *str, void *user_data)
-{
-	const char *prefix = user_data;
-
-	l_info("%s%s", prefix, str);
-}
-
 /* Cancels ongoing GTK/IGTK related commands (if any) */
 static void netdev_handshake_state_cancel_rekey(
 					struct netdev_handshake_state *nhs)
@@ -4723,16 +4716,7 @@ static int netdev_init(void)
 	if (rtnl)
 		return -EALREADY;
 
-	l_debug("Opening route netlink socket");
-
-	rtnl = l_netlink_new(NETLINK_ROUTE);
-	if (!rtnl) {
-		l_error("Failed to open route netlink socket");
-		return -EIO;
-	}
-
-	if (getenv("IWD_RTNL_DEBUG"))
-		l_netlink_set_debug(rtnl, do_debug, "[RTNL] ", NULL);
+	rtnl = iwd_get_rtnl();
 
 	if (!l_netlink_register(rtnl, RTNLGRP_LINK,
 				netdev_link_notify, NULL, NULL)) {
@@ -4782,7 +4766,6 @@ static int netdev_init(void)
 	return 0;
 
 fail_netlink:
-	l_netlink_destroy(rtnl);
 	rtnl = NULL;
 
 	return -EIO;
@@ -4802,8 +4785,6 @@ static void netdev_exit(void)
 	l_genl_family_free(nl80211);
 	nl80211 = NULL;
 
-	l_debug("Closing route netlink socket");
-	l_netlink_destroy(rtnl);
 	rtnl = NULL;
 }
 
