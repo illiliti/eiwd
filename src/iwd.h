@@ -34,6 +34,7 @@ struct l_genl_family;
 
 const struct l_settings *iwd_get_config(void);
 struct l_genl *iwd_get_genl(void);
+struct l_netlink *iwd_get_rtnl(void);
 
 void netdev_shutdown(void);
 

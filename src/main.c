@@ -47,6 +47,7 @@
 #include "src/backtrace.h"
 
 static struct l_genl *genl;
+static struct l_netlink *rtnl;
 static struct l_settings *iwd_config;
 static struct l_timeout *timeout;
 static const char *interfaces;
@@ -101,6 +102,11 @@ const struct l_settings *iwd_get_config(void)
 struct l_genl *iwd_get_genl(void)
 {
 	return genl;
+}
+
+struct l_netlink *iwd_get_rtnl(void)
+{
+	return rtnl;
 }
 
 const char *iwd_get_iface_whitelist(void)
@@ -481,6 +487,15 @@ int main(int argc, char *argv[])
 	if (getenv("IWD_GENL_DEBUG"))
 		l_genl_set_debug(genl, do_debug, "[GENL] ", NULL);
 
+	rtnl = l_netlink_new(NETLINK_ROUTE);
+	if (!rtnl) {
+		l_error("Failed to open route netlink socket");
+		goto fail_rtnl;
+	}
+
+	if (getenv("IWD_RTNL_DEBUG"))
+		l_netlink_set_debug(rtnl, do_debug, "[RTNL] ", NULL);
+
 	dbus = l_dbus_new_default(L_DBUS_SYSTEM_BUS);
 	if (!dbus) {
 		l_error("Failed to initialize D-Bus");
@@ -504,6 +519,8 @@ int main(int argc, char *argv[])
 	storage_cleanup_dirs();
 fail_dbus:
 	l_genl_unref(genl);
+fail_rtnl:
+	l_netlink_destroy(rtnl);
 fail_genl:
 	l_settings_free(iwd_config);
 
