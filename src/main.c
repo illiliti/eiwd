@@ -374,7 +374,6 @@ int main(int argc, char *argv[])
 	struct l_dbus *dbus;
 	const char *config_dir;
 	char **config_dirs;
-	int i;
 
 	for (;;) {
 		int opt;
@@ -456,18 +455,18 @@ int main(int argc, char *argv[])
 	iwd_config = l_settings_new();
 
 	config_dirs = l_strsplit(config_dir, ':');
-	for (i = 0; config_dirs[i]; i++) {
-		char *path = l_strdup_printf("%s/%s", config_dirs[i],
-								"main.conf");
-		bool result = l_settings_load_from_file(iwd_config, path);
-		l_free(path);
 
-		if (result) {
-			l_info("Loaded configuration from %s/main.conf",
-							config_dirs[i]);
-			break;
-		}
+	for (; *config_dirs; config_dirs++) {
+		L_AUTO_FREE_VAR(char *, path) =
+			l_strdup_printf("%s/%s", *config_dirs, "main.conf");
+
+		if (!l_settings_load_from_file(iwd_config, path))
+			continue;
+
+		l_info("Loaded configuration from %s", path);
+		break;
 	}
+
 	l_strv_free(config_dirs);
 
 	__eapol_set_config(iwd_config);
