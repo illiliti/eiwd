@@ -25,9 +25,9 @@ class Test(unittest.TestCase):
         dev1.adhoc_wait_for_connected(dev2.address)
         dev2.adhoc_wait_for_connected(dev1.address)
 
-        #testutil.test_iface_operstate(dev1.name)
-        #testutil.test_iface_operstate(dev2.name)
-        #testutil.test_ifaces_connected(dev1.name, dev2.name)
+        testutil.test_iface_operstate(dev1.name)
+        testutil.test_iface_operstate(dev2.name)
+        testutil.test_ifaces_connected(dev1.name, dev2.name)
 
     def test_connection_success(self):
         wd = IWD(True)
