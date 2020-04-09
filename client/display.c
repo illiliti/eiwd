@@ -548,7 +548,7 @@ void display_disable_cmd_prompt(void)
 {
 	display_refresh_reset();
 
-	rl_set_prompt("Waiting to connect to IWD");
+	rl_set_prompt("Waiting for IWD to start...");
 	printf("\r");
 	rl_on_new_line();
 	rl_redisplay();
@@ -685,7 +685,7 @@ void display_init(void)
 
 	rl_completer_quote_characters = "\"";
 	rl_erase_empty_line = 1;
-	rl_callback_handler_install("Waiting for IWD to appear...",
+	rl_callback_handler_install("Waiting for IWD to start...",
 							readline_callback);
 
 	rl_redisplay();
