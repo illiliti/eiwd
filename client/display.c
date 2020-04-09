@@ -28,6 +28,8 @@
 #include <stdio.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 #include <readline/history.h>
 #include <readline/readline.h>
@@ -48,6 +50,7 @@ static struct l_timeout *refresh_timeout;
 static struct saved_input *agent_saved_input;
 
 static struct display_refresh {
+	bool enabled;
 	char *family;
 	char *entity;
 	const struct command *cmd;
@@ -56,7 +59,7 @@ static struct display_refresh {
 	size_t undo_lines;
 	struct l_queue *redo_entries;
 	bool recording;
-} display_refresh;
+} display_refresh = { .enabled = true };
 
 struct saved_input {
 	char *line;
@@ -221,12 +224,45 @@ void display_refresh_set_cmd(const char *family, const char *entity,
 	}
 }
 
+static void display_refresh_check_feasibility(void)
+{
+	const struct winsize ws;
+
+	ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
+
+	if (ws.ws_col < LINE_LEN - 1) {
+		if (display_refresh.enabled) {
+			display_refresh.recording = false;
+			display(COLOR_YELLOW "Auto-refresh is disabled. "
+				"Enlarge window width to at least %u to enable."
+				"\n" COLOR_OFF, LINE_LEN - 1);
+			display_refresh.recording = true;
+		}
+
+		display_refresh.enabled = false;
+	} else {
+		display_refresh.enabled = true;
+	}
+}
+
+static void display_refresh_check_applicability(void)
+{
+	if (display_refresh.enabled && display_refresh.cmd)
+		display_refresh_redo_lines();
+	else if (display_refresh.cmd)
+		display_refresh_timeout_set();
+}
+
 static void timeout_callback(struct l_timeout *timeout, void *user_data)
 {
 	struct saved_input *input;
 
-	if (!display_refresh.cmd)
+	if (!display_refresh.enabled || !display_refresh.cmd) {
+		if (display_refresh.cmd)
+			display_refresh_timeout_set();
+
 		return;
+	}
 
 	input = save_input();
 	display_refresh_undo_lines();
@@ -336,8 +372,7 @@ void display_table_footer(void)
 {
 	display_text("\n");
 
-	if (display_refresh.cmd)
-		display_refresh_redo_lines();
+	display_refresh_check_applicability();
 }
 
 void display_command_line(const char *command_family,
@@ -636,8 +671,7 @@ void display_quit(void)
 
 static void window_change_signal_handler(void *user_data)
 {
-	if (display_refresh.cmd)
-		display_refresh_reset();
+	display_refresh_check_feasibility();
 }
 
 static char *history_path;
@@ -691,6 +725,8 @@ void display_init(void)
 							readline_callback);
 
 	rl_redisplay();
+
+	display_refresh_check_feasibility();
 }
 
 void display_exit(void)
