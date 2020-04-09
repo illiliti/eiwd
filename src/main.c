@@ -476,12 +476,12 @@ int main(int argc, char *argv[])
 	exit_status = EXIT_FAILURE;
 
 	if (!storage_create_dirs())
-		goto fail_dbus;
+		goto failed_dirs;
 
 	genl = l_genl_new();
 	if (!genl) {
 		l_error("Failed to open generic netlink socket");
-		goto fail_genl;
+		goto failed_genl;
 	}
 
 	if (getenv("IWD_GENL_DEBUG"))
@@ -490,7 +490,7 @@ int main(int argc, char *argv[])
 	rtnl = l_netlink_new(NETLINK_ROUTE);
 	if (!rtnl) {
 		l_error("Failed to open route netlink socket");
-		goto fail_rtnl;
+		goto failed_rtnl;
 	}
 
 	if (getenv("IWD_RTNL_DEBUG"))
@@ -499,7 +499,7 @@ int main(int argc, char *argv[])
 	dbus = l_dbus_new_default(L_DBUS_SYSTEM_BUS);
 	if (!dbus) {
 		l_error("Failed to initialize D-Bus");
-		goto fail_dbus;
+		goto failed_dbus;
 	}
 
 	if (enable_dbus_debug)
@@ -510,18 +510,24 @@ int main(int argc, char *argv[])
 	dbus_init(dbus);
 
 	exit_status = l_main_run_with_signal(signal_handler, NULL);
+
 	plugin_exit();
 
 	iwd_modules_exit();
 
 	dbus_exit();
 	l_dbus_destroy(dbus);
-	storage_cleanup_dirs();
-fail_dbus:
-	l_genl_unref(genl);
-fail_rtnl:
+failed_dbus:
+
 	l_netlink_destroy(rtnl);
-fail_genl:
+failed_rtnl:
+
+	l_genl_unref(genl);
+failed_genl:
+
+	storage_cleanup_dirs();
+failed_dirs:
+
 	l_settings_free(iwd_config);
 
 	l_timeout_remove(timeout);
