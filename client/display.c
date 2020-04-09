@@ -40,7 +40,7 @@
 #define IWD_PROMPT COLOR_GREEN "[iwd]" COLOR_OFF "# "
 #define LINE_LEN 81
 
-static struct l_signal *resize_signal;
+static struct l_signal *window_change_signal;
 static struct l_io *io;
 static char dashed_line[LINE_LEN] = { [0 ... LINE_LEN - 2] = '-' };
 static char empty_line[LINE_LEN] = { [0 ... LINE_LEN - 2] = ' ' };
@@ -634,7 +634,7 @@ void display_quit(void)
 	rl_crlf();
 }
 
-static void signal_handler(void *user_data)
+static void window_change_signal_handler(void *user_data)
 {
 	if (display_refresh.cmd)
 		display_refresh_reset();
@@ -678,7 +678,9 @@ void display_init(void)
 
 	setlinebuf(stdout);
 
-	resize_signal = l_signal_create(SIGWINCH, signal_handler, NULL, NULL);
+	window_change_signal =
+		l_signal_create(SIGWINCH, window_change_signal_handler, NULL,
+									NULL);
 
 	rl_attempted_completion_function = command_completion;
 	rl_completion_display_matches_hook = display_completion_matches;
@@ -708,7 +710,7 @@ void display_exit(void)
 
 	l_io_destroy(io);
 
-	l_signal_remove(resize_signal);
+	l_signal_remove(window_change_signal);
 
 	if (history_path)
 		write_history(history_path);
