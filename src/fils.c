@@ -1,3 +1,4 @@
+
 /*
  *
  *  Wireless daemon for Linux
@@ -508,7 +509,7 @@ static int fils_rx_associate(struct auth_proto *driver, const uint8_t *frame,
 			if (!igtk)
 				goto invalid_ies;
 
-			igtk_key_index = l_get_le16(igtk);;
+			igtk_key_index = l_get_le16(igtk);
 			igtk += 2;
 			igtk_len -= 2;
 

@@ -469,7 +469,7 @@ int crypto_cipher_key_len(enum crypto_cipher cipher)
 		return 16;
 	case CRYPTO_CIPHER_BIP:
 		return 16;
-	};
+	}
 
 	return 0;
 }

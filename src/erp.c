@@ -308,7 +308,7 @@ static bool erp_derive_reauth_keys(const uint8_t *emsk, size_t emsk_len,
 					void *r_rk, void *r_ik)
 {
 	char info[256];
-	char *ptr;;
+	char *ptr;
 
 	ptr = info + l_strlcpy(info, ERP_RRK_LABEL, sizeof(info)) + 1;
 

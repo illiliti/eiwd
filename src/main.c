@@ -339,7 +339,7 @@ static int check_crypto()
 		l_hashmap_insert(options, "CONFIG_PKCS7_MESSAGE_PARSER", &r);
 		l_hashmap_insert(options,
 					"CONFIG_PKCS8_PRIVATE_KEY_PARSER", &r);
-	};
+	}
 
 	if (l_hashmap_isempty(options))
 		goto done;

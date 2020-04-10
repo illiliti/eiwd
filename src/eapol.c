@@ -279,7 +279,7 @@ uint8_t *eapol_decrypt_key_data(enum ie_rsn_akm_suite akm, const uint8_t *kek,
 		break;
 	default:
 		return NULL;
-	};
+	}
 
 	buf = l_new(uint8_t, expected_len);
 
@@ -1674,7 +1674,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 			return;
 		}
 
-		igtk_key_index = l_get_le16(igtk);;
+		igtk_key_index = l_get_le16(igtk);
 		igtk += 2;
 		igtk_len -= 2;
 	} else
@@ -1834,7 +1834,7 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 		if (!igtk)
 			return;
 
-		igtk_key_index = l_get_le16(igtk);;
+		igtk_key_index = l_get_le16(igtk);
 		igtk += 2;
 		igtk_len -= 2;
 	} else

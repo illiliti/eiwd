@@ -262,7 +262,7 @@ static void wsc_enrollee_netdev_event(struct netdev *netdev,
 	default:
 		l_debug("Unexpected event: %d", event);
 		break;
-	};
+	}
 }
 
 static void wsc_enrollee_handshake_event(struct handshake_state *hs,

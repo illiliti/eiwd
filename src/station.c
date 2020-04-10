@@ -2174,7 +2174,7 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 	case NETDEV_EVENT_RSSI_LEVEL_NOTIFY:
 		station_rssi_level_changed(station, l_get_u8(event_data));
 		break;
-	};
+	}
 }
 
 static bool station_try_next_bss(struct station *station)
