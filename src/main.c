@@ -374,6 +374,7 @@ int main(int argc, char *argv[])
 	struct l_dbus *dbus;
 	const char *config_dir;
 	char **config_dirs;
+	int i;
 
 	for (;;) {
 		int opt;
@@ -456,9 +457,9 @@ int main(int argc, char *argv[])
 
 	config_dirs = l_strsplit(config_dir, ':');
 
-	for (; *config_dirs; config_dirs++) {
+	for (i = 0; config_dirs[i]; i++) {
 		L_AUTO_FREE_VAR(char *, path) =
-			l_strdup_printf("%s/%s", *config_dirs, "main.conf");
+			l_strdup_printf("%s/%s", config_dirs[i], "main.conf");
 
 		if (!l_settings_load_from_file(iwd_config, path))
 			continue;
