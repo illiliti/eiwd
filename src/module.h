@@ -47,5 +47,5 @@ struct iwd_module_depends {
 			.target = #dep,					\
 		};
 
-int iwd_modules_init();
-void iwd_modules_exit();
+int iwd_modules_init(void);
+void iwd_modules_exit(void);
