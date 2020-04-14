@@ -40,10 +40,8 @@ class Test(unittest.TestCase):
         # while there are hotspot networks in range. This should result in
         # autoconnect *after* ANQP is performed
         #
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(wpa_network.network_object, condition)
-
-        sleep(2)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected(device.name, hapd_wpa.ifname)
@@ -53,10 +51,10 @@ class Test(unittest.TestCase):
         #
         os.remove("/var/lib/iwd/ssidWPA2-1.psk")
 
-        self.assertEqual(len(wd.list_known_networks()), 1)
+        condition = 'obj.state == DeviceState.disconnected'
+        wd.wait_for_object_condition(device, condition)
 
-        condition = 'not obj.connected'
-        wd.wait_for_object_condition(wpa_network.network_object, condition)
+        self.assertEqual(len(wd.list_known_networks()), 1)
 
         condition = 'obj.scanning'
         wd.wait_for_object_condition(device, condition)
@@ -71,10 +69,8 @@ class Test(unittest.TestCase):
         # Since there are no other provisioned networks, we should do ANQP and
         # autoconnect to the hotspot network.
         #
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(hotspot_network.network_object, condition)
-
-        sleep(2)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected(device.name, hapd_hotspot.ifname)
@@ -87,8 +83,8 @@ class Test(unittest.TestCase):
         #
         # make sure removal of hotspot conf file resulted in disconnect
         #
-        condition = 'not obj.connected'
-        wd.wait_for_object_condition(wpa_network.network_object, condition)
+        condition = 'obj.state == DeviceState.disconnected'
+        wd.wait_for_object_condition(device, condition)
 
         condition = 'obj.scanning'
         wd.wait_for_object_condition(device, condition)
@@ -99,13 +95,13 @@ class Test(unittest.TestCase):
         hotspot_network = device.get_ordered_network("ssidWPA2-1")
         self.assertEqual(hotspot_network.type, NetworkType.psk)
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(hotspot_network.network_object, condition)
-
-        sleep(2)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected(device.name, hapd_wpa.ifname)
+
+        device.disconnect()
 
     @classmethod
     def setUpClass(cls):
