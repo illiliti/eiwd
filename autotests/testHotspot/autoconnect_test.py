@@ -4,8 +4,6 @@ import unittest
 import sys
 import os
 
-from time import sleep
-
 sys.path.append('../util')
 import iwd
 from iwd import IWD

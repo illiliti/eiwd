@@ -3,7 +3,6 @@
 import unittest
 import sys
 import time
-from time import sleep
 
 sys.path.append('../util')
 import iwd
