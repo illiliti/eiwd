@@ -52,7 +52,8 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.disconnected'
         wd.wait_for_object_condition(device, condition)
 
-        self.assertEqual(len(wd.list_known_networks()), 1)
+        condition = 'len(obj.list_known_networks()) == 1'
+        wd.wait_for_object_condition(wd, condition)
 
         condition = 'obj.scanning'
         wd.wait_for_object_condition(device, condition)
@@ -74,15 +75,17 @@ class Test(unittest.TestCase):
         testutil.test_ifaces_connected(device.name, hapd_hotspot.ifname)
 
         os.remove('/var/lib/iwd/hotspot/autoconnect.conf')
-        IWD.copy_to_storage('ssidWPA2-1.psk')
-
-        self.assertEqual(len(wd.list_known_networks()), 1)
 
         #
         # make sure removal of hotspot conf file resulted in disconnect
         #
         condition = 'obj.state == DeviceState.disconnected'
         wd.wait_for_object_condition(device, condition)
+
+        IWD.copy_to_storage('ssidWPA2-1.psk')
+
+        condition = 'len(obj.list_known_networks()) == 1'
+        wd.wait_for_object_condition(wd, condition)
 
         condition = 'obj.scanning'
         wd.wait_for_object_condition(device, condition)
