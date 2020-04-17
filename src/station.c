@@ -3250,7 +3250,7 @@ static int station_init(void)
 				&anqp_disabled))
 		anqp_disabled = true;
 
-	return true;
+	return 0;
 }
 
 static void station_exit(void)
