@@ -42,6 +42,10 @@
 #include "src/netdev.h"
 #include "src/frame-xchg.h"
 
+#ifndef SOL_NETLINK
+#define SOL_NETLINK 270
+#endif
+
 struct watch_group {
 	/*
 	 * Group IDs, except 0, are per wdev for user's convenience.
