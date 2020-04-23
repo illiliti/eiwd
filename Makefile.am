@@ -164,7 +164,6 @@ manual_pages = src/iwd.8 src/iwd.debug.7 src/iwd.config.5 src/iwd.network.5 \
 		client/iwctl.1 monitor/iwmon.1 wired/ead.8 tools/hwsim.1
 
 eap_sources = src/eap.c src/eap.h src/eap-private.h \
-				src/eap-wsc.c src/eap-wsc.h \
 				src/eap-md5.c \
 				src/eap-tls.c \
 				src/eap-ttls.c \
@@ -176,7 +175,6 @@ eap_sources = src/eap.c src/eap.h src/eap-private.h \
 				src/eap-pwd.c \
 				src/util.h src/util.c \
 				src/crypto.h src/crypto.c \
-				src/wscutil.h src/wscutil.c \
 				src/simutil.h src/simutil.c \
 				src/simauth.h src/simauth.c \
 				src/watchlist.h src/watchlist.c \
@@ -229,6 +227,8 @@ src_iwd_SOURCES = src/main.c linux/nl80211.h src/iwd.h src/missing.h \
 					src/module.h src/module.c \
 					src/rrm.c \
 					src/frame-xchg.h src/frame-xchg.c \
+					src/eap-wsc.c src/eap-wsc.h \
+					src/wscutil.h src/wscutil.c \
 					$(eap_sources) \
 					$(builtin_sources)
 
