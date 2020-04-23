@@ -32,6 +32,7 @@
 #include <ell/ell.h>
 
 #include "src/util.h"
+#include "src/ie.h"
 #include "src/wscutil.h"
 
 const unsigned char wsc_wfa_oui[3] = { 0x00, 0x37, 0x2a };
@@ -2790,4 +2791,203 @@ bool wsc_pin_generate(char *pin)
 	pin[8] = '\0';
 
 	return true;
+}
+
+struct device_type_category_info {
+	const char *category_str;
+	unsigned int subcategory_max;
+	const char **subcategory_str;
+};
+
+/* WSC 2.0.5, Table 41 strings adapted to IWD DBus enum convention */
+struct device_type_category_info device_type_categories[] = {
+	[1] = {
+		"computer",
+		10,
+		(const char *[]) {
+			[1] = "pc",
+			[2] = "server",
+			[3] = "media-center",
+			[4] = "ultra-mobile-pc",
+			[5] = "notebook",
+			[6] = "desktop",
+			[7] = "mobile-internet-device",
+			[8] = "netbook",
+			[9] = "tablet",
+			[10] = "ultrabook",
+		},
+	},
+	[2] = {
+		"input device",
+		9,
+		(const char *[]) {
+			[1] = "keyboard",
+			[2] = "mouse",
+			[3] = "joystick",
+			[4] = "trackball",
+			[5] = "gaming-controller",
+			[6] = "remote",
+			[7] = "touchscreen",
+			[8] = "biometric-reader",
+			[9] = "barcode-reader",
+		},
+	},
+	[3] = {
+		"printer-scanner",
+		5,
+		(const char *[]) {
+			[1] = "printer-print-server",
+			[2] = "scanner",
+			[3] = "fax",
+			[4] = "copier",
+			[5] = "printer-scanner-fax-copier",
+		},
+	},
+	[4] = {
+		"camera",
+		4,
+		(const char *[]) {
+			[1] = "digital-still-camera",
+			[2] = "video-camera",
+			[3] = "web-camera",
+			[4] = "security-camera",
+		},
+	},
+	[5] = {
+		"storage",
+		1,
+		(const char *[]) {
+			[1] = "nas",
+		},
+	},
+	[6] = {
+		"network-infrastructure",
+		5,
+		(const char *[]) {
+			[1] = "ap",
+			[2] = "router",
+			[3] = "switch",
+			[4] = "gateway",
+			[5] = "bridge",
+		},
+	},
+	[7] = {
+		"display",
+		4,
+		(const char *[]) {
+			[1] = "television",
+			[2] = "electronic-picture-frame",
+			[3] = "projector",
+			[4] = "monitor",
+		},
+	},
+	[8] = {
+		"multimedia-device",
+		6,
+		(const char *[]) {
+			[1] = "dar",
+			[2] = "pvr",
+			[3] = "mcx",
+			[4] = "set-top-box",
+			[5] = "media-server-adapter-extender",
+			[6] = "portable-video-player",
+		},
+	},
+	[9] = {
+		"gaming-device",
+		5,
+		(const char *[]) {
+			[1] = "xbox",
+			[2] = "xbox360",
+			[3] = "playstation",
+			[4] = "game-console-adapter",
+			[5] = "portable-gaming-device",
+		},
+	},
+	[10] = {
+		"telephone",
+		5,
+		(const char *[]) {
+			[1] = "windows-mobile",
+			[2] = "single-mode-phone",
+			[3] = "dual-mode-phone",
+			[4] = "single-mode-smartphone",
+			[5] = "dual-mode-smartphone",
+		},
+	},
+	[11] = {
+		"audio-device",
+		7,
+		(const char *[]) {
+			[1] = "audio-tuner-receiver",
+			[2] = "speakers",
+			[3] = "portable-music-player",
+			[4] = "headset",
+			[5] = "headphones",
+			[6] = "microphone",
+			[7] = "home-theater-system",
+		},
+	},
+	[12] = {
+		"docking-device",
+		2,
+		(const char *[]) {
+			[1] = "computer-docking-station",
+			[2] = "media-kiosk",
+		},
+	},
+};
+
+bool wsc_device_type_to_dbus_str(const struct wsc_primary_device_type *val,
+					const char **category_str,
+					const char **subcategory_str)
+{
+	struct device_type_category_info *cat;
+
+	if (val->category >= L_ARRAY_SIZE(device_type_categories))
+		return false;
+
+	cat = &device_type_categories[val->category];
+
+	if (!cat->category_str)
+		return false;
+
+	if (category_str)
+		*category_str = cat->category_str;
+
+	if (!subcategory_str)
+		return true;
+
+	if (memcmp(val->oui, microsoft_oui, 3) || val->oui_type != 4)
+		*subcategory_str = NULL;	/* Vendor-specific */
+	else if (val->subcategory <= cat->subcategory_max &&
+			cat->subcategory_str[val->subcategory])
+		*subcategory_str = cat->subcategory_str[val->subcategory];
+	else
+		*subcategory_str = NULL;	/* Unknown */
+
+	return true;
+}
+
+bool wsc_device_type_from_subcategory_str(struct wsc_primary_device_type *out,
+						const char *subcategory_str)
+{
+	struct device_type_category_info *cat = device_type_categories;
+	unsigned int i;
+
+	for (i = 1; i < L_ARRAY_SIZE(device_type_categories); i++, cat++) {
+		unsigned int j;
+
+		for (j = 1; j <= cat->subcategory_max; j++)
+			if (!strcasecmp(subcategory_str,
+					cat->subcategory_str[j])) {
+				out->category = i;
+				memcpy(out->oui, microsoft_oui, 3);
+				out->oui_type = 4;
+				out->subcategory = j;
+				return true;
+			}
+	}
+
+	return false;
 }

@@ -674,3 +674,9 @@ bool wsc_kdf(const void *kdk, void *output, size_t size);
 bool wsc_pin_is_valid(const char *pin);
 bool wsc_pin_is_checksum_valid(const char *pin);
 bool wsc_pin_generate(char *pin);
+
+bool wsc_device_type_to_dbus_str(const struct wsc_primary_device_type *val,
+					const char **category_str,
+					const char **subcategory_str);
+bool wsc_device_type_from_subcategory_str(struct wsc_primary_device_type *out,
+						const char *subcategory_str);
