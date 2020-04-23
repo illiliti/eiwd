@@ -2818,7 +2818,7 @@ struct device_type_category_info device_type_categories[] = {
 		},
 	},
 	[2] = {
-		"input device",
+		"input-device",
 		9,
 		(const char *[]) {
 			[1] = "keyboard",
