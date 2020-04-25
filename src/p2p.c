@@ -70,13 +70,19 @@ struct p2p_device {
 	uint8_t listen_country[3];
 	uint8_t listen_oper_class;
 	uint32_t listen_channel;
+	unsigned int scan_interval;
+	time_t next_scan_ts;
+	struct l_timeout *scan_timeout;
 	uint32_t scan_id;
 	unsigned int chans_per_scan;
 	unsigned int scan_chan_idx;
+	uint64_t roc_cookie;
+	unsigned int listen_duration;
 	struct l_queue *discovery_users;
 	struct l_queue *peer_list;
 
 	bool enabled : 1;
+	bool have_roc_cookie : 1;
 };
 
 struct p2p_discovery_user {
@@ -104,6 +110,11 @@ static struct l_queue *p2p_device_list;
  */
 static const int channels_social[] = { 1, 6, 11 };
 static const int channels_scan_2_4_other[] = { 2, 3, 4, 5, 7, 8, 9, 10 };
+
+enum {
+	FRAME_GROUP_DEFAULT = 0,
+	FRAME_GROUP_LISTEN,
+};
 
 static bool p2p_device_match(const void *a, const void *b)
 {
@@ -252,8 +263,155 @@ static void p2p_scan_destroy(void *user_data)
 	dev->scan_id = 0;
 }
 
+#define SCAN_INTERVAL_MAX	3
+#define SCAN_INTERVAL_STEP	1
 #define CHANS_PER_SCAN_INITIAL	2
 #define CHANS_PER_SCAN		2
+
+static bool p2p_device_scan_start(struct p2p_device *dev);
+static void p2p_device_roc_start(struct p2p_device *dev);
+
+static void p2p_device_roc_timeout(struct l_timeout *timeout, void *user_data)
+{
+	struct p2p_device *dev = user_data;
+
+	l_timeout_remove(dev->scan_timeout);
+
+	if (time(NULL) < dev->next_scan_ts) {
+		/*
+		 * dev->scan_timeout destroy function will have been called
+		 * by now so it won't overwrite the new timeout set by
+		 * p2p_device_roc_start.
+		 */
+		p2p_device_roc_start(dev);
+		return;
+	}
+
+	p2p_device_scan_start(dev);
+}
+
+static void p2p_device_roc_cancel(struct p2p_device *dev)
+{
+	struct l_genl_msg *msg;
+
+	if (!dev->have_roc_cookie)
+		return;
+
+	l_debug("");
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_CANCEL_REMAIN_ON_CHANNEL, 32);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_WDEV, 8, &dev->wdev_id);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_COOKIE, 8, &dev->roc_cookie);
+	l_genl_family_send(dev->nl80211, msg, NULL, NULL, NULL);
+
+	dev->have_roc_cookie = false;
+}
+
+static void p2p_scan_timeout_destroy(void *user_data)
+{
+	struct p2p_device *dev = user_data;
+
+	dev->scan_timeout = NULL;
+
+	if (dev->nl80211) {
+		/*
+		 * Most likely when the timer expires the ROC period
+		 * has finished but send a cancel command to make sure,
+		 * as well as handle situations like disabling P2P.
+		 */
+		p2p_device_roc_cancel(dev);
+	}
+}
+
+static void p2p_device_roc_cb(struct l_genl_msg *msg, void *user_data)
+{
+	struct p2p_device *dev = user_data;
+	uint64_t cookie;
+	int error = l_genl_msg_get_error(msg);
+
+	l_debug("ROC: %s (%i)", strerror(-error), -error);
+
+	if (error)
+		return;
+
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_COOKIE, &cookie,
+				NL80211_ATTR_UNSPEC) < 0)
+		return;
+
+	dev->roc_cookie = cookie;
+	dev->have_roc_cookie = true;
+
+	/*
+	 * Has the command taken so long that P2P has been since disabled
+	 * or the timeout otherwise ran out?
+	 */
+	if (!dev->scan_timeout)
+		p2p_device_roc_cancel(dev);
+}
+
+static void p2p_device_roc_start(struct p2p_device *dev)
+{
+	struct l_genl_msg *msg;
+	uint32_t listen_freq;
+	uint32_t duration;
+	uint32_t cmd_id;
+
+	l_debug("");
+
+	/*
+	 * One second granularity is fine here because some randomess
+	 * is desired and the intervals don't have strictly defined
+	 * limits.
+	 */
+	duration = (dev->next_scan_ts - time(NULL)) * 1000;
+
+	if (duration < 200)
+		duration = 200;
+
+	/*
+	 * Driver max duration seems to be 5000ms or more for all drivers
+	 * except mac80211_hwsim where it is only 1000ms.
+	 */
+	if (duration > wiphy_get_max_roc_duration(dev->wiphy))
+		duration = wiphy_get_max_roc_duration(dev->wiphy);
+
+	/*
+	 * Some drivers seem to miss fewer frames if we start new requests
+	 * often.
+	 */
+	if (duration > 1000)
+		duration = 1000;
+
+	listen_freq = scan_channel_to_freq(dev->listen_channel,
+						SCAN_BAND_2_4_GHZ);
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_REMAIN_ON_CHANNEL, 64);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_WDEV, 8, &dev->wdev_id);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY_FREQ, 4, &listen_freq);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_DURATION, 4, &duration);
+
+	cmd_id = l_genl_family_send(dev->nl80211, msg, p2p_device_roc_cb, dev,
+					NULL);
+	if (!cmd_id)
+		l_genl_msg_unref(msg);
+
+	/*
+	 * Time out after @duration ms independent of whether we were able to
+	 * start the ROC command.  If we receive the CMD_REMAIN_ON_CHANNEL
+	 * event we'll update the timeout to give the ROC command enough time
+	 * to finish.  On an error or if we time out before the ROC command
+	 * even starts, we'll just retry after @duration ms so we don't even
+	 * need to handle errors specifically.
+	 */
+	dev->scan_timeout = l_timeout_create_ms(duration,
+						p2p_device_roc_timeout, dev,
+						p2p_scan_timeout_destroy);
+	dev->listen_duration = duration;
+	dev->have_roc_cookie = false;
+
+	l_debug("started a ROC command on channel %i for %i ms",
+		(int) dev->listen_channel, (int) duration);
+}
 
 static bool p2p_device_peer_add(struct p2p_device *dev, struct p2p_peer *peer)
 {
@@ -391,7 +549,32 @@ static bool p2p_scan_notify(int err, struct l_queue *bss_list,
 	l_queue_destroy(bss_list, NULL);
 
 schedule:
-	/* TODO: move to listen state */
+	/*
+	 * Calculate interval between now and when we want the next active
+	 * scan to start.  Keep issuing Remain-on-Channel commands of
+	 * maximum duration until it's time to start the new scan.
+	 * The listen periods are actually like a passive scan except that
+	 * instead of listening for Beacons only, we also look at Probe
+	 * Requests and Probe Responses because they, too, carry P2P IEs
+	 * with all the information we need about peer devices.  Beacons
+	 * also do, in case of GOs, but we will already get the same
+	 * information from the Probe Responses and (even if we can
+	 * receive the beacons in userspace in the first place) we don't
+	 * want to handle so many frames.
+	 *
+	 * According to 3.1.2.1.1 we shall be available in listen state
+	 * during Find for at least 500ms continuously at least once in
+	 * every 5s.  According to 3.1.2.1.3, the Listen State lasts for
+	 * between 1 and 3 one-hundred TU Intervals.
+	 *
+	 * The Search State duration is implementation dependent.
+	 */
+	if (dev->scan_interval < SCAN_INTERVAL_MAX)
+		dev->scan_interval += SCAN_INTERVAL_STEP;
+
+	dev->next_scan_ts = time(NULL) + dev->scan_interval;
+
+	p2p_device_roc_start(dev);
 	return true;
 }
 
@@ -475,11 +658,118 @@ static bool p2p_device_scan_start(struct p2p_device *dev)
 	return dev->scan_id != 0;
 }
 
-static void p2p_device_discovery_start(struct p2p_device *dev)
+static void p2p_device_probe_cb(const struct mmpdu_header *mpdu,
+				const void *body, size_t body_len,
+				int rssi, void *user_data)
 {
-	if (dev->scan_id)
+	struct p2p_device *dev = user_data;
+	struct p2p_peer *peer;
+	struct p2p_probe_req p2p_info;
+	struct wsc_probe_request wsc_info;
+	int r;
+	uint8_t *wsc_payload;
+	ssize_t wsc_len;
+	struct scan_bss *bss;
+	struct p2p_channel_attr *channel;
+	enum scan_band band;
+	uint32_t frequency;
+
+	l_debug("");
+
+	if (!dev->scan_timeout && !dev->scan_id)
 		return;
 
+	wsc_payload = ie_tlv_extract_wsc_payload(body, body_len, &wsc_len);
+	if (!wsc_payload)	/* Not a P2P Probe Req, ignore */
+		return;
+
+	r =  wsc_parse_probe_request(wsc_payload, wsc_len, &wsc_info);
+	l_free(wsc_payload);
+
+	if (r < 0) {
+		l_error("Probe Request WSC IE parse error %s (%i)",
+			strerror(-r), -r);
+		return;
+	}
+
+	r = p2p_parse_probe_req(body, body_len, &p2p_info);
+	if (r < 0) {
+		if (r == -ENOENT)	/* Not a P2P Probe Req, ignore */
+			return;
+
+		l_error("Probe Request P2P IE parse error %s (%i)",
+			strerror(-r), -r);
+		return;
+	}
+
+	/*
+	 * We don't currently have a use case for replying to Probe Requests
+	 * except when waiting for a GO Negotiation Request from our target
+	 * peer.
+	 */
+
+	/*
+	 * The peer's listen frequency may be different from ours.
+	 * The Listen Channel attribute is optional but if neither
+	 * it nor the Operating Channel are set then we have no way
+	 * to contact that peer.  Ignore such peers.
+	 */
+	if (p2p_info.listen_channel.country[0])
+		channel = &p2p_info.listen_channel;
+	else if (p2p_info.operating_channel.country[0])
+		channel = &p2p_info.operating_channel;
+	else
+		goto p2p_free;
+
+	band = scan_oper_class_to_band((const uint8_t *) channel->country,
+					channel->oper_class);
+	frequency = scan_channel_to_freq(channel->channel_num, band);
+	if (!frequency)
+		goto p2p_free;
+
+	bss = scan_bss_new_from_probe_req(mpdu, body, body_len, frequency,
+						rssi);
+	if (!bss)
+		goto p2p_free;
+
+	bss->time_stamp = l_time_now();
+
+	if (p2p_peer_update_existing(bss, dev->peer_list, dev->peer_list))
+		goto p2p_free;
+
+	peer = l_new(struct p2p_peer, 1);
+	peer->dev = dev;
+	peer->bss = bss;
+	peer->name = l_strdup(wsc_info.device_name);
+	peer->primary_device_type = wsc_info.primary_device_type;
+	peer->group = !!(p2p_info.capability.group_caps & P2P_GROUP_CAP_GO);
+	/*
+	 * The Device Info attribute is present conditionally so we can't get
+	 * the Device Address from there.  In theory only P2P Devices send
+	 * out Probe Requests, not P2P GOs, so we assume the source address
+	 * is the Device Address.
+	 */
+	peer->device_addr = bss->addr;
+
+	if (!p2p_device_peer_add(dev, peer))
+		p2p_peer_free(peer);
+
+	/*
+	 * TODO: check SSID/BSSID are wildcard values if present and
+	 * reply with a Probe Response -- not useful in our current usage
+	 * scenarios but required by the spec.
+	 */
+
+p2p_free:
+	p2p_clear_probe_req(&p2p_info);
+}
+
+static void p2p_device_discovery_start(struct p2p_device *dev)
+{
+	if (dev->scan_timeout || dev->scan_id)
+		return;
+
+	dev->scan_interval = 1;
 	dev->chans_per_scan = CHANS_PER_SCAN_INITIAL;
 	dev->scan_chan_idx = 0;
 
@@ -493,13 +783,24 @@ static void p2p_device_discovery_start(struct p2p_device *dev)
 	dev->listen_channel = channels_social[l_getrandom_uint32() %
 					L_ARRAY_SIZE(channels_social)];
 
+	frame_watch_add(dev->wdev_id, FRAME_GROUP_LISTEN, 0x0040,
+			(uint8_t *) "", 0, p2p_device_probe_cb, dev, NULL);
+
 	p2p_device_scan_start(dev);
 }
 
 static void p2p_device_discovery_stop(struct p2p_device *dev)
 {
+	dev->scan_interval = 0;
+
 	if (dev->scan_id)
 		scan_cancel(dev->wdev_id, dev->scan_id);
+
+	if (dev->scan_timeout)
+		l_timeout_remove(dev->scan_timeout);
+
+	p2p_device_roc_cancel(dev);
+	frame_watch_group_remove(dev->wdev_id, FRAME_GROUP_LISTEN);
 }
 
 static void p2p_device_enable_cb(struct l_genl_msg *msg, void *user_data)
@@ -573,6 +874,39 @@ static void p2p_device_start_stop(struct p2p_device *dev,
 		 */
 		l_queue_destroy(dev->peer_list, p2p_peer_put);
 		dev->peer_list = NULL;
+	}
+}
+
+static void p2p_mlme_notify(struct l_genl_msg *msg, void *user_data)
+{
+	struct p2p_device *dev = user_data;
+	uint64_t wdev_id;
+	uint64_t cookie;
+
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_WDEV, &wdev_id,
+				NL80211_ATTR_COOKIE, &cookie,
+				NL80211_ATTR_UNSPEC) < 0 ||
+			wdev_id != dev->wdev_id)
+		return;
+
+	switch (l_genl_msg_get_command(msg)) {
+	case NL80211_CMD_REMAIN_ON_CHANNEL:
+		if (!dev->have_roc_cookie || cookie != dev->roc_cookie)
+			break;
+
+		if (!dev->scan_timeout)
+			break;
+
+		/*
+		 * The Listen phase is actually starting here, update the
+		 * timeout so we know more or less when it ends.
+		 */
+		l_debug("ROC started");
+		l_timeout_modify_ms(dev->scan_timeout, dev->listen_duration);
+		break;
+	case NL80211_CMD_CANCEL_REMAIN_ON_CHANNEL:
+		/* TODO */
+		break;
 	}
 }
 
@@ -745,6 +1079,10 @@ struct p2p_device *p2p_device_update_from_genl(struct l_genl_msg *msg,
 	l_debug("Created P2P device %" PRIx64, dev->wdev_id);
 
 	scan_wdev_add(dev->wdev_id);
+
+	if (!l_genl_family_register(dev->nl80211, NL80211_MULTICAST_GROUP_MLME,
+					p2p_mlme_notify, dev, NULL))
+		l_error("Registering for MLME notifications failed");
 
 	if (!l_dbus_object_add_interface(dbus_get_bus(),
 						p2p_device_get_path(dev),
