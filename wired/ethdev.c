@@ -83,7 +83,7 @@ struct eapol_hdr {
 	__be16  pkt_len;
 } __attribute__ ((packed));
 
-static const uint8_t eapol_start[] = { 0x02, 0x01, 0x00, 0x00 };
+static const uint8_t eapol_start[] = { 0x01, 0x01, 0x00, 0x00 };
 static const uint8_t pae_group_addr[] = { 0x01, 0x80, 0xc2, 0x00, 0x00, 0x03 };
 
 static bool pae_write(struct ethdev *dev, const uint8_t *addr,
@@ -149,7 +149,7 @@ static void eap_tx_packet(const uint8_t *eap_data, size_t len, void *user_data)
 	struct eapol *eapol = user_data;
 	uint8_t frame[1500];
 
-	l_put_u8(0x02, frame);
+	l_put_u8(0x01, frame);
 	l_put_u8(0x00, frame + 1);
 	l_put_be16(len, frame + 2);
 	memcpy(frame + 4, eap_data, len);
