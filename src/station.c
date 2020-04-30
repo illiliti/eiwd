@@ -58,6 +58,7 @@ static struct l_queue *station_list;
 static uint32_t netdev_watch;
 static uint32_t mfp_setting;
 static bool anqp_disabled;
+static bool netconfig_enabled;
 
 struct station {
 	enum station_state state;
@@ -3098,7 +3099,8 @@ static struct station *station_create(struct netdev *netdev)
 	l_dbus_object_add_interface(dbus, netdev_get_path(netdev),
 					IWD_STATION_INTERFACE, station);
 
-	station->netconfig = netconfig_new(netdev_get_ifindex(netdev));
+	if (netconfig_enabled)
+		station->netconfig = netconfig_new(netdev_get_ifindex(netdev));
 
 	station->anqp_pending = l_queue_new();
 
@@ -3249,6 +3251,21 @@ static int station_init(void)
 	if (!l_settings_get_bool(iwd_get_config(), "General", "DisableANQP",
 				&anqp_disabled))
 		anqp_disabled = true;
+
+	if (!l_settings_get_bool(iwd_get_config(), "General",
+					"EnableNetworkConfiguration",
+					&netconfig_enabled)) {
+		if (l_settings_get_bool(iwd_get_config(), "General",
+					"enable_network_config",
+					&netconfig_enabled))
+			l_warn("[General].enable_network_config is deprecated,"
+				" use [General].EnableNetworkConfiguration");
+		else
+			netconfig_enabled = false;
+	}
+
+	if (!netconfig_enabled)
+		l_info("station: Network configuration is disabled.");
 
 	return 0;
 }

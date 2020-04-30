@@ -1193,27 +1193,10 @@ void netconfig_destroy(struct netconfig *netconfig)
 
 static int netconfig_init(void)
 {
-	bool enabled;
 	uint32_t r;
 
 	if (netconfig_list)
 		return -EALREADY;
-
-	if (!l_settings_get_bool(iwd_get_config(), "General",
-					"EnableNetworkConfiguration",
-					&enabled)) {
-		if (l_settings_get_bool(iwd_get_config(), "General",
-					"enable_network_config", &enabled))
-			l_warn("[General].enable_network_config is deprecated,"
-				" use [General].EnableNetworkConfiguration");
-		else
-			enabled = false;
-	}
-
-	if (!enabled) {
-		l_info("netconfig: Network configuration is disabled.");
-		return 0;
-	}
 
 	rtnl = iwd_get_rtnl();
 
