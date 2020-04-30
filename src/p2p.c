@@ -53,6 +53,7 @@
 #include "src/module.h"
 #include "src/frame-xchg.h"
 #include "src/nl80211util.h"
+#include "src/netconfig.h"
 #include "src/p2p.h"
 
 struct p2p_device {
@@ -92,6 +93,8 @@ struct p2p_device {
 	uint32_t conn_netdev_watch_id;
 	uint32_t conn_new_intf_cmd_id;
 	struct wsc_enrollee *conn_enrollee;
+	struct netconfig *conn_netconfig;
+	struct l_timeout *conn_dhcp_timeout;
 
 	struct l_timeout *config_timeout;
 	unsigned long go_config_delay;
@@ -132,6 +135,7 @@ struct p2p_peer {
 };
 
 static struct l_queue *p2p_device_list;
+static struct l_settings *p2p_dhcp_settings;
 
 /*
  * For now we only scan the common 2.4GHz channels, to be replaced with
@@ -185,7 +189,8 @@ static void p2p_discovery_user_free(void *data)
 static inline bool p2p_peer_operational(struct p2p_peer *peer)
 {
 	return peer && peer->dev->conn_netdev && !peer->dev->conn_wsc_bss &&
-		!peer->wsc.pending_connect && !peer->dev->disconnecting;
+		!peer->dev->conn_dhcp_timeout && !peer->wsc.pending_connect &&
+		!peer->dev->disconnecting;
 }
 
 static bool p2p_peer_match(const void *a, const void *b)
@@ -325,6 +330,12 @@ static void p2p_connection_reset(struct p2p_device *dev)
 
 	l_timeout_remove(dev->config_timeout);
 	l_timeout_remove(dev->go_neg_req_timeout);
+	l_timeout_remove(dev->conn_dhcp_timeout);
+
+	if (dev->conn_netconfig) {
+		netconfig_destroy(dev->conn_netconfig);
+		dev->conn_netconfig = NULL;
+	}
 
 	if (dev->conn_new_intf_cmd_id)
 		/*
@@ -490,6 +501,70 @@ static const struct frame_xchg_prefix p2p_frame_pd_resp = {
 	.len = 7,
 };
 
+static void p2p_netconfig_event_handler(enum netconfig_event event,
+					void *user_data)
+{
+	struct p2p_device *dev = user_data;
+	struct p2p_peer *peer = dev->conn_peer;
+
+	switch (event) {
+	case NETCONFIG_EVENT_CONNECTED:
+		l_timeout_remove(dev->conn_dhcp_timeout);
+
+		dbus_pending_reply(&peer->wsc.pending_connect,
+					l_dbus_message_new_method_return(
+						peer->wsc.pending_connect));
+		l_dbus_property_changed(dbus_get_bus(),
+					p2p_peer_get_path(dev->conn_peer),
+					IWD_P2P_PEER_INTERFACE, "Connected");
+
+		break;
+	default:
+		l_error("station: Unsupported netconfig event: %d.", event);
+		p2p_connect_failed(dev);
+		break;
+	}
+}
+
+static void p2p_dhcp_timeout(struct l_timeout *timeout, void *user_data)
+{
+	struct p2p_device *dev = user_data;
+
+	l_debug("");
+
+	p2p_connect_failed(dev);
+}
+
+static void p2p_dhcp_timeout_destroy(void *user_data)
+{
+	struct p2p_device *dev = user_data;
+
+	dev->conn_dhcp_timeout = NULL;
+}
+
+static void p2p_start_dhcp(struct p2p_device *dev)
+{
+	uint32_t ifindex = netdev_get_ifindex(dev->conn_netdev);
+	unsigned int dhcp_timeout_val;
+
+	if (!l_settings_get_uint(iwd_get_config(), "P2P", "DHCPTimeout",
+					&dhcp_timeout_val))
+		dhcp_timeout_val = 10;	/* 10s default */
+
+	dev->conn_netconfig = netconfig_new(ifindex);
+	if (!dev->conn_netconfig) {
+		p2p_connect_failed(dev);
+		return;
+	}
+
+	netconfig_configure(dev->conn_netconfig, p2p_dhcp_settings,
+				dev->conn_addr, p2p_netconfig_event_handler,
+				dev);
+	dev->conn_dhcp_timeout = l_timeout_create(dhcp_timeout_val,
+						p2p_dhcp_timeout, dev,
+						p2p_dhcp_timeout_destroy);
+}
+
 static void p2p_netdev_connect_cb(struct netdev *netdev,
 					enum netdev_result result,
 					void *event_data, void *user_data)
@@ -506,12 +581,7 @@ static void p2p_netdev_connect_cb(struct netdev *netdev,
 
 	switch (result) {
 	case NETDEV_RESULT_OK:
-		dbus_pending_reply(&peer->wsc.pending_connect,
-					l_dbus_message_new_method_return(
-						peer->wsc.pending_connect));
-		l_dbus_property_changed(dbus_get_bus(),
-					p2p_peer_get_path(dev->conn_peer),
-					IWD_P2P_PEER_INTERFACE, "Connected");
+		p2p_start_dhcp(dev);
 		break;
 	case NETDEV_RESULT_AUTHENTICATION_FAILED:
 	case NETDEV_RESULT_ASSOCIATION_FAILED:
@@ -3485,6 +3555,7 @@ static int p2p_init(void)
 		l_error("Unable to register the %s interface",
 			IWD_P2P_PEER_INTERFACE);
 
+	p2p_dhcp_settings = l_settings_new();
 	p2p_device_list = l_queue_new();
 
 	return 0;
@@ -3496,8 +3567,11 @@ static void p2p_exit(void)
 	l_dbus_unregister_interface(dbus_get_bus(), IWD_P2P_PEER_INTERFACE);
 	l_queue_destroy(p2p_device_list, p2p_device_free);
 	p2p_device_list = NULL;
+	l_settings_free(p2p_dhcp_settings);
+	p2p_dhcp_settings = NULL;
 }
 
 IWD_MODULE(p2p, p2p_init, p2p_exit)
 IWD_MODULE_DEPENDS(p2p, wiphy)
 IWD_MODULE_DEPENDS(p2p, scan)
+IWD_MODULE_DEPENDS(p2p, netconfig)
