@@ -4915,17 +4915,40 @@ static const struct attr_entry frame_types_table[] = {
 	{ }
 };
 
+static void print_cqm_event(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	const uint32_t *event = data;
+
+	switch (*event) {
+	case NL80211_CQM_RSSI_THRESHOLD_EVENT_LOW:
+		print_attr(level, "%s: %s", label, "Low");
+		break;
+	case NL80211_CQM_RSSI_THRESHOLD_EVENT_HIGH:
+		print_attr(level, "%s: %s", label, "High");
+		break;
+	case NL80211_CQM_RSSI_BEACON_LOSS_EVENT:
+		print_attr(level, "%s: %s", label, "Beacon Loss (unused)");
+		break;
+	default:
+		print_attr(level, "%s: %s", label, "Unknown");
+		break;
+	}
+}
+
 static const struct attr_entry cqm_table[] = {
 	{ NL80211_ATTR_CQM_RSSI_THOLD,	"RSSI threshold",	ATTR_U32 },
 	{ NL80211_ATTR_CQM_RSSI_HYST,	"RSSI hysteresis",	ATTR_U32 },
 	{ NL80211_ATTR_CQM_RSSI_THRESHOLD_EVENT,
-					"RSSI threshold event",	ATTR_U32 },
+					"RSSI threshold event",	ATTR_CUSTOM,
+					{ .function = print_cqm_event } },
 	{ NL80211_ATTR_CQM_PKT_LOSS_EVENT,
 					"Packet loss event",	ATTR_U32 },
 	{ NL80211_ATTR_CQM_TXE_RATE,	"TX error rate",	ATTR_U32 },
 	{ NL80211_ATTR_CQM_TXE_PKTS,	"TX error packets",	ATTR_U32 },
 	{ NL80211_ATTR_CQM_TXE_INTVL,	"TX error interval",	ATTR_U32 },
 	{ NL80211_ATTR_CQM_BEACON_LOSS_EVENT, "Beacon Loss Event", ATTR_FLAG },
+	{ NL80211_ATTR_CQM_RSSI_LEVEL,	"CQM RSSI Level", 	ATTR_S32 },
 	{ }
 };
 
