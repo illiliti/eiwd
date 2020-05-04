@@ -678,7 +678,7 @@ static void netdev_cqm_event_rssi_threshold(struct netdev *netdev,
 {
 	int event;
 
-	if (!netdev->connected)
+	if (!netdev->operational)
 		return;
 
 	if (rssi_event != NL80211_CQM_RSSI_THRESHOLD_EVENT_LOW &&
