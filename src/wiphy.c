@@ -715,8 +715,6 @@ static void parse_supported_frequencies(struct wiphy *wiphy,
 	const void *data;
 	struct l_genl_attr attr;
 
-	l_debug("");
-
 	while (l_genl_attr_next(freqs, NULL, NULL, NULL)) {
 		if (!l_genl_attr_recurse(freqs, &attr))
 			continue;
@@ -785,8 +783,6 @@ static void parse_supported_bands(struct wiphy *wiphy,
 {
 	uint16_t type;
 	struct l_genl_attr attr;
-
-	l_debug("");
 
 	while (l_genl_attr_next(bands, &type, NULL, NULL)) {
 		enum nl80211_band band = type;
@@ -1080,8 +1076,6 @@ void wiphy_update_from_genl(struct wiphy *wiphy, struct l_genl_msg *msg)
 {
 	if (wiphy->blacklisted)
 		return;
-
-	l_debug("");
 
 	wiphy_parse_attributes(wiphy, msg);
 }
