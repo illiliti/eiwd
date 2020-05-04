@@ -157,7 +157,8 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 		}
 
 		if ((info.akm_suites & IE_RSN_AKM_SUITE_FT_OVER_8021X) &&
-				bss->rsne && bss->mde_present)
+				bss->rsne && bss->mde_present &&
+				wiphy->support_cmds_auth_assoc)
 			return IE_RSN_AKM_SUITE_FT_OVER_8021X;
 
 		if (info.akm_suites & IE_RSN_AKM_SUITE_8021X_SHA256)
@@ -175,8 +176,9 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 		if (wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP &&
 				wiphy_has_feature(wiphy, NL80211_FEATURE_SAE) &&
 				info.mfpr) {
-			if (info.akm_suites &
-					IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256)
+			if ((info.akm_suites &
+					IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256) &&
+					wiphy->support_cmds_auth_assoc)
 				return IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256;
 
 			if (info.akm_suites & IE_RSN_AKM_SUITE_SAE_SHA256)
@@ -184,7 +186,8 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 		}
 
 		if ((info.akm_suites & IE_RSN_AKM_SUITE_FT_USING_PSK) &&
-				bss->rsne && bss->mde_present)
+				bss->rsne && bss->mde_present &&
+				wiphy->support_cmds_auth_assoc)
 			return IE_RSN_AKM_SUITE_FT_USING_PSK;
 
 		if (info.akm_suites & IE_RSN_AKM_SUITE_PSK_SHA256)
