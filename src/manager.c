@@ -519,8 +519,6 @@ static void manager_wiphy_dump_callback(struct l_genl_msg *msg, void *user_data)
 	struct wiphy *wiphy;
 	struct wiphy_setup_state *state;
 
-	l_debug("");
-
 	if (nl80211_parse_attrs(msg, NL80211_ATTR_WIPHY, &id,
 					NL80211_ATTR_WIPHY_NAME, &name,
 					NL80211_ATTR_UNSPEC) < 0)
@@ -542,6 +540,8 @@ static void manager_wiphy_dump_callback(struct l_genl_msg *msg, void *user_data)
 	state = l_new(struct wiphy_setup_state, 1);
 	state->id = id;
 	state->wiphy = wiphy;
+
+	l_debug("New wiphy %s added (%d)", name, id);
 
 	l_queue_push_tail(pending_wiphys, state);
 
