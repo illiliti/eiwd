@@ -1350,6 +1350,19 @@ static bool interface_info_match_dst(const void *a, const void *b)
 		!memcmp(rec->addr, dst->addr, ETH_ALEN);
 }
 
+static void frame_delay_callback(struct l_timeout *timeout, void *user_data)
+{
+	struct send_frame_info *send_info = user_data;
+
+	if (send_frame(send_info, send_frame_callback,
+					send_frame_destroy))
+		send_info->frame->pending_callback_count++;
+	else
+		send_frame_destroy(send_info);
+
+	l_timeout_remove(timeout);
+}
+
 /*
  * Process frames in a similar way to how the kernel built-in hwsim medium
  * does this, with an additional optimization for unicast frames and
@@ -1409,11 +1422,11 @@ static void process_frame(struct hwsim_frame *frame)
 		send_info->radio = radio;
 		send_info->frame = hwsim_frame_ref(frame);
 
-		if (send_frame(send_info, send_frame_callback,
-					send_frame_destroy))
-			frame->pending_callback_count++;
-		else
+		if (!l_timeout_create_ms(1, frame_delay_callback,
+						send_info, NULL)) {
+			l_error("Error delaying frame, frame will be dropped");
 			send_frame_destroy(send_info);
+		}
 	}
 
 	hwsim_frame_unref(frame);
