@@ -204,8 +204,6 @@ static void scan_request_triggered(struct l_genl_msg *msg, void *userdata)
 	struct scan_request *sr = l_queue_peek_head(sc->requests);
 	int err;
 
-	l_debug("");
-
 	sc->start_cmd_id = 0;
 
 	err = l_genl_msg_get_error(msg);
