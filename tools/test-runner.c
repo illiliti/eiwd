@@ -1845,6 +1845,7 @@ static void run_py_tests(struct l_settings *hw_settings,
 	unsigned int max_exec_interval;
 	char *py_test = NULL;
 	struct test_stats *test_stats;
+	pid_t monitor_pid = -1;
 
 	if (!l_settings_get_uint(hw_settings, HW_CONFIG_GROUP_SETUP,
 						HW_CONFIG_SETUP_MAX_EXEC_SEC,
@@ -1862,6 +1863,28 @@ start_next_test:
 	py_test = (char *) l_queue_pop_head(test_queue);
 	if (!py_test)
 		return;
+
+	if (log) {
+		char *test_path;
+		char *ext;
+		char *full_path;
+
+		test_path = l_strdup_printf("%s/%s", test_name, py_test);
+		ext = strchr(test_path, '.');
+		ext[0] = '\0';
+
+		full_path = l_strdup_printf("%s/%s", log_dir, test_path);
+
+		mkdir(full_path, 0755);
+		if (chown(full_path, log_uid, log_gid) < 0)
+			l_error("chown failed %s", full_path);
+
+		l_free(full_path);
+
+		monitor_pid = start_monitor(test_path);
+
+		l_free(test_path);
+	}
 
 	argv[0] = "python3";
 	argv[1] = py_test;
@@ -1925,6 +1948,11 @@ start_next_test:
 
 	l_free(py_test);
 	py_test = NULL;
+
+	if (monitor_pid != -1) {
+		kill_process(monitor_pid);
+		monitor_pid = -1;
+	}
 
 	goto start_next_test;
 }
@@ -2038,7 +2066,6 @@ static void create_network_and_run_tests(void *data, void *user_data)
 	pid_t medium_pid = -1;
 	pid_t ofono_pid = -1;
 	pid_t phonesim_pid = -1;
-	pid_t monitor_pid = -1;
 	char *config_dir_path;
 	char *iwd_config_dir;
 	char **tmpfs_extra_stuff = NULL;
@@ -2184,9 +2211,6 @@ static void create_network_and_run_tests(void *data, void *user_data)
 		l_queue_foreach(wiphy_list, wiphy_up, NULL);
 	}
 
-	if (log)
-		monitor_pid = start_monitor(test_name);
-
 	if (check_verbosity("tls"))
 		setenv("IWD_TLS_DEBUG", "on", true);
 
@@ -2274,9 +2298,6 @@ static void create_network_and_run_tests(void *data, void *user_data)
 		stop_ofono(ofono_pid);
 		stop_phonesim(phonesim_pid);
 	}
-
-	if (monitor_pid > 0)
-		kill_process(monitor_pid);
 
 exit_hostapd:
 	destroy_hostapd_instances(hostapd_pids);
