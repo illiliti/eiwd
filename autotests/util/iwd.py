@@ -360,7 +360,7 @@ class Device(IWDDBusAbstract):
 
         self._wait_for_async_op()
 
-    def get_ordered_networks(self):
+    def get_ordered_networks(self, scan_if_needed = False):
         '''Return the list of networks found in the most recent
            scan, sorted by their user interface importance
            score as calculated by iwd.  If the device is
@@ -377,17 +377,32 @@ class Device(IWDDBusAbstract):
             ordered_network = OrderedNetwork(bus_obj)
             ordered_networks.append(ordered_network)
 
-        if len(ordered_networks) == 0:
+        if len(ordered_networks) > 0:
+            return ordered_networks
+        elif not scan_if_needed:
             return None
+
+        iwd = IWD.get_instance()
+
+        self.scan()
+
+        condition = 'obj.scanning'
+        iwd.wait_for_object_condition(self, condition)
+        condition = 'not obj.scanning'
+        iwd.wait_for_object_condition(self, condition)
+
+        for bus_obj in self._station.GetOrderedNetworks():
+            ordered_network = OrderedNetwork(bus_obj)
+            ordered_networks.append(ordered_network)
 
         return ordered_networks
 
-    def get_ordered_network(self, network):
+    def get_ordered_network(self, network, scan_if_needed = False):
         '''Returns a single network from ordered network call, or None if the
            network wasn't found. If the network is not found an exception is
            raised, this removes the need to extra asserts in autotests.
         '''
-        ordered_networks = self.get_ordered_networks()
+        ordered_networks = self.get_ordered_networks(scan_if_needed)
 
         if not ordered_networks:
             raise Exception('Network %s not found' % network)
