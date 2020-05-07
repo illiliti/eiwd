@@ -51,8 +51,6 @@ class Test(unittest.TestCase):
         wd = IWD()
 
         dev1, dev2 = wd.list_devices(2)
-        dev1.disconnect()
-        dev2.disconnect()
 
         self.client_connect(wd, dev1)
 
