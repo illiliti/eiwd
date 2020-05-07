@@ -91,6 +91,8 @@ static void fils_erp_tx_func(const uint8_t *eap_data, size_t len,
 	uint8_t data[256];
 	uint8_t *ptr = data;
 	unsigned int tlv_len;
+	struct ie_rsn_info rsn_info;
+	uint8_t *rsne;
 
 	l_getrandom(fils->nonce, 16);
 	l_getrandom(fils->session, 8);
@@ -105,6 +107,15 @@ static void fils_erp_tx_func(const uint8_t *eap_data, size_t len,
 	ptr += 2;
 
 	ie_tlv_builder_init(&builder, ptr, sizeof(data) - 4);
+
+	ie_parse_rsne_from_data(fils->hs->supplicant_ie,
+				fils->hs->supplicant_ie[1] + 2,
+				&rsn_info);
+	rsne = alloca(256);
+	ie_build_rsne(&rsn_info, rsne);
+
+	ie_tlv_builder_next(&builder, IE_TYPE_RSN);
+	ie_tlv_builder_set_data(&builder, rsne + 2, rsne[1]);
 
 	ie_tlv_builder_next(&builder, IE_TYPE_FILS_NONCE);
 	ie_tlv_builder_set_data(&builder, fils->nonce, sizeof(fils->nonce));
