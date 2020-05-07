@@ -395,7 +395,10 @@ class Device(IWDDBusAbstract):
             ordered_network = OrderedNetwork(bus_obj)
             ordered_networks.append(ordered_network)
 
-        return ordered_networks
+        if len(ordered_networks) > 0:
+            return ordered_networks
+
+        return None
 
     def get_ordered_network(self, network, scan_if_needed = False):
         '''Returns a single network from ordered network call, or None if the
