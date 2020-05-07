@@ -2129,8 +2129,7 @@ static void netdev_cmd_connect_cb(struct l_genl_msg *msg, void *user_data)
 }
 
 static struct l_genl_msg *netdev_build_cmd_authenticate(struct netdev *netdev,
-							uint32_t auth_type,
-							const uint8_t *addr)
+							uint32_t auth_type)
 {
 	struct handshake_state *hs = netdev->handshake;
 	struct l_genl_msg *msg;
@@ -2139,12 +2138,10 @@ static struct l_genl_msg *netdev_build_cmd_authenticate(struct netdev *netdev,
 	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY_FREQ,
 						4, &netdev->frequency);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, addr);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN,
+				netdev->handshake->aa);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_SSID, hs->ssid_len, hs->ssid);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_AUTH_TYPE, 4, &auth_type);
-
-	l_genl_msg_append_attr(msg, NL80211_ATTR_IE, hs->supplicant_ie[1] + 2,
-					hs->supplicant_ie);
 
 	return msg;
 }
@@ -2181,8 +2178,7 @@ static void netdev_sae_tx_authenticate(const uint8_t *body,
 	struct netdev *netdev = user_data;
 	struct l_genl_msg *msg;
 
-	msg = netdev_build_cmd_authenticate(netdev, NL80211_AUTHTYPE_SAE,
-						netdev->handshake->aa);
+	msg = netdev_build_cmd_authenticate(netdev, NL80211_AUTHTYPE_SAE);
 
 	l_genl_msg_append_attr(msg, NL80211_ATTR_AUTH_DATA, body_len, body);
 
@@ -2228,8 +2224,7 @@ static void netdev_owe_tx_authenticate(void *user_data)
 	struct l_genl_msg *msg;
 
 	msg = netdev_build_cmd_authenticate(netdev,
-						NL80211_AUTHTYPE_OPEN_SYSTEM,
-						netdev->handshake->aa);
+						NL80211_AUTHTYPE_OPEN_SYSTEM);
 
 	if (!l_genl_family_send(nl80211, msg, netdev_auth_cb,
 							netdev, NULL)) {
@@ -2265,8 +2260,7 @@ static void netdev_fils_tx_authenticate(const uint8_t *body,
 	struct netdev *netdev = user_data;
 	struct l_genl_msg *msg;
 
-	msg = netdev_build_cmd_authenticate(netdev, NL80211_AUTHTYPE_FILS_SK,
-						netdev->handshake->aa);
+	msg = netdev_build_cmd_authenticate(netdev, NL80211_AUTHTYPE_FILS_SK);
 
 	l_genl_msg_append_attr(msg, NL80211_ATTR_AUTH_DATA, body_len, body);
 
@@ -2941,30 +2935,6 @@ static uint32_t netdev_send_action_frame(struct netdev *netdev,
 	return netdev_send_action_framev(netdev, to, iov, 1, freq, callback);
 }
 
-/*
- * Build an FT Authentication Request frame according to 12.5.2 / 12.5.4:
- * RSN or non-RSN Over-the-air FT Protocol, with the IE contents
- * according to 12.8.2: FT authentication sequence: contents of first message.
- */
-static struct l_genl_msg *netdev_build_cmd_ft_authenticate(
-					struct netdev *netdev,
-					const struct handshake_state *hs)
-{
-	uint32_t auth_type = NL80211_AUTHTYPE_FT;
-	struct l_genl_msg *msg;
-
-	msg = l_genl_msg_new_sized(NL80211_CMD_AUTHENTICATE, 512);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY_FREQ,
-						4, &netdev->frequency);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, hs->aa);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_SSID, hs->ssid_len, hs->ssid);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_AUTH_TYPE, 4, &auth_type);
-
-	return msg;
-
-}
-
 static void netdev_cmd_authenticate_ft_cb(struct l_genl_msg *msg,
 						void *user_data)
 {
@@ -2984,8 +2954,8 @@ static void netdev_ft_tx_authenticate(struct iovec *iov,
 	struct netdev *netdev = user_data;
 	struct l_genl_msg *cmd_authenticate;
 
-	cmd_authenticate = netdev_build_cmd_ft_authenticate(netdev,
-							netdev->handshake);
+	cmd_authenticate = netdev_build_cmd_authenticate(netdev,
+							NL80211_AUTHTYPE_FT);
 	if (!cmd_authenticate)
 		goto restore_snonce;
 
