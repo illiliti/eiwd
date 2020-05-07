@@ -54,7 +54,7 @@ class Test(unittest.TestCase):
         condition = 'not obj.connected'
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
-    def test_connection_success(self):
+    def test_connection_failure(self):
         wd = IWD()
 
         dev1, dev2 = wd.list_devices(2)
