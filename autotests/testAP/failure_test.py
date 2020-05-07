@@ -14,17 +14,8 @@ import testutil
 class Test(unittest.TestCase):
 
     def client_connect(self, wd, dev):
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(dev, condition)
 
-        if not dev.get_ordered_networks():
-            dev.scan()
-            condition = 'obj.scanning'
-            wd.wait_for_object_condition(dev, condition)
-            condition = 'not obj.scanning'
-            wd.wait_for_object_condition(dev, condition)
-
-        ordered_network = dev.get_ordered_network('TestAP1')
+        ordered_network = dev.get_ordered_network('TestAP1', True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
