@@ -22,13 +22,6 @@ class Test(unittest.TestCase):
         psk_agent = PSKAgent('Password1')
         wd.register_psk_agent(psk_agent)
 
-        try:
-            dev2.disconnect()
-            condition = 'not obj.connected'
-            wd.wait_for_object_condition(dev2, condition)
-        except:
-            pass
-
         ordered_network.network_object.connect()
 
         condition = 'obj.connected'
