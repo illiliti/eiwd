@@ -439,21 +439,30 @@ err:
 	return NULL;
 }
 
+struct watch_group_match_info {
+	uint64_t wdev_id;
+	uint32_t id;
+};
+
+static bool frame_watch_group_match(const void *a, const void *b)
+{
+	const struct watch_group *group = a;
+	const struct watch_group_match_info *info = b;
+
+	return group->wdev_id == info->wdev_id && group->id == info->id;
+}
+
 static struct watch_group *frame_watch_group_get(uint64_t wdev_id, uint32_t id)
 {
-	const struct l_queue_entry *entry;
-	struct watch_group *group;
+	struct watch_group_match_info info = { id == 0 ? 0 : wdev_id, id };
+	struct watch_group *group = l_queue_find(watch_groups,
+						frame_watch_group_match, &info);
 
-	for (entry = l_queue_get_entries(watch_groups); entry;
-			entry = entry->next) {
-		group = entry->data;
-
-		if (group->id == id && (id == 0 || group->wdev_id == wdev_id))
-			return group;
+	if (!group) {
+		group = frame_watch_group_new(wdev_id, id);
+		l_queue_push_tail(watch_groups, group);
 	}
 
-	group = frame_watch_group_new(wdev_id, id);
-	l_queue_push_tail(watch_groups, group);
 	return group;
 }
 
@@ -588,19 +597,6 @@ bool frame_watch_add(uint64_t wdev_id, uint32_t group_id, uint16_t frame_type,
 	}
 
 	return true;
-}
-
-struct watch_group_match_info {
-	uint64_t wdev_id;
-	uint32_t id;
-};
-
-static bool frame_watch_group_match(const void *a, const void *b)
-{
-	const struct watch_group *group = a;
-	const struct watch_group_match_info *info = b;
-
-	return group->wdev_id == info->wdev_id && group->id == info->id;
 }
 
 bool frame_watch_group_remove(uint64_t wdev_id, uint32_t group_id)
