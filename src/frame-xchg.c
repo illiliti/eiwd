@@ -661,6 +661,7 @@ bool frame_watch_wdev_remove(uint64_t wdev_id)
 }
 
 struct frame_watch_handler_check_info {
+	uint64_t wdev_id;
 	frame_watch_cb_t handler;
 	void *user_data;
 };
@@ -671,7 +672,8 @@ static bool frame_watch_item_remove_by_handler(void *data, void *user_data)
 		l_container_of(data, struct frame_watch, super);
 	struct frame_watch_handler_check_info *info = user_data;
 
-	if (watch->super.notify != info->handler ||
+	if (watch->wdev_id != info->wdev_id ||
+			watch->super.notify != info->handler ||
 			watch->super.notify_data != info->user_data)
 		return false;
 
@@ -702,9 +704,9 @@ static bool frame_watch_remove_by_handler(uint64_t wdev_id, uint32_t group_id,
 						void *user_data)
 {
 	struct watch_group_match_info group_info =
-		{ wdev_id, group_id };
+		{ group_id == 0 ? 0 : wdev_id, group_id };
 	struct frame_watch_handler_check_info handler_info =
-		{ handler, user_data };
+		{ wdev_id, handler, user_data };
 	struct watch_group *group = l_queue_find(watch_groups,
 						frame_watch_group_match,
 						&group_info);
