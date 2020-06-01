@@ -546,6 +546,9 @@ static uint32_t scan_common(uint64_t wdev_id, bool passive,
 	if (!l_queue_isempty(sc->requests))
 		goto done;
 
+	if (sc->suspended)
+		goto done;
+
 	if (sc->state != SCAN_STATE_NOT_RUNNING)
 		goto done;
 
