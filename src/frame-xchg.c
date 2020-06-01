@@ -541,7 +541,17 @@ static bool frame_watch_check_duplicate(void *data, void *user_data)
 	}
 
 drop:
-	/* Drop the existing watch as a duplicate of the new one */
+	/*
+	 * Drop the existing watch as a duplicate of the new one. If we are in
+	 * the watchlist notify loop, just mark this item as stale and it will
+	 * be cleaned up afterwards
+	 */
+	if (watch->group->watches.in_notify) {
+		super->id = 0;
+		watch->group->watches.stale_items = true;
+		return false;
+	}
+
 	frame_watch_free(&watch->super);
 	return true;
 }
