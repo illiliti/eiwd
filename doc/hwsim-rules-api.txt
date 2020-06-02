@@ -68,3 +68,8 @@ Properties	string Source
 
 		bool Drop
 			If true, nothing is passed to the receiver.
+
+		uint32 Delay
+			Set the millisecond delay for any matching packets. This
+			value cannot be less than 1 as a 1ms delay is required
+			for test reliability.
