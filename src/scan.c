@@ -842,6 +842,9 @@ static bool start_next_scan_request(struct scan_context *sc)
 	if (sc->state != SCAN_STATE_NOT_RUNNING)
 		return true;
 
+	if (sc->start_cmd_id || sc->get_scan_cmd_id)
+		return true;
+
 	while (sr) {
 		if (!scan_request_send_trigger(sc, sr))
 			return true;
@@ -1668,7 +1671,7 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			/* An external scan may have flushed our results */
 			if (sc->started && scan_parse_flush_flag_from_msg(msg))
 				scan_finished(sc, -EAGAIN, NULL, sr);
-			else if (sr && !sc->start_cmd_id)
+			else
 				send_next = true;
 
 			sr = NULL;
@@ -1719,7 +1722,7 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			sc->triggered = false;
 
 			scan_finished(sc, -ECANCELED, NULL, sr);
-		} else if (sr && !sc->start_cmd_id && !sc->get_scan_cmd_id) {
+		} else {
 			/*
 			 * If this was an external scan that got aborted
 			 * we may be able to now queue our own scan although
