@@ -1059,15 +1059,13 @@ static bool station_quick_scan_results(int err, struct l_queue *bss_list,
 
 	station_property_set_scanning(station, false);
 
-	if (err) {
-		station_enter_state(station, STATION_STATE_AUTOCONNECT_FULL);
-
-		return false;
-	}
+	if (err)
+		goto done;
 
 	autoconnect = station_is_autoconnecting(station);
 	station_set_scan_results(station, bss_list, autoconnect);
 
+done:
 	if (station->state == STATION_STATE_AUTOCONNECT_QUICK)
 		/*
 		 * If we're still in AUTOCONNECT_QUICK state, then autoconnect
@@ -1075,7 +1073,7 @@ static bool station_quick_scan_results(int err, struct l_queue *bss_list,
 		 */
 		station_enter_state(station, STATION_STATE_AUTOCONNECT_FULL);
 
-	return true;
+	return err == 0;
 }
 
 static void station_quick_scan_triggered(int err, void *user_data)
