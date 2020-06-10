@@ -482,6 +482,21 @@ class Device(IWDDBusAbstract):
                                error_handler=self._failure)
         self._wait_for_async_op()
 
+    def connect_hidden_network_async(self, name, reply_handler, error_handler):
+        '''Connect to a hidden network
+           Possible exception: BusyEx
+                               FailedEx
+                               InvalidArgumentsEx
+                               NotConfiguredEx
+                               NotConnectedEx
+                               NotFoundEx
+                               ServiceSetOverlapEx
+        '''
+        self._iface.ConnectHiddenNetwork(name,
+                               dbus_interface=IWD_STATION_INTERFACE,
+                               reply_handler=reply_handler,
+                               error_handler=error_handler)
+
     def start_adhoc(self, ssid, psk=None):
         self._prop_proxy.Set(IWD_DEVICE_INTERFACE, 'Mode', 'ad-hoc')
         self._adhoc_iface = dbus.Interface(self._bus.get_object(IWD_SERVICE,
