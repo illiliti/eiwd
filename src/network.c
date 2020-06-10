@@ -1166,7 +1166,7 @@ static struct l_dbus_message *network_connect(struct l_dbus *dbus,
 }
 
 void network_connect_new_hidden_network(struct network *network,
-						struct l_dbus_message *message)
+						struct l_dbus_message **message)
 {
 	struct station *station = network->station;
 	struct scan_bss *bss;
@@ -1183,7 +1183,7 @@ void network_connect_new_hidden_network(struct network *network,
 	bss = network_bss_select(network, true);
 	if (!bss) {
 		/* This should never happened for the hidden networks. */
-		error = dbus_error_not_supported(message);
+		error = dbus_error_not_supported(*message);
 		goto reply_error;
 	}
 
@@ -1192,13 +1192,13 @@ void network_connect_new_hidden_network(struct network *network,
 
 	switch (network_get_security(network)) {
 	case SECURITY_PSK:
-		error = network_connect_psk(network, bss, message);
+		error = network_connect_psk(network, bss, *message);
 		break;
 	case SECURITY_NONE:
-		station_connect_network(station, network, bss, message);
+		station_connect_network(station, network, bss, *message);
 		return;
 	default:
-		error = dbus_error_not_supported(message);
+		error = dbus_error_not_supported(*message);
 		break;
 	}
 
@@ -1208,7 +1208,7 @@ void network_connect_new_hidden_network(struct network *network,
 	return;
 
 reply_error:
-	dbus_pending_reply(&message, error);
+	dbus_pending_reply(message, error);
 }
 
 void network_blacklist_add(struct network *network, struct scan_bss *bss)
