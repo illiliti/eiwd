@@ -73,6 +73,7 @@ struct station {
 	struct l_hashmap *networks;
 	struct l_queue *networks_sorted;
 	struct l_dbus_message *connect_pending;
+	struct l_dbus_message *hidden_pending;
 	struct l_dbus_message *disconnect_pending;
 	struct l_dbus_message *scan_pending;
 	struct signal_agent *signal_agent;
@@ -2433,8 +2434,8 @@ static void station_hidden_network_scan_triggered(int err, void *user_data)
 	if (!err)
 		return;
 
-	dbus_pending_reply(&station->connect_pending,
-				dbus_error_failed(station->connect_pending));
+	dbus_pending_reply(&station->hidden_pending,
+				dbus_error_failed(station->hidden_pending));
 }
 
 static bool station_hidden_network_scan_results(int err,
@@ -2452,8 +2453,8 @@ static bool station_hidden_network_scan_results(int err,
 
 	l_debug("");
 
-	msg = station->connect_pending;
-	station->connect_pending = NULL;
+	msg = station->hidden_pending;
+	station->hidden_pending = NULL;
 
 	if (err) {
 		dbus_pending_reply(&msg, dbus_error_failed(msg));
@@ -2527,7 +2528,7 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 
 	l_debug("");
 
-	if (station->connect_pending || station_is_busy(station))
+	if (station->hidden_pending || station_is_busy(station))
 		return dbus_error_busy(message);
 
 	if (!l_dbus_message_get_arguments(message, "s", &ssid))
@@ -2553,7 +2554,7 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 	if (!station->hidden_network_scan_id)
 		return dbus_error_failed(message);
 
-	station->connect_pending = l_dbus_message_ref(message);
+	station->hidden_pending = l_dbus_message_ref(message);
 
 	return NULL;
 }
@@ -3131,6 +3132,10 @@ static void station_free(struct station *station)
 	if (station->connect_pending)
 		dbus_pending_reply(&station->connect_pending,
 				dbus_error_aborted(station->connect_pending));
+
+	if (station->hidden_pending)
+		dbus_pending_reply(&station->hidden_pending,
+				dbus_error_aborted(station->hidden_pending));
 
 	if (station->disconnect_pending)
 		dbus_pending_reply(&station->disconnect_pending,
