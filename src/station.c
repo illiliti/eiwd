@@ -2343,7 +2343,11 @@ static void station_connect_cb(struct netdev *netdev, enum netdev_result result,
 
 	if (result != NETDEV_RESULT_OK) {
 		if (result != NETDEV_RESULT_ABORTED) {
-			network_connect_failed(station->connected_network);
+			bool in_handshake =
+				result == NETDEV_RESULT_HANDSHAKE_FAILED;
+
+			network_connect_failed(station->connected_network,
+						in_handshake);
 			station_disassociated(station);
 		}
 

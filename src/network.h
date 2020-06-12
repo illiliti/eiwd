@@ -53,7 +53,7 @@ const struct network_info *network_get_info(const struct network *network);
 void network_set_info(struct network *network, struct network_info *info);
 
 int network_autoconnect(struct network *network, struct scan_bss *bss);
-void network_connect_failed(struct network *network);
+void network_connect_failed(struct network *network, bool in_handshake);
 bool network_bss_add(struct network *network, struct scan_bss *bss);
 bool network_bss_list_isempty(struct network *network);
 void network_bss_list_clear(struct network *network);

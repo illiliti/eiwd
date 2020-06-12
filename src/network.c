@@ -595,13 +595,13 @@ close_settings:
 	return ret;
 }
 
-void network_connect_failed(struct network *network)
+void network_connect_failed(struct network *network, bool in_handshake)
 {
 	/*
-	 * Connection failed, if PSK try asking for the passphrase
-	 * once more
+	 * Connection failed during the handshake phase.  If PSK try asking
+	 * for the passphrase once more
 	 */
-	if (network_get_security(network) == SECURITY_PSK) {
+	if (network_get_security(network) == SECURITY_PSK && in_handshake) {
 		network->update_psk = false;
 		network->ask_passphrase = true;
 	}
