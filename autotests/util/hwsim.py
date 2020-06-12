@@ -112,6 +112,14 @@ class Rule(HwsimDBusAbstract):
     def drop(self, value):
         self._prop_proxy.Set(self._iface_name, 'Drop', dbus.Boolean(value))
 
+    @property
+    def delay(self):
+        return int(self._properties['Delay'])
+
+    @delay.setter
+    def delay(self, value):
+        self._prop_proxy.Set(self._iface_name, 'Delay', dbus.UInt32(value))
+
     def remove(self):
         self._iface.Remove(reply_handler=self._success,
                 error_handler=self._failure)
