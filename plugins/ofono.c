@@ -427,7 +427,7 @@ static void modem_destroy(void *data)
 		iwd_sim_auth_remove(modem->auth);
 	}
 
-	l_debug("removing modem %s\n", modem->path);
+	l_debug("removing modem %s", modem->path);
 
 	if (modem->apps_serial)
 		l_dbus_cancel(dbus, modem->apps_serial);
