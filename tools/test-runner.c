@@ -624,14 +624,24 @@ exit:
 static void kill_process(pid_t pid)
 {
 	int status;
+	int i = 0;
 
 	l_debug("Terminate pid: %d", pid);
 
 	kill(pid, SIGTERM);
 
 	do {
-		waitpid(pid, &status, 0);
-	} while (!WIFEXITED(status) && !WIFSIGNALED(status));
+		if (waitpid(pid, &status, WNOHANG) == pid)
+			return;
+
+		usleep(100000);
+	} while (!WIFEXITED(status) && !WIFSIGNALED(status) && i++ < 20);
+
+	l_error("Failed to kill process %d gracefully", pid);
+	kill(pid, SIGKILL);
+
+	/* SIGKILL shouldn't need WNOHANG */
+	waitpid(pid, &status, 0);
 }
 
 static bool wait_for_socket(const char *socket, useconds_t wait_time)
