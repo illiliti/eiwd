@@ -222,109 +222,105 @@ static void print_koption(const void *key, void *value, void *user_data)
 	l_info("\t%s", (const char *) key);
 }
 
+#define ADD_MISSING(opt) \
+	l_hashmap_replace(options, opt, &r, NULL)
+
+#define ADD_OPTIONAL(opt) \
+	l_hashmap_replace(optional, opt, &r, NULL)
+
 static int check_crypto()
 {
-	int r = 0;
+	int r = -ENOTSUP;
 	struct l_hashmap *options = l_hashmap_string_new();
 	struct l_hashmap *optional = l_hashmap_string_new();
 
 	if (!l_checksum_is_supported(L_CHECKSUM_SHA1, true)) {
-		r = -ENOTSUP;
 		l_error("No HMAC(SHA1) support found");
-		l_hashmap_insert(options, "CONFIG_CRYPTO_USER_API_HASH", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_SHA1", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_HMAC", &r);
-		l_hashmap_insert(optional, "CONFIG_CRYPTO_SHA1_SSSE3", &r);
+		ADD_MISSING("CONFIG_CRYPTO_USER_API_HASH");
+		ADD_MISSING("CONFIG_CRYPTO_SHA1");
+		ADD_MISSING("CONFIG_CRYPTO_HMAC");
+		ADD_OPTIONAL("CONFIG_CRYPTO_SHA1_SSSE3");
 	}
 
 	if (!l_checksum_is_supported(L_CHECKSUM_MD5, true)) {
-		r = -ENOTSUP;
 		l_error("No HMAC(MD5) support found");
-		l_hashmap_insert(options, "CONFIG_CRYPTO_USER_API_HASH", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_MD5", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_HMAC", &r);
+		ADD_MISSING("CONFIG_CRYPTO_USER_API_HASH");
+		ADD_MISSING("CONFIG_CRYPTO_MD5");
+		ADD_MISSING("CONFIG_CRYPTO_HMAC");
 	}
 
 	if (!l_checksum_cmac_aes_supported()) {
-		r = -ENOTSUP;
 		l_error("No CMAC(AES) support found");
-		l_hashmap_insert(options, "CONFIG_CRYPTO_USER_API_HASH", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_AES", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_CMAC", &r);
-		l_hashmap_insert(optional, "CONFIG_CRYPTO_AES_X86_64", &r);
-		l_hashmap_insert(optional, "CONFIG_CRYPTO_AES_NI_INTEL", &r);
+		ADD_MISSING("CONFIG_CRYPTO_USER_API_HASH");
+		ADD_MISSING("CONFIG_CRYPTO_AES");
+		ADD_MISSING("CONFIG_CRYPTO_CMAC");
+		ADD_OPTIONAL("CONFIG_CRYPTO_AES_X86_64");
+		ADD_OPTIONAL("CONFIG_CRYPTO_AES_NI_INTEL");
 	}
 
 	if (!l_checksum_is_supported(L_CHECKSUM_SHA256, true)) {
-		r = -ENOTSUP;
 		l_error("No HMAC(SHA256) support not found");
-		l_hashmap_insert(options, "CONFIG_CRYPTO_USER_API_HASH", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_HMAC", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_SHA256", &r);
-		l_hashmap_insert(optional, "CONFIG_CRYPTO_SHA256_SSSE3", &r);
+		ADD_MISSING("CONFIG_CRYPTO_USER_API_HASH");
+		ADD_MISSING("CONFIG_CRYPTO_HMAC");
+		ADD_MISSING("CONFIG_CRYPTO_SHA256");
+		ADD_OPTIONAL("CONFIG_CRYPTO_SHA256_SSSE3");
 	}
 
 	if (!l_checksum_is_supported(L_CHECKSUM_SHA512, true)) {
 		l_warn("No HMAC(SHA512) support found, "
 				"certain TLS connections might fail");
-		l_hashmap_insert(options, "CONFIG_CRYPTO_SHA512", &r);
-		l_hashmap_insert(optional, "CONFIG_CRYPTO_SHA512_SSSE3", &r);
+		ADD_MISSING("CONFIG_CRYPTO_SHA512");
+		ADD_OPTIONAL("CONFIG_CRYPTO_SHA512_SSSE3");
 	}
 
 	if (!l_cipher_is_supported(L_CIPHER_ARC4)) {
-		r = -ENOTSUP;
 		l_error("RC4 support not found");
-		l_hashmap_insert(options,
-				"CONFIG_CRYPTO_USER_API_SKCIPHER", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_ARC4", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_ECB", &r);
+		ADD_MISSING("CONFIG_CRYPTO_USER_API_SKCIPHER");
+		ADD_MISSING("CONFIG_CRYPTO_ARC4");
+		ADD_MISSING("CONFIG_CRYPTO_ECB");
 	}
 
 	if (!l_cipher_is_supported(L_CIPHER_DES) ||
 			!l_cipher_is_supported(L_CIPHER_DES3_EDE_CBC)) {
-		r = -ENOTSUP;
 		l_error("DES support not found");
-		l_hashmap_insert(options,
-				"CONFIG_CRYPTO_USER_API_SKCIPHER", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_DES", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_ECB", &r);
-		l_hashmap_insert(optional, "CONFIG_CRYPTO_DES3_EDE_X86_64", &r);
+		ADD_MISSING("CONFIG_CRYPTO_USER_API_SKCIPHER");
+		ADD_MISSING("CONFIG_CRYPTO_DES");
+		ADD_MISSING("CONFIG_CRYPTO_ECB");
+		ADD_OPTIONAL("CONFIG_CRYPTO_DES3_EDE_X86_64");
 	}
 
 	if (!l_cipher_is_supported(L_CIPHER_AES)) {
-		r = -ENOTSUP;
 		l_error("AES support not found");
-		l_hashmap_insert(options,
-				"CONFIG_CRYPTO_USER_API_SKCIPHER", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_AES", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_ECB", &r);
-		l_hashmap_insert(optional, "CONFIG_CRYPTO_AES_X86_64", &r);
-		l_hashmap_insert(optional, "CONFIG_CRYPTO_AES_NI_INTEL", &r);
+		ADD_MISSING("CONFIG_CRYPTO_USER_API_SKCIPHER");
+		ADD_MISSING("CONFIG_CRYPTO_AES");
+		ADD_MISSING("CONFIG_CRYPTO_ECB");
+		ADD_OPTIONAL("CONFIG_CRYPTO_AES_X86_64");
+		ADD_OPTIONAL("CONFIG_CRYPTO_AES_NI_INTEL");
 	}
 
 	if (!l_cipher_is_supported(L_CIPHER_DES3_EDE_CBC)) {
 		l_warn("No CBC(DES3_EDE) support found, "
 				"certain TLS connections might fail");
-		l_hashmap_insert(options, "CONFIG_CRYPTO_DES", &r);
-		l_hashmap_insert(options, "CONFIG_CRYPTO_CBC", &r);
-		l_hashmap_insert(optional, "CONFIG_CRYPTO_DES3_EDE_X86_64", &r);
+		ADD_MISSING("CONFIG_CRYPTO_DES");
+		ADD_MISSING("CONFIG_CRYPTO_CBC");
+		ADD_OPTIONAL("CONFIG_CRYPTO_DES3_EDE_X86_64");
 	}
 
 	if (!l_cipher_is_supported(L_CIPHER_AES_CBC)) {
 		l_warn("No CBC(AES) support found, "
 				"WPS will not be available");
-		l_hashmap_insert(options, "CONFIG_CRYPTO_CBC", &r);
+		ADD_MISSING("CONFIG_CRYPTO_CBC");
 	}
 
 	if (!l_key_is_supported(L_KEY_FEATURE_DH)) {
 		l_warn("No Diffie-Hellman support found, "
 				"WPS will not be available");
-		l_hashmap_insert(options, "CONFIG_KEY_DH_OPERATIONS", &r);
+		ADD_MISSING("CONFIG_KEY_DH_OPERATIONS");
 	}
 
 	if (!l_key_is_supported(L_KEY_FEATURE_RESTRICT)) {
 		l_warn("No keyring restrictions support found.");
-		l_hashmap_insert(options, "CONFIG_KEYS", &r);
+		ADD_MISSING("CONFIG_KEYS");
 	}
 
 	if (!l_key_is_supported(L_KEY_FEATURE_CRYPTO)) {
@@ -332,13 +328,11 @@ static int check_crypto()
 		l_warn("TLS based WPA-Enterprise authentication methods will"
 				" not function.");
 		l_warn("Kernel 4.20+ is required for this feature.");
-		l_hashmap_insert(options, "CONFIG_ASYMMETRIC_KEY_TYPE", &r);
-		l_hashmap_insert(options,
-				"CONFIG_ASYMMETRIC_PUBLIC_KEY_SUBTYPE", &r);
-		l_hashmap_insert(options, "CONFIG_X509_CERTIFICATE_PARSER", &r);
-		l_hashmap_insert(options, "CONFIG_PKCS7_MESSAGE_PARSER", &r);
-		l_hashmap_insert(options,
-					"CONFIG_PKCS8_PRIVATE_KEY_PARSER", &r);
+		ADD_MISSING("CONFIG_ASYMMETRIC_KEY_TYPE");
+		ADD_MISSING("CONFIG_ASYMMETRIC_PUBLIC_KEY_SUBTYPE");
+		ADD_MISSING("CONFIG_X509_CERTIFICATE_PARSER");
+		ADD_MISSING("CONFIG_PKCS7_MESSAGE_PARSER");
+		ADD_MISSING("CONFIG_PKCS8_PRIVATE_KEY_PARSER");
 	}
 
 	if (l_hashmap_isempty(options))
