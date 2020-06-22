@@ -1092,12 +1092,17 @@ void frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 	size_t frame_len;
 	struct iovec *iov;
 	uint8_t *ptr;
-	struct mmpdu_header *mpdu;
 
 	for (frame_len = 0, iov = frame; iov->iov_base; iov++)
 		frame_len += iov->iov_len;
 
-	if (frame_len < sizeof(*mpdu)) {
+	/*
+	 * This assumes that the first iovec at least contains the mmpdu_fc
+	 * portion of the header used to calculate the minimum length.
+	 */
+	if (frame[0].iov_len >= 2 && frame_len <
+				mmpdu_header_len((const struct mmpdu_header *)
+				frame[0].iov_base)) {
 		l_error("Frame too short");
 		cb(-EMSGSIZE, user_data);
 		return;
