@@ -230,11 +230,12 @@ static void print_koption(const void *key, void *value, void *user_data)
 
 static int check_crypto()
 {
-	int r = -ENOTSUP;
+	int r = 0;
 	struct l_hashmap *options = l_hashmap_string_new();
 	struct l_hashmap *optional = l_hashmap_string_new();
 
 	if (!l_checksum_is_supported(L_CHECKSUM_SHA1, true)) {
+		r = -ENOTSUP;
 		l_error("No HMAC(SHA1) support found");
 		ADD_MISSING("CONFIG_CRYPTO_USER_API_HASH");
 		ADD_MISSING("CONFIG_CRYPTO_SHA1");
@@ -243,6 +244,7 @@ static int check_crypto()
 	}
 
 	if (!l_checksum_is_supported(L_CHECKSUM_MD5, true)) {
+		r = -ENOTSUP;
 		l_error("No HMAC(MD5) support found");
 		ADD_MISSING("CONFIG_CRYPTO_USER_API_HASH");
 		ADD_MISSING("CONFIG_CRYPTO_MD5");
@@ -250,6 +252,7 @@ static int check_crypto()
 	}
 
 	if (!l_checksum_cmac_aes_supported()) {
+		r = -ENOTSUP;
 		l_error("No CMAC(AES) support found");
 		ADD_MISSING("CONFIG_CRYPTO_USER_API_HASH");
 		ADD_MISSING("CONFIG_CRYPTO_AES");
@@ -259,6 +262,7 @@ static int check_crypto()
 	}
 
 	if (!l_checksum_is_supported(L_CHECKSUM_SHA256, true)) {
+		r = -ENOTSUP;
 		l_error("No HMAC(SHA256) support not found");
 		ADD_MISSING("CONFIG_CRYPTO_USER_API_HASH");
 		ADD_MISSING("CONFIG_CRYPTO_HMAC");
@@ -274,6 +278,7 @@ static int check_crypto()
 	}
 
 	if (!l_cipher_is_supported(L_CIPHER_ARC4)) {
+		r = -ENOTSUP;
 		l_error("RC4 support not found");
 		ADD_MISSING("CONFIG_CRYPTO_USER_API_SKCIPHER");
 		ADD_MISSING("CONFIG_CRYPTO_ARC4");
@@ -282,6 +287,7 @@ static int check_crypto()
 
 	if (!l_cipher_is_supported(L_CIPHER_DES) ||
 			!l_cipher_is_supported(L_CIPHER_DES3_EDE_CBC)) {
+		r = -ENOTSUP;
 		l_error("DES support not found");
 		ADD_MISSING("CONFIG_CRYPTO_USER_API_SKCIPHER");
 		ADD_MISSING("CONFIG_CRYPTO_DES");
@@ -290,6 +296,7 @@ static int check_crypto()
 	}
 
 	if (!l_cipher_is_supported(L_CIPHER_AES)) {
+		r = -ENOTSUP;
 		l_error("AES support not found");
 		ADD_MISSING("CONFIG_CRYPTO_USER_API_SKCIPHER");
 		ADD_MISSING("CONFIG_CRYPTO_AES");
