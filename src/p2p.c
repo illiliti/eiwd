@@ -460,7 +460,7 @@ static void p2p_peer_frame_xchg(struct p2p_peer *peer, struct iovec *tx_body,
 	va_start(args, cb);
 	frame_xchg_startv(dev->wdev_id, frame, freq, retry_interval,
 				resp_timeout, retries_on_ack, group_id,
-				cb, dev, args);
+				cb, dev, NULL, args);
 	va_end(args);
 
 	l_free(frame);

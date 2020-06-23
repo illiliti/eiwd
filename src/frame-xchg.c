@@ -106,6 +106,7 @@ struct frame_xchg_data {
 	struct l_timeout *timeout;
 	struct l_queue *rx_watches;
 	frame_xchg_cb_t cb;
+	frame_xchg_destroy_func_t destroy;
 	void *user_data;
 	uint32_t group_id;
 	unsigned int retry_cnt;
@@ -770,26 +771,25 @@ static void frame_xchg_reset(struct frame_xchg_data *fx)
 					frame_xchg_resp_cb, fx);
 }
 
-static void frame_xchg_destroy(struct frame_xchg_data *fx, int err)
+static void frame_xchg_destroy(void *user_data)
 {
-	if (fx->cb)
-		fx->cb(err, fx->user_data);
+	struct frame_xchg_data *fx = user_data;
+
+	if (fx->destroy)
+		fx->destroy(fx->user_data);
 
 	frame_xchg_reset(fx);
 	l_free(fx);
 }
 
-static void frame_xchg_cancel(void *user_data)
-{
-	struct frame_xchg_data *fx = user_data;
-
-	frame_xchg_destroy(fx, -ECANCELED);
-}
-
 static void frame_xchg_done(struct frame_xchg_data *fx, int err)
 {
 	l_queue_remove(frame_xchgs, fx);
-	frame_xchg_destroy(fx, err);
+
+	if (fx->cb)
+		fx->cb(err, fx->user_data);
+
+	frame_xchg_destroy(fx);
 }
 
 static void frame_xchg_timeout_destroy(void *user_data)
@@ -1073,20 +1073,23 @@ static bool frame_xchg_match(const void *a, const void *b)
 void frame_xchg_start(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 			unsigned int retry_interval, unsigned int resp_timeout,
 			unsigned int retries_on_ack, uint32_t group_id,
-			frame_xchg_cb_t cb, void *user_data, ...)
+			frame_xchg_cb_t cb, void *user_data,
+			frame_xchg_destroy_func_t destroy, ...)
 {
 	va_list args;
 
-	va_start(args, user_data);
+	va_start(args, destroy);
 	frame_xchg_startv(wdev_id, frame, freq, retry_interval, resp_timeout,
-				retries_on_ack, group_id, cb, user_data, args);
+				retries_on_ack, group_id, cb, user_data,
+				destroy, args);
 	va_end(args);
 }
 
 void frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 			unsigned int retry_interval, unsigned int resp_timeout,
 			unsigned int retries_on_ack, uint32_t group_id,
-			frame_xchg_cb_t cb, void *user_data, va_list resp_args)
+			frame_xchg_cb_t cb, void *user_data,
+			frame_xchg_destroy_func_t destroy, va_list resp_args)
 {
 	struct frame_xchg_data *fx;
 	size_t frame_len;
@@ -1137,6 +1140,7 @@ void frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 	fx->resp_timeout = resp_timeout;
 	fx->retries_on_ack = retries_on_ack;
 	fx->cb = cb;
+	fx->destroy = destroy;
 	fx->user_data = user_data;
 	fx->group_id = group_id;
 
@@ -1343,7 +1347,7 @@ static void frame_xchg_exit(void)
 	struct l_queue *xchgs = frame_xchgs;
 
 	frame_xchgs = NULL;
-	l_queue_destroy(xchgs, frame_xchg_cancel);
+	l_queue_destroy(xchgs, frame_xchg_destroy);
 
 	watch_groups = NULL;
 	l_queue_destroy(groups, frame_watch_group_destroy);
