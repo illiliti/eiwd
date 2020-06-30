@@ -1364,22 +1364,26 @@ static void station_roamed(struct station *station)
 
 static void station_roam_failed(struct station *station)
 {
+	l_debug("%u", netdev_get_ifindex(station->netdev));
+
+	/*
+	 * If we attempted a reassociation or a fast transition, and ended up
+	 * here then we are now disconnected.
+	 */
+	if (station->state == STATION_STATE_ROAMING) {
+		station_disassociated(station);
+		return;
+	}
+
 	/*
 	 * If we're still connected to the old BSS, only clear preparing_roam
 	 * and reattempt in 60 seconds if signal level is still low at that
-	 * time.  Otherwise (we'd already started negotiating with the
-	 * transition target, preparing_roam is false, state is roaming) we
-	 * are now disconnected.
+	 * time.
 	 */
-
-	l_debug("%u", netdev_get_ifindex(station->netdev));
-
 	station->preparing_roam = false;
 	station->ap_directed_roaming = false;
 
-	if (station->state == STATION_STATE_ROAMING)
-		station_disassociated(station);
-	else if (station->signal_low)
+	if (station->signal_low)
 		station_roam_timeout_rearm(station, 60);
 }
 
