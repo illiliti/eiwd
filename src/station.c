@@ -96,6 +96,7 @@ struct station {
 	struct netconfig *netconfig;
 
 	bool preparing_roam : 1;
+	bool roam_scan_full : 1;
 	bool signal_low : 1;
 	bool roam_no_orig_ap : 1;
 	bool ap_directed_roaming : 1;
@@ -1282,6 +1283,7 @@ static void station_roam_state_clear(struct station *station)
 	l_timeout_remove(station->roam_trigger_timeout);
 	station->roam_trigger_timeout = NULL;
 	station->preparing_roam = false;
+	station->roam_scan_full = false;
 	station->signal_low = false;
 	station->roam_min_time.tv_sec = 0;
 
@@ -1345,6 +1347,8 @@ static void station_disconnect_event(struct station *station, void *event_data)
 }
 
 static void station_roam_timeout_rearm(struct station *station, int seconds);
+static int station_roam_scan(struct station *station,
+				struct scan_freq_set *freq_set);
 
 static void station_roamed(struct station *station)
 {
@@ -1355,6 +1359,7 @@ static void station_roamed(struct station *station)
 	station->signal_low = false;
 	station->roam_min_time.tv_sec = 0;
 	station->roam_no_orig_ap = false;
+	station->roam_scan_full = false;
 
 	if (station->netconfig)
 		netconfig_reconfigure(station->netconfig);
@@ -1376,11 +1381,28 @@ static void station_roam_failed(struct station *station)
 	}
 
 	/*
+	 * We were told by the AP to roam, but failed.  Try ourselves or
+	 * wait for the AP to tell us to roam again
+	 */
+	if (station->ap_directed_roaming)
+		goto delayed_retry;
+
+	/*
+	 * If we tried a limited scan, failed and the signal is still low,
+	 * repeat with a full scan right away
+	 */
+	if (station->signal_low && !station->roam_scan_full &&
+					!station_roam_scan(station, NULL))
+		return;
+
+delayed_retry:
+	/*
 	 * If we're still connected to the old BSS, only clear preparing_roam
 	 * and reattempt in 60 seconds if signal level is still low at that
 	 * time.
 	 */
 	station->preparing_roam = false;
+	station->roam_scan_full = false;
 	station->ap_directed_roaming = false;
 
 	if (station->signal_low)
@@ -1783,6 +1805,9 @@ static int station_roam_scan(struct station *station,
 	if (station->connected_network)
 		/* Use direct probe request */
 		params.ssid = network_get_ssid(station->connected_network);
+
+	if (!freq_set)
+		station->roam_scan_full = true;
 
 	station->roam_scan_id =
 		scan_active_full(netdev_get_wdev_id(station->netdev), &params,
