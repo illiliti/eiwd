@@ -1375,7 +1375,6 @@ static void station_roam_failed(struct station *station)
 	l_debug("%u", netdev_get_ifindex(station->netdev));
 
 	station->preparing_roam = false;
-	station->roam_no_orig_ap = false;
 	station->ap_directed_roaming = false;
 
 	if (station->state == STATION_STATE_ROAMING)
