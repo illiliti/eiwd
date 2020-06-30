@@ -1794,23 +1794,21 @@ static void station_roam_scan(struct station *station,
 		station_roam_failed(station);
 }
 
-static bool station_roam_scan_known_freqs(struct station *station)
+static int station_roam_scan_known_freqs(struct station *station)
 {
 	const struct network_info *info = network_get_info(
 						station->connected_network);
 	struct scan_freq_set *freqs = network_info_get_roam_frequencies(info,
 					station->connected_bss->frequency, 5);
 
-	if (!freqs) {
-		l_debug("no known frequencies to scan");
-		return false;
-	}
+	if (!freqs)
+		return -ENODATA;
 
 	station_roam_scan(station, freqs);
 
 	scan_freq_set_free(freqs);
 
-	return true;
+	return 0;
 }
 
 static uint32_t station_freq_from_neighbor_report(const uint8_t *country,
@@ -1869,6 +1867,7 @@ static void station_neighbor_report_cb(struct netdev *netdev, int err,
 	struct scan_freq_set *freq_set_md, *freq_set_no_md;
 	uint32_t current_freq = 0;
 	struct handshake_state *hs = netdev_get_handshake(station->netdev);
+	int r;
 
 	l_debug("ifindex: %u, error: %d(%s)",
 			netdev_get_ifindex(station->netdev),
@@ -1882,10 +1881,13 @@ static void station_neighbor_report_cb(struct netdev *netdev, int err,
 		return;
 
 	if (!reports || err) {
-		if (!station_roam_scan_known_freqs(station)) {
+		r = station_roam_scan_known_freqs(station);
+
+		if (r == -ENODATA)
 			l_debug("no neighbor report results or known freqs");
+
+		if (r < 0)
 			station_roam_failed(station);
-		}
 
 		return;
 	}
@@ -1992,6 +1994,7 @@ static void station_neighbor_report_cb(struct netdev *netdev, int err,
 static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
 {
 	struct station *station = user_data;
+	int r;
 
 	l_debug("%u", netdev_get_ifindex(station->netdev));
 
@@ -2014,11 +2017,12 @@ static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
 						station_neighbor_report_cb))
 			return;
 
-	if (!station_roam_scan_known_freqs(station)) {
+	r = station_roam_scan_known_freqs(station);
+	if (r == -ENODATA)
 		l_debug("No neighbor report or known frequencies, roam failed");
+
+	if (r < 0)
 		station_roam_failed(station);
-		return;
-	}
 }
 
 static void station_roam_timeout_rearm(struct station *station, int seconds)
