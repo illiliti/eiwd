@@ -1773,7 +1773,7 @@ static void station_roam_scan_destroy(void *userdata)
 	station->roam_scan_id = 0;
 }
 
-static void station_roam_scan(struct station *station,
+static int station_roam_scan(struct station *station,
 				struct scan_freq_set *freq_set)
 {
 	struct scan_parameters params = { .freqs = freq_set, .flush = true };
@@ -1791,7 +1791,9 @@ static void station_roam_scan(struct station *station,
 					station_roam_scan_destroy);
 
 	if (!station->roam_scan_id)
-		station_roam_failed(station);
+		return -EIO;
+
+	return 0;
 }
 
 static int station_roam_scan_known_freqs(struct station *station)
@@ -1800,15 +1802,14 @@ static int station_roam_scan_known_freqs(struct station *station)
 						station->connected_network);
 	struct scan_freq_set *freqs = network_info_get_roam_frequencies(info,
 					station->connected_bss->frequency, 5);
+	int r;
 
 	if (!freqs)
 		return -ENODATA;
 
-	station_roam_scan(station, freqs);
-
+	r = station_roam_scan(station, freqs);
 	scan_freq_set_free(freqs);
-
-	return 0;
+	return r;
 }
 
 static uint32_t station_freq_from_neighbor_report(const uint8_t *country,
@@ -1979,16 +1980,19 @@ static void station_neighbor_report_cb(struct netdev *netdev, int err,
 	if (count_md) {
 		scan_freq_set_add(freq_set_md, current_freq);
 
-		station_roam_scan(station, freq_set_md);
+		r = station_roam_scan(station, freq_set_md);
 	} else if (count_no_md) {
 		scan_freq_set_add(freq_set_no_md, current_freq);
 
-		station_roam_scan(station, freq_set_no_md);
+		r = station_roam_scan(station, freq_set_no_md);
 	} else
-		station_roam_scan(station, NULL);
+		r = station_roam_scan(station, NULL);
 
 	scan_freq_set_free(freq_set_md);
 	scan_freq_set_free(freq_set_no_md);
+
+	if (r < 0)
+		station_roam_failed(station);
 }
 
 static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
@@ -2163,7 +2167,8 @@ void station_ap_directed_roam(struct station *station,
 				body_len - pos,station);
 	} else {
 		l_debug("roam: AP did not include a preferred candidate list");
-		station_roam_scan(station, NULL);
+		if (station_roam_scan(station, NULL) < 0)
+			station_roam_failed(station);
 	}
 
 	return;
