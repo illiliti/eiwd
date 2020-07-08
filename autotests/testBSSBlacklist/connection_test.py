@@ -48,8 +48,10 @@ class Test(unittest.TestCase):
         psk_agent = PSKAgent("secret123")
         wd.register_psk_agent(psk_agent)
 
-        devices = wd.list_devices(1)
+        devices = wd.list_devices(2)
         device = devices[0]
+
+        devices[1].disconnect()
 
         condition = 'not obj.scanning'
         wd.wait_for_object_condition(device, condition)
@@ -110,8 +112,8 @@ class Test(unittest.TestCase):
         # Wait for the blacklist to expire (10 seconds)
         elapsed = time.time() - start
 
-        if elapsed < 11:
-            time.sleep(11 - elapsed)
+        if elapsed < 15:
+            wd.wait(15 - elapsed)
 
         device.disconnect()
 
