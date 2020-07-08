@@ -48,7 +48,8 @@ class Test(unittest.TestCase):
 
         hostapd.eapol_reauth(device.address)
 
-        wd.wait(10)
+        hostapd.wait_for_event('CTRL-EVENT-EAP-STARTED')
+        hostapd.wait_for_event('CTRL-EVENT-EAP-SUCCESS')
 
         condition = 'obj.connected'
         wd.wait_for_object_condition(ordered_network.network_object, condition)

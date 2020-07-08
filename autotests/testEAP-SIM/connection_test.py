@@ -15,13 +15,7 @@ from hostapd import hostapd_map
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
-        hostapd = None
-
-        for hostapd_if in list(hostapd_map.values()):
-            hpd = HostapdCLI(hostapd_if)
-            if hpd.get_config_value('ssid') == 'ssidEAP-SIM':
-                hostapd = hpd
-                break
+        hostapd = HostapdCLI(config='ssidEAP-SIM.conf')
 
         auth = AuthCenter('/tmp/hlrauc.sock', '/tmp/sim.db')
 
@@ -56,7 +50,8 @@ class Test(unittest.TestCase):
 
         hostapd.eapol_reauth(device.address)
 
-        wd.wait(10)
+        hostapd.wait_for_event('CTRL-EVENT-EAP-STARTED')
+        hostapd.wait_for_event('CTRL-EVENT-EAP-SUCCESS')
 
         condition = 'obj.connected'
         wd.wait_for_object_condition(ordered_network.network_object, condition)
