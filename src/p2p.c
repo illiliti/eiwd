@@ -68,6 +68,7 @@ struct p2p_device {
 	uint32_t start_stop_cmd_id;
 	l_dbus_property_complete_cb_t pending_complete;
 	struct l_dbus_message *pending_message;
+	uint32_t xchg_id;
 
 	uint8_t listen_country[3];
 	uint8_t listen_oper_class;
@@ -383,7 +384,11 @@ static void p2p_connection_reset(struct p2p_device *dev)
 	netdev_watch_remove(dev->conn_netdev_watch_id);
 
 	frame_watch_group_remove(dev->wdev_id, FRAME_GROUP_CONNECT);
-	frame_xchg_stop(dev->wdev_id);
+
+	if (dev->xchg_id) {
+		frame_xchg_cancel(dev->xchg_id);
+		dev->xchg_id = 0;
+	}
 
 	if (!dev->enabled || (dev->enabled && dev->start_stop_cmd_id)) {
 		/*
@@ -458,9 +463,10 @@ static void p2p_peer_frame_xchg(struct p2p_peer *peer, struct iovec *tx_body,
 		peer->bss->frequency;
 
 	va_start(args, cb);
-	frame_xchg_startv(dev->wdev_id, frame, freq, retry_interval,
-				resp_timeout, retries_on_ack, group_id,
-				cb, dev, NULL, args);
+
+	dev->xchg_id = frame_xchg_startv(dev->wdev_id, frame, freq,
+				retry_interval, resp_timeout, retries_on_ack,
+				group_id, cb, dev, NULL, args);
 	va_end(args);
 
 	l_free(frame);
@@ -1175,11 +1181,17 @@ static void p2p_go_negotiation_resp_done(int error, void *user_data)
 	else
 		l_error("No GO Negotiation Confirmation frame received");
 
+	dev->xchg_id = 0;
+
 	p2p_connect_failed(dev);
 }
 
 static void p2p_go_negotiation_resp_err_done(int error, void *user_data)
 {
+	struct p2p_device *dev = user_data;
+
+	dev->xchg_id = 0;
+
 	if (error)
 		l_error("Sending the GO Negotiation Response failed: %s (%i)",
 			strerror(-error), -error);
@@ -1271,6 +1283,8 @@ static bool p2p_go_negotiation_confirm_cb(const struct mmpdu_header *mpdu,
 	uint32_t frequency;
 
 	l_debug("");
+
+	dev->xchg_id = 0;
 
 	if (body_len < 8) {
 		l_error("GO Negotiation Confirmation frame too short");
