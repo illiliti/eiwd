@@ -447,6 +447,9 @@ static void remove_anqp(void *data)
 {
 	struct anqp_entry *entry = data;
 
+	if (entry->pending)
+		anqp_cancel(entry->pending);
+
 	l_free(entry);
 }
 
@@ -476,12 +479,9 @@ static void station_anqp_response_cb(enum anqp_result result,
 	char **realms = NULL;
 	struct nai_search search;
 
-	entry->pending = 0;
-
 	l_debug("");
 
-	if (result == ANQP_TIMEOUT) {
-		l_queue_remove(station->anqp_pending, entry);
+	if (result != ANQP_SUCCESS) {
 		/* TODO: try next BSS */
 		goto request_done;
 	}
@@ -583,11 +583,10 @@ static bool station_start_anqp(struct station *station, struct network *network,
 	 * these are checked in hs20_find_settings_file.
 	 */
 
-	entry->pending = anqp_request(netdev_get_ifindex(station->netdev),
-					netdev_get_address(station->netdev),
-					bss, anqp, ptr - anqp,
-					station_anqp_response_cb,
-					entry, l_free);
+	entry->pending = anqp_request(netdev_get_wdev_id(station->netdev),
+				netdev_get_address(station->netdev), bss, anqp,
+				ptr - anqp, station_anqp_response_cb,
+				entry, NULL);
 	if (!entry->pending) {
 		l_free(entry);
 		return false;
@@ -3252,7 +3251,7 @@ static void station_free(struct station *station)
 
 	watchlist_destroy(&station->state_watches);
 
-	l_queue_destroy(station->anqp_pending, l_free);
+	l_queue_destroy(station->anqp_pending, remove_anqp);
 
 	l_free(station);
 }

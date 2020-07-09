@@ -34,7 +34,8 @@ typedef void (*anqp_response_func_t)(enum anqp_result result,
 					const void *anqp, size_t len,
 					void *user_data);
 
-uint32_t anqp_request(uint32_t ifindex, const uint8_t *addr,
+uint32_t anqp_request(uint64_t wdev_id, const uint8_t *addr,
 			struct scan_bss *bss, const uint8_t *anqp, size_t len,
 			anqp_response_func_t cb, void *user_data,
 			anqp_destroy_func_t destroy);
+void anqp_cancel(uint32_t id);
