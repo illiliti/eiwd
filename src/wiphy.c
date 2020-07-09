@@ -32,6 +32,7 @@
 #include <fnmatch.h>
 #include <unistd.h>
 #include <string.h>
+#include <limits.h>
 
 #include <ell/ell.h>
 
@@ -62,6 +63,7 @@ static char **whitelist_filter;
 static char **blacklist_filter;
 static int mac_randomize_bytes = 6;
 static char regdom_country[2];
+static uint32_t work_ids;
 
 struct wiphy {
 	uint32_t id;
@@ -85,6 +87,8 @@ struct wiphy {
 	uint8_t rm_enabled_capabilities[7]; /* 5 size max + header */
 	struct l_genl_family *nl80211;
 	char regdom_country[2];
+	/* Work queue for this radio */
+	struct l_queue *work;
 
 	bool support_scheduled_scan:1;
 	bool support_rekey_offload:1;
@@ -216,6 +220,14 @@ static struct wiphy *wiphy_new(uint32_t id)
 	return wiphy;
 }
 
+static void destroy_work(void *user_data)
+{
+	struct wiphy_radio_work_item *work = user_data;
+
+	if (work->ops && work->ops->destroy)
+		work->ops->destroy(work);
+}
+
 static void wiphy_free(void *data)
 {
 	struct wiphy *wiphy = data;
@@ -235,6 +247,7 @@ static void wiphy_free(void *data)
 	l_free(wiphy->vendor_str);
 	l_free(wiphy->driver_str);
 	l_genl_family_free(wiphy->nl80211);
+	l_queue_destroy(wiphy->work, destroy_work);
 	l_free(wiphy);
 }
 
@@ -1072,6 +1085,8 @@ struct wiphy *wiphy_create(uint32_t wiphy_id, const char *name)
 	if (!wiphy_is_managed(name))
 		wiphy->blacklisted = true;
 
+	wiphy->work = l_queue_new();
+
 	return wiphy;
 }
 
@@ -1447,6 +1462,103 @@ static void wiphy_reg_notify(struct l_genl_msg *msg, void *user_data)
 		break;
 	}
 	}
+}
+
+static void wiphy_radio_work_next(struct wiphy *wiphy)
+{
+	struct wiphy_radio_work_item *work;
+	bool done;
+
+	work = l_queue_peek_head(wiphy->work);
+	if (!work)
+		return;
+
+	/*
+	 * Ensures no other work item will get inserted before this one while
+	 * the work is being done.
+	 */
+	work->priority = INT_MIN;
+
+	l_debug("Starting work item %u", work->id);
+	done = work->ops->do_work(work);
+
+	if (done) {
+		work->id = 0;
+
+		l_queue_remove(wiphy->work, work);
+
+		destroy_work(work);
+
+		wiphy_radio_work_next(wiphy);
+	}
+}
+
+static int insert_by_priority(const void *a, const void *b, void *user_data)
+{
+	const struct wiphy_radio_work_item *new = a;
+	const struct wiphy_radio_work_item *work = b;
+
+	if (work->priority <= new->priority)
+		return 1;
+
+	return -1;
+}
+
+uint32_t wiphy_radio_work_insert(struct wiphy *wiphy,
+				struct wiphy_radio_work_item *item,
+				int priority,
+				const struct wiphy_radio_work_item_ops *ops)
+{
+	item->priority = priority;
+	item->ops = ops;
+	item->id = ++work_ids;
+
+	l_debug("Inserting work item %u", item->id);
+
+	l_queue_insert(wiphy->work, item, insert_by_priority, NULL);
+
+	if (l_queue_length(wiphy->work) == 1)
+		wiphy_radio_work_next(wiphy);
+
+	return item->id;
+}
+
+static bool match_id(const void *a, const void *b)
+{
+	const struct wiphy_radio_work_item *item = a;
+
+	if (item->id == L_PTR_TO_UINT(b))
+		return true;
+
+	return false;
+}
+
+void wiphy_radio_work_done(struct wiphy *wiphy, uint32_t id)
+{
+	struct wiphy_radio_work_item *item;
+	bool next = false;
+
+	item = l_queue_peek_head(wiphy->work);
+	if (!item)
+		return;
+
+	if (item->id == id) {
+		next = true;
+		l_queue_pop_head(wiphy->work);
+	} else
+		item = l_queue_remove_if(wiphy->work, match_id,
+						L_UINT_TO_PTR(id));
+	if (!item)
+		return;
+
+	l_debug("Work item %u done", id);
+
+	item->id = 0;
+
+	destroy_work(item);
+
+	if (next)
+		wiphy_radio_work_next(wiphy);
 }
 
 static int wiphy_init(void)

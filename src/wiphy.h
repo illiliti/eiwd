@@ -26,6 +26,22 @@
 struct wiphy;
 struct scan_bss;
 struct scan_freq_set;
+struct wiphy_radio_work_item;
+
+typedef bool (*wiphy_radio_work_func_t)(struct wiphy_radio_work_item *item);
+typedef void (*wiphy_radio_work_destroy_func_t)(
+					struct wiphy_radio_work_item *item);
+
+struct wiphy_radio_work_item_ops {
+	wiphy_radio_work_func_t do_work;
+	wiphy_radio_work_destroy_func_t destroy;
+};
+
+struct wiphy_radio_work_item {
+	uint32_t id;
+	int priority;
+	const struct wiphy_radio_work_item_ops *ops;
+};
 
 enum wiphy_state_watch_event {
 	WIPHY_STATE_WATCH_EVENT_POWERED,
@@ -92,3 +108,9 @@ uint32_t wiphy_state_watch_add(struct wiphy *wiphy,
 				wiphy_state_watch_func_t func, void *user_data,
 				wiphy_destroy_func_t destroy);
 bool wiphy_state_watch_remove(struct wiphy *wiphy, uint32_t id);
+
+uint32_t wiphy_radio_work_insert(struct wiphy *wiphy,
+				struct wiphy_radio_work_item *item,
+				int priority,
+				const struct wiphy_radio_work_item_ops *ops);
+void wiphy_radio_work_done(struct wiphy *wiphy, uint32_t id);
