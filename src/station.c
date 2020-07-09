@@ -2488,6 +2488,19 @@ void station_connect_network(struct station *station, struct network *network,
 	struct l_dbus *dbus = dbus_get_bus();
 	int err;
 
+	/*
+	 * If a hidden scan is not completed, station_is_busy would not
+	 * indicate anything is going on so we need to cancel the scan and
+	 * fail the connection now.
+	 */
+	if (station->hidden_network_scan_id) {
+		scan_cancel(netdev_get_wdev_id(station->netdev),
+				station->hidden_network_scan_id);
+
+		dbus_pending_reply(&station->hidden_pending,
+				dbus_error_failed(station->hidden_pending));
+	}
+
 	if (station_is_busy(station)) {
 		station_disconnect_onconnect(station, network, bss, message);
 
@@ -2539,6 +2552,8 @@ static bool station_hidden_network_scan_results(int err,
 
 	msg = station->hidden_pending;
 	station->hidden_pending = NULL;
+	/* Zero this now so station_connect_network knows the scan is done */
+	station->hidden_network_scan_id = 0;
 
 	if (err) {
 		dbus_pending_reply(&msg, dbus_error_failed(msg));
