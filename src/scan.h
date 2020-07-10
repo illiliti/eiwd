@@ -170,6 +170,3 @@ bool scan_freq_set_isempty(const struct scan_freq_set *set);
 
 bool scan_wdev_add(uint64_t wdev_id);
 bool scan_wdev_remove(uint64_t wdev_id);
-
-bool scan_suspend(uint64_t wdev_id);
-void scan_resume(uint64_t wdev_id);

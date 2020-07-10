@@ -56,7 +56,8 @@
 static struct l_queue *scan_contexts;
 
 static struct l_genl_family *nl80211;
-static uint32_t next_scan_request_id;
+
+struct scan_context;
 
 struct scan_periodic {
 	struct l_timeout *timeout;
@@ -70,7 +71,7 @@ struct scan_periodic {
 };
 
 struct scan_request {
-	uint32_t id;
+	struct scan_context *sc;
 	scan_trigger_func_t trigger;
 	scan_notify_func_t callback;
 	void *userdata;
@@ -79,6 +80,7 @@ struct scan_request {
 	struct l_queue *cmds;
 	/* The time the current scan was started. Reported in TRIGGER_SCAN */
 	uint64_t start_time_tsf;
+	struct wiphy_radio_work_item work;
 };
 
 struct scan_context {
@@ -106,7 +108,7 @@ struct scan_context {
 	bool triggered:1;
 	/* Whether any commands from current request's queue have started */
 	bool started:1;
-	bool suspended:1;
+	bool work_started:1;
 	struct wiphy *wiphy;
 };
 
@@ -118,7 +120,7 @@ struct scan_results {
 	struct scan_request *sr;
 };
 
-static bool start_next_scan_request(struct scan_context *sc);
+static bool start_next_scan_request(struct wiphy_radio_work_item *item);
 static void scan_periodic_rearm(struct scan_context *sc);
 
 static bool scan_context_match(const void *a, const void *b)
@@ -134,12 +136,13 @@ static bool scan_request_match(const void *a, const void *b)
 	const struct scan_request *sr = a;
 	uint32_t id = L_PTR_TO_UINT(b);
 
-	return sr->id == id;
+	return sr->work.id == id;
 }
 
-static void scan_request_free(void *data)
+static void scan_request_free(struct wiphy_radio_work_item *item)
 {
-	struct scan_request *sr = data;
+	struct scan_request *sr = l_container_of(item, struct scan_request,
+							work);
 
 	if (sr->destroy)
 		sr->destroy(sr->userdata);
@@ -159,12 +162,12 @@ static void scan_request_failed(struct scan_context *sc,
 	else if (sr->callback)
 		sr->callback(err, NULL, sr->userdata);
 
-	scan_request_free(sr);
+	wiphy_radio_work_done(sc->wiphy, sr->work.id);
 }
 
 static struct scan_context *scan_context_new(uint64_t wdev_id)
 {
-	struct wiphy *wiphy = wiphy_find(wdev_id >> 32);
+	struct wiphy *wiphy = wiphy_find_by_wdev(wdev_id);
 	struct scan_context *sc;
 
 	if (!wiphy)
@@ -180,11 +183,18 @@ static struct scan_context *scan_context_new(uint64_t wdev_id)
 	return sc;
 }
 
+static void scan_request_cancel(void *data)
+{
+	struct scan_request *sr = data;
+
+	wiphy_radio_work_done(sr->sc->wiphy, sr->work.id);
+}
+
 static void scan_context_free(struct scan_context *sc)
 {
 	l_debug("sc: %p", sc);
 
-	l_queue_destroy(sc->requests, scan_request_free);
+	l_queue_destroy(sc->requests, scan_request_cancel);
 
 	if (sc->sp.timeout)
 		l_timeout_remove(sc->sp.timeout);
@@ -215,7 +225,6 @@ static void scan_request_triggered(struct l_genl_msg *msg, void *userdata)
 		}
 
 		l_queue_remove(sc->requests, sr);
-		start_next_scan_request(sc);
 
 		scan_request_failed(sc, sr, err);
 
@@ -517,6 +526,11 @@ static int scan_request_send_trigger(struct scan_context *sc,
 	return -EIO;
 }
 
+static const struct wiphy_radio_work_item_ops work_ops = {
+	.do_work = start_next_scan_request,
+	.destroy = scan_request_free,
+};
+
 static uint32_t scan_common(uint64_t wdev_id, bool passive,
 				const struct scan_parameters *params,
 				scan_trigger_func_t trigger,
@@ -532,36 +546,19 @@ static uint32_t scan_common(uint64_t wdev_id, bool passive,
 		return 0;
 
 	sr = l_new(struct scan_request, 1);
+	sr->sc = sc;
 	sr->trigger = trigger;
 	sr->callback = notify;
 	sr->userdata = userdata;
 	sr->destroy = destroy;
 	sr->passive = passive;
-	sr->id = ++next_scan_request_id;
 	sr->cmds = l_queue_new();
 
 	scan_cmds_add(sr->cmds, sc, passive, params);
 
-	/* Queue empty implies !sc->triggered && !sc->start_cmd_id */
-	if (!l_queue_isempty(sc->requests))
-		goto done;
-
-	if (sc->suspended)
-		goto done;
-
-	if (sc->state != SCAN_STATE_NOT_RUNNING)
-		goto done;
-
-	if (!scan_request_send_trigger(sc, sr))
-		goto done;
-
-	sr->destroy = NULL;	/* Don't call destroy when returning error */
-	scan_request_free(sr);
-	return 0;
-done:
 	l_queue_push_tail(sc->requests, sr);
 
-	return sr->id;
+	return wiphy_radio_work_insert(sc->wiphy, &sr->work, 2, &work_ops);
 }
 
 uint32_t scan_passive(uint64_t wdev_id, struct scan_freq_set *freqs,
@@ -649,11 +646,11 @@ bool scan_cancel(uint64_t wdev_id, uint32_t id)
 		sc->start_cmd_id = 0;
 		l_queue_remove(sc->requests, sr);
 		sc->started = false;
-		start_next_scan_request(sc);
 	} else
 		l_queue_remove(sc->requests, sr);
 
-	scan_request_free(sr);
+	wiphy_radio_work_done(sc->wiphy, sr->work.id);
+
 	return true;
 }
 
@@ -832,34 +829,30 @@ static void scan_periodic_rearm(struct scan_context *sc)
 						scan_periodic_timeout_destroy);
 }
 
-static bool start_next_scan_request(struct scan_context *sc)
+static bool start_next_scan_request(struct wiphy_radio_work_item *item)
 {
-	struct scan_request *sr = l_queue_peek_head(sc->requests);
+	struct scan_request *sr = l_container_of(item,
+						struct scan_request, work);
+	struct scan_context *sc = sr->sc;
 
-	if (sc->suspended)
-		return true;
+	sc->work_started = true;
 
 	if (sc->state != SCAN_STATE_NOT_RUNNING)
-		return true;
+		return false;
 
-	if (sc->start_cmd_id || sc->get_scan_cmd_id)
-		return true;
+	if (!scan_request_send_trigger(sc, sr))
+		return false;
 
-	while (sr) {
-		if (!scan_request_send_trigger(sc, sr))
-			return true;
+	sc->work_started = false;
 
-		scan_request_failed(sc, sr, -EIO);
-
-		sr = l_queue_peek_head(sc->requests);
-	}
+	scan_request_failed(sc, sr, -EIO);
 
 	if (sc->sp.retry) {
 		sc->sp.retry = false;
 		scan_periodic_queue(sc);
 	}
 
-	return false;
+	return true;
 }
 
 static bool scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
@@ -1500,6 +1493,7 @@ static void scan_finished(struct scan_context *sc,
 	if  (sr) {
 		l_queue_remove(sc->requests, sr);
 		sc->started = false;
+		sc->work_started = false;
 
 		if (sr->callback)
 			new_owner = sr->callback(err, bss_list, sr->userdata);
@@ -1511,9 +1505,7 @@ static void scan_finished(struct scan_context *sc,
 		 * taken care of sending the next command for a new or ongoing
 		 * scan, or scheduling the next periodic scan.
 		 */
-		start_next_scan_request(sc);
-
-		scan_request_free(sr);
+		wiphy_radio_work_done(sc->wiphy, sr->work.id);
 	} else if (sc->sp.callback)
 		new_owner = sc->sp.callback(err, bss_list, sc->sp.userdata);
 
@@ -1677,9 +1669,21 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			sr = NULL;
 		}
 
-		/* Send the next command of a new or an ongoing request */
-		if (send_next)
-			start_next_scan_request(sc);
+		/*
+		 * Send the next command of an ongoing request, or continue with
+		 * a previously busy scan attempt due to an external scan. A
+		 * temporary scan_request object is used (rather than 'sr')
+		 * because the state of 'sr' tells us if the results should
+		 * be used either as normal scan results, or to take advantage
+		 * of the external scan as a 'free' periodic scan of sorts.
+		 */
+		if (sc->work_started && send_next) {
+			struct scan_request *next = l_queue_peek_head(
+								sc->requests);
+
+			if (next)
+				start_next_scan_request(&next->work);
+		}
 
 		if (!get_results)
 			break;
@@ -1730,7 +1734,8 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			 * hardware or the driver because of another activity
 			 * starting in which case we should just get an EBUSY.
 			 */
-			start_next_scan_request(sc);
+			if (sc->work_started)
+				start_next_scan_request(&sr->work);
 		}
 
 		break;
@@ -2131,32 +2136,6 @@ bool scan_wdev_remove(uint64_t wdev_id)
 	}
 
 	return true;
-}
-
-bool scan_suspend(uint64_t wdev_id)
-{
-	struct scan_context *sc;
-
-	sc = l_queue_find(scan_contexts, scan_context_match, &wdev_id);
-	if (!sc)
-		return false;
-
-	sc->suspended = true;
-
-	return true;
-}
-
-void scan_resume(uint64_t wdev_id)
-{
-	struct scan_context *sc;
-
-	sc = l_queue_find(scan_contexts, scan_context_match, &wdev_id);
-	if (!sc)
-		return;
-
-	sc->suspended = false;
-
-	start_next_scan_request(sc);
 }
 
 static int scan_init(void)

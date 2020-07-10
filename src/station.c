@@ -531,8 +531,6 @@ request_done:
 		station_network_foreach(station, network_add_foreach, station);
 		station_autoconnect_next(station);
 	}
-
-	scan_resume(netdev_get_wdev_id(station->netdev));
 }
 
 static bool station_start_anqp(struct station *station, struct network *network,
@@ -662,19 +660,7 @@ void station_set_scan_results(struct station *station,
 
 	l_hashmap_foreach_remove(station->networks, process_network, station);
 
-	/*
-	 * ANQP requests are scheduled in the same manor as scans, and cannot
-	 * be done simultaneously. To avoid long queue times (waiting for a
-	 * scan to finish) its best to stop scanning, do ANQP, then resume
-	 * scanning.
-	 *
-	 * TODO: It may be possible for some hardware to actually scan and do
-	 * ANQP at the same time. Detecting this could allow us to continue
-	 * scanning.
-	 */
-	if (wait_for_anqp)
-		scan_suspend(netdev_get_wdev_id(station->netdev));
-	else if (add_to_autoconnect) {
+	if (!wait_for_anqp && add_to_autoconnect) {
 		station_network_foreach(station, network_add_foreach, station);
 		station_autoconnect_next(station);
 	}
