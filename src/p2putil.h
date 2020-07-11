@@ -377,6 +377,8 @@ struct p2p_go_negotiation_req {
 	struct p2p_device_info_attr device_info;
 	struct p2p_channel_attr operating_channel;
 	enum wsc_device_password_id device_password_id;
+	uint8_t *wfd;
+	ssize_t wfd_size;
 };
 
 struct p2p_go_negotiation_resp {
@@ -392,6 +394,8 @@ struct p2p_go_negotiation_resp {
 	struct p2p_device_info_attr device_info;
 	struct p2p_group_id_attr group_id;
 	enum wsc_device_password_id device_password_id;
+	uint8_t *wfd;
+	ssize_t wfd_size;
 };
 
 struct p2p_go_negotiation_confirmation {
@@ -401,6 +405,8 @@ struct p2p_go_negotiation_confirmation {
 	struct p2p_channel_attr operating_channel;
 	struct p2p_channel_list_attr channel_list;
 	struct p2p_group_id_attr group_id;
+	uint8_t *wfd;
+	ssize_t wfd_size;
 };
 
 struct p2p_invitation_req {
@@ -413,6 +419,8 @@ struct p2p_invitation_req {
 	struct p2p_group_id_attr group_id;
 	struct p2p_device_info_attr device_info;
 	enum wsc_device_password_id device_password_id;
+	uint8_t *wfd;
+	ssize_t wfd_size;
 };
 
 struct p2p_invitation_resp {
@@ -422,6 +430,8 @@ struct p2p_invitation_resp {
 	struct p2p_channel_attr operating_channel;
 	uint8_t group_bssid[6];
 	struct p2p_channel_list_attr channel_list;
+	uint8_t *wfd;
+	ssize_t wfd_size;
 };
 
 struct p2p_device_discoverability_req {
@@ -453,6 +463,8 @@ struct p2p_provision_discovery_req {
 	enum p2p_asp_coordination_transport_protocol transport_protocol;
 	struct p2p_group_id_attr persistent_group_info;
 	uint16_t wsc_config_method;
+	uint8_t *wfd;
+	ssize_t wfd_size;
 };
 
 struct p2p_provision_discovery_resp {
@@ -472,6 +484,8 @@ struct p2p_provision_discovery_resp {
 	struct p2p_group_id_attr persistent_group_info;
 	struct p2p_session_info_data_attr session_info;
 	uint16_t wsc_config_method;
+	uint8_t *wfd;
+	ssize_t wfd_size;
 };
 
 struct p2p_notice_of_absence {
