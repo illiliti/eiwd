@@ -64,7 +64,7 @@ def connect(path):
     print('Connecting to ' + peer_props['Name'])
     connecting = True
     try:
-        peer_wsc.PushButton()
+        peer_wsc.PushButton(timeout=120)
         print('New connection')
     except Exception as e:
         connecting = False
