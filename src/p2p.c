@@ -524,6 +524,14 @@ static void p2p_netconfig_event_handler(enum netconfig_event event,
 		l_dbus_property_changed(dbus_get_bus(),
 					p2p_peer_get_path(dev->conn_peer),
 					IWD_P2P_PEER_INTERFACE, "Connected");
+		l_dbus_property_changed(dbus_get_bus(),
+					p2p_peer_get_path(dev->conn_peer),
+					IWD_P2P_PEER_INTERFACE,
+					"ConnectedInterface");
+		l_dbus_property_changed(dbus_get_bus(),
+					p2p_peer_get_path(dev->conn_peer),
+					IWD_P2P_PEER_INTERFACE,
+					"ConnectedIP");
 
 		break;
 	default:
@@ -640,6 +648,14 @@ static void p2p_netdev_event(struct netdev *netdev, enum netdev_event event,
 		l_dbus_property_changed(dbus_get_bus(),
 					p2p_peer_get_path(dev->conn_peer),
 					IWD_P2P_PEER_INTERFACE, "Connected");
+		l_dbus_property_changed(dbus_get_bus(),
+					p2p_peer_get_path(dev->conn_peer),
+					IWD_P2P_PEER_INTERFACE,
+					"ConnectedInterface");
+		l_dbus_property_changed(dbus_get_bus(),
+					p2p_peer_get_path(dev->conn_peer),
+					IWD_P2P_PEER_INTERFACE,
+					"ConnectedIP");
 		p2p_connection_reset(dev);
 		break;
 	default:
@@ -2072,9 +2088,16 @@ static void p2p_peer_disconnect(struct p2p_peer *peer)
 		dbus_pending_reply(&peer->wsc.pending_connect,
 				dbus_error_aborted(peer->wsc.pending_connect));
 
-	if (p2p_peer_operational(peer))
+	if (p2p_peer_operational(peer)) {
 		l_dbus_property_changed(dbus_get_bus(), p2p_peer_get_path(peer),
 					IWD_P2P_PEER_INTERFACE, "Connected");
+		l_dbus_property_changed(dbus_get_bus(), p2p_peer_get_path(peer),
+					IWD_P2P_PEER_INTERFACE,
+					"ConnectedInterface");
+		l_dbus_property_changed(dbus_get_bus(), p2p_peer_get_path(peer),
+					IWD_P2P_PEER_INTERFACE,
+					"ConnectedIP");
+	}
 
 	dev->disconnecting = true;
 
@@ -3519,6 +3542,38 @@ static bool p2p_peer_get_connected(struct l_dbus *dbus,
 	return true;
 }
 
+static bool p2p_peer_get_connected_if(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct p2p_peer *peer = user_data;
+	const char *ifname = netdev_get_name(peer->dev->conn_netdev);
+
+	if (!p2p_peer_operational(peer))
+		return false;
+
+	l_dbus_message_builder_append_basic(builder, 's', ifname);
+	return true;
+}
+
+static bool p2p_peer_get_connected_ip(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct p2p_peer *peer = user_data;
+	char *server_ip;
+
+	if (!p2p_peer_operational(peer))
+		return false;
+
+	server_ip = netconfig_get_dhcp_server_ipv4(peer->dev->conn_netconfig);
+	l_dbus_message_builder_append_basic(builder, 's', server_ip);
+	l_free(server_ip);
+	return true;
+}
+
 static struct l_dbus_message *p2p_peer_dbus_disconnect(struct l_dbus *dbus,
 						struct l_dbus_message *message,
 						void *user_data)
@@ -3550,6 +3605,10 @@ static void p2p_peer_interface_setup(struct l_dbus_interface *interface)
 					p2p_peer_get_subcategory, NULL);
 	l_dbus_interface_property(interface, "Connected", 0, "b",
 					p2p_peer_get_connected, NULL);
+	l_dbus_interface_property(interface, "ConnectedInterface", 0, "s",
+					p2p_peer_get_connected_if, NULL);
+	l_dbus_interface_property(interface, "ConnectedIP", 0, "s",
+					p2p_peer_get_connected_ip, NULL);
 	l_dbus_interface_method(interface, "Disconnect", 0,
 				p2p_peer_dbus_disconnect, "", "");
 }
