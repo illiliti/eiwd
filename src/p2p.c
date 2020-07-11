@@ -3454,6 +3454,18 @@ static bool p2p_peer_get_name(struct l_dbus *dbus,
 	return true;
 }
 
+static bool p2p_peer_get_device(struct l_dbus *dbus,
+				struct l_dbus_message *message,
+				struct l_dbus_message_builder *builder,
+				void *user_data)
+{
+	struct p2p_peer *peer = user_data;
+
+	l_dbus_message_builder_append_basic(builder, 'o',
+						p2p_device_get_path(peer->dev));
+	return true;
+}
+
 static bool p2p_peer_get_category(struct l_dbus *dbus,
 					struct l_dbus_message *message,
 					struct l_dbus_message_builder *builder,
@@ -3530,6 +3542,8 @@ static void p2p_peer_interface_setup(struct l_dbus_interface *interface)
 {
 	l_dbus_interface_property(interface, "Name", 0, "s",
 					p2p_peer_get_name, NULL);
+	l_dbus_interface_property(interface, "Device", 0, "o",
+					p2p_peer_get_device, NULL);
 	l_dbus_interface_property(interface, "DeviceCategory", 0, "s",
 					p2p_peer_get_category, NULL);
 	l_dbus_interface_property(interface, "DeviceSubcategory", 0, "s",
