@@ -1403,6 +1403,10 @@ static void p2p_device_go_negotiation_req_cb(const struct mmpdu_header *mpdu,
 		l_error("GO Negotiation Request parse error %s (%i)",
 			strerror(-r), -r);
 		p2p_connect_failed(dev);
+
+		if (l_queue_isempty(dev->discovery_users))
+			p2p_device_discovery_stop(dev);
+
 		status = P2P_STATUS_FAIL_INVALID_PARAMS;
 		goto respond;
 	}
@@ -1420,6 +1424,10 @@ static void p2p_device_go_negotiation_req_cb(const struct mmpdu_header *mpdu,
 		}
 
 		p2p_connect_failed(dev);
+
+		if (l_queue_isempty(dev->discovery_users))
+			p2p_device_discovery_stop(dev);
+
 		status = P2P_STATUS_FAIL_INCOMPATIBLE_PARAMS;
 		goto p2p_free;
 	}
@@ -1435,6 +1443,10 @@ static void p2p_device_go_negotiation_req_cb(const struct mmpdu_header *mpdu,
 
 		p2p_connect_failed(dev);
 		l_error("Persistent groups not supported");
+
+		if (l_queue_isempty(dev->discovery_users))
+			p2p_device_discovery_stop(dev);
+
 		status = P2P_STATUS_FAIL_INCOMPATIBLE_PARAMS;
 		goto p2p_free;
 	}
@@ -1442,6 +1454,10 @@ static void p2p_device_go_negotiation_req_cb(const struct mmpdu_header *mpdu,
 	if (req_info.device_password_id != dev->conn_password_id) {
 		p2p_connect_failed(dev);
 		l_error("Incompatible Password ID in the GO Negotiation Req");
+
+		if (l_queue_isempty(dev->discovery_users))
+			p2p_device_discovery_stop(dev);
+
 		status = P2P_STATUS_FAIL_INCOMPATIBLE_PROVISIONING;
 		goto p2p_free;
 	}
