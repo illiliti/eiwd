@@ -1149,6 +1149,20 @@ bool netconfig_reset(struct netconfig *netconfig)
 	return true;
 }
 
+char *netconfig_get_dhcp_server_ipv4(struct netconfig *netconfig)
+{
+	const struct l_dhcp_lease *lease;
+
+	if (!netconfig->dhcp_client)
+		return NULL;
+
+	lease = l_dhcp_client_get_lease(netconfig->dhcp_client);
+	if (!lease)
+		return NULL;
+
+	return l_dhcp_lease_get_server_id(lease);
+}
+
 struct netconfig *netconfig_new(uint32_t ifindex)
 {
 	struct netconfig *netconfig;

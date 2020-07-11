@@ -36,6 +36,7 @@ bool netconfig_configure(struct netconfig *netconfig,
 				void *user_data);
 bool netconfig_reconfigure(struct netconfig *netconfig);
 bool netconfig_reset(struct netconfig *netconfig);
+char *netconfig_get_dhcp_server_ipv4(struct netconfig *netconfig);
 
 struct netconfig *netconfig_new(uint32_t ifindex);
 void netconfig_destroy(struct netconfig *netconfig);
