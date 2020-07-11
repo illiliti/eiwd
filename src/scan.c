@@ -1102,6 +1102,8 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 	}
 	}
 
+	bss->wfd = ie_tlv_extract_wfd_payload(data, len, &bss->wfd_size);
+
 	return have_ssid;
 }
 
