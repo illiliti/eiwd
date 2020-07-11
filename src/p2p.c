@@ -3416,6 +3416,9 @@ static struct l_dbus_message *p2p_device_request_discovery(struct l_dbus *dbus,
 				l_dbus_message_get_sender(message)))
 		return dbus_error_already_exists(message);
 
+	if (!dev->discovery_users)
+		dev->discovery_users = l_queue_new();
+
 	user = l_new(struct p2p_discovery_user, 1);
 	user->client = l_strdup(l_dbus_message_get_sender(message));
 	user->dev = dev;
