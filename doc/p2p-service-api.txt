@@ -1,0 +1,89 @@
+P2P Service Manager hierarchy
+=============================
+
+Service		net.connman.iwd
+Interface	net.connman.iwd.p2p.ServiceManager [Experimental]
+Object path	/net/connman/iwd
+
+Methods		void RegisterDisplayService(dict properties)
+
+			Register a Wi-Fi Display service handler.  An
+			application can register as implementing this
+			P2P-based service to make IWD advertise local WFD
+			capability to peers, expose discovered peers' WFD
+			capabilities for each DBus peer object, and
+			validate the peer's WFD properties during a
+			connection setup.  Once a connection is established
+			to a peer that was available for a WFD Session the
+			application is responsible for continuing the WFD
+			session establishment by setting up the TCP
+			connection, performing WFD capability exchange and
+			negotiation, Link Content Protection setup and
+			session start.  When the session is torn down,
+			the application is responsible for calling the
+			Disconnect method on the net.connman.iwd.p2p.Peer
+			interface of the peer object.
+
+			Registering a service will have no effect on
+			existing connections.
+
+			The net.connman.iwd.p2p.Display interface is
+			going to be attached to discovered peer objects of
+			those peers that are available for a WFD session.
+			The properties argument to this method, who's DBus
+			signature is a{sv}, may contain any of the
+			properties on that interface as listed below.
+			Note that there's currently no way to select the
+			role for a specific connection so IWD will refuse
+			to connect to a dual-role peer if the local WFD
+			device is also dual-role capable.
+
+			Possible Errors: [service].Error.InvalidArguments
+					 [service].Error.AlreadyExists
+					 [service].Error.NotSupported
+
+		void UnregisterDisplayService()
+
+			Unregister a WFD service handler.
+
+			Possible Errors: [service].Error.InvalidArguments
+					 [service].Error.NotFound
+
+
+Display hierarchy
+=================
+
+Service		net.connman.iwd
+Interface	net.connman.iwd.p2p.Display [Experimental]
+Object path	/net/connman/iwd/{phy0,phy1,...}/p2p_peers/{aa_bb_cc_dd_ee_ff}
+
+Properties	boolean Source [readonly]
+
+			Whether the peer represented by the object is
+			a WFD source.
+
+		boolean Sink [readonly]
+
+			Whether the peer represented by the object has
+			a WFD sink capability.  At least one of this and
+			'Source' should be true.
+
+		uint16 Port [readonly, optional]
+
+			WFD Session Management Control port -- a TCP port
+			number.  Only present/allowed if Source is true.
+
+		boolean HasAudio [readonly, optional]
+
+			Whether audio rendering is supported.  Only
+			present/allowed if Sink is true.
+
+		boolean HasUIBC [readonly]
+
+			Whether WFD Device supports UIBC or User Input
+			Back Channel communication.
+
+		boolean HasContentProtection [readonly]
+
+			Whether WFD Device supports Content Protection
+			using the HDCP system 2.x.
