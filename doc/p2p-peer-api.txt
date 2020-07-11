@@ -125,3 +125,13 @@ Properties	string Name [readonly]
 			net.connman.iwd.SimpleConfiguration interface
 			on the same object -- see wsc-api.txt -- and
 			calls to Disconnect on this interface.
+
+		string ConnectedInterface [readonly, optional]
+
+			If connected, this property contains the name
+			of the network interface used for the
+			connection.
+
+		string ConnectedIP [readonly, optional]
+
+			The peer's IPv4 address if connected.
