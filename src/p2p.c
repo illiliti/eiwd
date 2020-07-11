@@ -2408,6 +2408,13 @@ static bool p2p_peer_update_existing(struct scan_bss *bss,
 	 * from the discovery scan results.
 	 * Do we need to update DBus properties?
 	 */
+
+	if (peer->device_addr == peer->bss->addr)
+		peer->device_addr = bss->addr;
+	else
+		peer->device_addr =
+			bss->p2p_probe_resp_info->device_info.device_addr;
+
 	scan_bss_free(peer->bss);
 	peer->bss = bss;
 
