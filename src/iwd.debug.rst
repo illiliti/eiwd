@@ -32,13 +32,15 @@ ENVIRONMENT
 
 *$IWD_RTNL_DEBUG* set to ``1`` enables RTNL debugging.
 
+*$IWD_GENL_DEBUG* set to ``1`` enables printing Generic Netlink communication with the kernel.
+
 *$IWD_DHCP_DEBUG* set to ``1`` enables DHCP debugging.
 
 *$IWD_TLS_DEBUG* set to ``1`` enables TLS debugging.
 
-*$IWD_WSC_DEBUG_KEYS* set to ``1`` enables WSC debug keys.
+*$IWD_WSC_DEBUG_KEYS* set to ``1`` enables printing received WSC keys.
 
 SEE ALSO
 ========
 
-iwd(8),
+iwd(8), iwmon(1)
