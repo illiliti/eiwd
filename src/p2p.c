@@ -3044,74 +3044,34 @@ static void p2p_mlme_notify(struct l_genl_msg *msg, void *user_data)
 struct p2p_device *p2p_device_update_from_genl(struct l_genl_msg *msg,
 						bool create)
 {
-	struct l_genl_attr attr;
-	uint16_t type, len;
-	const void *data;
-	const uint8_t *ifaddr = NULL;
-	const uint64_t *wdev_id = NULL;
-	struct wiphy *wiphy = NULL;
+	const uint8_t *ifaddr;
+	uint32_t iftype;
+	uint64_t wdev_id;
+	uint32_t wiphy_id;
+	struct wiphy *wiphy;
 	struct p2p_device *dev;
 	char hostname[HOST_NAME_MAX + 1];
 	char *str;
 	unsigned int uint_val;
 
-	if (!l_genl_attr_init(&attr, msg))
-		return NULL;
-
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
-		switch (type) {
-		case NL80211_ATTR_WDEV:
-			if (len != sizeof(uint64_t)) {
-				l_warn("Invalid wdev index attribute");
-				return NULL;
-			}
-
-			wdev_id = data;
-			break;
-
-		case NL80211_ATTR_WIPHY:
-			if (len != sizeof(uint32_t)) {
-				l_warn("Invalid wiphy attribute");
-				return NULL;
-			}
-
-			wiphy = wiphy_find(*((uint32_t *) data));
-			break;
-
-		case NL80211_ATTR_IFTYPE:
-			if (len != sizeof(uint32_t)) {
-				l_warn("Invalid interface type attribute");
-				return NULL;
-			}
-
-			if (*((uint32_t *) data) != NL80211_IFTYPE_P2P_DEVICE)
-				return NULL;
-
-			break;
-
-		case NL80211_ATTR_MAC:
-			if (len != ETH_ALEN) {
-				l_warn("Invalid interface address attribute");
-				return NULL;
-			}
-
-			ifaddr = data;
-			break;
-		}
-	}
-
-	if (!wiphy || !wdev_id || !ifaddr) {
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_WDEV, &wdev_id,
+				NL80211_ATTR_WIPHY, &wiphy_id,
+				NL80211_ATTR_IFTYPE, &iftype,
+				NL80211_ATTR_MAC, &ifaddr,
+				NL80211_ATTR_UNSPEC) < 0 ||
+			L_WARN_ON(!(wiphy = wiphy_find(wiphy_id))) ||
+			L_WARN_ON(iftype != NL80211_IFTYPE_P2P_DEVICE)) {
 		l_warn("Unable to parse interface information");
 		return NULL;
 	}
 
 	if (create) {
-		if (p2p_device_find(*wdev_id)) {
-			l_debug("Duplicate p2p device %" PRIx64, *wdev_id);
+		if (p2p_device_find(wdev_id)) {
+			l_debug("Duplicate p2p device %" PRIx64, wdev_id);
 			return NULL;
 		}
 	} else {
-		dev = p2p_device_find(*wdev_id);
+		dev = p2p_device_find(wdev_id);
 		if (!dev)
 			return NULL;
 
@@ -3120,7 +3080,7 @@ struct p2p_device *p2p_device_update_from_genl(struct l_genl_msg *msg,
 	}
 
 	dev = l_new(struct p2p_device, 1);
-	dev->wdev_id = *wdev_id;
+	dev->wdev_id = wdev_id;
 	memcpy(dev->addr, ifaddr, ETH_ALEN);
 	dev->nl80211 = l_genl_family_new(iwd_get_genl(), NL80211_GENL_NAME);
 	dev->wiphy = wiphy;
