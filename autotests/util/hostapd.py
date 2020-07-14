@@ -33,7 +33,7 @@ hostapd_map = {ifname: intf for wname, wiphy in wiphy_map.items()
         if wiphy.use == 'hostapd'}
 
 class HostapdCLI:
-    def __init__(self, interface=None, config=None):
+    def _init_hostapd(self, interface=None, config=None):
         global ctrl_count
 
         if not interface and not config:
@@ -54,7 +54,8 @@ class HostapdCLI:
         self.cmdline = 'hostapd_cli -p"' + self.socket_path + '" -i"' + \
                 self.ifname + '"'
 
-        self._hostapd_restarted = False
+        if not hasattr(self, '_hostapd_restarted'):
+            self._hostapd_restarted = False
 
         self.local_ctrl = '/tmp/hostapd_' + str(os.getpid()) + '_' + \
                             str(ctrl_count)
@@ -66,6 +67,9 @@ class HostapdCLI:
             raise Exception('ATTACH failed')
 
         ctrl_count = ctrl_count + 1
+
+    def __init__(self, interface=None, config=None):
+        self._init_hostapd(interface, config)
 
     def wait_for_event(self, event, timeout=10):
         global mainloop
@@ -84,6 +88,7 @@ class HostapdCLI:
             while self._data_available(0.25):
                 data = self.ctrl_sock.recv(4096).decode('utf-8')
                 if event in data:
+                    GLib.source_remove(timeout)
                     return data
 
             if self._wait_timed_out:
@@ -108,11 +113,20 @@ class HostapdCLI:
 
         raise Exception('timeout waiting for control response')
 
-    def __del__(self):
-        if self._hostapd_restarted:
-            os.system('killall hostapd')
-
+    def _del_hostapd(self, force=False):
         self.ctrl_sock.close()
+
+        if self._hostapd_restarted:
+            if force:
+                os.system('killall -9 hostapd')
+            else:
+                os.system('killall hostapd')
+
+            os.system('ifconfig %s down' % self.ifname)
+            os.system('ifconfig %s up' % self.ifname)
+
+    def __del__(self):
+        self._del_hostapd()
 
     def wps_push_button(self):
         os.system(self.cmdline + ' wps_pbc')
@@ -193,15 +207,20 @@ class HostapdCLI:
         '''
             Ungracefully kill and restart hostapd
         '''
+        # set flag so hostapd can be killed after the test
+        self._hostapd_restarted = True
         intf = hostapd_map[self.ifname]
-        os.system('killall -9 hostapd')
-        os.system('ifconfig %s down' % intf.name)
-        os.system('ifconfig %s up' % intf.name)
+
+        self._del_hostapd(force=True)
+
         os.system('hostapd -g %s -i %s %s &' %
                   (intf.ctrl_interface, intf.name, intf.config))
 
-        # set flag so hostapd can be killed after the test
-        self._hostapd_restarted = True
+        # Give hostapd a second to start and initialize the control interface
+        time.sleep(1)
+
+        # New hostapd process, so re-init
+        self._init_hostapd(intf)
 
     def req_beacon(self, addr, request):
         '''
