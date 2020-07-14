@@ -13,7 +13,7 @@ from hostapd import HostapdCLI, hostapd_map
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
-        hostapd = HostapdCLI(list(hostapd_map.values())[0])
+        hostapd = HostapdCLI(config='ssidCCMP.conf')
 
         wd = IWD()
 
@@ -53,8 +53,10 @@ class Test(unittest.TestCase):
 
         # IWD should now try and re-connect to the AP
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
+
+        hostapd.wait_for_event('AP-STA-CONNECTED')
 
         device.disconnect()
 
