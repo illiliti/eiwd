@@ -136,6 +136,9 @@ struct netdev {
 
 	struct l_io *pae_io;  /* for drivers without EAPoL over NL80211 */
 
+	struct l_genl_msg *connect_cmd;
+	struct wiphy_radio_work_item work;
+
 	bool connected : 1;
 	bool operational : 1;
 	bool rekey_offload_support : 1;
@@ -485,6 +488,9 @@ static void netdev_preauth_destroy(void *data)
 
 static void netdev_connect_free(struct netdev *netdev)
 {
+	if (netdev->work.id)
+		wiphy_radio_work_done(netdev->wiphy, netdev->work.id);
+
 	if (netdev->sm) {
 		eapol_sm_free(netdev->sm);
 		netdev->sm = NULL;
@@ -529,6 +535,11 @@ static void netdev_connect_free(struct netdev *netdev)
 	netdev->in_ft = false;
 	netdev->ignore_connect_event = false;
 	netdev->expect_connect_failure = false;
+
+	if (netdev->connect_cmd) {
+		l_genl_msg_unref(netdev->connect_cmd);
+		netdev->connect_cmd = NULL;
+	}
 
 	netdev_rssi_polling_update(netdev);
 
@@ -1019,6 +1030,9 @@ static void netdev_connect_ok(struct netdev *netdev)
 	}
 
 	netdev_rssi_polling_update(netdev);
+
+	if (netdev->work.id)
+		wiphy_radio_work_done(netdev->wiphy, netdev->work.id);
 }
 
 static void netdev_setting_keys_failed(struct netdev_handshake_state *nhs,
@@ -1487,6 +1501,9 @@ void netdev_handshake_failed(struct handshake_state *hs, uint16_t reason_code)
 		if (!l_genl_family_send(nl80211, msg, NULL, NULL, NULL))
 			l_error("error sending DEL_STATION");
 	}
+
+	if (netdev->work.id)
+		wiphy_radio_work_done(netdev->wiphy, netdev->work.id);
 }
 
 static void hardware_rekey_cb(struct l_genl_msg *msg, void *data)
@@ -2421,32 +2438,48 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 
 struct rtnl_data {
 	struct netdev *netdev;
-	struct l_genl_msg *cmd_connect;
 	uint8_t addr[ETH_ALEN];
 	int ref;
 };
 
-static int netdev_begin_connection(struct netdev *netdev,
-					struct l_genl_msg *cmd_connect)
+static int netdev_begin_connection(struct netdev *netdev)
 {
-	if (cmd_connect) {
+	if (netdev->connect_cmd) {
 		netdev->connect_cmd_id = l_genl_family_send(nl80211,
-					cmd_connect, netdev_cmd_connect_cb,
-					netdev, NULL);
+						netdev->connect_cmd,
+						netdev_cmd_connect_cb, netdev,
+						NULL);
 
-		if (!netdev->connect_cmd_id) {
-			l_genl_msg_unref(cmd_connect);
-			return -EIO;
-		}
+		if (!netdev->connect_cmd_id)
+			goto failed;
+
+		netdev->connect_cmd = NULL;
 	}
 
+	/*
+	 * Set the supplicant address now, this may have already been done for
+	 * a non-randomized address connect, but if we are randomizing we need
+	 * to set it again as the address should have now changed.
+	 */
 	handshake_state_set_supplicant_address(netdev->handshake, netdev->addr);
 
-	/* set connected since the auth protocols cannot do so internally */
-	if (netdev->ap && auth_proto_start(netdev->ap))
+	if (netdev->ap) {
+		if (!auth_proto_start(netdev->ap))
+			goto failed;
+
+		/*
+		 * set connected since the auth protocols cannot do
+		 * so internally
+		 */
 		netdev->connected = true;
+	}
 
 	return 0;
+
+failed:
+	netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
+	return -EIO;
 }
 
 static void netdev_mac_change_failed(struct netdev *netdev,
@@ -2461,8 +2494,6 @@ static void netdev_mac_change_failed(struct netdev *netdev,
 	 * mac_change_cmd_id was set.
 	 */
 	if (!netdev_get_is_up(netdev)) {
-		l_genl_msg_unref(req->cmd_connect);
-
 		WATCHLIST_NOTIFY(&netdev_watches, netdev_watch_func_t,
 				netdev, NETDEV_WATCH_EVENT_DOWN);
 
@@ -2474,7 +2505,7 @@ static void netdev_mac_change_failed(struct netdev *netdev,
 		 */
 		l_info("Interface still up after failing to change the MAC, "
 			"continuing with connection");
-		if (netdev_begin_connection(netdev, req->cmd_connect) < 0)
+		if (netdev_begin_connection(netdev) < 0)
 			goto failed;
 
 		return;
@@ -2517,7 +2548,7 @@ static void netdev_mac_power_up_cb(int error, uint16_t type,
 	/*
 	 * Pick up where we left off in netdev_connect_commmon.
 	 */
-	if (netdev_begin_connection(netdev, req->cmd_connect) < 0) {
+	if (netdev_begin_connection(netdev) < 0) {
 		l_error("Failed to connect after changing MAC");
 		netdev_connect_failed(netdev, NETDEV_RESULT_ASSOCIATION_FAILED,
 				MMPDU_STATUS_CODE_UNSPECIFIED);
@@ -2576,9 +2607,7 @@ static void netdev_mac_power_down_cb(int error, uint16_t type,
  * Returns -EALREADY if the requested MAC matched our current MAC
  * Returns -EIO if there was an IO error when powering down
  */
-static int netdev_start_powered_mac_change(struct netdev *netdev,
-					struct scan_bss *bss,
-					struct l_genl_msg *cmd_connect)
+static int netdev_start_powered_mac_change(struct netdev *netdev)
 {
 	struct rtnl_data *req;
 	uint8_t new_addr[6];
@@ -2586,8 +2615,8 @@ static int netdev_start_powered_mac_change(struct netdev *netdev,
 	/* No address set in handshake, use per-network MAC generation */
 	if (util_mem_is_zero(netdev->handshake->spa, ETH_ALEN))
 		wiphy_generate_address_from_ssid(netdev->wiphy,
-						(const char *)bss->ssid,
-						new_addr);
+					(const char *)netdev->handshake->ssid,
+					new_addr);
 	else
 		memcpy(new_addr, netdev->handshake->spa, ETH_ALEN);
 
@@ -2600,7 +2629,6 @@ static int netdev_start_powered_mac_change(struct netdev *netdev,
 	req = l_new(struct rtnl_data, 1);
 	req->netdev = netdev;
 	/* This message will need to be unreffed upon any error */
-	req->cmd_connect = cmd_connect;
 	req->ref++;
 	memcpy(req->addr, new_addr, sizeof(req->addr));
 
@@ -2609,7 +2637,6 @@ static int netdev_start_powered_mac_change(struct netdev *netdev,
 					req, netdev_mac_destroy);
 
 	if (!netdev->mac_change_cmd_id) {
-		l_genl_msg_unref(req->cmd_connect);
 		l_free(req);
 
 		return -EIO;
@@ -2617,6 +2644,35 @@ static int netdev_start_powered_mac_change(struct netdev *netdev,
 
 	return 0;
 }
+
+static bool netdev_connection_work_ready(struct wiphy_radio_work_item *item)
+{
+	struct netdev *netdev = l_container_of(item, struct netdev, work);
+
+	if (mac_per_ssid) {
+		int ret = netdev_start_powered_mac_change(netdev);
+
+		if (!ret)
+			return false;
+		else if (ret != -EALREADY)
+			goto failed;
+	}
+
+	if (netdev_begin_connection(netdev) < 0)
+		goto failed;
+
+	return false;
+
+failed:
+	netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
+				MMPDU_STATUS_CODE_UNSPECIFIED);
+
+	return true;
+}
+
+static const struct wiphy_radio_work_item_ops connect_work_ops = {
+	.do_work = netdev_connection_work_ready,
+};
 
 static int netdev_connect_common(struct netdev *netdev,
 					struct l_genl_msg *cmd_connect,
@@ -2626,6 +2682,7 @@ static int netdev_connect_common(struct netdev *netdev,
 					netdev_event_func_t event_filter,
 					netdev_connect_cb_t cb, void *user_data)
 {
+	netdev->connect_cmd = cmd_connect;
 	netdev->event_filter = event_filter;
 	netdev->connect_cb = cb;
 	netdev->user_data = user_data;
@@ -2642,14 +2699,9 @@ static int netdev_connect_common(struct netdev *netdev,
 					NL80211_EXT_FEATURE_CAN_REPLACE_PTK0))
 		handshake_state_set_no_rekey(hs, true);
 
-	if (mac_per_ssid) {
-		int ret = netdev_start_powered_mac_change(netdev, bss,
-								cmd_connect);
-		if (ret != -EALREADY)
-			return ret;
-	}
-
-	return netdev_begin_connection(netdev, cmd_connect);
+	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
+				&connect_work_ops);
+	return 0;
 }
 
 int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
@@ -2667,7 +2719,7 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 			netdev->type != NL80211_IFTYPE_P2P_CLIENT)
 		return -ENOTSUP;
 
-	if (netdev->connected || netdev->connect_cmd_id)
+	if (netdev->connected || netdev->connect_cmd_id || netdev->work.id)
 		return -EISCONN;
 
 	switch (hs->akm_suite) {
@@ -2709,23 +2761,36 @@ int netdev_disconnect(struct netdev *netdev,
 				netdev_disconnect_cb_t cb, void *user_data)
 {
 	struct l_genl_msg *disconnect;
+	bool send_disconnect = true;
 
 	if (netdev->type != NL80211_IFTYPE_STATION &&
 			netdev->type != NL80211_IFTYPE_P2P_CLIENT)
 		return -ENOTSUP;
-
-	if (!netdev->connected)
-		return -ENOTCONN;
 
 	if (netdev->disconnect_cmd_id)
 		return -EINPROGRESS;
 
 	/* Only perform this if we haven't successfully fully associated yet */
 	if (!netdev->operational) {
+		/*
+		 * Three possibilities here:
+		 * 1. We do not actually have a connect in progress (work.id
+		 *    is zero), then we can bail out early with an error.
+		 * 2. We have sent CMD_CONNECT but not fully connected. The
+		 *    CMD_CONNECT needs to be canceled and a disconnect should
+		 *    be sent.
+		 * 3. Queued up the connect work, but haven't sent CMD_CONNECT
+		 *    to the kernel. This case we do not need to send a
+		 *    disconnect.
+		 */
+		if (!netdev->work.id)
+			return -ENOTCONN;
+
 		if (netdev->connect_cmd_id) {
 			l_genl_family_cancel(nl80211, netdev->connect_cmd_id);
 			netdev->connect_cmd_id = 0;
-		}
+		} else
+			send_disconnect = false;
 
 		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
 					MMPDU_REASON_CODE_UNSPECIFIED);
@@ -2733,19 +2798,23 @@ int netdev_disconnect(struct netdev *netdev,
 		netdev_connect_free(netdev);
 	}
 
-	disconnect = netdev_build_cmd_disconnect(netdev,
+	if (send_disconnect) {
+		disconnect = netdev_build_cmd_disconnect(netdev,
 					MMPDU_REASON_CODE_DEAUTH_LEAVING);
-	netdev->disconnect_cmd_id = l_genl_family_send(nl80211, disconnect,
-				netdev_cmd_disconnect_cb, netdev, NULL);
+		netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
+					disconnect, netdev_cmd_disconnect_cb,
+					netdev, NULL);
 
-	if (!netdev->disconnect_cmd_id) {
-		l_genl_msg_unref(disconnect);
-		return -EIO;
-	}
+		if (!netdev->disconnect_cmd_id) {
+			l_genl_msg_unref(disconnect);
+			return -EIO;
+		}
 
-	netdev->disconnect_cb = cb;
-	netdev->user_data = user_data;
-	netdev->aborting = true;
+		netdev->disconnect_cb = cb;
+		netdev->user_data = user_data;
+		netdev->aborting = true;
+	} else if (cb)
+		cb(netdev, true, user_data);
 
 	return 0;
 }
@@ -3087,12 +3156,31 @@ static void netdev_ft_over_ds_tx_authenticate(struct iovec *iov,
 					netdev_ft_request_cb);
 }
 
+static bool netdev_ft_work_ready(struct wiphy_radio_work_item *item)
+{
+	struct netdev *netdev = l_container_of(item, struct netdev, work);
+
+	if (!auth_proto_start(netdev->ap)) {
+		/* Restore original nonce */
+		memcpy(netdev->handshake->snonce, netdev->prev_snonce, 32);
+
+		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
+						MMPDU_STATUS_CODE_UNSPECIFIED);
+		return true;
+	}
+
+	return false;
+}
+
+static const struct wiphy_radio_work_item_ops ft_work_ops = {
+	.do_work = netdev_ft_work_ready,
+};
+
 static int fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 				bool over_air,
 				netdev_connect_cb_t cb)
 {
 	struct netdev_handshake_state *nhs;
-	int err = -EINVAL;
 
 	if (!netdev->operational)
 		return -ENOTCONN;
@@ -3173,15 +3261,10 @@ static int fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 					netdev_ft_over_ds_tx_authenticate,
 					netdev_ft_tx_associate, netdev);
 
-	if (!auth_proto_start(netdev->ap))
-		goto restore_snonce;
+	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
+				&ft_work_ops);
 
 	return 0;
-
-restore_snonce:
-	memcpy(netdev->handshake->snonce, netdev->prev_snonce, 32);
-
-	return err;
 }
 
 int netdev_fast_transition(struct netdev *netdev, struct scan_bss *target_bss,

@@ -2702,10 +2702,6 @@ int station_disconnect(struct station *station)
 	if (!station->connected_bss)
 		return -ENOTCONN;
 
-	if (netdev_disconnect(station->netdev,
-					station_disconnect_cb, station) < 0)
-		return -EIO;
-
 	if (station->netconfig)
 		netconfig_reset(station->netconfig);
 
@@ -2717,6 +2713,10 @@ int station_disconnect(struct station *station)
 	station_reset_connection_state(station);
 
 	station_enter_state(station, STATION_STATE_DISCONNECTING);
+
+	if (netdev_disconnect(station->netdev,
+					station_disconnect_cb, station) < 0)
+		return -EIO;
 
 	return 0;
 }
