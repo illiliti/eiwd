@@ -651,7 +651,6 @@ static void agent_exit(void)
 {
 	struct l_dbus *dbus = dbus_get_bus();
 
-	l_dbus_unregister_object(dbus, IWD_AGENT_MANAGER_PATH);
 	l_dbus_unregister_interface(dbus, IWD_AGENT_MANAGER_INTERFACE);
 
 	l_queue_destroy(agents, agent_free);
