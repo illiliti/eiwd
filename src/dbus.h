@@ -37,9 +37,11 @@
 #define IWD_STATION_INTERFACE "net.connman.iwd.Station"
 #define IWD_P2P_INTERFACE "net.connman.iwd.p2p.Device"
 #define IWD_P2P_PEER_INTERFACE "net.connman.iwd.p2p.Peer"
+#define IWD_P2P_SERVICE_MANAGER_INTERFACE "net.connman.iwd.p2p.ServiceManager"
 
 #define IWD_BASE_PATH "/net/connman/iwd"
 #define IWD_AGENT_MANAGER_PATH IWD_BASE_PATH
+#define IWD_P2P_SERVICE_MANAGER_PATH IWD_BASE_PATH
 
 struct l_dbus;
 
