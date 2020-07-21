@@ -3186,7 +3186,7 @@ static void p2p_device_send_probe_resp(struct p2p_device *dev,
 
 	freq = scan_channel_to_freq(dev->listen_channel, SCAN_BAND_2_4_GHZ);
 	frame_xchg_start(dev->wdev_id, iov, freq, 0, 0, false, 0,
-				p2p_probe_resp_done, dev, NULL);
+				p2p_probe_resp_done, dev, NULL, NULL);
 	l_debug("Probe Response tx queued");
 
 	l_free(p2p_ie);
