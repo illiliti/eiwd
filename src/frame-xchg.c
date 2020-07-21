@@ -992,14 +992,11 @@ static bool frame_xchg_resp_handle(const struct mmpdu_header *mpdu,
 		return false;
 
 	/*
-	 * Is the received frame's BSSID same as the transmitted frame's
-	 * BSSID, may have to be moved to the user callback if there are
-	 * usages where this is false.  Some drivers (brcmfmac) can't
-	 * report the BSSID so check for all-zeros too.
+	 * BSSID (address_3) check not practical because some Linux
+	 * drivers report all-zero values and some remote devices send
+	 * wrong addresses.  But the frame callback is free to perform
+	 * its own check.
 	 */
-	if (memcmp(mpdu->address_3, fx->tx_mpdu->address_3, 6) &&
-			!util_mem_is_zero(mpdu->address_3, 6))
-		return false;
 
 	for (entry = l_queue_get_entries(fx->rx_watches);
 			entry; entry = entry->next) {
