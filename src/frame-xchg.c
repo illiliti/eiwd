@@ -1337,7 +1337,7 @@ static void destroy_xchg_data(void *user_data)
 {
 	struct frame_xchg_data *fx = user_data;
 
-	frame_xchg_destroy(&fx->work);
+	wiphy_radio_work_done(wiphy_find_by_wdev(fx->wdev_id), fx->work.id);
 }
 
 static void frame_xchg_exit(void)
@@ -1359,3 +1359,4 @@ static void frame_xchg_exit(void)
 }
 
 IWD_MODULE(frame_xchg, frame_xchg_init, frame_xchg_exit);
+IWD_MODULE_DEPENDS(frame_xchg, wiphy)
