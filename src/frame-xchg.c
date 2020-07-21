@@ -231,6 +231,10 @@ static void frame_watch_unicast_notify(struct l_genl_msg *msg, void *user_data)
 	WATCHLIST_NOTIFY_MATCHES(&group->watches, frame_watch_match_prefix,
 					&info, frame_watch_cb_t, mpdu,
 					info.body, info.body_len, rssi);
+
+	/* Has frame_watch_group_destroy been called inside a frame CB? */
+	if (group->watches.pending_destroy)
+		l_free(group);
 }
 
 static void frame_watch_group_destroy(void *data)
@@ -244,7 +248,16 @@ static void frame_watch_group_destroy(void *data)
 	l_io_destroy(group->io);
 	l_queue_destroy(group->write_queue,
 			(l_queue_destroy_func_t) l_genl_msg_unref);
+
+	/*
+	 * We may be inside a frame notification but even then use
+	 * watchlist_destroy to prevent any more notifications from
+	 * being dispatched.
+	 */
 	watchlist_destroy(&group->watches);
+	if (group->watches.in_notify)
+		return;
+
 	l_free(group);
 }
 
