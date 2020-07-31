@@ -588,6 +588,11 @@ class WFDRTSPServer:
         # TODO: can we also send this event directly to the element instead of the pad?
         sink.send_event(Gst.Event.new_custom(Gst.EventType.CUSTOM_DOWNSTREAM, s))
 
+    def reset_stream(self):
+        if self.rtp_pipeline.get_state(timeout=0)[1] == Gst.State.PLAYING:
+            self.rtp_pipeline.set_state(Gst.State.PAUSED)
+            self.rtp_pipeline.set_state(Gst.State.PLAYING)
+
     def rtsp_keepalive_timeout_cb(self):
         try:
             self.rtsp_keepalive_timeout = None
@@ -1312,6 +1317,25 @@ class WFDSource(Gtk.Window):
             self.add_info_str('Peer UIBC support', 'yes' if self.objects[path][WFD_IF]['HasUIBC'] else 'no')
 
             self.add_info_str('Peer content protection', 'yes' if self.objects[path][WFD_IF]['HasContentProtection'] else 'no')
+
+        if peer.rtsp is not None and peer.rtsp.ready:
+            def force_keyframe(widget):
+                peer.rtsp.force_keyframe()
+                return True
+            def reset_stream(widget):
+                peer.rtsp.reset_stream()
+                return True
+            # The idea for these buttons is to make sure any parameter changes get fully applied
+            button1 = Gtk.Button()
+            button1.set_label('Force keyframe')
+            button1.connect('clicked', force_keyframe)
+            button2 = Gtk.Button()
+            button2.set_label('Reset stream')
+            button2.connect('clicked', reset_stream)
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+            box.pack_start(button1, expand=False, fill=False, padding=3)
+            box.pack_start(button2, expand=False, fill=False, padding=3)
+            self.infopane.add(box)
 
         if self.rtsp_props is None:
             self.rtsp_props, self.rtsp_init_values = WFDRTSPServer.get_init_props()
