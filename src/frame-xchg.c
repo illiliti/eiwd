@@ -1188,6 +1188,24 @@ uint32_t frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 					&fx->work, 0, &work_ops);
 }
 
+static bool frame_xchg_cancel_by_wdev(void *data, void *user_data)
+{
+	struct frame_xchg_data *fx = data;
+	const uint64_t *wdev_id = user_data;
+
+	if (fx->wdev_id != *wdev_id)
+		return false;
+
+	wiphy_radio_work_done(wiphy_find_by_wdev(fx->wdev_id), fx->work.id);
+	return true;
+}
+
+void frame_xchg_stop_wdev(uint64_t wdev_id)
+{
+	l_queue_foreach_remove(frame_xchgs, frame_xchg_cancel_by_wdev,
+				&wdev_id);
+}
+
 static bool frame_xchg_match_id(const void *a, const void *b)
 {
 	const struct frame_xchg_data *fx = a;
