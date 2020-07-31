@@ -667,7 +667,7 @@ static void p2p_start_dhcp(struct p2p_device *dev)
 
 	if (!l_settings_get_uint(iwd_get_config(), "P2P", "DHCPTimeout",
 					&dhcp_timeout_val))
-		dhcp_timeout_val = 10;	/* 10s default */
+		dhcp_timeout_val = 20;	/* 20s default */
 
 	if (!dev->conn_netconfig) {
 		dev->conn_netconfig = netconfig_new(ifindex);
