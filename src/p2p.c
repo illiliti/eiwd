@@ -97,6 +97,8 @@ struct p2p_device {
 	struct netconfig *conn_netconfig;
 	struct l_timeout *conn_dhcp_timeout;
 	struct p2p_wfd_properties *conn_own_wfd;
+	uint8_t conn_psk[32];
+	int conn_retry_count;
 
 	struct l_timeout *config_timeout;
 	unsigned long go_config_delay;
@@ -206,8 +208,7 @@ static void p2p_discovery_user_free(void *data)
 static inline bool p2p_peer_operational(struct p2p_peer *peer)
 {
 	return peer && peer->dev->conn_netdev && !peer->dev->conn_wsc_bss &&
-		!peer->dev->conn_dhcp_timeout && !peer->wsc.pending_connect &&
-		!peer->dev->disconnecting;
+		!peer->wsc.pending_connect && !peer->dev->disconnecting;
 }
 
 static bool p2p_peer_match(const void *a, const void *b)
@@ -488,6 +489,9 @@ static void p2p_connection_reset(struct p2p_device *dev)
 		p2p_own_wfd->available = true;
 	}
 
+	explicit_bzero(dev->conn_psk, 32);
+	dev->conn_retry_count = 0;
+
 	if (dev->enabled && !dev->start_stop_cmd_id &&
 			!l_queue_isempty(dev->discovery_users))
 		p2p_device_discovery_start(dev);
@@ -596,31 +600,40 @@ static const struct frame_xchg_prefix p2p_frame_pd_resp = {
 	.len = 7,
 };
 
+static void p2p_peer_connect_done(struct p2p_device *dev)
+{
+	struct p2p_peer *peer = dev->conn_peer;
+
+	/* We can free anything potentially needed for a retry */
+	scan_bss_free(dev->conn_wsc_bss);
+	dev->conn_wsc_bss = NULL;
+	explicit_bzero(dev->conn_psk, 32);
+
+	dbus_pending_reply(&peer->wsc.pending_connect,
+				l_dbus_message_new_method_return(
+						peer->wsc.pending_connect));
+	l_dbus_property_changed(dbus_get_bus(),
+				p2p_peer_get_path(dev->conn_peer),
+				IWD_P2P_PEER_INTERFACE, "Connected");
+	l_dbus_property_changed(dbus_get_bus(),
+				p2p_peer_get_path(dev->conn_peer),
+				IWD_P2P_PEER_INTERFACE,
+				"ConnectedInterface");
+	l_dbus_property_changed(dbus_get_bus(),
+				p2p_peer_get_path(dev->conn_peer),
+				IWD_P2P_PEER_INTERFACE,
+				"ConnectedIP");
+}
+
 static void p2p_netconfig_event_handler(enum netconfig_event event,
 					void *user_data)
 {
 	struct p2p_device *dev = user_data;
-	struct p2p_peer *peer = dev->conn_peer;
 
 	switch (event) {
 	case NETCONFIG_EVENT_CONNECTED:
 		l_timeout_remove(dev->conn_dhcp_timeout);
-
-		dbus_pending_reply(&peer->wsc.pending_connect,
-					l_dbus_message_new_method_return(
-						peer->wsc.pending_connect));
-		l_dbus_property_changed(dbus_get_bus(),
-					p2p_peer_get_path(dev->conn_peer),
-					IWD_P2P_PEER_INTERFACE, "Connected");
-		l_dbus_property_changed(dbus_get_bus(),
-					p2p_peer_get_path(dev->conn_peer),
-					IWD_P2P_PEER_INTERFACE,
-					"ConnectedInterface");
-		l_dbus_property_changed(dbus_get_bus(),
-					p2p_peer_get_path(dev->conn_peer),
-					IWD_P2P_PEER_INTERFACE,
-					"ConnectedIP");
-
+		p2p_peer_connect_done(dev);
 		break;
 	default:
 		l_error("station: Unsupported netconfig event: %d.", event);
@@ -654,10 +667,12 @@ static void p2p_start_dhcp(struct p2p_device *dev)
 					&dhcp_timeout_val))
 		dhcp_timeout_val = 10;	/* 10s default */
 
-	dev->conn_netconfig = netconfig_new(ifindex);
 	if (!dev->conn_netconfig) {
-		p2p_connect_failed(dev);
-		return;
+		dev->conn_netconfig = netconfig_new(ifindex);
+		if (!dev->conn_netconfig) {
+			p2p_connect_failed(dev);
+			return;
+		}
 	}
 
 	netconfig_configure(dev->conn_netconfig, p2p_dhcp_settings,
@@ -711,13 +726,35 @@ static void p2p_netdev_connect_cb(struct netdev *netdev,
 	}
 }
 
+static void p2p_try_connect_group(struct p2p_device *dev);
+
 static void p2p_netdev_event(struct netdev *netdev, enum netdev_event event,
 				void *event_data, void *user_data)
 {
 	struct p2p_device *dev = user_data;
+	const uint16_t *reason_code;
 
 	switch (event) {
 	case NETDEV_EVENT_DISCONNECT_BY_AP:
+		reason_code = event_data;
+
+		if (*reason_code == MMPDU_REASON_CODE_PREV_AUTH_NOT_VALID &&
+				dev->conn_wsc_bss &&
+				dev->conn_retry_count < 5) {
+			/*
+			 * Sometimes a retry helps here, may be that we haven't
+			 * waited long enough for the GO setup.
+			 */
+			l_timeout_remove(dev->conn_dhcp_timeout);
+
+			if (dev->conn_netconfig)
+				netconfig_reset(dev->conn_netconfig);
+
+			p2p_try_connect_group(dev);
+			break;
+		}
+
+		/* Fall through. */
 	case NETDEV_EVENT_DISCONNECT_BY_SME:
 		/*
 		 * We may get a DISCONNECT_BY_SME as a result of a
@@ -770,71 +807,18 @@ static void p2p_handshake_event(struct handshake_state *hs,
 	va_end(args);
 }
 
-static void p2p_peer_provision_done(int err, struct wsc_credentials_info *creds,
-					unsigned int n_creds, void *user_data)
+static void p2p_try_connect_group(struct p2p_device *dev)
 {
-	struct p2p_peer *peer = user_data;
-	struct p2p_device *dev = peer->dev;
 	struct scan_bss *bss = dev->conn_wsc_bss;
 	struct handshake_state *hs = NULL;
 	struct iovec ie_iov[16];
 	int ie_num = 0;
-	int r = -EOPNOTSUPP;
+	int r;
 	struct p2p_association_req info = {};
 	struct ie_rsn_info bss_info = {};
 	struct ie_rsn_info rsn_info = {};
 	uint8_t rsne_buf[256];
 	uint8_t wfd_ie[32];
-
-	l_debug("err=%i n_creds=%u", err, n_creds);
-
-	dev->conn_wsc_bss = NULL;
-	dev->conn_enrollee = NULL;
-
-	l_timeout_remove(dev->config_timeout);
-	l_timeout_remove(dev->go_neg_req_timeout);
-
-	if (err < 0) {
-		if (err == -ECANCELED && peer->wsc.pending_cancel) {
-			dbus_pending_reply(&peer->wsc.pending_cancel,
-				l_dbus_message_new_method_return(
-						peer->wsc.pending_cancel));
-
-			p2p_connection_reset(dev);
-		} else
-			p2p_connect_failed(dev);
-
-		goto done;
-	}
-
-	if (strlen(creds[0].ssid) != bss->ssid_len ||
-			memcmp(creds[0].ssid, bss->ssid, bss->ssid_len)) {
-		l_error("Unsupported: the SSID from the P2P peer's WSC "
-			"credentials doesn't match the SSID from the "
-			"Probe Response IEs");
-		goto not_supported;
-	}
-
-	/*
-	 * Apparently some implementations send the intended client's address
-	 * here (i.e. our), and some send the target BSS's (their own).
-	 */
-	if (memcmp(creds[0].addr, netdev_get_address(dev->conn_netdev), 6) &&
-			memcmp(creds[0].addr, bss->addr, 6)) {
-		char addr1[32], addr2[32];
-
-		l_strlcpy(addr1, util_address_to_string(creds[0].addr),
-				sizeof(addr1));
-		l_strlcpy(addr2, util_address_to_string(
-					netdev_get_address(dev->conn_netdev)),
-				sizeof(addr2));
-		l_error("Error: WSC credentials are not for our client "
-			"interface (%s vs. %s)", addr1, addr2);
-		goto error;
-	}
-
-	if (!bss->rsne || creds[0].security != SECURITY_PSK)
-		goto not_supported;
 
 	info.capability = dev->capability;
 	info.device_info = dev->device_info;
@@ -879,39 +863,100 @@ static void p2p_peer_provision_done(int err, struct wsc_credentials_info *creds,
 
 	handshake_state_set_event_func(hs, p2p_handshake_event, dev);
 	handshake_state_set_ssid(hs, bss->ssid, bss->ssid_len);
-
-	if (creds[0].has_passphrase) {
-		uint8_t psk[32];
-
-		if (crypto_psk_from_passphrase(creds[0].passphrase, bss->ssid,
-						bss->ssid_len, psk) < 0)
-			goto error;
-
-		handshake_state_set_pmk(hs, psk, 32);
-	} else
-		handshake_state_set_pmk(hs, creds[0].psk, 32);
+	handshake_state_set_pmk(hs, dev->conn_psk, 32);
 
 	r = netdev_connect(dev->conn_netdev, bss, hs, ie_iov, ie_num,
 				p2p_netdev_event, p2p_netdev_connect_cb, dev);
-	if (r == 0)
-		goto done;
+	if (r < 0) {
+		l_error("netdev_connect error: %s (%i)", strerror(-r), -r);
+		goto error;
+	}
 
-	l_error("netdev_connect error: %s (%i)", strerror(-err), -err);
+	dev->conn_retry_count++;
+
+done:
+	l_free(ie_iov[0].iov_base);
+	return;
 
 error:
 not_supported:
-	if (r < 0) {
-		if (hs)
-			handshake_state_free(hs);
+	if (hs)
+		handshake_state_free(hs);
 
-		p2p_connect_failed(dev);
+	p2p_connect_failed(dev);
+	goto done;
+}
+
+static void p2p_peer_provision_done(int err, struct wsc_credentials_info *creds,
+					unsigned int n_creds, void *user_data)
+{
+	struct p2p_peer *peer = user_data;
+	struct p2p_device *dev = peer->dev;
+	struct scan_bss *bss = dev->conn_wsc_bss;
+
+	l_debug("err=%i n_creds=%u", err, n_creds);
+
+	dev->conn_enrollee = NULL;
+
+	l_timeout_remove(dev->config_timeout);
+	l_timeout_remove(dev->go_neg_req_timeout);
+
+	if (err < 0) {
+		if (err == -ECANCELED && peer->wsc.pending_cancel) {
+			dbus_pending_reply(&peer->wsc.pending_cancel,
+				l_dbus_message_new_method_return(
+						peer->wsc.pending_cancel));
+
+			p2p_connection_reset(dev);
+			return;
+		} else
+			goto error;
 	}
 
-done:
-	if (ie_num)
-		l_free(ie_iov[0].iov_base);
+	if (strlen(creds[0].ssid) != bss->ssid_len ||
+			memcmp(creds[0].ssid, bss->ssid, bss->ssid_len)) {
+		l_error("Unsupported: the SSID from the P2P peer's WSC "
+			"credentials doesn't match the SSID from the "
+			"Probe Response IEs");
+		goto not_supported;
+	}
 
-	scan_bss_free(bss);
+	/*
+	 * Apparently some implementations send the intended client's address
+	 * here (i.e. our), and some send the target BSS's (their own).
+	 */
+	if (memcmp(creds[0].addr, netdev_get_address(dev->conn_netdev), 6) &&
+			memcmp(creds[0].addr, bss->addr, 6)) {
+		char addr1[32], addr2[32];
+
+		l_strlcpy(addr1, util_address_to_string(creds[0].addr),
+				sizeof(addr1));
+		l_strlcpy(addr2, util_address_to_string(
+					netdev_get_address(dev->conn_netdev)),
+				sizeof(addr2));
+		l_error("Error: WSC credentials are not for our client "
+			"interface (%s vs. %s)", addr1, addr2);
+		goto error;
+	}
+
+	if (!bss->rsne || creds[0].security != SECURITY_PSK)
+		goto not_supported;
+
+	if (creds[0].has_passphrase) {
+		if (crypto_psk_from_passphrase(creds[0].passphrase, bss->ssid,
+						bss->ssid_len,
+						dev->conn_psk) < 0)
+			goto error;
+	} else
+		memcpy(dev->conn_psk, creds[0].psk, 32);
+
+	dev->conn_retry_count = 0;
+	p2p_try_connect_group(dev);
+	return;
+
+error:
+not_supported:
+	p2p_connect_failed(dev);
 }
 
 static void p2p_provision_connect(struct p2p_device *dev)
@@ -963,7 +1008,8 @@ static void p2p_device_netdev_notify(struct netdev *netdev,
 	switch (event) {
 	case NETDEV_WATCH_EVENT_UP:
 	case NETDEV_WATCH_EVENT_NEW:
-		if (!dev->conn_wsc_bss || dev->conn_enrollee ||
+		/* Ignore the event if we're already connecting/connected */
+		if (dev->conn_enrollee || dev->conn_retry_count ||
 				!netdev_get_is_up(netdev))
 			break;
 
@@ -2459,7 +2505,7 @@ static void p2p_peer_disconnect(struct p2p_peer *peer)
 		return;
 	}
 
-	if (dev->conn_netdev && !dev->conn_wsc_bss) {
+	if (dev->conn_netdev && dev->conn_retry_count) {
 		/* Note: in theory we need to add the P2P IEs here too */
 		if (netdev_disconnect(dev->conn_netdev, p2p_peer_disconnect_cb,
 					peer) == 0)
