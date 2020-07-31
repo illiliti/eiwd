@@ -21,7 +21,7 @@ import gi
 gi.require_version('GLib', '2.0')
 gi.require_version('Gst', '1.0')
 gi.require_version('Gtk', '3.0')
-from gi.repository import GLib, Gst, Gtk, Gdk, Pango
+from gi.repository import GLib, Gst, Gtk, Gdk, Pango, GObject
 
 class WFDRTSPServer:
     class RTSPException(Exception):
@@ -325,7 +325,21 @@ class WFDRTSPServer:
         elif method == 'TEARDOWN' and target != self.session_stream_url:
             self.error('Unknown target "' + target + '" in TEARDOWN request')
         elif method == 'SET_PARAMETER':
-            pass
+            params = []
+            names = []
+            for line in content.split(b'\r\n'):
+                param = (line.decode('utf8').strip(), None)
+                if not param[0]:
+                    continue
+                if ':' in param[0]:
+                    k, v = param[0].split(':', 1)
+                    param = (k.strip(), v.strip())
+                if param[0] in names:
+                    self.error('Duplicate key "' + param[0] + '" in SET_PARAMETER response')
+
+                names.append(param[0])
+                params.append(param)
+            self.last_params = params
 
     def request(self, method, target, require=[], params=[]):
         content = ''
@@ -437,17 +451,17 @@ class WFDRTSPServer:
             self.debug('Gstreamer message of type ' + str(t) + ' for ' + message.src.name + ': ' + str(message))
         return True
 
-    def gst_force_keyframe(self):
+    def force_keyframe(self):
         enc = self.rtp_pipeline.get_by_name('videnc')
         sink = enc.get_static_pad('sink')
         timestamp = Gst.CLOCK_TIME_NONE # can/should we use sink.query_position?
 
         s = Gst.Structure('GstForceKeyUnit')
-        s.set_value('timestamp', timestamp, 'uint64')
-        s.set_value('stream-time', timestamp, 'uint64')
-        s.set_value('all-headers', True)
+        s.set_value('timestamp', GObject.Value(GObject.TYPE_UINT64, timestamp))
+        s.set_value('stream-time', GObject.Value(GObject.TYPE_UINT64, timestamp))
+        s.set_value('all-headers', GObject.Value(GObject.TYPE_BOOLEAN, True))
         # TODO: can we also send this event directly to the element instead of the pad?
-        sink.send_event(Gst.event_new_custom(Gst.EVENT_CUSTOM_DOWNSTREAM, s))
+        sink.send_event(Gst.Event.new_custom(Gst.EventType.CUSTOM_DOWNSTREAM, s))
 
     def rtsp_keepalive_timeout_cb(self):
         try:
@@ -585,9 +599,13 @@ class WFDRTSPServer:
                 self.response()
                 return
             if method == 'SET_PARAMETER':
-                # TODO: parse the stuff, on 'wfd-idr-request\r\n' (no semicolon) call the following:
-                self.gst_force_keyframe()
-                self.response()
+                self.validate_msg(method, 'SET_PARAMETER', status, reason, headers, target, content)
+                for k, v in self.last_params:
+                    if k == 'wfd_idr_request' and v is None:
+                        self.force_keyframe()
+                        self.response()
+                    else:
+                        self.error('Unknown request "' + k + '" with value ' + repr(v))
                 return
             if method == 'TEARDOWN':
                 # The spec suggests a more graceful teardown but we just close the connection
