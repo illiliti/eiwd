@@ -4327,6 +4327,9 @@ static struct l_dbus_message *p2p_wfd_register(struct l_dbus *dbus,
 	if (p2p_own_wfd)
 		return dbus_error_already_exists(message);
 
+	/* Available for WFD Session by default */
+	props.available = true;
+
 	p2p_wfd_disconnect_watch = l_dbus_add_disconnect_watch(dbus,
 					l_dbus_message_get_sender(message),
 					p2p_wfd_disconnect_watch_cb, NULL,
