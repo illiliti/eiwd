@@ -486,7 +486,9 @@ static void p2p_connection_reset(struct p2p_device *dev)
 	if (dev->conn_own_wfd) {
 		l_free(dev->conn_own_wfd);
 		dev->conn_own_wfd = NULL;
-		p2p_own_wfd->available = true;
+
+		if (p2p_own_wfd)
+			p2p_own_wfd->available = true;
 	}
 
 	explicit_bzero(dev->conn_psk, 32);
