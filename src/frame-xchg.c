@@ -1057,12 +1057,12 @@ static void frame_xchg_resp_cb(const struct mmpdu_header *mpdu,
 	frame_xchg_resp_handle(mpdu, body, body_len, rssi, user_data);
 }
 
-static bool frame_xchg_match(const void *a, const void *b)
+static bool frame_xchg_match_running(const void *a, const void *b)
 {
 	const struct frame_xchg_data *fx = a;
 	const uint64_t *wdev_id = b;
 
-	return fx->wdev_id == *wdev_id;
+	return fx->retry_cnt > 0 && fx->wdev_id == *wdev_id;
 }
 
 /*
@@ -1225,7 +1225,8 @@ static void frame_xchg_mlme_notify(struct l_genl_msg *msg, void *user_data)
 
 		l_debug("Received %s", ack ? "an ACK" : "no ACK");
 
-		fx = l_queue_find(frame_xchgs, frame_xchg_match, &wdev_id);
+		fx = l_queue_find(frame_xchgs, frame_xchg_match_running,
+					&wdev_id);
 		if (!fx)
 			return;
 
