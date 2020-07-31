@@ -15,6 +15,7 @@ import collections
 import collections.abc
 import random
 import dataclasses
+import traceback
 
 import gi
 gi.require_version('GLib', '2.0')
@@ -1139,8 +1140,13 @@ class WFDSource(Gtk.Window):
 
         def on_rtsp_error(excp):
             self.disconnect_peer(dev_path, path)
+            tb = ''
+            try:
+                tb = '\n\nDebug info: ' + traceback.format_exc()
+            except:
+                pass
             dialog = Gtk.MessageDialog(parent=self, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK, text='Negotiation failed')
-            dialog.format_secondary_text('RTSP error when talking to ' + self.objects[path][PEER_IF]['Name'] + ': ' + repr(excp))
+            dialog.format_secondary_text('RTSP error when talking to ' + self.objects[path][PEER_IF]['Name'] + ': ' + repr(excp) + tb)
             dialog.show()
 
             def on_ok(response, *args):
