@@ -16,6 +16,7 @@ import collections.abc
 import random
 import dataclasses
 import traceback
+import codecs
 
 import gi
 gi.require_version('GLib', '2.0')
@@ -27,7 +28,9 @@ class WFDRTSPServer:
     class RTSPException(Exception):
         pass
 
-    def __init__(self, port, state_handler, error_handler):
+    Prop = collections.namedtuple('Prop', ['name', 'desc', 'getter', 'setter', 'type', 'vals'])
+
+    def __init__(self, port, state_handler, error_handler, init_values, prop_handler):
         # Should start the TCP server only on the P2P connection's local IP but we won't
         # know the IP or interface name until after the connection is established.  At that
         # time the sink may try to make the TCP connection at any time so our listen
@@ -44,7 +47,8 @@ class WFDRTSPServer:
 
         self.state_handler = state_handler
         self.error_handler = error_handler
-        self.sm_init()
+        self.prop_handler = prop_handler
+        self.sm_init(init_values)
 
     def handle_data_out(self, conn, *args):
         try:
@@ -200,7 +204,11 @@ class WFDRTSPServer:
     def ready(self):
         return self._state in ['streaming', 'paused']
 
-    def sm_init(self):
+    @property
+    def props(self):
+        return self._props
+
+    def sm_init(self, init_values):
         self._state = 'waiting-rtsp'
         self.local_params = {
             'wfd_video_formats': '00 00 01 08 00000000 00000000 00000040 00 0000 0000 00 none none'
@@ -226,6 +234,33 @@ class WFDRTSPServer:
         self.rtsp_keepalive_timeout = None
         self.expected_remote_ip = None
         self.remote_ip = None
+        self.init_width = init_values['width']
+        self.init_height = init_values['height']
+        self.rtcp_enabled = init_values['rtcp_enabled']
+
+        self._props = []
+
+    @staticmethod
+    def get_init_props():
+        props = []
+        values = {
+            'width': 800,
+            'height': 600,
+            'rtcp_enabled': True
+        }
+
+        def set_val(key, val):
+            values[key] = val
+        props.append(WFDRTSPServer.Prop('Output width', 'Scale the video stream to this X resolution for sending',
+            lambda: values['width'], lambda x: set_val('width', x), int, (640, 1920)))
+        props.append(WFDRTSPServer.Prop('Output height', 'Scale the video stream to this Y resolution for sending',
+            lambda: values['height'], lambda x: set_val('height', x), int, (480, 1080)))
+        props.append(WFDRTSPServer.Prop('Enable RTCP', 'Use RTCP if the Sink requests it during setup',
+            lambda: values['rtcp_enabled'], lambda x: set_val('rtcp_enabled', x), bool, None))
+        # TODO: Enable Audio
+        # TODO: Audio source
+
+        return props, values
 
     def close(self):
         # Avoid passing self to io watches so that the refcount can ever reach 0 and
@@ -431,6 +466,94 @@ class WFDRTSPServer:
                 self.error('Optional RTCP port not valid in SETUP Transport header: ' + str(rtcp_port))
             self.remote_rtcp_port = rtcp_port
 
+        self._props.append(WFDRTSPServer.Prop('RTP transport', '', lambda: 'TCP' if self.use_tcp else 'UDP', None, str, None))
+        self._props.append(WFDRTSPServer.Prop('Remote RTP port', '', lambda: self.remote_rtp_port, None, int, None))
+        self._props.append(WFDRTSPServer.Prop('Remote RTCP port', '', lambda: self.remote_rtcp_port, None, int, None))
+
+    def parse_display_edid(self):
+        try:
+            len_str, hex_str = self.remote_params['wfd_display_edid'].split(' ', 1)
+            if len(len_str.strip()) != 4:
+                raise Exception('edid-block-count length is not 4 hex digits')
+            blocks = int(len_str, 16)
+            edid = codecs.decode(hex_str.strip(), 'hex')
+            if blocks < 1 or blocks > 256 or blocks * 128 != len(edid):
+                raise Exception('edid-block-count value wrong')
+        except:
+            edid = None
+
+        self._props.append(WFDRTSPServer.Prop('EDID info', 'Remote display\'s EDID data', lambda: edid, None, bytes, None))
+
+    def create_running_props(self):
+        src = self.rtp_pipeline.get_by_name('src')
+        fps = self.rtp_pipeline.get_by_name('fps')
+        enc = self.rtp_pipeline.get_by_name('videnc')
+        res = self.rtp_pipeline.get_by_name('res')
+        sink = self.rtp_pipeline.get_by_name('sink')
+        self.pipeline_props = []
+
+        srcpadcaps = src.srcpads[0].get_allowed_caps()
+        width = srcpadcaps[0]['width']
+        height = srcpadcaps[0]['height']
+        props = []
+        props.append(WFDRTSPServer.Prop('Local width', 'Local screen X resolution', lambda: width, None, int, None))
+        props.append(WFDRTSPServer.Prop('Local height', 'Local screen Y resolution', lambda: height, None, int, None))
+
+        def set_use_damage(val):
+            src.props.use_damage = val
+        props.append(WFDRTSPServer.Prop('Use XDamage', 'Try to use XDamage to reduce bandwidth usage',
+            lambda: src.props.use_damage, set_use_damage, bool, None))
+
+        src.props.endx = width
+        src.props.endy = height
+        def set_startx(val):
+            src.set_property('startx', min(val, src.props.endx - 1))
+        def set_starty(val):
+            src.set_property('starty', min(val, src.props.endy - 1))
+        def set_endx(val):
+            src.set_property('endx', max(val, src.props.startx + 1))
+        def set_endy(val):
+            src.set_property('endy', max(val, src.props.starty + 1))
+        props.append(WFDRTSPServer.Prop('Window min X', 'Skip this many pixels on the left side of the local screen',
+            lambda: src.props.startx, set_startx, int, (0, width - 1)))
+        props.append(WFDRTSPServer.Prop('Window min Y', 'Skip this many pixels on the top of the local screen',
+            lambda: src.props.starty, set_starty, int, (0, height - 1)))
+        props.append(WFDRTSPServer.Prop('Window max X', 'Send screen contents only up to this X coordinate',
+            lambda: src.props.endx, set_endx, int, (1, width)))
+        props.append(WFDRTSPServer.Prop('Window max Y', 'Send screen contents only up to this Y coordinate',
+            lambda: src.props.endy, set_endy, int, (1, height)))
+
+        def set_framerate(val):
+            fps.props.caps[0]['framerate'] = Gst.Fraction(val)
+        def set_width(val):
+            res.props.caps[0]['width'] = val
+        def set_height(val):
+            res.props.caps[0]['height'] = val
+        props.append(WFDRTSPServer.Prop('Framerate', 'Try to output this many frames per second',
+            lambda: int(fps.props.caps[0]['framerate'].num), set_framerate, int, (1, 30)))
+        props.append(WFDRTSPServer.Prop('Output width', 'Scale the video stream to this X resolution for sending',
+            lambda: res.props.caps[0]['width'], set_width, int, (640, 1920)))
+        props.append(WFDRTSPServer.Prop('Output height', 'Scale the video stream to this Y resolution for sending',
+            lambda: res.props.caps[0]['height'], set_height, int, (480, 1080)))
+
+        preset_values = ['veryslow', 'slower', 'slow', 'medium', 'fast', 'faster', 'veryfast', 'superfast', 'ultrafast', 'placebo']
+        preset_map = {'veryslow': 9, 'slower': 8, 'slow': 7, 'medium': 6, 'fast': 5, 'faster': 4, 'veryfast': 3, 'superfast': 2, 'ultrafast': 1, 'placebo': 10}
+
+        def set_speed_preset(val):
+            enc.props.speed_preset = preset_map[val]
+        props.append(WFDRTSPServer.Prop('H.264 speed preset', 'Speed/quality setting of the H.264 encoder to optimise bandwidth/latency',
+            lambda: enc.props.speed_preset.value_nick, set_speed_preset, str, preset_values))
+
+        def set_max_lateness(val):
+            if val <= 0:
+                sink.props.max_lateness = -1
+            else:
+                sink.props.max_lateness = val * 1000000 # milliseconds to nanoseconds
+        props.append(WFDRTSPServer.Prop('Max lateness', 'Maximum number of milliseconds that a buffer can be late before it is dropped, or 0 for unlimited',
+            lambda: 0 if sink.props.max_lateness == -1 else sink.props.max_lateness / 1000000, set_max_lateness, int, (-1, 3000)))
+
+        return props
+
     def on_gst_message(self, bus, message):
         t = message.type
         if t == Gst.MessageType.EOS:
@@ -438,6 +561,8 @@ class WFDRTSPServer:
         elif t == Gst.MessageType.STATE_CHANGED:
             old, new, pending = message.parse_state_changed()
             self.debug('Gstreamer state change for ' + message.src.name + ' from ' + str(old) + ' to ' + str(new) + ', pending=' + str(pending))
+            if message.src == self.rtp_pipeline:
+                self.prop_handler()
         elif t == Gst.MessageType.INFO:
             err, debug = message.parse_info()
             self.debug('Gstreamer info for ' + message.src.name + ': ' + str(err) + '\nDebug: ' + str(debug))
@@ -511,7 +636,8 @@ class WFDRTSPServer:
             # Send M2 response
             self.response(public=self.local_methods)
             # Send M3
-            self.request('GET_PARAMETER', 'rtsp://localhost/wfd1.0', params=['wfd_audio_codecs', 'wfd_video_formats', 'wfd_client_rtp_ports', 'wfd_display_edid', 'wfd_uibc_capability'])
+            params = ['wfd_audio_codecs', 'wfd_video_formats', 'wfd_client_rtp_ports', 'wfd_display_edid', 'wfd_uibc_capability']
+            self.request('GET_PARAMETER', 'rtsp://localhost/wfd1.0', params=params)
             self.enter_state('M3')
         elif self._state == 'M3':
             # Validate M3 response
@@ -520,6 +646,8 @@ class WFDRTSPServer:
                 self.error('Required parameters missing from GET_PARAMETER response')
             self.parse_video_formats(self.remote_params['wfd_video_formats'])
             self.parse_client_rtp_ports(self.remote_params['wfd_client_rtp_ports'])
+            self.parse_display_edid()
+            self.prop_handler()
             # Send M4
             params = {
                 'wfd_video_formats': self.local_params['wfd_video_formats'],
@@ -547,7 +675,7 @@ class WFDRTSPServer:
             self.session_stream_url = target
             self.session_id = str(random.randint(a=1, b=999999))
             self.local_rtp_port = random.randint(a=20000, b=30000)
-            if self.remote_rtcp_port is not None:
+            if self.remote_rtcp_port is not None and self.rtcp_enabled:
                 self.local_rtcp_port = self.local_rtp_port + 1
             profile ='RTP/AVP/TCP;unicast' if self.use_tcp else 'RTP/AVP/UDP;unicast'
             client_port = str(self.remote_rtp_port) + (('-' + str(self.remote_rtcp_port)) if self.remote_rtcp_port is not None else '')
@@ -555,22 +683,26 @@ class WFDRTSPServer:
             transport = profile + ';client_port' + client_port + ';server_port=' + server_port
             # Section B.1
             pipeline = ('ximagesrc name=src use-damage=false do-timestamp=true ! capsfilter name=fps caps=video/x-raw,framerate=10/1' +
-                ' ! videoscale method=0 ! capsfilter name=res caps=video/x-raw,width=800,height=600' +
+                ' ! videoscale method=0 ! capsfilter name=res caps=video/x-raw,width=' + str(self.init_width) + ',height=' + str(self.init_height) +
                 ' ! videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast name=videnc' +
                 ' ! queue' + # TODO: add leaky=downstream
                 ' ! mpegtsmux name=mux' +
                 ' ! rtpmp2tpay pt=33 mtu=1472 ! .send_rtp_sink rtpsession name=session .send_rtp_src' +
-                ' ! udpsink host=' + self.remote_ip + ' port=' + str(self.remote_rtp_port) + ' bind-port=' + str(self.local_rtp_port)) # TODO: bind-address
-
+                ' ! udpsink name=sink host=' + self.remote_ip + ' port=' + str(self.remote_rtp_port) + ' bind-port=' + str(self.local_rtp_port)) # TODO: bind-address
             if self.local_rtcp_port is not None:
                 pipeline += ' session.send_rtcp_src ! udpsink name=rtcp_sink host=' + self.remote_ip + \
                     ' port=' + str(self.remote_rtcp_port) + ' bind-port=' + str(self.local_rtcp_port) # TODO: bind-address
+            self._props.append(WFDRTSPServer.Prop('RTCP enabled', 'Whether we\'re currently sending RTCP data',
+                lambda: self.local_rtcp_port is not None, None, bool, None))
 
             self.rtp_pipeline = Gst.parse_launch(pipeline)
             bus = self.rtp_pipeline.get_bus()
             bus.enable_sync_message_emission()
             bus.add_signal_watch()
-            bus.connect('sync-message', self.on_gst_message)
+            bus.connect('message', self.on_gst_message)
+
+            self._props += self.create_running_props()
+            self.prop_handler()
 
             # Send M6 response
             self.response(session=self.session_id + ';timeout=' + str(self.session_timeout), transport=transport)
@@ -644,6 +776,8 @@ class WFDSource(Gtk.Window):
         widget: Gtk.Widget
         rtsp: WFDRTSPServer
 
+    indent = '\xbb '
+
     def __init__(self):
         Gtk.Window.__init__(self, type=Gtk.WindowType.TOPLEVEL, title='WFD Source')
         self.set_decorated(True)
@@ -653,12 +787,16 @@ class WFDSource(Gtk.Window):
         self.device_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         leftscroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         leftscroll.add(self.device_box)
-        self.infolabel1 = Gtk.Label()
-        self.infolabel1.set_ellipsize(Pango.EllipsizeMode.START)
-        infopane = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        infopane.pack_start(self.infolabel1, False, False, padding=10)
-        rightscroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vscrollbar_policy=Gtk.PolicyType.NEVER)
-        rightscroll.add(infopane)
+        self.infopane = Gtk.FlowBox(orientation=Gtk.Orientation.VERTICAL)
+        self.infopane.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.infopane.set_max_children_per_line(20)
+        self.infopane.set_min_children_per_line(3)
+        self.infopane.set_column_spacing(20)
+        self.infopane.set_row_spacing(5)
+        self.infopane.set_valign(Gtk.Align.START)
+        self.infopane.set_halign(Gtk.Align.START)
+        rightscroll = Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.NEVER)
+        rightscroll.add(self.infopane)
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         paned.pack1(leftscroll, True, True)
         paned.pack2(rightscroll, False, False)
@@ -669,6 +807,8 @@ class WFDSource(Gtk.Window):
         self.show_all()
         self.connect('notify::is-active', self.on_notify_is_active)
 
+        self.rtsp_props = None
+        self.rtsp_init_values = {}
         self.rtsp_port = 7236
         self.devices = None
         self.objects = {}
@@ -1001,11 +1141,13 @@ class WFDSource(Gtk.Window):
             peer_list.insert(peer.widget, index)
             peer.widget.show_all()
         elif (PEER_IF not in props or WFD_IF not in props or WSC_IF not in props or not props[WFD_IF]['Sink']) and peer.widget:
-            del device.sorted_peers[peer.widget.get_index()]
-            peer_list.remove(peer.widget)
+            tmp = peer.widget
+            peer.widget = None
+            del device.sorted_peers[tmp.get_index()]
+            peer_list.remove(tmp)
             if peer == device.selected_peer:
                 device.selected_peer = None
-                self.update_info(dev_path, None)
+                self.update_info_pane(dev_path, None)
             if peer == device.connecting_peer:
                 device.dbus_call.cancel()
                 device.connecting_peer = None
@@ -1020,7 +1162,6 @@ class WFDSource(Gtk.Window):
             peer.peer_proxy = None
             peer.wfd_proxy = None
             peer.wsc_proxy = None
-            peer.widget = None
             if peer.rtsp:
                 peer.rtsp.close()
                 peer.rtsp = None
@@ -1055,7 +1196,7 @@ class WFDSource(Gtk.Window):
             button.hide()
 
         if peer == device.selected_peer:
-            self.update_info(dev_path, path)
+            self.update_info_pane(dev_path, path)
 
     def update_selected_peer(self, dev_path):
         device = self.devices[dev_path]
@@ -1063,12 +1204,74 @@ class WFDSource(Gtk.Window):
             sel_path = self.get_peer_path(device, device.selected_peer)
             self.update_peer_props(dev_path, sel_path)
 
-    def update_info(self, dev_path, path):
-        device = self.devices[dev_path]
+    def add_info(self, name, desc, valuewidget):
+        namelabel = Gtk.Label(label=name + ':', xalign=0)
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        box.pack_start(namelabel, expand=False, fill=False, padding=3)
+        if valuewidget:
+            box.pack_end(valuewidget, expand=False, fill=False, padding=3)
+        if desc:
+            box.set_tooltip_text(desc)
+        self.infopane.add(box)
+
+    def add_info_str(self, name, value):
+        vlabel = Gtk.Label(xalign=0)
+        vlabel.set_markup('<span weight="bold">' + value + '</span>')
+        self.add_info(name, None, vlabel)
+
+    def add_info_prop(self, prop):
+        val = prop.getter()
+        if prop.setter is None:
+            if val is None:
+                return
+            if prop.type == bool:
+                vals = prop.vals if prop.vals is not None else ['no', 'yes']
+                text = vals[val]
+            elif prop.name == 'EDID info':
+                text = WFDSource.edid_to_text(val)
+                if isinstance(text, collections.abc.Sequence):
+                    self.add_info(prop.name, prop.desc, None)
+                    for name, val in text:
+                        if val:
+                            v = Gtk.Label(xalign=0)
+                            v.set_markup('<span weight="bold">' + str(val) + '</span>')
+                        else:
+                            v = None
+                        self.add_info(self.indent + name, prop.desc, v)
+                    return
+            else:
+                text = str(val)
+            v = Gtk.Label(xalign=0)
+            v.set_markup('<span weight="bold">' + text + '</span>')
+        elif val is None:
+            return
+        elif prop.type == bool:
+            v = Gtk.Switch()
+            v.set_active(val)
+            v.connect('state-set', lambda switch, state: prop.setter(state))
+        elif prop.type == int:
+            v = Gtk.SpinButton.new_with_range(min=prop.vals[0], max=prop.vals[1], step=prop.vals[2] if len(prop.vals) > 2 else 1)
+            v.set_value(val)
+            v.connect('value-changed', lambda sb: prop.setter(int(sb.get_value())))
+        elif prop.type == str:
+            if prop.vals:
+                v = Gtk.ComboBoxText()
+                for option in prop.vals:
+                    v.append(option, option)
+                v.set_active_id(val)
+                v.connect('changed', lambda entry: prop.setter(entry.get_active_text()))
+            else:
+                v = Gtk.Entry(text=val)
+                v.connect('changed', lambda entry: prop.setter(entry.get_text()))
+        self.add_info(prop.name, prop.desc, v)
+
+    def update_info_pane(self, dev_path, path):
+        self.infopane.foreach(lambda x, y: self.infopane.remove(x), None)
+
         if path is None:
-            self.infolabel1.set_text('')
             return
 
+        device = self.devices[dev_path]
         peer = device.peers[path]
 
         if peer == device.connecting_peer:
@@ -1085,14 +1288,13 @@ class WFDSource(Gtk.Window):
                 state = 'connected'
         else:
             state = 'not connected'
+        self.add_info_str('Connection state', state)
 
         subcat = 'unknown'
         if 'DeviceSubcategory' in self.objects[path][PEER_IF]:
             subcat = self.objects[path][PEER_IF]['DeviceSubcategory']
-
-        text = ('Connection state: ' + state + '\n' +
-                'Device category: ' + self.objects[path][PEER_IF]['DeviceCategory'] + '\n'
-                'Device subcategory: ' + subcat + '\n')
+        self.add_info_str('Peer category', self.objects[path][PEER_IF]['DeviceCategory'])
+        self.add_info_str('Peer subcategory', subcat)
 
         if WFD_IF in self.objects[path]:
             if self.objects[path][WFD_IF]['Source']:
@@ -1102,17 +1304,27 @@ class WFDSource(Gtk.Window):
                     t = 'source'
             else:
                 t = 'sink'
-            text += 'WFD device type: ' + t + '\n'
+            self.add_info_str('Peer WFD type', t)
 
             if self.objects[path][WFD_IF]['Sink']:
-                text += 'Audio: ' + ('yes' if self.objects[path][WFD_IF]['HasAudio'] else 'no') + '\n'
+                self.add_info_str('Peer audio support', 'yes' if self.objects[path][WFD_IF]['HasAudio'] else 'no')
 
-            text += 'UIBC: ' + ('yes' if self.objects[path][WFD_IF]['HasUIBC'] else 'no') + '\n'
+            self.add_info_str('Peer UIBC support', 'yes' if self.objects[path][WFD_IF]['HasUIBC'] else 'no')
 
-            text += 'Content protection: ' + ('yes' if self.objects[path][WFD_IF]['HasContentProtection'] else 'no') + '\n'
+            self.add_info_str('Peer content protection', 'yes' if self.objects[path][WFD_IF]['HasContentProtection'] else 'no')
 
-        self.infolabel1.set_text(text)
-        # TODO: more info in labels 2 and so on
+        if self.rtsp_props is None:
+            self.rtsp_props, self.rtsp_init_values = WFDRTSPServer.get_init_props()
+
+        if peer.rtsp is not None:
+            props = peer.rtsp.props
+        else:
+            props = self.rtsp_props
+
+        for prop in props:
+            self.add_info_prop(prop)
+
+        self.infopane.show_all()
 
     # Direct method calls on dbus.Interface's don't return dbus.lowlevel.PendingCall objects so
     # we have to use bus.call_async to make cancellable async calls
@@ -1172,12 +1384,17 @@ class WFDSource(Gtk.Window):
 
             dialog.connect('response', on_ok)
 
+        def on_rtsp_props_changed():
+            # Should also check if the infopane is currently showing a selected peer on another device...
+            if peer == device.selected_peer:
+                self.update_info_pane(dev_path, path)
+
         # Cannot use peer.wsc_proxy.PushButton()
         device.dbus_call = self.async_call(peer.wsc_proxy, 'PushButton', reply_handler=on_reply, error_handler=on_error, timeout=120)
         device.connecting_peer = peer
         # Create the RTSP server now so it's ready as soon as the P2P connection succeeds even if
         # we haven't received the DBus reply yet
-        peer.rtsp = WFDRTSPServer(self.rtsp_port, on_rtsp_state, on_rtsp_error)
+        peer.rtsp = WFDRTSPServer(self.rtsp_port, on_rtsp_state, on_rtsp_error, self.rtsp_init_values, on_rtsp_props_changed)
         self.update_dev_props(dev_path)
         self.update_peer_props(dev_path, path)
         if peer != device.selected_peer:
@@ -1272,7 +1489,7 @@ class WFDSource(Gtk.Window):
             path = self.get_peer_path(device, device.selected_peer)
             device.selected_peer = None
             self.update_peer_props(dev_path, path)
-            self.update_info(dev_path, None)
+            self.update_info_pane(dev_path, None)
 
         if row is None:
             return True
@@ -1334,6 +1551,82 @@ class WFDSource(Gtk.Window):
             self.on_name_owner_change('')
         mainloop.quit()
         return False
+
+    @staticmethod
+    def edid_to_text(edid):
+        if edid is None:
+            return 'unavailable'
+        if len(edid) < 128:
+            return 'invalid (too short)'
+        if edid[0:8] != b'\0\xff\xff\xff\xff\xff\xff\0':
+            return 'invalid (bad magic)'
+        if sum(edid[0:128]) & 255 != 0:
+            return 'invalid (bad checksum)'
+
+        header = edid[0:20]
+        manf_id = (header[8] << 8) + header[9]
+        text = [('Header', '')]
+        text.append((WFDSource.indent + 'Version', str(header[18]) + '.' + str(header[19])))
+        text.append((WFDSource.indent + 'Manufacturer ID', chr(64 + ((manf_id >> 10) & 31)) + chr(64 + ((manf_id >> 5) & 31)) + chr(64 + ((manf_id >> 0) & 31))))
+        text.append((WFDSource.indent + 'Product code', hex((header[11] << 8) + header[10])))
+        text.append((WFDSource.indent + 'Serial', hex((header[15] << 24) +(header[14] << 16) +  (header[13] << 8) + header[12])))
+        text.append((WFDSource.indent + 'Manufactured', str(1990 + header[17]) + ' week ' + str(header[16])))
+
+        basic_params = edid[20:25]
+        text.append(('Basic parameters', ''))
+        if basic_params[0] & 0x80:
+            intf_table = {
+                2: 'HDMIa',
+                3: 'HDMIb',
+                4: 'MDDI',
+                5: 'DisplayPort'
+            }
+            dt_table = {
+                0: 'RGB 4:4:4',
+                1: 'RGB 4:4:4 + YCrCb 4:4:4',
+                2: 'RGB 4:4:4 + YCrCb 4:2:2',
+                3: 'RGB 4:4:4 + YCrCb 4:4:4 + YCrCb 4:2:2'
+            }
+            bpp = (basic_params[0] >> 4) & 7
+            intf = (basic_params[0] >> 0) & 7
+
+            text.append((WFDSource.indent + 'Video input type', 'digital'))
+            text.append((WFDSource.indent + 'Bit depth', 'undefined' if bpp in [0, 7] else str(4 + bpp * 2)))
+            text.append((WFDSource.indent + 'Interface', 'undefined' if intf not in intf_table else intf_table[intf]))
+        else:
+            level_table = {
+                0: '+0.7 / -0.3 V',
+                1: '+0.714 / -0.286 V',
+                2: '+1.0 / -0.4 V',
+                3: '+0.7 / 0 V'
+            }
+            dt_table = {
+                0: 'monochrome/grayscale',
+                1: 'RGB color',
+                2: 'non-RGB color',
+                3: 'undefined'
+            }
+            text.append((WFDSource.indent + 'Video input type', 'analog'))
+            text.append((WFDSource.indent + 'Video white/sync level', level_table[(basic_parmas[0] >> 5) & 3]))
+
+        if basic_params[1] and basic_params[2]:
+            text.append((WFDSource.indent + 'Screen width', str(basic_params[1]) + ' cm'))
+            text.append((WFDSource.indent + 'Screen height', str(basic_params[2]) + ' cm'))
+        elif basic_params[2] == 0:
+            text.append((WFDSource.indent + 'Landscape aspect ratio', str((basic_params[1] + 99) * 0.01)))
+        else:
+            text.append((WFDSource.indent + 'Portrait aspect ratio', str(100.0 / (basic_params[2] + 99))))
+
+        text.append((WFDSource.indent + 'Gamma', str((basic_params[3] + 100) * 0.01)))
+        text.append((WFDSource.indent + 'DPMS Standby', 'supported' if (basic_params[4] >> 7) & 1 else 'unsupported'))
+        text.append((WFDSource.indent + 'DPMS Suspend', 'supported' if (basic_params[4] >> 6) & 1 else 'unsupported'))
+        text.append((WFDSource.indent + 'DPMS Active-off', 'supported' if (basic_params[4] >> 5) & 1 else 'unsupported'))
+        text.append((WFDSource.indent + 'Color type', dt_table[(basic_params[4] >> 3) & 3]))
+        text.append((WFDSource.indent + 'sRGB color space', 'yes' if (basic_params[4] >> 2) & 1 else 'no'))
+        text.append((WFDSource.indent + 'Continuous timings', 'yes' if (basic_params[4] >> 0) & 1 else 'no'))
+
+        # TODO: timing information and extensions
+        return text
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 Gst.init(None)
