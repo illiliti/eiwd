@@ -2282,7 +2282,7 @@ static bool station_retry_with_reason(struct station *station,
 	return station_try_next_bss(station);
 }
 
-/* A bit more consise for trying to fit these into 80 characters */
+/* A bit more concise for trying to fit these into 80 characters */
 #define IS_TEMPORARY_STATUS(code) \
 	((code) == MMPDU_STATUS_CODE_DENIED_UNSUFFICIENT_BANDWIDTH || \
 	(code) == MMPDU_STATUS_CODE_DENIED_POOR_CHAN_CONDITIONS || \
@@ -2685,7 +2685,6 @@ static void station_disconnect_cb(struct netdev *netdev, bool success,
 			reply = dbus_error_failed(station->disconnect_pending);
 
 		dbus_pending_reply(&station->disconnect_pending, reply);
-
 	}
 
 	station_enter_state(station, STATION_STATE_DISCONNECTED);
