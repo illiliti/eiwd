@@ -975,6 +975,11 @@ static bool frame_xchg_tx_retry(struct wiphy_radio_work_item *item)
 	return false;
 }
 
+static bool frame_xchg_match_ptr(const void *a, const void *b)
+{
+	return a == b;
+}
+
 static bool frame_xchg_resp_handle(const struct mmpdu_header *mpdu,
 					const void *body, size_t body_len,
 					int rssi, void *user_data)
@@ -1012,6 +1017,9 @@ static bool frame_xchg_resp_handle(const struct mmpdu_header *mpdu,
 			goto early_frame;
 
 		done = watch->cb(mpdu, body, body_len, rssi, fx->user_data);
+
+		if (!l_queue_find(frame_xchgs, frame_xchg_match_ptr, fx))
+			return true;
 
 		if (done) {
 			/* NULL callback here since the caller is done */
