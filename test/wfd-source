@@ -17,6 +17,10 @@ import random
 import dataclasses
 import traceback
 import codecs
+try:
+    import netifaces
+except:
+    pass
 
 import gi
 gi.require_version('GLib', '2.0')
@@ -216,6 +220,7 @@ class WFDRTSPServer:
         self.remote_params = {}
         self.local_methods = [ 'org.wfa.wfd1.0', 'SET_PARAMETER', 'GET_PARAMETER', 'PLAY', 'SETUP', 'TEARDOWN' ]
         self.presentation_url = [ 'rtsp://127.0.0.1/wfd1.0/streamid=0', 'none' ] # Table 88
+        self.alternative_urls = [ 'rtsp://localhost/wfd1.0/streamid=0' ]
         self.session_stream_url = None
         self.session_id = None
         self.session_timeout = 60
@@ -282,7 +287,11 @@ class WFDRTSPServer:
             self.conn = None
 
     def set_local_interface(self, new_value):
-        pass
+        try:
+            local_ip = netifaces.ifaddresses(new_value)[netifaces.AF_INET][0]['addr']
+            self.alternative_urls.append('rtsp://' + local_ip + '/wfd1.0/streamid=0')
+        except:
+            pass
 
     def set_remote_ip(self, new_value):
         self.expected_remote_ip = new_value
@@ -345,7 +354,7 @@ class WFDRTSPServer:
             self.error('Missing "Require" header in OPTIONS request')
         elif method == 'SETUP' and 'transport' not in headers:
             self.error('Missing "Transport" header in SETUP request')
-        elif method == 'SETUP' and (target not in self.presentation_url or target == 'none'):
+        elif method == 'SETUP' and (target not in self.presentation_url + self.alternative_urls or target == 'none'):
             self.error('Unknown target "' + target + '" in SETUP request')
         elif method == 'PLAY' and ('session' not in headers  or headers['session'] != self.session_id):
             self.error('Missing or invalid "Session" header in PLAY request')
