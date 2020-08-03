@@ -3600,8 +3600,7 @@ int main(int argc, char *argv[])
 	l_test_add("/EAPoL Key/Calculate MIC Test 1",
 			eapol_calculate_mic_test, &eapol_calculate_mic_test_1);
 
-	if (!l_cipher_is_supported(L_CIPHER_AES) ||
-			!l_cipher_is_supported(L_CIPHER_ARC4))
+	if (!l_cipher_is_supported(L_CIPHER_AES))
 		goto done;
 
 	l_test_add("EAPoL/WPA2 4-Way Handshake",

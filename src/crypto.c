@@ -18,6 +18,8 @@
  *  License along with this library; if not, write to the Free Software
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  *
+ *  (contains ARC4 implementation copyright (c) 2001 Niels Möller)
+ *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -33,6 +35,16 @@
 
 #include "src/missing.h"
 #include "src/crypto.h"
+
+#define ARC4_MIN_KEY_SIZE	1
+#define ARC4_MAX_KEY_SIZE	256
+#define ARC4_KEY_SIZE		16
+
+struct arc4_ctx {
+	uint8_t S[256];
+	uint8_t i;
+	uint8_t j;
+};
 
 /* RFC 3526, Section 2 */
 const unsigned char crypto_dh5_prime[] = {
@@ -415,44 +427,54 @@ free_ctr:
 	return false;
 }
 
+#define SWAP(a,b) do { int _t = a; a = b; b = _t; } while (0)
+
+static void arc4_set_key(struct arc4_ctx *ctx, unsigned length,
+			 const uint8_t *key)
+{
+	unsigned int i, j, k;
+
+	/* Initialize context */
+	for (i = 0; i < 256; i++)
+		ctx->S[i] = i;
+
+	for (i = j = k = 0; i < 256; i++) {
+		j += ctx->S[i] + key[k]; j &= 0xff;
+		SWAP(ctx->S[i], ctx->S[j]);
+		/* Repeat key as needed */
+		k = (k + 1) % length;
+	}
+	ctx->i = ctx->j = 0;
+}
+
+static void arc4_crypt(struct arc4_ctx *ctx, unsigned length, uint8_t *dst,
+		       const uint8_t *src)
+{
+	uint8_t i, j;
+
+	i = ctx->i; j = ctx->j;
+	while (length--) {
+		i++; i &= 0xff;
+		j += ctx->S[i]; j &= 0xff;
+		SWAP(ctx->S[i], ctx->S[j]);
+		if (!dst || !src)
+			continue;
+		*dst++ = *src++ ^ ctx->S[ (ctx->S[i] + ctx->S[j]) & 0xff ];
+	}
+	ctx->i = i; ctx->j = j;
+}
+
 bool arc4_skip(const uint8_t *key, size_t key_len, size_t skip,
 		const uint8_t *in, size_t len, uint8_t *out)
 {
-	char skip_buf[1024];
-	struct l_cipher *cipher;
-	struct iovec in_vec[2];
-	struct iovec out_vec[2];
-	bool r;
+	struct arc4_ctx cipher;
 
-	cipher = l_cipher_new(L_CIPHER_ARC4, key, key_len);
-	if (!cipher)
-		return false;
+	arc4_set_key(&cipher, key_len, key);
+	arc4_crypt(&cipher, skip, NULL, NULL);
+	arc4_crypt(&cipher, len, out, in);
+	explicit_bzero(&cipher, sizeof(cipher));
 
-	/* This is not strictly necessary, but keeps valgrind happy */
-	memset(skip_buf, 0, sizeof(skip_buf));
-
-	while (skip > sizeof(skip_buf)) {
-		size_t to_skip =
-			skip > sizeof(skip_buf) ? sizeof(skip_buf) : skip;
-
-		l_cipher_decrypt(cipher, skip_buf, skip_buf, to_skip);
-		skip -= to_skip;
-	}
-
-	in_vec[0].iov_base = skip_buf;
-	in_vec[0].iov_len = skip;
-	in_vec[1].iov_base = (void *) in;
-	in_vec[1].iov_len = len;
-
-	out_vec[0].iov_base = skip_buf;
-	out_vec[0].iov_len = skip;
-	out_vec[1].iov_base = out;
-	out_vec[1].iov_len = len;
-
-	r = l_cipher_decryptv(cipher, in_vec, 2, out_vec, 2);
-	l_cipher_free(cipher);
-
-	return r;
+	return true;
 }
 
 /* 802.11, Section 11.6.2, Table 11-4 */

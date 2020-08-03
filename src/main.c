@@ -277,14 +277,6 @@ static int check_crypto()
 		ADD_OPTIONAL("CONFIG_CRYPTO_SHA512_SSSE3");
 	}
 
-	if (!l_cipher_is_supported(L_CIPHER_ARC4)) {
-		r = -ENOTSUP;
-		l_error("RC4 support not found");
-		ADD_MISSING("CONFIG_CRYPTO_USER_API_SKCIPHER");
-		ADD_MISSING("CONFIG_CRYPTO_ARC4");
-		ADD_MISSING("CONFIG_CRYPTO_ECB");
-	}
-
 	if (!l_cipher_is_supported(L_CIPHER_DES) ||
 			!l_cipher_is_supported(L_CIPHER_DES3_EDE_CBC)) {
 		r = -ENOTSUP;
