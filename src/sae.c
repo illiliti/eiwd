@@ -97,22 +97,47 @@ static bool sae_pwd_seed(const uint8_t *addr1, const uint8_t *addr2,
 					&counter, (size_t) 1);
 }
 
+/*
+ * Computes KDF-256(pwd_seed, "SAE Hunting and Pecking", p). If the output is
+ * greater than p, the output is set to qnr, a quadratic non-residue.
+ * Since this happens with very low probability, using the same qnr is fine.
+ */
 static struct l_ecc_scalar *sae_pwd_value(const struct l_ecc_curve *curve,
-						uint8_t *pwd_seed)
+						uint8_t *pwd_seed, uint8_t *qnr)
 {
 	uint8_t pwd_value[L_ECC_SCALAR_MAX_BYTES];
 	uint8_t prime[L_ECC_SCALAR_MAX_BYTES];
 	ssize_t len;
+	int is_in_range;
 	struct l_ecc_scalar *p = l_ecc_curve_get_prime(curve);
 
 	len = l_ecc_scalar_get_data(p, prime, sizeof(prime));
-
 	l_ecc_scalar_free(p);
 
 	if (!kdf_sha256(pwd_seed, 32, "SAE Hunting and Pecking",
 			strlen("SAE Hunting and Pecking"), prime, len,
 			pwd_value, len))
 		return NULL;
+
+	/*
+	 * If pwd_value >= prime, this iteration should fail. We need a smooth
+	 * control flow, so we need to continue anyway.
+	 */
+	is_in_range = l_secure_memcmp(pwd_value, prime, len);
+	/*
+	 * We only consider is_in_range == -1 as valid, meaning the value of the
+	 * MSB defines the mask.
+	 */
+	is_in_range = util_secure_fill_with_msb(is_in_range);
+
+	/*
+	 * libell has public Legendre symbol only for l_ecc_scalar, but they
+	 * cannot be created if the coordinate is greater than the p. Hence,
+	 * to avoid control flow dependencies, we replace pwd_value by a dummy
+	 * quadratic non residue if we generate a value >= prime.
+	 */
+	util_secure_select((uint8_t) is_in_range, pwd_value, qnr,
+						pwd_value, sizeof(pwd_value));
 
 	return l_ecc_scalar_new(curve, pwd_value, sizeof(pwd_value));
 }
@@ -190,7 +215,7 @@ static struct l_ecc_scalar *sae_new_residue(const struct l_ecc_curve *curve,
 	return s;
 }
 
-static bool sae_is_quadradic_residue(const struct l_ecc_curve *curve,
+static uint8_t sae_is_quadradic_residue(const struct l_ecc_curve *curve,
 						struct l_ecc_scalar *value,
 						struct l_ecc_scalar *qr,
 						struct l_ecc_scalar *qnr)
@@ -213,7 +238,7 @@ static bool sae_is_quadradic_residue(const struct l_ecc_curve *curve,
 
 	if (bytes <= 0) {
 		l_ecc_scalar_free(num);
-		return false;
+		return 0;
 	}
 
 	if (rbuf[bytes / 8 - 1] & 1) {
@@ -221,20 +246,20 @@ static bool sae_is_quadradic_residue(const struct l_ecc_curve *curve,
 
 		if (l_ecc_scalar_legendre(num) == -1) {
 			l_ecc_scalar_free(num);
-			return true;
+			return 1;
 		}
 	} else {
 		l_ecc_scalar_multiply(num, num, qnr);
 
 		if (l_ecc_scalar_legendre(num) == 1) {
 			l_ecc_scalar_free(num);
-			return true;
+			return 1;
 		}
 	}
 
 	l_ecc_scalar_free(num);
 
-	return false;
+	return 0;
 }
 
 /*
@@ -244,67 +269,101 @@ static bool sae_is_quadradic_residue(const struct l_ecc_curve *curve,
 static bool sae_compute_pwe(struct sae_sm *sm, char *password,
 				const uint8_t *addr1, const uint8_t *addr2)
 {
-	bool found = false;
+	uint8_t found = 0;
+	uint8_t is_residue;
+	uint8_t is_odd = 0;
 	uint8_t counter;
 	uint8_t pwd_seed[32];
+	uint8_t x[L_ECC_SCALAR_MAX_BYTES];
+	uint8_t x_cand[L_ECC_SCALAR_MAX_BYTES];
 	struct l_ecc_scalar *pwd_value;
-	uint8_t random[32];
-	uint8_t *base = (uint8_t *) password;
-	size_t base_len = strlen(password);
-	uint8_t save[32] = { 0 };
+	uint8_t *dummy;
+	uint8_t *base;
+	size_t base_len;
 	struct l_ecc_scalar *qr;
 	struct l_ecc_scalar *qnr;
-	uint8_t x[L_ECC_SCALAR_MAX_BYTES];
+	uint8_t qnr_bin[L_ECC_SCALAR_MAX_BYTES] = {0};
 
 	/* create qr/qnr prior to beginning hunting-and-pecking loop */
 	qr = sae_new_residue(sm->curve, true);
 	qnr = sae_new_residue(sm->curve, false);
+	l_ecc_scalar_get_data(qnr, qnr_bin, sizeof(qnr_bin));
 
-	for (counter = 1; counter <= 20; counter++) {
-		/* pwd-seed = H(max(addr1, addr2) || min(addr1, addr2),
-		 *                base || counter)
+	/*
+	 * Allocate memory for the base, and set a random dummy to be used in
+	 * additional iterations, once a valid value is found
+	 */
+	base_len = strlen(password);
+	base = l_malloc(base_len * sizeof(*base));
+	dummy = l_malloc(base_len * sizeof(*dummy));
+	l_getrandom(dummy, base_len);
+
+	/*
+	 * Loop with constant time and memory access
+	 * We do 30 iterations instead of the 40 recommended to achieve a
+	 * resonnable security/complexity trade-off.
+	 */
+	for (counter = 1; counter <= 30; counter++) {
+		/*
+		 * Set base to either dummy or password, depending on found's
+		 * value.
+		 * A non-secure version would be:
+		 * 	base = (found ? dummy : password);
+		 */
+		util_secure_select(found, dummy, (uint8_t *)password,
+					base, base_len);
+
+		/*
+		 * pwd-seed = H(max(addr1, addr2) || min(addr1, addr2),
+		 *				base || counter)
 		 * pwd-value = KDF-256(pwd-seed, "SAE Hunting and Pecking", p)
 		 */
 		sae_pwd_seed(addr1, addr2, base, base_len, counter, pwd_seed);
+		/*
+		 * The case pwd_value > prime is handled inside, so that
+		 * execution can continue whatever the result is, without
+		 * changing the outcome.
+		 */
+		pwd_value = sae_pwd_value(sm->curve, pwd_seed, qnr_bin);
 
-		pwd_value = sae_pwd_value(sm->curve, pwd_seed);
-		if (!pwd_value)
-			continue;
+		/*
+		 * Check if the candidate is a valid x-coordinate on our curve,
+		 * and convert it from scalar to binary.
+		 */
+		is_residue = sae_is_quadradic_residue(sm->curve, pwd_value,
+								qr, qnr);
+		l_ecc_scalar_get_data(pwd_value, x_cand, sizeof(x_cand));
 
-		if (sae_is_quadradic_residue(sm->curve, pwd_value, qr, qnr)) {
-			if (found == false) {
-				l_ecc_scalar_get_data(pwd_value, x, sizeof(x));
+		/*
+		 * If we already found the point, we overwrite x with itself.
+		 * Otherwise, we copy the new candidate into x.
+		 */
+		util_secure_select(found, x, x_cand, x, sizeof(x));
+		is_odd = util_secure_select_byte(found, is_odd,
+							pwd_seed[31] & 0x01);
 
-				memcpy(save, pwd_seed, 32);
+		/*
+		 * found is 0 or 0xff here and is_residue is 0 or 1. Bitwise OR
+		 * of them (with is_residue converted to 0/0xff) handles this
+		 * in constant time.
+		 */
+		found |= is_residue * 0xff;
 
-				l_getrandom(random, 32);
-				base = random;
-				base_len = 32;
-
-				found = true;
-			}
-		}
-
+		memset(pwd_seed, 0, sizeof(pwd_seed));
 		l_ecc_scalar_free(pwd_value);
 	}
 
 	l_ecc_scalar_free(qr);
 	l_ecc_scalar_free(qnr);
+	l_free(dummy);
+	l_free(base);
 
 	if (!found) {
 		l_error("max PWE iterations reached!");
 		return false;
 	}
 
-	if (!(save[31] & 1))
-		sm->pwe = l_ecc_point_from_data(sm->curve,
-					L_ECC_POINT_TYPE_COMPRESSED_BIT1,
-					x, sizeof(x));
-	else
-		sm->pwe = l_ecc_point_from_data(sm->curve,
-					L_ECC_POINT_TYPE_COMPRESSED_BIT0,
-					x, sizeof(x));
-
+	sm->pwe = l_ecc_point_from_data(sm->curve, !is_odd + 2, x, sizeof(x));
 	if (!sm->pwe) {
 		l_error("computing y failed, was x quadratic residue?");
 		return false;

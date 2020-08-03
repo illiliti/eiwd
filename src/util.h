@@ -71,4 +71,40 @@ static inline void util_set_bit(uint8_t *field, unsigned int bit)
 	field[bit / 8] = 1 << (bit % 8);
 }
 
+/*
+ * Returns either true_value or false_value (depending if mask is 0xFF or 0x00
+ * respectively).
+ * This constant time selection method allows to keep an identical memory
+ * access pattern.
+ */
+static inline uint8_t util_secure_select_byte(uint8_t mask,
+						const uint8_t true_value,
+						const uint8_t false_value)
+{
+	return (mask & true_value) | (~mask & false_value);
+}
+
+/*
+ * Copies either true_value or false_value (depending if mask is 0xFF or 0x00
+ * respectively) into dest. All three buffers are assumed to be the same size.
+ * This constant time selection method allows to keep an identical memory
+ * access pattern.
+ */
+static inline void util_secure_select(uint8_t mask, const uint8_t *true_value,
+					const uint8_t *false_value,
+					uint8_t *dest, size_t size)
+{
+	size_t i = 0;
+
+	for (; i < size; i++)
+		dest[i] = util_secure_select_byte(mask, true_value[i],
+							false_value[i]);
+}
+
+/* Create a value filled with the MSB of the input. */
+static inline uint32_t util_secure_fill_with_msb(uint32_t val)
+{
+	return (uint32_t) (val >> (sizeof(val)*8 - 1)) * 0xFFFFFFFF;
+}
+
 #endif /* __UTIL_H */
