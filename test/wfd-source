@@ -1116,7 +1116,7 @@ class WFDSource(Gtk.Window):
         dev_str = self.get_dev_string(path)
         name = str(device.props['Name'])
         label.set_markup(dev_str + '\n<small>' + ('Local name: ' + name + '\n' if dev_str != name else '') + 'State: ' + state + '</small>')
-        switch.set_active(device.props['Enabled'])
+        switch.set_state(device.props['Enabled'])
 
     def update_peer_props(self, dev_path, path):
         device = self.devices[dev_path]
@@ -1560,7 +1560,6 @@ class WFDSource(Gtk.Window):
         device = self.devices[path]
         if device.props['Enabled'] == state:
             return
-        device.props['Enabled'] = state
         device.props_proxy.Set(DEVICE_IF, 'Enabled', state)
         return True
 
