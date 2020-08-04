@@ -55,6 +55,8 @@ struct ap_state {
 	void *user_data;
 	char *ssid;
 	uint8_t channel;
+	uint8_t *authorized_macs;
+	int authorized_macs_num;
 
 	unsigned int ciphers;
 	enum ie_rsn_cipher_suite group_cipher;
@@ -136,6 +138,7 @@ static void ap_reset(struct ap_state *ap)
 	if (ap->rates)
 		l_uintset_free(ap->rates);
 
+	l_free(ap->authorized_macs);
 	ap->started = false;
 }
 
@@ -1243,6 +1246,19 @@ static void ap_auth_cb(const struct mmpdu_header *hdr, const void *body,
 			memcmp(hdr->address_3, bssid, 6))
 		return;
 
+	if (ap->authorized_macs) {
+		int i;
+
+		for (i = 0; i < ap->authorized_macs_num; i++)
+			if (!memcmp(from, ap->authorized_macs + i * 6, 6))
+				break;
+
+		if (i == ap->authorized_macs_num) {
+			ap_auth_reply(ap, from, MMPDU_REASON_CODE_UNSPECIFIED);
+			return;
+		}
+	}
+
 	/* Only Open System authentication implemented here */
 	if (L_LE16_TO_CPU(auth->algorithm) !=
 			MMPDU_AUTH_ALGO_OPEN_SYSTEM) {
@@ -1449,6 +1465,7 @@ static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)
  */
 struct ap_state *ap_start(struct netdev *netdev, const char *ssid,
 				const char *psk, int channel, bool no_cck_rates,
+				const uint8_t **authorized_macs,
 				ap_event_func_t event_func, void *user_data)
 {
 	struct ap_state *ap;
@@ -1469,6 +1486,18 @@ struct ap_state *ap_start(struct netdev *netdev, const char *ssid,
 	else {
 		/* TODO: Start a Get Survey to decide the channel */
 		ap->channel = 6;
+	}
+
+	if (authorized_macs) {
+		int i;
+
+		for (i = 0; authorized_macs[i]; i++);
+		ap->authorized_macs = l_malloc(i * 6);
+		ap->authorized_macs_num = i;
+
+		for (i = 0; authorized_macs[i]; i++)
+			memcpy(ap->authorized_macs + i * 6, authorized_macs[i],
+				6);
 	}
 
 	/* TODO: Add all ciphers supported by wiphy */
@@ -1737,7 +1766,7 @@ static struct l_dbus_message *ap_dbus_start(struct l_dbus *dbus,
 	if (!l_dbus_message_get_arguments(message, "ss", &ssid, &wpa2_psk))
 		return dbus_error_invalid_args(message);
 
-	ap_if->ap = ap_start(ap_if->netdev, ssid, wpa2_psk, 0, false,
+	ap_if->ap = ap_start(ap_if->netdev, ssid, wpa2_psk, 0, false, NULL,
 				ap_if_event_func, ap_if);
 	if (!ap_if->ap)
 		return dbus_error_invalid_args(message);

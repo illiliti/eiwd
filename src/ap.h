@@ -47,6 +47,7 @@ typedef void (*ap_stopped_func_t)(void *user_data);
 
 struct ap_state *ap_start(struct netdev *netdev, const char *ssid,
 				const char *psk, int channel, bool no_cck_rates,
+				const uint8_t **authorized_macs,
 				ap_event_func_t event_func, void *user_data);
 void ap_shutdown(struct ap_state *ap, ap_stopped_func_t stopped_func,
 			void *user_data);
