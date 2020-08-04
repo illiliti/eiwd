@@ -45,12 +45,17 @@
 #include "src/dbus.h"
 #include "src/nl80211util.h"
 #include "src/frame-xchg.h"
+#include "src/ap.h"
 
 struct ap_state {
 	struct netdev *netdev;
 	struct l_genl_family *nl80211;
+	ap_event_func_t event_func;
+	ap_stopped_func_t stopped_func;
+	void *user_data;
 	char *ssid;
 	uint8_t channel;
+
 	unsigned int ciphers;
 	enum ie_rsn_cipher_suite group_cipher;
 	uint32_t beacon_interval;
@@ -64,7 +69,6 @@ struct ap_state {
 	uint16_t last_aid;
 	struct l_queue *sta_states;
 
-	struct l_dbus_message *pending;
 	bool started : 1;
 	bool gtk_set : 1;
 };
@@ -114,16 +118,12 @@ static void ap_reset(struct ap_state *ap)
 {
 	struct netdev *netdev = ap->netdev;
 
-	if (!ap->started)
-		return;
-
-	if (ap->pending)
-		dbus_pending_reply(&ap->pending,
-				dbus_error_aborted(ap->pending));
-
 	l_free(ap->ssid);
 
-	memset(ap->pmk, 0, sizeof(ap->pmk));
+	explicit_bzero(ap->pmk, sizeof(ap->pmk));
+
+	if (ap->mlme_watch)
+		l_genl_family_unregister(ap->nl80211, ap->mlme_watch);
 
 	frame_watch_wdev_remove(netdev_get_wdev_id(netdev));
 
@@ -136,28 +136,28 @@ static void ap_reset(struct ap_state *ap)
 		l_uintset_free(ap->rates);
 
 	ap->started = false;
-
-	l_dbus_property_changed(dbus_get_bus(), netdev_get_path(ap->netdev),
-						IWD_AP_INTERFACE, "Started");
-}
-
-static void ap_free(void *data)
-{
-	struct ap_state *ap = data;
-
-	ap_reset(ap);
-	l_genl_family_free(ap->nl80211);
-	l_free(ap);
 }
 
 static void ap_del_station(struct sta_state *sta, uint16_t reason,
 				bool disassociate)
 {
 	struct ap_state *ap = sta->ap;
+	struct ap_event_station_removed_data event_data;
+	bool send_event = false;
 
 	netdev_del_station(ap->netdev, sta->addr, reason, disassociate);
 	sta->associated = false;
-	sta->rsna = false;
+
+	if (sta->rsna) {
+		if (ap->event_func) {
+			memset(&event_data, 0, sizeof(event_data));
+			event_data.mac = sta->addr;
+			event_data.reason = reason;
+			send_event = true;
+		}
+
+		sta->rsna = false;
+	}
 
 	if (sta->gtk_query_cmd_id) {
 		l_genl_family_cancel(ap->nl80211, sta->gtk_query_cmd_id);
@@ -172,6 +172,10 @@ static void ap_del_station(struct sta_state *sta, uint16_t reason,
 
 	sta->hs = NULL;
 	sta->sm = NULL;
+
+	if (send_event)
+		ap->event_func(AP_EVENT_STATION_REMOVED, &event_data,
+				ap->user_data);
 }
 
 static bool ap_sta_match_addr(const void *a, const void *b)
@@ -205,13 +209,19 @@ static void ap_del_key_cb(struct l_genl_msg *msg, void *user_data)
 
 static void ap_new_rsna(struct sta_state *sta)
 {
+	struct ap_state *ap = sta->ap;
+
 	l_debug("STA "MAC" authenticated", MAC_STR(sta->addr));
 
 	sta->rsna = true;
-	/*
-	 * TODO: Once new AP interface is implemented this is where a
-	 * new "ConnectedPeer" property will be added.
-	 */
+
+	if (ap->event_func) {
+		struct ap_event_station_added_data event_data = {};
+		event_data.mac = sta->addr;
+		event_data.rsn_ie = sta->assoc_rsne;
+		ap->event_func(AP_EVENT_STATION_ADDED, &event_data,
+				ap->user_data);
+	}
 }
 
 static void ap_drop_rsna(struct sta_state *sta)
@@ -250,6 +260,13 @@ static void ap_drop_rsna(struct sta_state *sta)
 
 	sta->hs = NULL;
 	sta->sm = NULL;
+
+	if (ap->event_func) {
+		struct ap_event_station_removed_data event_data = {};
+		event_data.mac = sta->addr;
+		ap->event_func(AP_EVENT_STATION_REMOVED, &event_data,
+				ap->user_data);
+	}
 }
 
 static void ap_set_rsn_info(struct ap_state *ap, struct ie_rsn_info *rsn)
@@ -1305,26 +1322,18 @@ static void ap_start_cb(struct l_genl_msg *msg, void *user_data)
 
 	ap->start_stop_cmd_id = 0;
 
-	if (!ap->pending)
-		return;
-
 	if (l_genl_msg_get_error(msg) < 0) {
 		l_error("START_AP failed: %i", l_genl_msg_get_error(msg));
 
-		dbus_pending_reply(&ap->pending,
-				dbus_error_invalid_args(ap->pending));
+		ap->event_func(AP_EVENT_START_FAILED, NULL, ap->user_data);
 		ap_reset(ap);
-
+		l_genl_family_free(ap->nl80211);
+		l_free(ap);
 		return;
 	}
 
-	dbus_pending_reply(&ap->pending,
-			l_dbus_message_new_method_return(ap->pending));
-
 	ap->started = true;
-
-	l_dbus_property_changed(dbus_get_bus(), netdev_get_path(ap->netdev),
-						IWD_AP_INTERFACE, "Started");
+	ap->event_func(AP_EVENT_STARTED, NULL, ap->user_data);
 }
 
 static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
@@ -1406,25 +1415,55 @@ static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)
 
 	switch (l_genl_msg_get_command(msg)) {
 	case NL80211_CMD_STOP_AP:
-		if (ap->start_stop_cmd_id)
-			break;
+		if (ap->start_stop_cmd_id) {
+			l_genl_family_cancel(ap->nl80211,
+						ap->start_stop_cmd_id);
+			ap->start_stop_cmd_id = 0;
+			ap->event_func(AP_EVENT_START_FAILED, NULL,
+					ap->user_data);
+		} else if (ap->started) {
+			ap->started = false;
+			ap->event_func(AP_EVENT_STOPPING, NULL, ap->user_data);
+		}
 
 		ap_reset(ap);
+		l_genl_family_free(ap->nl80211);
+		l_free(ap);
 		break;
 	}
 }
 
-static int ap_start(struct ap_state *ap, const char *ssid, const char *psk,
-		struct l_dbus_message *message)
+/*
+ * Start a simple independent WPA2 AP on given netdev.
+ *
+ * @event_func is required and must react to AP_EVENT_START_FAILED
+ * and AP_EVENT_STOPPING by forgetting the ap_state struct, which
+ * is going to be freed automatically.
+ * @channel is optional.
+ */
+struct ap_state *ap_start(struct netdev *netdev, const char *ssid,
+				const char *psk, int channel,
+				ap_event_func_t event_func, void *user_data)
 {
-	struct netdev *netdev = ap->netdev;
+	struct ap_state *ap;
 	struct wiphy *wiphy = netdev_get_wiphy(netdev);
 	struct l_genl_msg *cmd;
 	uint64_t wdev_id = netdev_get_wdev_id(netdev);
 
+	ap = l_new(struct ap_state, 1);
+	ap->nl80211 = l_genl_family_new(iwd_get_genl(), NL80211_GENL_NAME);
 	ap->ssid = l_strdup(ssid);
-	/* TODO: Start a Get Survey to decide the channel */
-	ap->channel = 6;
+	ap->netdev = netdev;
+	ap->event_func = event_func;
+	ap->user_data = user_data;
+
+	if (channel)
+		ap->channel = channel;
+	else {
+		/* TODO: Start a Get Survey to decide the channel */
+		ap->channel = 6;
+	}
+
 	/* TODO: Add all ciphers supported by wiphy */
 	ap->ciphers = wiphy_select_cipher(wiphy, 0xffff);
 	ap->group_cipher = wiphy_select_cipher(wiphy, 0xffff);
@@ -1485,37 +1524,30 @@ static int ap_start(struct ap_state *ap, const char *ssid, const char *psk,
 		goto error;
 	}
 
-	ap->pending = l_dbus_message_ref(message);
-
-	return 0;
+	return ap;
 
 error:
 	ap_reset(ap);
-
-	return -EIO;
+	l_genl_family_free(ap->nl80211);
+	l_free(ap);
+	return NULL;
 }
 
 static void ap_stop_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct ap_state *ap = user_data;
+	int error = l_genl_msg_get_error(msg);
 
 	ap->start_stop_cmd_id = 0;
 
-	if (!ap->pending)
-		goto end;
+	if (error < 0)
+		l_error("STOP_AP failed: %s (%i)", strerror(error), error);
 
-	if (l_genl_msg_get_error(msg) < 0) {
-		l_error("STOP_AP failed: %i", l_genl_msg_get_error(msg));
-		dbus_pending_reply(&ap->pending,
-				dbus_error_failed(ap->pending));
-		goto end;
-	}
+	if (ap->stopped_func)
+		ap->stopped_func(ap->user_data);
 
-	dbus_pending_reply(&ap->pending,
-			l_dbus_message_new_method_return(ap->pending));
-
-end:
-	ap_reset(ap);
+	l_genl_family_free(ap->nl80211);
+	l_free(ap);
 }
 
 static struct l_genl_msg *ap_build_cmd_stop_ap(struct ap_state *ap)
@@ -1529,81 +1561,207 @@ static struct l_genl_msg *ap_build_cmd_stop_ap(struct ap_state *ap)
 	return cmd;
 }
 
-static int ap_stop(struct ap_state *ap, struct l_dbus_message *message)
+/*
+ * Schedule the running @ap to be stopped and freed.  The original
+ * event_func and user_data are forgotten and a new callback can be
+ * provided if the caller needs to know when the interface becomes
+ * free, for example for a new ap_start call.
+ *
+ * The user must forget @ap when @stopped_func is called.  If the
+ * @user_data ends up being destroyed before that, ap_free(ap) should
+ * be used to prevent @stopped_func from being called.
+ * If @stopped_func is not provided, the caller must forget @ap
+ * immediately.
+ */
+void ap_shutdown(struct ap_state *ap, ap_stopped_func_t stopped_func,
+			void *user_data)
 {
 	struct l_genl_msg *cmd;
 
+	if (ap->started) {
+		ap->started = false;
+		ap->event_func(AP_EVENT_STOPPING, NULL, ap->user_data);
+	}
+
+	ap_reset(ap);
+
+	if (ap->gtk_set) {
+		ap->gtk_set = false;
+
+		cmd = ap_build_cmd_del_key(ap);
+		if (!cmd) {
+			l_error("ap_build_cmd_del_key failed");
+			goto free_ap;
+		}
+
+		if (!l_genl_family_send(ap->nl80211, cmd, ap_gtk_op_cb, NULL,
+					NULL)) {
+			l_genl_msg_unref(cmd);
+			l_error("Issuing DEL_KEY failed");
+			goto free_ap;
+		}
+	}
+
 	cmd = ap_build_cmd_stop_ap(ap);
-	if (!cmd)
-		return -ENOMEM;
-
-	if (ap->start_stop_cmd_id)
-		l_genl_family_cancel(ap->nl80211, ap->start_stop_cmd_id);
-
-	if (ap->mlme_watch)
-		l_genl_family_unregister(ap->nl80211, ap->mlme_watch);
+	if (!cmd) {
+		l_error("ap_build_cmd_stop_ap failed");
+		goto free_ap;
+	}
 
 	ap->start_stop_cmd_id = l_genl_family_send(ap->nl80211, cmd, ap_stop_cb,
 							ap, NULL);
 	if (!ap->start_stop_cmd_id) {
 		l_genl_msg_unref(cmd);
-		return -EIO;
+		l_error("Sending STOP_AP failed");
+		goto free_ap;
 	}
 
-	if (ap->gtk_set) {
-		struct l_genl_msg *msg;
+	ap->stopped_func = stopped_func;
+	ap->user_data = user_data;
+	return;
 
-		ap->gtk_set = false;
+free_ap:
+	if (stopped_func)
+		stopped_func(user_data);
 
-		msg = ap_build_cmd_del_key(ap);
-		if (!l_genl_family_send(ap->nl80211, msg, ap_gtk_op_cb, NULL,
-					NULL)) {
-			l_genl_msg_unref(msg);
-			l_error("Issuing DEL_KEY failed");
-		}
+	l_genl_family_free(ap->nl80211);
+	l_free(ap);
+}
+
+/* Free @ap without a graceful shutdown */
+void ap_free(struct ap_state *ap)
+{
+	ap_reset(ap);
+	l_genl_family_free(ap->nl80211);
+	l_free(ap);
+}
+
+bool ap_station_disconnect(struct ap_state *ap, const uint8_t *mac,
+				enum mmpdu_reason_code reason)
+{
+	struct sta_state *sta;
+
+	if (!ap->started)
+		return false;
+
+	sta = l_queue_remove_if(ap->sta_states, ap_sta_match_addr, mac);
+	if (!sta)
+		return false;
+
+	ap_del_station(sta, reason, false);
+	ap_sta_free(sta);
+	return true;
+}
+
+struct ap_if_data {
+	struct netdev *netdev;
+	struct ap_state *ap;
+	struct l_dbus_message *pending;
+};
+
+static void ap_if_event_func(enum ap_event_type type, const void *event_data,
+				void *user_data)
+{
+	struct ap_if_data *ap_if = user_data;
+	struct l_dbus_message *reply;
+
+	switch (type) {
+	case AP_EVENT_START_FAILED:
+		if (L_WARN_ON(!ap_if->pending))
+			break;
+
+		reply = dbus_error_failed(ap_if->pending);
+		dbus_pending_reply(&ap_if->pending, reply);
+		ap_if->ap = NULL;
+		break;
+
+	case AP_EVENT_STARTED:
+		if (L_WARN_ON(!ap_if->pending))
+			break;
+
+		reply = l_dbus_message_new_method_return(ap_if->pending);
+		dbus_pending_reply(&ap_if->pending, reply);
+		l_dbus_property_changed(dbus_get_bus(),
+					netdev_get_path(ap_if->netdev),
+					IWD_AP_INTERFACE, "Started");
+		break;
+
+	case AP_EVENT_STOPPING:
+		l_dbus_property_changed(dbus_get_bus(),
+					netdev_get_path(ap_if->netdev),
+					IWD_AP_INTERFACE, "Started");
+
+		if (!ap_if->pending)
+			ap_if->ap = NULL;
+
+		break;
+
+	case AP_EVENT_STATION_ADDED:
+	case AP_EVENT_STATION_REMOVED:
+		/* Ignored */
+		break;
 	}
-
-	ap->pending = l_dbus_message_ref(message);
-
-	return 0;
 }
 
 static struct l_dbus_message *ap_dbus_start(struct l_dbus *dbus,
 		struct l_dbus_message *message, void *user_data)
 {
-	struct ap_state *ap = user_data;
+	struct ap_if_data *ap_if = user_data;
 	const char *ssid, *wpa2_psk;
 
-	if (ap->pending)
-		return dbus_error_busy(message);
-
-	if (ap->started)
+	if (ap_if->ap && ap_if->ap->started)
 		return dbus_error_already_exists(message);
+
+	if (ap_if->ap || ap_if->pending)
+		return dbus_error_busy(message);
 
 	if (!l_dbus_message_get_arguments(message, "ss", &ssid, &wpa2_psk))
 		return dbus_error_invalid_args(message);
 
-	if (ap_start(ap, ssid, wpa2_psk, message) < 0)
+	ap_if->ap = ap_start(ap_if->netdev, ssid, wpa2_psk, 0,
+				ap_if_event_func, ap_if);
+	if (!ap_if->ap)
 		return dbus_error_invalid_args(message);
 
+	ap_if->pending = l_dbus_message_ref(message);
 	return NULL;
+}
+
+static void ap_dbus_stop_cb(void *user_data)
+{
+	struct ap_if_data *ap_if = user_data;
+	struct l_dbus_message *reply;
+
+	if (L_WARN_ON(!ap_if->pending))
+		return;
+
+	reply = l_dbus_message_new_method_return(ap_if->pending);
+	dbus_pending_reply(&ap_if->pending, reply);
+	ap_if->ap = NULL;
 }
 
 static struct l_dbus_message *ap_dbus_stop(struct l_dbus *dbus,
 		struct l_dbus_message *message, void *user_data)
 {
-	struct ap_state *ap = user_data;
+	struct ap_if_data *ap_if = user_data;
 
-	if (ap->pending)
-		return dbus_error_busy(message);
+	if (!ap_if->ap) {
+		if (ap_if->pending)
+			return dbus_error_busy(message);
 
-	/* already stopped, no-op */
-	if (!ap->started)
+		/* already stopped, no-op */
 		return l_dbus_message_new_method_return(message);
+	}
 
-	if (ap_stop(ap, message) < 0)
-		return dbus_error_failed(message);
+	if (ap_if->pending) {
+		struct l_dbus_message *reply;
 
+		reply = dbus_error_aborted(ap_if->pending);
+		dbus_pending_reply(&ap_if->pending, reply);
+	}
+
+	ap_if->pending = l_dbus_message_ref(message);
+	ap_shutdown(ap_if->ap, ap_dbus_stop_cb, ap_if);
 	return NULL;
 }
 
@@ -1612,8 +1770,8 @@ static bool ap_dbus_property_get_started(struct l_dbus *dbus,
 					struct l_dbus_message_builder *builder,
 					void *user_data)
 {
-	struct ap_state *ap = user_data;
-	bool started = ap->started;
+	struct ap_if_data *ap_if = user_data;
+	bool started = ap_if->ap && ap_if->ap->started;
 
 	l_dbus_message_builder_append_basic(builder, 'b', &started);
 
@@ -1632,27 +1790,36 @@ static void ap_setup_interface(struct l_dbus_interface *interface)
 
 static void ap_destroy_interface(void *user_data)
 {
-	struct ap_state *ap = user_data;
+	struct ap_if_data *ap_if = user_data;
 
-	ap_free(ap);
+	if (ap_if->pending) {
+		struct l_dbus_message *reply;
+
+		reply = dbus_error_aborted(ap_if->pending);
+		dbus_pending_reply(&ap_if->pending, reply);
+	}
+
+	if (ap_if->ap)
+		ap_free(ap_if->ap);
+
+	l_free(ap_if);
 }
 
 static void ap_add_interface(struct netdev *netdev)
 {
-	struct ap_state *ap;
+	struct ap_if_data *ap_if;
 
 	/*
 	 * TODO: Check wiphy supported channels and NL80211_ATTR_TX_FRAME_TYPES
 	 */
 
 	/* just allocate/set device, Start method will complete setup */
-	ap = l_new(struct ap_state, 1);
-	ap->netdev = netdev;
-	ap->nl80211 = l_genl_family_new(iwd_get_genl(), NL80211_GENL_NAME);
+	ap_if = l_new(struct ap_if_data, 1);
+	ap_if->netdev = netdev;
 
 	/* setup ap dbus interface */
 	l_dbus_object_add_interface(dbus_get_bus(),
-			netdev_get_path(netdev), IWD_AP_INTERFACE, ap);
+			netdev_get_path(netdev), IWD_AP_INTERFACE, ap_if);
 }
 
 static void ap_remove_interface(struct netdev *netdev)
