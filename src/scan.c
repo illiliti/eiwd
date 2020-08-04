@@ -1448,9 +1448,6 @@ static void get_scan_callback(struct l_genl_msg *msg, void *user_data)
 
 	l_debug("get_scan_callback");
 
-	if (!results->bss_list)
-		results->bss_list = l_queue_new();
-
 	bss = scan_parse_result(msg, &wdev_id);
 	if (!bss)
 		return;
@@ -1694,6 +1691,7 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		results->sc = sc;
 		results->time_stamp = l_time_now();
 		results->sr = sr;
+		results->bss_list = l_queue_new();
 
 		scan_parse_new_scan_results(msg, results);
 
