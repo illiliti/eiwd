@@ -826,6 +826,7 @@ class WFDSource(Gtk.Window):
         self.rtsp_port = 7236
         self.devices = None
         self.objects = {}
+        self.populate_devices()
         self.dbus = dbus.SystemBus()
         self.dbus.watch_name_owner('net.connman.iwd', self.on_name_owner_change)
         self.on_name_owner_change('dummy' if self.dbus.name_has_owner('net.connman.iwd') else '')
@@ -857,17 +858,6 @@ class WFDSource(Gtk.Window):
             return True
 
         manager = dbus.Interface(self.dbus.get_object('net.connman.iwd', '/'), 'org.freedesktop.DBus.ObjectManager')
-        self.devices = {}
-        self.objects = manager.GetManagedObjects()
-
-        for path in self.objects:
-            if DEVICE_IF in self.objects[path]:
-                self.add_dev(path)
-        for path in self.objects:
-            if PEER_IF in self.objects[path]:
-                self.add_peer(path)
-
-        self.populate_devices()
 
         self.dbus.add_signal_receiver(self.on_properties_changed,
             bus_name="net.connman.iwd",
@@ -882,6 +872,18 @@ class WFDSource(Gtk.Window):
             bus_name="net.connman.iwd",
             dbus_interface="org.freedesktop.DBus.ObjectManager",
             signal_name="InterfacesRemoved")
+
+        self.objects = manager.GetManagedObjects()
+        self.devices = {}
+
+        for path in self.objects:
+            if DEVICE_IF in self.objects[path]:
+                self.add_dev(path)
+        for path in self.objects:
+            if PEER_IF in self.objects[path]:
+                self.add_peer(path)
+
+        self.populate_devices()
 
         svc_mgr = dbus.Interface(self.dbus.get_object('net.connman.iwd', '/net/connman/iwd'), SVC_MGR_IF)
         svc_mgr.RegisterDisplayService({
