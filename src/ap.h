@@ -46,7 +46,7 @@ typedef void (*ap_event_func_t)(enum ap_event_type type, const void *event_data,
 typedef void (*ap_stopped_func_t)(void *user_data);
 
 struct ap_state *ap_start(struct netdev *netdev, const char *ssid,
-				const char *psk, int channel,
+				const char *psk, int channel, bool no_cck_rates,
 				ap_event_func_t event_func, void *user_data);
 void ap_shutdown(struct ap_state *ap, ap_stopped_func_t stopped_func,
 			void *user_data);

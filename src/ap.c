@@ -71,6 +71,7 @@ struct ap_state {
 
 	bool started : 1;
 	bool gtk_set : 1;
+	bool no_cck_rates : 1;
 };
 
 struct sta_state {
@@ -381,6 +382,11 @@ static uint32_t ap_send_mgmt_frame(struct ap_state *ap,
 	if (!wait_ack)
 		l_genl_msg_append_attr(msg, NL80211_ATTR_DONT_WAIT_FOR_ACK,
 					0, NULL);
+
+	if (ap->no_cck_rates)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_TX_NO_CCK_RATE, 0,
+					NULL);
+
 
 	id = l_genl_family_send(ap->nl80211, msg, callback, user_data, NULL);
 
@@ -1442,7 +1448,7 @@ static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)
  * @channel is optional.
  */
 struct ap_state *ap_start(struct netdev *netdev, const char *ssid,
-				const char *psk, int channel,
+				const char *psk, int channel, bool no_cck_rates,
 				ap_event_func_t event_func, void *user_data)
 {
 	struct ap_state *ap;
@@ -1454,6 +1460,7 @@ struct ap_state *ap_start(struct netdev *netdev, const char *ssid,
 	ap->nl80211 = l_genl_family_new(iwd_get_genl(), NL80211_GENL_NAME);
 	ap->ssid = l_strdup(ssid);
 	ap->netdev = netdev;
+	ap->no_cck_rates = no_cck_rates;
 	ap->event_func = event_func;
 	ap->user_data = user_data;
 
@@ -1468,11 +1475,23 @@ struct ap_state *ap_start(struct netdev *netdev, const char *ssid,
 	ap->ciphers = wiphy_select_cipher(wiphy, 0xffff);
 	ap->group_cipher = wiphy_select_cipher(wiphy, 0xffff);
 	ap->beacon_interval = 100;
-	/* TODO: Use actual supported rates */
-	ap->rates = l_uintset_new(200);
-	l_uintset_put(ap->rates, 2); /* 1 Mbps*/
-	l_uintset_put(ap->rates, 11); /* 5.5 Mbps*/
-	l_uintset_put(ap->rates, 22); /* 11 Mbps*/
+
+	/* TODO: Pick from actual supported rates */
+	if (no_cck_rates) {
+		l_uintset_put(ap->rates, 12); /* 6 Mbps*/
+		l_uintset_put(ap->rates, 18); /* 9 Mbps*/
+		l_uintset_put(ap->rates, 24); /* 12 Mbps*/
+		l_uintset_put(ap->rates, 36); /* 18 Mbps*/
+		l_uintset_put(ap->rates, 48); /* 24 Mbps*/
+		l_uintset_put(ap->rates, 72); /* 36 Mbps*/
+		l_uintset_put(ap->rates, 96); /* 48 Mbps*/
+		l_uintset_put(ap->rates, 108); /* 54 Mbps*/
+	} else {
+		ap->rates = l_uintset_new(200);
+		l_uintset_put(ap->rates, 2); /* 1 Mbps*/
+		l_uintset_put(ap->rates, 11); /* 5.5 Mbps*/
+		l_uintset_put(ap->rates, 22); /* 11 Mbps*/
+	}
 
 	if (crypto_psk_from_passphrase(psk, (uint8_t *) ssid, strlen(ssid),
 					ap->pmk) < 0)
@@ -1718,7 +1737,7 @@ static struct l_dbus_message *ap_dbus_start(struct l_dbus *dbus,
 	if (!l_dbus_message_get_arguments(message, "ss", &ssid, &wpa2_psk))
 		return dbus_error_invalid_args(message);
 
-	ap_if->ap = ap_start(ap_if->netdev, ssid, wpa2_psk, 0,
+	ap_if->ap = ap_start(ap_if->netdev, ssid, wpa2_psk, 0, false,
 				ap_if_event_func, ap_if);
 	if (!ap_if->ap)
 		return dbus_error_invalid_args(message);
