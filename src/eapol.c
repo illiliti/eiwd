@@ -1462,7 +1462,6 @@ static void eapol_handle_ptk_2_of_4(struct eapol_sm *sm,
 	memcpy(sm->handshake->snonce, ek->key_nonce,
 			sizeof(sm->handshake->snonce));
 	sm->handshake->have_snonce = true;
-	sm->handshake->ptk_complete = true;
 
 	sm->frame_retry = 0;
 
@@ -1782,7 +1781,15 @@ static void eapol_handle_ptk_4_of_4(struct eapol_sm *sm,
 	l_timeout_remove(sm->timeout);
 	sm->timeout = NULL;
 
-	handshake_state_install_ptk(sm->handshake);
+	/*
+	 * If ptk_complete is set, then we are receiving Message 4 again.
+	 * This might be a retransmission, so accept but don't install
+	 * the keys again.
+	 */
+	if (!sm->handshake->ptk_complete)
+		handshake_state_install_ptk(sm->handshake);
+
+	sm->handshake->ptk_complete = true;
 }
 
 static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
@@ -2185,6 +2192,7 @@ static void eapol_auth_key_handle(struct eapol_sm *sm,
 	size_t frame_len = 4 + L_BE16_TO_CPU(frame->header.packet_len);
 	const struct eapol_key *ek = eapol_key_validate((const void *) frame,
 							frame_len, sm->mic_len);
+	uint16_t key_data_len;
 
 	if (!ek)
 		return;
@@ -2199,7 +2207,8 @@ static void eapol_auth_key_handle(struct eapol_sm *sm,
 	if (!sm->handshake->have_anonce)
 		return; /* Not expecting an EAPoL-Key yet */
 
-	if (!sm->handshake->ptk_complete)
+	key_data_len = EAPOL_KEY_DATA_LEN(ek, sm->mic_len);
+	if (key_data_len != 0)
 		eapol_handle_ptk_2_of_4(sm, ek);
 	else
 		eapol_handle_ptk_4_of_4(sm, ek);
