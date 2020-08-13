@@ -904,8 +904,11 @@ void eapol_sm_set_user_data(struct eapol_sm *sm, void *user_data)
 static void eapol_sm_write(struct eapol_sm *sm, const struct eapol_frame *ef,
 				bool noencrypt)
 {
-	__eapol_tx_packet(sm->handshake->ifindex, sm->handshake->aa, ETH_P_PAE,
-				ef, noencrypt);
+	const uint8_t *dst = sm->handshake->authenticator ?
+		sm->handshake->spa : sm->handshake->aa;
+
+	__eapol_tx_packet(sm->handshake->ifindex, dst, ETH_P_PAE, ef,
+				noencrypt);
 }
 
 static inline void handshake_failed(struct eapol_sm *sm, uint16_t reason_code)
@@ -1024,7 +1027,6 @@ static void eapol_set_key_timeout(struct eapol_sm *sm,
 /* 802.11-2016 Section 12.7.6.2 */
 static void eapol_send_ptk_1_of_4(struct eapol_sm *sm)
 {
-	uint32_t ifindex = sm->handshake->ifindex;
 	const uint8_t *aa = sm->handshake->aa;
 	uint8_t frame_buf[512];
 	struct eapol_key *ek = (struct eapol_key *) frame_buf;
@@ -1062,8 +1064,7 @@ static void eapol_send_ptk_1_of_4(struct eapol_sm *sm)
 	l_debug("STA: "MAC" retries=%u", MAC_STR(sm->handshake->spa),
 			sm->frame_retry);
 
-	__eapol_tx_packet(ifindex, sm->handshake->spa, ETH_P_PAE,
-				(struct eapol_frame *) ek, false);
+	eapol_sm_write(sm, (struct eapol_frame *) ek, false);
 }
 
 static void eapol_ptk_1_of_4_retry(struct l_timeout *timeout, void *user_data)
@@ -1265,7 +1266,6 @@ error_unspecified:
 /* 802.11-2016 Section 12.7.6.4 */
 static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 {
-	uint32_t ifindex = sm->handshake->ifindex;
 	uint8_t frame_buf[512];
 	unsigned int rsne_len = sm->handshake->authenticator_ie[1] + 2;
 	uint8_t key_data_buf[128 + rsne_len];
@@ -1335,8 +1335,7 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 	l_debug("STA: "MAC" retries=%u", MAC_STR(sm->handshake->spa),
 			sm->frame_retry);
 
-	__eapol_tx_packet(ifindex, sm->handshake->spa, ETH_P_PAE,
-				(struct eapol_frame *) ek, false);
+	eapol_sm_write(sm, (struct eapol_frame *) ek, false);
 }
 
 static void eapol_ptk_3_of_4_retry(struct l_timeout *timeout,
