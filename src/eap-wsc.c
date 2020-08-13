@@ -479,6 +479,10 @@ static void eap_wsc_handle_m8(struct eap_state *eap,
 		return;
 	}
 
+	if (memcmp(m8.enrollee_nonce, wsc->m1->enrollee_nonce,
+						sizeof(m8.enrollee_nonce)))
+		return;
+
 	if (!authenticator_check(wsc, pdu, len))
 		return;
 
@@ -580,6 +584,10 @@ static void eap_wsc_handle_m6(struct eap_state *eap,
 	if (wsc_parse_m6(pdu, len, &m6, &encrypted) != 0)
 		goto send_nack;
 
+	if (memcmp(m6.enrollee_nonce, wsc->m1->enrollee_nonce,
+						sizeof(m6.enrollee_nonce)))
+		return;
+
 	if (!authenticator_check(wsc, pdu, len))
 		return;
 
@@ -676,6 +684,10 @@ static void eap_wsc_handle_m4(struct eap_state *eap,
 	/* Spec unclear what to do here, see comments in eap_wsc_send_nack */
 	if (wsc_parse_m4(pdu, len, &m4, &encrypted) != 0)
 		goto send_nack;
+
+	if (memcmp(m4.enrollee_nonce, wsc->m1->enrollee_nonce,
+						sizeof(m4.enrollee_nonce)))
+		return;
 
 	if (!authenticator_check(wsc, pdu, len))
 		return;
@@ -814,6 +826,10 @@ static void eap_wsc_handle_m2(struct eap_state *eap,
 		eap_wsc_send_nack(eap, WSC_CONFIGURATION_ERROR_NO_ERROR);
 		return;
 	}
+
+	if (memcmp(wsc->m2->enrollee_nonce, wsc->m1->enrollee_nonce,
+					sizeof(wsc->m2->enrollee_nonce)))
+		return;
 
 	if (!l_key_validate_dh_payload(wsc->m2->public_key,
 					sizeof(wsc->m2->public_key),
