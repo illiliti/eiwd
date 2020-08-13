@@ -1267,17 +1267,16 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 {
 	uint32_t ifindex = sm->handshake->ifindex;
 	uint8_t frame_buf[512];
-	uint8_t key_data_buf[128];
+	unsigned int rsne_len = sm->handshake->authenticator_ie[1] + 2;
+	uint8_t key_data_buf[128 + rsne_len];
+	int key_data_len = rsne_len;
 	struct eapol_key *ek = (struct eapol_key *) frame_buf;
-	int key_data_len;
 	enum crypto_cipher cipher = ie_rsn_cipher_suite_to_cipher(
 				sm->handshake->pairwise_cipher);
 	enum crypto_cipher group_cipher = ie_rsn_cipher_suite_to_cipher(
 				sm->handshake->group_cipher);
 	const uint8_t *kck;
 	const uint8_t *kek;
-	struct ie_rsn_info rsn;
-	uint8_t *rsne;
 
 	sm->replay_counter++;
 
@@ -1304,17 +1303,7 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 	 * Just one RSNE in Key Data as we only set one cipher in ap->ciphers
 	 * currently.
 	 */
-
-	memset(&rsn, 0, sizeof(rsn));
-	rsn.akm_suites = IE_RSN_AKM_SUITE_PSK;
-	rsn.pairwise_ciphers = sm->handshake->pairwise_cipher;
-	rsn.group_cipher = sm->handshake->group_cipher;
-
-	rsne = key_data_buf;
-	if (!ie_build_rsne(&rsn, rsne))
-		return;
-
-	key_data_len = rsne[1] + 2;
+	memcpy(key_data_buf, sm->handshake->authenticator_ie, rsne_len);
 
 	if (group_cipher) {
 		uint8_t *gtk_kde = key_data_buf + key_data_len;
