@@ -173,22 +173,42 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 	} else if (security == SECURITY_PSK) {
 		/*
 		 * Prefer connecting to SAE/WPA3 network, but only if SAE is
-		 * supported, we are MFP capable, and the AP has set the MFPR
-		 * bit. If any of these conditions are not met, we can fallback
-		 * to WPA2 (if the AKM is present).
+		 * supported, we are MFP capable, and the AP has set the
+		 * MFPR/MFPC bits correctly. If any of these conditions are not
+		 * met, we can fallback to WPA2 (if the AKM is present).
 		 */
-		if (wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP &&
-				wiphy_has_feature(wiphy, NL80211_FEATURE_SAE) &&
-				info.mfpr) {
-			if ((info.akm_suites &
-					IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256) &&
-					wiphy->support_cmds_auth_assoc)
+		if (ie_rsne_is_wpa3_personal(&info)) {
+			l_debug("Network is WPA3-Personal...");
+
+			if (!(wiphy->supported_ciphers &
+						IE_RSN_CIPHER_SUITE_BIP)) {
+				l_debug("HW not MFP capable, trying WPA2");
+				goto wpa2_personal;
+			}
+
+			/*
+			 * TODO: Only SoftMAC (mac80211) drivers are currently
+			 * capable of SAE since it requires ability to send
+			 * Authenticate and Associate frames (which is given by
+			 * support_cmds_auth_assoc).  FullMAC drivers require
+			 * SAE offload which we do not support nor supported
+			 * in any upstream driver as of this time.
+			 */
+			if (!wiphy_has_feature(wiphy, NL80211_FEATURE_SAE) ||
+					!wiphy->support_cmds_auth_assoc) {
+				l_debug("No HW WPA3 support, trying WPA2");
+				goto wpa2_personal;
+			}
+
+			if (info.akm_suites &
+					IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256)
 				return IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256;
 
 			if (info.akm_suites & IE_RSN_AKM_SUITE_SAE_SHA256)
 				return IE_RSN_AKM_SUITE_SAE_SHA256;
 		}
 
+wpa2_personal:
 		if ((info.akm_suites & IE_RSN_AKM_SUITE_FT_USING_PSK) &&
 				bss->rsne && bss->mde_present &&
 				wiphy->support_cmds_auth_assoc)

@@ -1175,6 +1175,33 @@ bool ie_build_rsne(const struct ie_rsn_info *info, uint8_t *to)
 	return true;
 }
 
+bool ie_rsne_is_wpa3_personal(const struct ie_rsn_info *info)
+{
+	bool is_transition = info->akm_suites & IE_RSN_AKM_SUITE_PSK;
+	/*
+	 * WPA3 Specification, Version 2
+	 *
+	 * Section 2.2 WPA3-Personal only Mode:
+	 * 1. An AP shall enable at least AKM suite selector 00-0F-AC:8 in
+	 * the BSS
+	 * 3.  An AP shall not enable AKM suite selector: 00-0F-AC:2, 00-0F-AC:6
+	 * 5. an AP shall set MFPC to 1, MFPR to 1
+	 *
+	 * Section 2.3 WPA3-Personal transition Mode:
+	 * 1. an AP shall enable at least AKM suite selectors 00-0F-AC:2 and
+	 * 00-0F-AC:8 in the BSS
+	 * 3. an AP should enable AKM suite selector: 00-0F-AC:6
+	 * 5. an AP shall set MFPC to 1, MFPR to 0
+	 */
+	if (!(info->akm_suites & IE_RSN_AKM_SUITE_SAE_SHA256))
+		return false;
+
+	if (!info->mfpc)
+		return false;
+
+	return is_transition || info->mfpr;
+}
+
 bool ie_build_osen(const struct ie_rsn_info *info, uint8_t *to)
 {
 	unsigned int pos;

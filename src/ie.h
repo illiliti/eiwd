@@ -453,6 +453,7 @@ int ie_parse_rsne(struct ie_tlv_iter *iter, struct ie_rsn_info *info);
 int ie_parse_rsne_from_data(const uint8_t *data, size_t len,
 				struct ie_rsn_info *info);
 bool ie_build_rsne(const struct ie_rsn_info *info, uint8_t *to);
+bool ie_rsne_is_wpa3_personal(const struct ie_rsn_info *info);
 
 int ie_parse_wpa(struct ie_tlv_iter *iter, struct ie_rsn_info *out_info);
 int ie_parse_wpa_from_data(const uint8_t *data, size_t len,
