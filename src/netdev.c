@@ -2071,6 +2071,12 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 	if (netdev->ap) {
 		ret = auth_proto_rx_associate(netdev->ap, frame, frame_len);
 		if (ret == 0) {
+			bool fils = !!(netdev->handshake->akm_suite &
+					(IE_RSN_AKM_SUITE_FILS_SHA256 |
+					 IE_RSN_AKM_SUITE_FILS_SHA384 |
+					 IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384 |
+					 IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256));
+
 			auth_proto_free(netdev->ap);
 			netdev->ap = NULL;
 
@@ -2081,15 +2087,15 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 			netdev->ignore_connect_event = false;
 
 			/*
-			 * If in FT we need to prevent the 4-way handshake from
-			 * happening, and instead just wait for rekeys
+			 * If in FT and/or FILS we don't force an initial 4-way
+			 * handshake and instead just keep the EAPoL state
+			 * machine for the rekeys.
 			 */
-			if (netdev->in_ft) {
+			if (netdev->in_ft || fils)
 				eapol_sm_set_require_handshake(netdev->sm,
 								false);
-				netdev->in_ft = false;
-			}
 
+			netdev->in_ft = false;
 			return;
 		} else if (ret == -EAGAIN) {
 			/*
