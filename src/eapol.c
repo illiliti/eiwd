@@ -2210,9 +2210,6 @@ static void eapol_rx_auth_packet(uint16_t proto, const uint8_t *from,
 {
 	struct eapol_sm *sm = user_data;
 
-	if (!sm->protocol_version)
-		sm->protocol_version = frame->header.protocol_version;
-
 	switch (frame->header.packet_type) {
 	case 3: /* EAPOL-Key */
 		eapol_auth_key_handle(sm, frame);
