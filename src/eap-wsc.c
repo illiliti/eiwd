@@ -1157,11 +1157,13 @@ static bool load_hexencoded(struct l_settings *settings, const char *key,
 		return false;
 
 	if (decoded_len != len) {
+		explicit_bzero(decoded, decoded_len);
 		l_free(decoded);
 		return false;
 	}
 
 	memcpy(to, decoded, len);
+	explicit_bzero(decoded, decoded_len);
 	l_free(decoded);
 
 	return true;
