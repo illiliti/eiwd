@@ -64,7 +64,7 @@ static void eap_gtc_handle_request(struct eap_state *eap,
 
 	memcpy(response + 5, gtc->password, secret_len);
 
-	eap_send_response(eap, EAP_TYPE_GTC, response, 5 + secret_len);
+	eap_method_respond(eap, response, 5 + secret_len);
 
 	eap_method_success(eap);
 

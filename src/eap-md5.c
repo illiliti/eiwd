@@ -79,8 +79,7 @@ static void eap_md5_handle_request(struct eap_state *eap,
 	l_checksum_get_digest(hash, response + 6, 16);
 	l_checksum_free(hash);
 
-	eap_send_response(eap, EAP_TYPE_MD5_CHALLENGE,
-				response, sizeof(response));
+	eap_method_respond(eap, response, sizeof(response));
 
 	/* We have no choice but to call it a success */
 	eap_method_success(eap);

@@ -149,29 +149,19 @@ const char *eap_get_identity(struct eap_state *eap)
 	return eap->identity;
 }
 
-/**
- * eap_send_response:
- * @eap: EAP state
- * @type: Type of response being sent
- * @buf: Buffer to send
- * @len: Size of the buffer
- *
- * Sends out a response to a received request.  This method first fills the
- * EAP header into the buffer based on the EAP type response being sent.
- *
- * If the response type is EAP_TYPE_EXPANDED, then the Vendor-Id and
- * Vendor-Type fields are filled in based on contents of the eap_method
- * associated with @eap.
- *
- * The buffer passed in MUST be at least 12 bytes long if @type is
- * EAP_TYPE_EXPANDED and at least 5 bytes for other cases.
- **/
-void eap_send_response(struct eap_state *eap, enum eap_type type,
-						uint8_t *buf, size_t len)
+static void eap_send_packet(struct eap_state *eap, enum eap_code code,
+				uint8_t id, uint8_t *buf, size_t len)
 {
-	buf[0] = EAP_CODE_RESPONSE;
-	buf[1] = eap->last_id;
+	buf[0] = code;
+	buf[1] = id;
 	l_put_be16(len, &buf[2]);
+
+	eap->tx_packet(buf, len, eap->user_data);
+}
+
+static void eap_send_response(struct eap_state *eap, enum eap_type type,
+				uint8_t *buf, size_t len)
+{
 	buf[4] = type;
 
 	if (type == EAP_TYPE_EXPANDED) {
@@ -179,7 +169,28 @@ void eap_send_response(struct eap_state *eap, enum eap_type type,
 		l_put_be32(eap->method->vendor_type, buf + 8);
 	}
 
-	eap->tx_packet(buf, len, eap->user_data);
+	eap_send_packet(eap, EAP_CODE_RESPONSE, eap->last_id, buf, len);
+}
+
+/**
+ * eap_method_respond:
+ * @eap: EAP state
+ * @buf: Buffer to send
+ * @len: Size of the buffer
+ *
+ * Sends out a response to a received request.  This method first fills
+ * the EAP header in the buffer based on the method's EAP type being
+ * sent.
+ *
+ * If the method uses an expanded type , then the Vendor-Id and
+ * Vendor-Type fields are filled in automatically.
+ *
+ * The buffer passed in MUST be at least 12 bytes long if method uses
+ * an expanded type and at least 5 bytes for other cases.
+ **/
+void eap_method_respond(struct eap_state *eap, uint8_t *buf, size_t len)
+{
+	eap_send_response(eap, eap->method->request_type, buf, len);
 }
 
 static void eap_complete_timeout(struct l_timeout *timeout, void *user_data)

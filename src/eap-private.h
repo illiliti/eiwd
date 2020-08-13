@@ -114,10 +114,6 @@ void *eap_get_data(struct eap_state *eap);
 enum eap_type eap_get_method_type(struct eap_state *eap);
 const char *eap_get_method_name(struct eap_state *eap);
 
-void eap_send_response(struct eap_state *eap,
-			enum eap_type request_type,
-			uint8_t *buf, size_t len);
-
 void eap_set_key_material(struct eap_state *eap,
 				const uint8_t *msk_data, size_t msk_len,
 				const uint8_t *emsk_data, size_t emsk_len,
@@ -126,6 +122,7 @@ void eap_set_key_material(struct eap_state *eap,
 
 void eap_start_complete_timeout(struct eap_state *eap);
 
+void eap_method_respond(struct eap_state *eap, uint8_t *buf, size_t len);
 bool eap_method_is_success(struct eap_state *eap);
 void eap_method_success(struct eap_state *eap);
 void eap_method_error(struct eap_state *eap);

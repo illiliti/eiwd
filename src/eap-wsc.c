@@ -339,7 +339,7 @@ static void eap_wsc_send_fragment(struct eap_state *eap)
 	}
 
 	memcpy(buf + header_len, wsc->sent_pdu + wsc->tx_frag_offset, len);
-	eap_send_response(eap, EAP_TYPE_EXPANDED, buf, header_len + len);
+	eap_method_respond(eap, buf, header_len + len);
 
 	wsc->tx_last_frag_len = len;
 }
@@ -359,7 +359,7 @@ static void eap_wsc_send_response(struct eap_state *eap,
 		buf[13] = 0;
 		memcpy(buf + EAP_WSC_HEADER_LEN, pdu, pdu_len);
 
-		eap_send_response(eap, EAP_TYPE_EXPANDED, buf, msg_len);
+		eap_method_respond(eap, buf, msg_len);
 		l_free(buf);
 		return;
 	}
@@ -419,8 +419,7 @@ static void eap_wsc_send_nack(struct eap_state *eap,
 	buf[13] = 0;
 	memcpy(buf + EAP_WSC_HEADER_LEN, pdu, pdu_len);
 
-	eap_send_response(eap, EAP_TYPE_EXPANDED, buf,
-						pdu_len + EAP_WSC_HEADER_LEN);
+	eap_method_respond(eap, buf, pdu_len + EAP_WSC_HEADER_LEN);
 	l_free(pdu);
 }
 
@@ -446,8 +445,7 @@ static void eap_wsc_send_done(struct eap_state *eap)
 	buf[13] = 0;
 	memcpy(buf + EAP_WSC_HEADER_LEN, pdu, pdu_len);
 
-	eap_send_response(eap, EAP_TYPE_EXPANDED, buf,
-						pdu_len + EAP_WSC_HEADER_LEN);
+	eap_method_respond(eap, buf, pdu_len + EAP_WSC_HEADER_LEN);
 	l_free(pdu);
 }
 
@@ -458,7 +456,7 @@ static void eap_wsc_send_frag_ack(struct eap_state *eap)
 	buf[12] = WSC_OP_FRAG_ACK;
 	buf[13] = 0;
 
-	eap_send_response(eap, EAP_TYPE_EXPANDED, buf, EAP_WSC_HEADER_LEN);
+	eap_method_respond(eap, buf, EAP_WSC_HEADER_LEN);
 }
 
 static void eap_wsc_handle_m8(struct eap_state *eap,
@@ -1123,7 +1121,7 @@ static void eap_wsc_handle_retransmit(struct eap_state *eap,
 		buf[13] = 0;
 		memcpy(buf + EAP_WSC_HEADER_LEN, wsc->sent_pdu, wsc->sent_len);
 
-		eap_send_response(eap, EAP_TYPE_EXPANDED, buf, msg_len);
+		eap_method_respond(eap, buf, msg_len);
 	}
 }
 

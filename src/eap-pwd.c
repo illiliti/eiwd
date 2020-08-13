@@ -194,7 +194,7 @@ static void eap_pwd_send_response(struct eap_state *eap,
 
 	/* packet will fit within mtu */
 	if (len <= mtu) {
-		eap_send_response(eap, EAP_TYPE_PWD, pkt, len);
+		eap_method_respond(eap, pkt, len);
 		return;
 	}
 
@@ -218,7 +218,7 @@ static void eap_pwd_send_response(struct eap_state *eap,
 
 	l_info("sending initial fragment, %zu bytes", mtu);
 
-	eap_send_response(eap, EAP_TYPE_PWD, frag, mtu);
+	eap_method_respond(eap, frag, mtu);
 
 	/* alloc/copy remainder of packet to frag buf */
 	pwd->tx_frag_buf = l_malloc(pwd->tx_frag_remaining);
@@ -593,7 +593,7 @@ static void eap_pwd_send_ack(struct eap_state *eap)
 
 	buf[5] = pwd->state + 1;
 
-	eap_send_response(eap, EAP_TYPE_PWD, buf, 6);
+	eap_method_respond(eap, buf, 6);
 }
 
 #define FRAG_BYTES(mtu, remaining) \
@@ -631,8 +631,7 @@ static void eap_pwd_handle_request(struct eap_state *eap,
 		l_info("sending fragment, %d bytes",
 				frag_bytes + EAP_PWD_HDR_LEN);
 
-		eap_send_response(eap, EAP_TYPE_PWD, frag,
-				frag_bytes + EAP_PWD_HDR_LEN);
+		eap_method_respond(eap, frag, frag_bytes + EAP_PWD_HDR_LEN);
 
 		if (!pwd->tx_frag_remaining) {
 			/* done sending fragments, free */

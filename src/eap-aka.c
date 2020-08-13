@@ -206,7 +206,7 @@ static void check_milenage_cb(const uint8_t *res, const uint8_t *ck,
 		pos += eap_sim_add_attribute(pos, EAP_SIM_AT_AUTS,
 				EAP_SIM_PAD_NONE, auts, EAP_AKA_AUTS_LEN);
 
-		eap_send_response(eap, aka->type, response, 24);
+		eap_method_respond(eap, response, 24);
 
 		return;
 	}
@@ -285,7 +285,7 @@ static void check_milenage_cb(const uint8_t *res, const uint8_t *ck,
 	l_free(aka->chal_pkt);
 	aka->chal_pkt = NULL;
 
-	eap_send_response(eap, aka->type, response, resp_len);
+	eap_method_respond(eap, response, resp_len);
 
 	if (!aka->protected) {
 		eap_aka_finish(eap);
@@ -536,7 +536,7 @@ static void handle_notification(struct eap_state *eap, const uint8_t *pkt,
 			return;
 		}
 
-		eap_send_response(eap, aka->type, response, pos - response);
+		eap_method_respond(eap, response, pos - response);
 
 		aka->state = EAP_AKA_STATE_SUCCESS;
 
@@ -583,7 +583,7 @@ static void handle_identity(struct eap_state *eap, const uint8_t *pkt,
 			EAP_SIM_PAD_LENGTH, (uint8_t *)aka->identity,
 			strlen(aka->identity));
 
-	eap_send_response(eap, aka->type, response, pos - response);
+	eap_method_respond(eap, response, pos - response);
 }
 
 static void eap_aka_handle_request(struct eap_state *eap,

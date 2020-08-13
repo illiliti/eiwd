@@ -290,7 +290,7 @@ static void handle_start(struct eap_state *eap, const uint8_t *pkt,
 				EAP_SIM_PAD_LENGTH, (uint8_t *)sim->identity,
 				strlen(sim->identity));
 
-	eap_send_response(eap, EAP_TYPE_SIM, response, resp_len);
+	eap_method_respond(eap, response, resp_len);
 
 	return;
 
@@ -391,7 +391,7 @@ static void gsm_callback(const uint8_t *sres, const uint8_t *kc,
 	l_free(sim->chal_pkt);
 	sim->chal_pkt = NULL;
 
-	eap_send_response(eap, EAP_TYPE_SIM, response, resp_len);
+	eap_method_respond(eap, response, resp_len);
 
 	if (!sim->protected) {
 		/*
@@ -565,7 +565,7 @@ static void handle_notification(struct eap_state *eap, const uint8_t *pkt,
 			return;
 		}
 
-		eap_send_response(eap, EAP_TYPE_SIM, response, pos - response);
+		eap_method_respond(eap, response, pos - response);
 
 		sim->state = EAP_SIM_STATE_SUCCESS;
 		return;

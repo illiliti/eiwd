@@ -332,7 +332,7 @@ static void eap_tls_send_fragment(struct eap_state *eap)
 
 	memcpy(buf + header_len,
 		eap_tls->tx_pdu_buf->data + eap_tls->tx_frag_offset, len);
-	eap_send_response(eap, eap_get_method_type(eap), buf, header_len + len);
+	eap_method_respond(eap, buf, header_len + len);
 
 	eap_tls->tx_frag_last_len = len;
 }
@@ -389,7 +389,7 @@ static void eap_tls_send_response(struct eap_state *eap,
 
 		memcpy(buf + EAP_TLS_HEADER_LEN + extra, pdu, pdu_len);
 
-		eap_send_response(eap, eap_get_method_type(eap), buf, msg_len);
+		eap_method_respond(eap, buf, msg_len);
 		l_free(buf);
 		return;
 	}
@@ -409,8 +409,7 @@ void eap_tls_common_send_empty_response(struct eap_state *eap)
 
 	buf[EAP_TLS_HEADER_OCTET_FLAGS + position] = eap_tls->version_negotiated;
 
-	eap_send_response(eap, eap_get_method_type(eap), buf,
-				EAP_TLS_HEADER_LEN + position);
+	eap_method_respond(eap, buf, EAP_TLS_HEADER_LEN + position);
 }
 
 static int eap_tls_init_request_assembly(struct eap_state *eap,

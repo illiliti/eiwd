@@ -353,7 +353,7 @@ void eap_sim_client_error(struct eap_state *eap, enum eap_type type,
 	buf[9] = 1;
 	l_put_be16(code, buf + 10);
 
-	eap_send_response(eap, type, buf, 12);
+	eap_method_respond(eap, buf, 12);
 }
 
 size_t eap_sim_add_attribute(uint8_t *buf, enum eap_sim_at attr,
