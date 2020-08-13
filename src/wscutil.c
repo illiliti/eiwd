@@ -362,13 +362,25 @@ static bool extract_network_key(struct wsc_attr_iter *iter, void *data)
 {
 	struct iovec *network_key = data;
 	unsigned int len;
+	const uint8_t *key;
 
 	len = wsc_attr_iter_get_length(iter);
 	if (len > 64)
 		return false;
 
+	/*
+	 * WSC 2.0.5, Section 12, Network Key:
+	 * "Some existing implementations based on v1.0h null-terminate the
+	 * passphrase value, i.e., add an extra 0x00 octet into the end of
+	 * the value. For backwards compatibility, implementations shall be
+	 * able to parse such a value"
+	 */
+	key = wsc_attr_iter_get_data(iter);
+	if (len && key[len - 1] == 0x00)
+		len--;
+
 	network_key->iov_len = len;
-	network_key->iov_base = (void *) wsc_attr_iter_get_data(iter);
+	network_key->iov_base = (void *) key;
 
 	return true;
 }
