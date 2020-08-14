@@ -196,7 +196,7 @@ static int autoconnect_rank_compare(const void *a, const void *b, void *user)
 	const struct autoconnect_entry *new_ae = a;
 	const struct autoconnect_entry *ae = b;
 
-	return ae->rank - new_ae->rank;
+	return (ae->rank > new_ae->rank) ? 1 : -1;
 }
 
 static void station_add_autoconnect_bss(struct station *station,
@@ -290,7 +290,7 @@ static int bss_signal_strength_compare(const void *a, const void *b, void *user)
 	const struct scan_bss *new_bss = a;
 	const struct scan_bss *bss = b;
 
-	return bss->signal_strength - new_bss->signal_strength;
+	return (bss->signal_strength > new_bss->signal_strength) ? 1 : -1;
 }
 
 /*

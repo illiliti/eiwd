@@ -1380,7 +1380,7 @@ int network_rank_compare(const void *a, const void *b, void *user)
 	const struct network *new_network = a;
 	const struct network *network = b;
 
-	return network->rank - new_network->rank;
+	return (network->rank > new_network->rank) ? 1 : -1;
 }
 
 void network_rank_update(struct network *network, bool connected)

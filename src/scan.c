@@ -1436,7 +1436,7 @@ int scan_bss_rank_compare(const void *a, const void *b, void *user_data)
 {
 	const struct scan_bss *new_bss = a, *bss = b;
 
-	return bss->rank - new_bss->rank;
+	return (bss->rank > new_bss->rank) ? 1 : -1;
 }
 
 static void get_scan_callback(struct l_genl_msg *msg, void *user_data)

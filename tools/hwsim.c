@@ -1867,7 +1867,7 @@ static int rule_compare_priority(const void *a, const void *b, void *user)
 	const struct hwsim_rule *rule_a = a;
 	const struct hwsim_rule *rule_b = b;
 
-	return rule_a->priority - rule_b->priority;
+	return (rule_a->priority > rule_b->priority) ? 1 : -1;
 }
 
 static struct l_dbus_message *rule_add(struct l_dbus *dbus,
