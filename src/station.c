@@ -1195,6 +1195,12 @@ static void station_enter_state(struct station *station,
 					new_scan_results, station);
 		break;
 	case STATION_STATE_CONNECTING:
+		/* Refresh the ordered network list */
+		network_rank_update(station->connected_network, true);
+		l_queue_remove(station->networks_sorted, station->connected_network);
+		l_queue_insert(station->networks_sorted, station->connected_network,
+					network_rank_compare, NULL);
+
 		l_dbus_property_changed(dbus, netdev_get_path(station->netdev),
 				IWD_STATION_INTERFACE, "ConnectedNetwork");
 		l_dbus_property_changed(dbus,
@@ -1294,6 +1300,12 @@ static void station_reset_connection_state(struct station *station)
 
 	station->connected_bss = NULL;
 	station->connected_network = NULL;
+
+	/* Refresh the ordered network list */
+	network_rank_update(station->connected_network, false);
+	l_queue_remove(station->networks_sorted, station->connected_network);
+	l_queue_insert(station->networks_sorted, station->connected_network,
+				network_rank_compare, NULL);
 
 	l_dbus_property_changed(dbus, netdev_get_path(station->netdev),
 				IWD_STATION_INTERFACE, "ConnectedNetwork");
