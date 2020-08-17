@@ -876,7 +876,7 @@ struct eapol_sm *eapol_sm_new(struct handshake_state *hs)
 
 	sm->handshake = hs;
 
-	if (hs->settings_8021x)
+	if (hs->settings_8021x && !hs->authenticator)
 		sm->use_eapol_start = true;
 
 	sm->require_handshake = true;
@@ -2074,6 +2074,18 @@ static void eapol_eap_complete_cb(enum eap_result result, void *user_data)
 	}
 
 	eap_reset(sm->eap);
+
+	if (sm->handshake->authenticator) {
+		if (L_WARN_ON(!sm->handshake->have_pmk)) {
+			handshake_failed(sm, MMPDU_REASON_CODE_UNSPECIFIED);
+			return;
+		}
+
+		/* sm->mic_len will have been set in eapol_eap_results_cb */
+
+		/* Kick off 4-Way Handshake */
+		eapol_ptk_1_of_4_retry(NULL, sm);
+	}
 }
 
 /* This respresentes the eapResults message */
@@ -2209,7 +2221,34 @@ static void eapol_rx_auth_packet(uint16_t proto, const uint8_t *from,
 {
 	struct eapol_sm *sm = user_data;
 
+	if (proto != ETH_P_PAE || memcmp(from, sm->handshake->spa, 6))
+		return;
+
 	switch (frame->header.packet_type) {
+	case 0:	/* EAPOL-EAP */
+		if (!sm->eap) {
+			l_error("Authenticator received an unexpected "
+				"EAPOL-EAP frame from %s",
+				util_address_to_string(from));
+			return;
+		}
+
+		eap_rx_packet(sm->eap, frame->data,
+				L_BE16_TO_CPU(frame->header.packet_len));
+		break;
+
+	case 1:	/* EAPOL-Start */
+		/*
+		 * The supplicant might have sent an EAPoL-Start even before
+		 * we queued our EAP Identity Request, so this should happen
+		 * mostly while we wait for the EAP Identity Response or before.
+		 * It's safe to ignore this frame in either case.
+		 *
+		 * TODO: if we're already past the full handshake, send a
+		 * new msg 1/4.
+		 */
+		break;
+
 	case 3: /* EAPOL-Key */
 		eapol_auth_key_handle(sm, frame);
 		break;
@@ -2396,14 +2435,18 @@ bool eapol_start(struct eapol_sm *sm)
 	}
 
 	if (sm->handshake->authenticator) {
-		if (L_WARN_ON(!sm->handshake->have_pmk))
-			return false;
-
 		if (!sm->protocol_version)
 			sm->protocol_version = EAPOL_PROTOCOL_VERSION_2004;
 
-		/* Kick off handshake */
-		eapol_ptk_1_of_4_retry(NULL, sm);
+		if (sm->handshake->settings_8021x)
+			eap_start(sm->eap);
+		else {
+			if (L_WARN_ON(!sm->handshake->have_pmk))
+				return false;
+
+			/* Kick off handshake */
+			eapol_ptk_1_of_4_retry(NULL, sm);
+		}
 	}
 
 	return true;
