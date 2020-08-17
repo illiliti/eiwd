@@ -81,6 +81,10 @@ struct eap_method {
 	void (*handle_retransmit)(struct eap_state *eap,
 				const uint8_t *pkt, size_t len);
 	const char *(*get_identity)(struct eap_state *eap);
+
+	bool (*validate_identity)(struct eap_state *eap, const char *identity);
+	void (*handle_response)(struct eap_state *eap,
+				const uint8_t *pkt, size_t len);
 };
 
 struct eap_method_desc {
@@ -123,6 +127,7 @@ void eap_set_key_material(struct eap_state *eap,
 void eap_start_complete_timeout(struct eap_state *eap);
 
 void eap_method_respond(struct eap_state *eap, uint8_t *buf, size_t len);
+void eap_method_new_request(struct eap_state *eap, uint8_t *buf, size_t len);
 bool eap_method_is_success(struct eap_state *eap);
 void eap_method_success(struct eap_state *eap);
 void eap_method_error(struct eap_state *eap);

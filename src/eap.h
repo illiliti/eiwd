@@ -81,6 +81,7 @@ int eap_check_settings(struct l_settings *settings, struct l_queue *secrets,
 bool eap_load_settings(struct eap_state *eap, struct l_settings *settings,
 			const char *prefix);
 bool eap_reset(struct eap_state *eap);
+void eap_start(struct eap_state *eap);
 
 void eap_set_key_material_func(struct eap_state *eap,
 				eap_key_material_func_t func);
