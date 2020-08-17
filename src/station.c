@@ -1298,14 +1298,14 @@ static void station_reset_connection_state(struct station *station)
 
 	station_roam_state_clear(station);
 
-	station->connected_bss = NULL;
-	station->connected_network = NULL;
-
 	/* Refresh the ordered network list */
 	network_rank_update(station->connected_network, false);
 	l_queue_remove(station->networks_sorted, station->connected_network);
 	l_queue_insert(station->networks_sorted, station->connected_network,
 				network_rank_compare, NULL);
+
+	station->connected_bss = NULL;
+	station->connected_network = NULL;
 
 	l_dbus_property_changed(dbus, netdev_get_path(station->netdev),
 				IWD_STATION_INTERFACE, "ConnectedNetwork");
