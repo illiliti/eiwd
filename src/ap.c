@@ -469,6 +469,7 @@ static void ap_start_rsna(struct sta_state *sta, const uint8_t *gtk_rsc)
 	eapol_sm_set_listen_interval(sta->sm, sta->listen_interval);
 
 	eapol_register(sta->sm);
+	eapol_start(sta->sm);
 
 	return;
 
