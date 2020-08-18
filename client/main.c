@@ -32,12 +32,15 @@
 #include "client/display.h"
 #include "client/dbus-proxy.h"
 
+static int exit_status = EXIT_SUCCESS;
+
 static void signal_handler(uint32_t signo, void *user_data)
 {
 	switch (signo) {
 	case SIGINT:
 	case SIGTERM:
 		display("Terminate\n");
+		exit_status = EXIT_FAILURE;
 		l_main_quit();
 		break;
 	}
@@ -45,7 +48,6 @@ static void signal_handler(uint32_t signo, void *user_data)
 
 int main(int argc, char *argv[])
 {
-	int exit_status;
 	bool all_done;
 
 	if (!l_main_init())
@@ -70,7 +72,8 @@ int main(int argc, char *argv[])
 		display_exit();
 
 done:
-	exit_status = command_get_exit_status();
+	if (!exit_status)
+		exit_status = command_get_exit_status();
 
 	command_exit();
 
