@@ -481,8 +481,10 @@ bool agent_exit(const char *path)
 {
 	struct l_dbus *dbus = dbus_get_bus();
 
-	if (pending_message)
+	if (pending_message) {
 		l_dbus_message_unref(pending_message);
+		display_agent_prompt_release(pending_op.last_label);
+	}
 
 	l_queue_destroy(pending_op.saved_input, l_free);
 
