@@ -1913,3 +1913,4 @@ static void ap_exit(void)
 }
 
 IWD_MODULE(ap, ap_init, ap_exit)
+IWD_MODULE_DEPENDS(ap, netdev);

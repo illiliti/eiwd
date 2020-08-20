@@ -435,3 +435,4 @@ static void device_exit(void)
 }
 
 IWD_MODULE(device, device_init, device_exit)
+IWD_MODULE_DEPENDS(device, netdev);

@@ -1302,3 +1302,4 @@ static void wsc_exit(void)
 }
 
 IWD_MODULE(wsc, wsc_init, wsc_exit)
+IWD_MODULE_DEPENDS(wsc, netdev);

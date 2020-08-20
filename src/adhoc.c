@@ -726,3 +726,4 @@ static void adhoc_exit(void)
 }
 
 IWD_MODULE(adhoc, adhoc_init, adhoc_exit)
+IWD_MODULE_DEPENDS(adhoc, netdev);
