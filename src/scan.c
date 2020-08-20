@@ -1368,6 +1368,7 @@ void scan_bss_free(struct scan_bss *bss)
 	l_free(bss->wsc);
 	l_free(bss->osen);
 	l_free(bss->rc_ie);
+	l_free(bss->wfd);
 
 	switch (bss->source_frame) {
 	case SCAN_BSS_PROBE_RESP:
