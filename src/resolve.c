@@ -385,6 +385,7 @@ static bool resolvconf_invoke(const char *ifname, const char *type,
 
 struct resolvconf {
 	struct resolve super;
+	bool have_domain : 1;
 	bool have_dns : 1;
 	char *ifname;
 };
@@ -411,6 +412,22 @@ static void resolve_resolvconf_add_dns(struct resolve *resolve,
 		rc->have_dns = true;
 }
 
+static void resolve_resolvconf_add_domain_name(struct resolve *resolve,
+							const char *domain_name)
+{
+	struct resolvconf *rc =
+			l_container_of(resolve, struct resolvconf, super);
+	L_AUTO_FREE_VAR(char *, domain_str) = NULL;
+
+	if (L_WARN_ON(!resolvconf_path))
+		return;
+
+	domain_str = l_strdup_printf("search %s\n", domain_name);
+
+	if (resolvconf_invoke(rc->ifname, "domain", domain_str))
+		rc->have_domain = true;
+}
+
 static void resolve_resolvconf_revert(struct resolve *resolve)
 {
 	struct resolvconf *rc =
@@ -419,7 +436,11 @@ static void resolve_resolvconf_revert(struct resolve *resolve)
 	if (rc->have_dns)
 		resolvconf_invoke(rc->ifname, "dns", NULL);
 
+	if (rc->have_domain)
+		resolvconf_invoke(rc->ifname, "domain", NULL);
+
 	rc->have_dns = false;
+	rc->have_domain = false;
 }
 
 static void resolve_resolvconf_destroy(struct resolve *resolve)
@@ -433,6 +454,7 @@ static void resolve_resolvconf_destroy(struct resolve *resolve)
 
 static struct resolve_ops resolvconf_ops = {
 	.add_dns = resolve_resolvconf_add_dns,
+	.add_domain_name = resolve_resolvconf_add_domain_name,
 	.revert = resolve_resolvconf_revert,
 	.destroy = resolve_resolvconf_destroy,
 };
