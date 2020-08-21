@@ -345,39 +345,30 @@ static const struct resolve_method_ops resolve_method_systemd_ops = {
 
 char *resolvconf_path;
 
-struct resolvconf {
-	struct resolve super;
-	char *ifname;
-};
-
-static void resolve_resolvconf_add_dns(struct resolve *resolve,
-						uint8_t type, char **dns_list)
+static bool resolvconf_invoke(const char *ifname, const char *type,
+						const char *content)
 {
 	FILE *resolvconf;
-	struct l_string *content;
-	int error;
 	L_AUTO_FREE_VAR(char *, cmd) = NULL;
-	L_AUTO_FREE_VAR(char *, str) = NULL;
+	int error;
 
-	if (L_WARN_ON(!resolvconf_path))
-		return;
-
-	cmd = l_strdup_printf("%s -a %u", resolvconf_path, resolve->ifindex);
-
-	if (!(resolvconf = popen(cmd, "w"))) {
-		l_error("resolve: Failed to start %s (%s).", resolvconf_path,
-							strerror(errno));
-		return;
+	if (content) {
+		cmd = l_strdup_printf("%s -a %s.%s", resolvconf_path,
+						ifname, type);
+		resolvconf = popen(cmd, "w");
+	} else {
+		cmd = l_strdup_printf("%s -d %s.%s", resolvconf_path,
+						ifname, type);
+		resolvconf = popen(cmd, "r");
 	}
 
-	content = l_string_new(0);
+	if (!resolvconf) {
+		l_error("resolve: Failed to start %s (%s).", resolvconf_path,
+							strerror(errno));
+		return false;
+	}
 
-	for (; *dns_list; dns_list++)
-		l_string_append_printf(content, "nameserver %s\n", *dns_list);
-
-	str = l_string_unwrap(content);
-
-	if (fprintf(resolvconf, "%s", str) < 0)
+	if (content && fprintf(resolvconf, "%s", content) < 0)
 		l_error("resolve: Failed to print into %s stdin.",
 							resolvconf_path);
 
@@ -388,32 +379,47 @@ static void resolve_resolvconf_add_dns(struct resolve *resolve,
 	else if (error > 0)
 		l_info("resolve: %s exited with status (%d).", resolvconf_path,
 									error);
+
+	return !error;
 }
 
-static void resolve_resolvconf_revert(struct resolve *resolve)
+struct resolvconf {
+	struct resolve super;
+	bool have_dns : 1;
+	char *ifname;
+};
+
+static void resolve_resolvconf_add_dns(struct resolve *resolve,
+					uint8_t type, char **dns_list)
 {
-	FILE *resolvconf;
-	int error;
-	L_AUTO_FREE_VAR(char *, cmd) = NULL;
+	struct resolvconf *rc =
+			l_container_of(resolve, struct resolvconf, super);
+	struct l_string *content;
+	L_AUTO_FREE_VAR(char *, str) = NULL;
 
 	if (L_WARN_ON(!resolvconf_path))
 		return;
 
-	cmd = l_strdup_printf("%s -d %u", resolvconf_path, resolve->ifindex);
+	content = l_string_new(0);
 
-	if (!(resolvconf = popen(cmd, "r"))) {
-		l_error("resolve: Failed to start %s (%s).", resolvconf_path,
-							strerror(errno));
-		return;
-	}
+	for (; *dns_list; dns_list++)
+		l_string_append_printf(content, "nameserver %s\n", *dns_list);
 
-	error = pclose(resolvconf);
-	if (error < 0)
-		l_error("resolve: Failed to close pipe to %s (%s).",
-					resolvconf_path, strerror(errno));
-	else if (error > 0)
-		l_info("resolve: %s exited with status (%d).", resolvconf_path,
-									error);
+	str = l_string_unwrap(content);
+
+	if (resolvconf_invoke(rc->ifname, "dns", str))
+		rc->have_dns = true;
+}
+
+static void resolve_resolvconf_revert(struct resolve *resolve)
+{
+	struct resolvconf *rc =
+			l_container_of(resolve, struct resolvconf, super);
+
+	if (rc->have_dns)
+		resolvconf_invoke(rc->ifname, "dns", NULL);
+
+	rc->have_dns = false;
 }
 
 static void resolve_resolvconf_destroy(struct resolve *resolve)
