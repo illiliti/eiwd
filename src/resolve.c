@@ -37,31 +37,81 @@
 #include "src/dbus.h"
 #include "src/resolve.h"
 
+struct resolve_ops {
+	void (*add_dns)(struct resolve *resolve,
+					uint8_t type, char **dns_list);
+	void (*add_domain_name)(struct resolve *resolve,
+					const char *domain_name);
+	void (*revert)(struct resolve *resolve);
+	void (*destroy)(struct resolve *resolve);
+};
+
+struct resolve {
+	const struct resolve_ops *ops;
+	uint32_t ifindex;
+};
+
+static inline void _resolve_init(struct resolve *resolve, uint32_t ifindex,
+					const struct resolve_ops *ops)
+{
+	resolve->ifindex = ifindex;
+	resolve->ops = ops;
+}
+
+void resolve_add_dns(struct resolve *resolve, uint8_t type, char **dns_list)
+{
+	if (!dns_list || !*dns_list)
+		return;
+
+	if (!resolve->ops->add_dns)
+		return;
+
+	resolve->ops->add_dns(resolve, type, dns_list);
+}
+
+void resolve_add_domain_name(struct resolve *resolve, const char *domain_name)
+{
+	if (!domain_name)
+		return;
+
+	if (!resolve->ops->add_domain_name)
+		return;
+
+	resolve->ops->add_domain_name(resolve, domain_name);
+}
+
+void resolve_revert(struct resolve *resolve)
+{
+	if (!resolve->ops->revert)
+		return;
+
+	resolve->ops->revert(resolve);
+}
+
+void resolve_free(struct resolve *resolve)
+{
+	resolve->ops->destroy(resolve);
+}
+
 struct resolve_method_ops {
-	void *(*init)(void);
-	void (*exit)(void *data);
-	void (*add_dns)(uint32_t ifindex, uint8_t type, char **dns_list,
-								void *data);
-	void (*add_domain_name)(uint32_t ifindex, const char *domain_name,
-								void *data);
-	void (*remove)(uint32_t ifindex, void *data);
+	int (*init)(void);
+	void (*exit)(void);
+	struct resolve *(*alloc)(uint32_t ifindex);
 };
-
-struct resolve_method {
-	void *data;
-	const struct resolve_method_ops *ops;
-};
-
-static struct resolve_method method;
-static char *resolvconf_path;
 
 #define SYSTEMD_RESOLVED_SERVICE           "org.freedesktop.resolve1"
 #define SYSTEMD_RESOLVED_MANAGER_PATH      "/org/freedesktop/resolve1"
 #define SYSTEMD_RESOLVED_MANAGER_INTERFACE "org.freedesktop.resolve1.Manager"
 
-struct systemd_state {
+struct systemd_method_state {
 	uint32_t service_watch;
 	bool is_ready:1;
+};
+
+struct systemd_method_state systemd_state;
+
+struct systemd {
+	struct resolve super;
 };
 
 static void systemd_link_dns_reply(struct l_dbus_message *message,
@@ -119,24 +169,18 @@ static bool systemd_builder_add_dns(struct l_dbus_message_builder *builder,
 	return true;
 }
 
-static void resolve_systemd_add_dns(uint32_t ifindex, uint8_t type,
-						char **dns_list, void *data)
+static void resolve_systemd_add_dns(struct resolve *resolve,
+					uint8_t type, char **dns_list)
 {
-	struct systemd_state *state = data;
 	struct l_dbus_message_builder *builder;
 	struct l_dbus_message *message;
 
-	l_debug("ifindex: %u", ifindex);
+	l_debug("ifindex: %u", resolve->ifindex);
 
-	if (!state->is_ready) {
-		l_error("resolve-systemd: Failed to add DNS entries. "
-				"Is 'systemd-resolved' service running?");
-
+	if (L_WARN_ON(!systemd_state.is_ready))
 		return;
-	}
 
-	message =
-		l_dbus_message_new_method_call(dbus_get_bus(),
+	message = l_dbus_message_new_method_call(dbus_get_bus(),
 					SYSTEMD_RESOLVED_SERVICE,
 					SYSTEMD_RESOLVED_MANAGER_PATH,
 					SYSTEMD_RESOLVED_MANAGER_INTERFACE,
@@ -151,7 +195,7 @@ static void resolve_systemd_add_dns(uint32_t ifindex, uint8_t type,
 		return;
 	}
 
-	l_dbus_message_builder_append_basic(builder, 'i', &ifindex);
+	l_dbus_message_builder_append_basic(builder, 'i', &resolve->ifindex);
 
 	l_dbus_message_builder_enter_array(builder, "(iay)");
 
@@ -176,7 +220,7 @@ static void resolve_systemd_add_dns(uint32_t ifindex, uint8_t type,
 	l_dbus_message_builder_destroy(builder);
 
 	l_dbus_send_with_reply(dbus_get_bus(), message, systemd_link_dns_reply,
-								state, NULL);
+								NULL, NULL);
 }
 
 static void systemd_link_add_domains_reply(struct l_dbus_message *message,
@@ -194,24 +238,17 @@ static void systemd_link_add_domains_reply(struct l_dbus_message *message,
 								name, text);
 }
 
-static void resolve_systemd_add_domain_name(uint32_t ifindex,
-							const char *domain_name,
-							void *data)
+static void resolve_systemd_add_domain_name(struct resolve *resolve,
+						const char *domain_name)
 {
-	struct systemd_state *state = data;
 	struct l_dbus_message *message;
 
-	l_debug("ifindex: %u", ifindex);
+	l_debug("ifindex: %u", resolve->ifindex);
 
-	if (!state->is_ready) {
-		l_error("resolve-systemd: Failed to add domain name. "
-				"Is 'systemd-resolved' service running?");
-
+	if (L_WARN_ON(!systemd_state.is_ready))
 		return;
-	}
 
-	message =
-		l_dbus_message_new_method_call(dbus_get_bus(),
+	message = l_dbus_message_new_method_call(dbus_get_bus(),
 					SYSTEMD_RESOLVED_SERVICE,
 					SYSTEMD_RESOLVED_MANAGER_PATH,
 					SYSTEMD_RESOLVED_MANAGER_INTERFACE,
@@ -220,29 +257,23 @@ static void resolve_systemd_add_domain_name(uint32_t ifindex,
 	if (!message)
 		return;
 
-	l_dbus_message_set_arguments(message, "ia(sb)", ifindex,
+	l_dbus_message_set_arguments(message, "ia(sb)", resolve->ifindex,
 						1, domain_name, false);
 
 	l_dbus_send_with_reply(dbus_get_bus(), message,
-				systemd_link_add_domains_reply, state, NULL);
+				systemd_link_add_domains_reply, NULL, NULL);
 }
 
-static void resolve_systemd_remove(uint32_t ifindex, void *data)
+static void resolve_systemd_revert(struct resolve *resolve)
 {
-	struct systemd_state *state = data;
 	struct l_dbus_message *message;
 
-	l_debug("ifindex: %u", ifindex);
+	l_debug("ifindex: %u", resolve->ifindex);
 
-	if (!state->is_ready) {
-		l_error("resolve-systemd: Failed to remove DNS entries. "
-				"Is 'systemd-resolved' service running?");
-
+	if (L_WARN_ON(!systemd_state.is_ready))
 		return;
-	}
 
-	message =
-		l_dbus_message_new_method_call(dbus_get_bus(),
+	message = l_dbus_message_new_method_call(dbus_get_bus(),
 					SYSTEMD_RESOLVED_SERVICE,
 					SYSTEMD_RESOLVED_MANAGER_PATH,
 					SYSTEMD_RESOLVED_MANAGER_INTERFACE,
@@ -250,73 +281,88 @@ static void resolve_systemd_remove(uint32_t ifindex, void *data)
 	if (!message)
 		return;
 
-	l_dbus_message_set_arguments(message, "i", ifindex);
-
+	l_dbus_message_set_arguments(message, "i", resolve->ifindex);
 	l_dbus_send_with_reply(dbus_get_bus(), message, systemd_link_dns_reply,
-								state, NULL);
+								NULL, NULL);
 }
+
+static void resolve_systemd_destroy(struct resolve *resolve)
+{
+	struct systemd *sd = l_container_of(resolve, struct systemd, super);
+
+	l_free(sd);
+}
+
+static const struct resolve_ops systemd_ops = {
+	.add_dns = resolve_systemd_add_dns,
+	.add_domain_name = resolve_systemd_add_domain_name,
+	.revert = resolve_systemd_revert,
+	.destroy = resolve_systemd_destroy,
+};
 
 static void systemd_appeared(struct l_dbus *dbus, void *user_data)
 {
-	struct systemd_state *state = user_data;
-
-	state->is_ready = true;
+	systemd_state.is_ready = true;
 }
 
 static void systemd_disappeared(struct l_dbus *dbus, void *user_data)
 {
-	struct systemd_state *state = user_data;
-
-	state->is_ready = false;
+	systemd_state.is_ready = false;
 }
 
-static void *resolve_systemd_init(void)
+static int resolve_systemd_init(void)
 {
-	struct systemd_state *state;
-
-	state = l_new(struct systemd_state, 1);
-
-	state->service_watch =
-		l_dbus_add_service_watch(dbus_get_bus(),
+	systemd_state.service_watch =
+				l_dbus_add_service_watch(dbus_get_bus(),
 						SYSTEMD_RESOLVED_SERVICE,
 						systemd_appeared,
 						systemd_disappeared,
-						state, NULL);
+						NULL, NULL);
 
-	return state;
+	return 0;
 }
 
-static void resolve_systemd_exit(void *data)
+static void resolve_systemd_exit(void)
 {
-	struct systemd_state *state = data;
-
-	l_dbus_remove_watch(dbus_get_bus(), state->service_watch);
-
-	l_free(state);
+	l_dbus_remove_watch(dbus_get_bus(), systemd_state.service_watch);
+	memset(&systemd_state, 0, sizeof(systemd_state));
 }
 
-static const struct resolve_method_ops resolve_method_systemd = {
+static struct resolve *resolve_systemd_alloc(uint32_t ifindex)
+{
+	struct systemd *sd = l_new(struct systemd, 1);
+
+	_resolve_init(&sd->super, ifindex, &systemd_ops);
+
+	return &sd->super;
+}
+
+static const struct resolve_method_ops resolve_method_systemd_ops = {
 	.init = resolve_systemd_init,
 	.exit = resolve_systemd_exit,
-	.add_dns = resolve_systemd_add_dns,
-	.add_domain_name = resolve_systemd_add_domain_name,
-	.remove = resolve_systemd_remove,
+	.alloc = resolve_systemd_alloc,
 };
 
-static void resolve_resolvconf_add_dns(uint32_t ifindex, uint8_t type,
-						char **dns_list, void *data)
+char *resolvconf_path;
+
+struct resolvconf {
+	struct resolve super;
+	char *ifname;
+};
+
+static void resolve_resolvconf_add_dns(struct resolve *resolve,
+						uint8_t type, char **dns_list)
 {
-	bool *ready = data;
 	FILE *resolvconf;
 	struct l_string *content;
 	int error;
 	L_AUTO_FREE_VAR(char *, cmd) = NULL;
 	L_AUTO_FREE_VAR(char *, str) = NULL;
 
-	if (!*ready)
+	if (L_WARN_ON(!resolvconf_path))
 		return;
 
-	cmd = l_strdup_printf("%s -a %u", resolvconf_path, ifindex);
+	cmd = l_strdup_printf("%s -a %u", resolvconf_path, resolve->ifindex);
 
 	if (!(resolvconf = popen(cmd, "w"))) {
 		l_error("resolve: Failed to start %s (%s).", resolvconf_path,
@@ -344,17 +390,16 @@ static void resolve_resolvconf_add_dns(uint32_t ifindex, uint8_t type,
 									error);
 }
 
-static void resolve_resolvconf_remove(uint32_t ifindex, void *data)
+static void resolve_resolvconf_revert(struct resolve *resolve)
 {
-	bool *ready = data;
 	FILE *resolvconf;
 	int error;
 	L_AUTO_FREE_VAR(char *, cmd) = NULL;
 
-	if (!*ready)
+	if (L_WARN_ON(!resolvconf_path))
 		return;
 
-	cmd = l_strdup_printf("%s -d %u", resolvconf_path, ifindex);
+	cmd = l_strdup_printf("%s -d %u", resolvconf_path, resolve->ifindex);
 
 	if (!(resolvconf = popen(cmd, "r"))) {
 		l_error("resolve: Failed to start %s (%s).", resolvconf_path,
@@ -371,16 +416,28 @@ static void resolve_resolvconf_remove(uint32_t ifindex, void *data)
 									error);
 }
 
-static void *resolve_resolvconf_init(void)
+static void resolve_resolvconf_destroy(struct resolve *resolve)
+{
+	struct resolvconf *rc =
+			l_container_of(resolve, struct resolvconf, super);
+
+	l_free(rc->ifname);
+	l_free(rc);
+}
+
+static struct resolve_ops resolvconf_ops = {
+	.add_dns = resolve_resolvconf_add_dns,
+	.revert = resolve_resolvconf_revert,
+	.destroy = resolve_resolvconf_destroy,
+};
+
+static int resolve_resolvconf_init(void)
 {
 	static const char *default_path = "/sbin:/usr/sbin";
-	bool *ready;
 	const char *path;
 
-	ready = l_new(bool, 1);
-	*ready = false;
-
 	l_debug("Trying to find resolvconf in $PATH");
+
 	path = getenv("PATH");
 	if (path)
 		resolvconf_path = l_path_find("resolvconf", path, X_OK);
@@ -392,66 +449,54 @@ static void *resolve_resolvconf_init(void)
 
 	if (!resolvconf_path) {
 		l_error("No usable resolvconf found on system");
-		return ready;
+		return -ENOENT;
 	}
 
 	l_debug("resolvconf found as: %s", resolvconf_path);
-	*ready = true;
-	return ready;
+	return 0;
 }
 
-static void resolve_resolvconf_exit(void *data)
+static void resolve_resolvconf_exit(void)
 {
-	bool *ready = data;
-
 	l_free(resolvconf_path);
 	resolvconf_path = NULL;
-	l_free(ready);
 }
 
-static const struct resolve_method_ops resolve_method_resolvconf = {
+static struct resolve *resolve_resolvconf_alloc(uint32_t ifindex)
+{
+	struct resolvconf *rc = l_new(struct resolvconf, 1);
+
+	_resolve_init(&rc->super, ifindex, &resolvconf_ops);
+
+	rc->ifname = l_net_get_name(ifindex);
+	if (!rc->ifname)
+		rc->ifname = l_strdup_printf("%u", ifindex);
+
+	return &rc->super;
+}
+
+static const struct resolve_method_ops resolve_method_resolvconf_ops = {
 	.init = resolve_resolvconf_init,
 	.exit = resolve_resolvconf_exit,
-	.add_dns = resolve_resolvconf_add_dns,
-	.remove = resolve_resolvconf_remove,
+	.alloc = resolve_resolvconf_alloc,
 };
 
-void resolve_add_dns(uint32_t ifindex, uint8_t type, char **dns_list)
+static const struct resolve_method_ops *configured_method;
+
+struct resolve *resolve_new(uint32_t ifindex)
 {
-	if (!dns_list || !*dns_list)
-		return;
+	if (L_WARN_ON(!configured_method))
+		return NULL;
 
-	if (!method.ops || !method.ops->add_dns)
-		return;
-
-	method.ops->add_dns(ifindex, type, dns_list, method.data);
-}
-
-void resolve_add_domain_name(uint32_t ifindex, const char *domain_name)
-{
-	if (!domain_name)
-		return;
-
-	if (!method.ops || !method.ops->add_domain_name)
-		return;
-
-	method.ops->add_domain_name(ifindex, domain_name, method.data);
-}
-
-void resolve_remove(uint32_t ifindex)
-{
-	if (!method.ops || !method.ops->remove)
-		return;
-
-	method.ops->remove(ifindex, method.data);
+	return configured_method->alloc(ifindex);
 }
 
 static const struct {
 	const char *name;
 	const struct resolve_method_ops *method_ops;
 } resolve_method_ops_list[] = {
-	{ "systemd", &resolve_method_systemd },
-	{ "resolvconf", &resolve_method_resolvconf },
+	{ "systemd", &resolve_method_systemd_ops },
+	{ "resolvconf", &resolve_method_resolvconf_ops },
 	{ }
 };
 
@@ -488,28 +533,25 @@ static int resolve_init(void)
 		if (strcmp(resolve_method_ops_list[i].name, method_name))
 			continue;
 
-		method.ops = resolve_method_ops_list[i].method_ops;
-
+		configured_method = resolve_method_ops_list[i].method_ops;
 		break;
 	}
 
-	if (!method.ops) {
+	if (!configured_method) {
 		l_error("Unknown resolution method: %s", method_name);
 		return -EINVAL;
 	}
 
-	if (method.ops->init)
-		method.data = method.ops->init();
-
-	return 0;
+	return configured_method->init();
 }
 
 static void resolve_exit(void)
 {
-	if (!method.ops || !method.ops->exit)
+	if (!configured_method)
 		return;
 
-	method.ops->exit(method.data);
+	configured_method->exit();
+	configured_method = NULL;
 }
 
 IWD_MODULE(resolve, resolve_init, resolve_exit)

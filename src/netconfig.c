@@ -53,6 +53,8 @@ struct netconfig {
 
 	netconfig_notify_func_t notify;
 	void *user_data;
+
+	struct resolve *resolve;
 };
 
 struct netconfig_ifaddr {
@@ -776,7 +778,7 @@ static void netconfig_ipv4_ifaddr_add_cmd_cb(int error, uint16_t type,
 		goto domain_name;
 	}
 
-	resolve_add_dns(netconfig->ifindex, ifaddr->family, dns);
+	resolve_add_dns(netconfig->resolve, ifaddr->family, dns);
 	l_strv_free(dns);
 
 domain_name:
@@ -785,7 +787,7 @@ domain_name:
 	if (!domain_name)
 		goto done;
 
-	resolve_add_domain_name(netconfig->ifindex, domain_name);
+	resolve_add_domain_name(netconfig->resolve, domain_name);
 	l_free(domain_name);
 
 done:
@@ -846,7 +848,7 @@ static void netconfig_ipv6_ifaddr_add_cmd_cb(int error, uint16_t type,
 		return;
 	}
 
-	resolve_add_dns(netconfig->ifindex, AF_INET6, dns);
+	resolve_add_dns(netconfig->resolve, AF_INET6, dns);
 	l_strv_free(dns);
 }
 
@@ -1144,7 +1146,7 @@ bool netconfig_reset(struct netconfig *netconfig)
 	netconfig_ipv6_select_and_uninstall(netconfig);
 	netconfig->rtm_v6_protocol = 0;
 
-	resolve_remove(netconfig->ifindex);
+	resolve_revert(netconfig->resolve);
 
 	return true;
 }
@@ -1179,6 +1181,7 @@ struct netconfig *netconfig_new(uint32_t ifindex)
 	netconfig = l_new(struct netconfig, 1);
 	netconfig->ifindex = ifindex;
 	netconfig->ifaddr_list = l_queue_new();
+	netconfig->resolve = resolve_new(ifindex);
 
 	netconfig_ipv4_dhcp_create(netconfig);
 
@@ -1200,8 +1203,9 @@ void netconfig_destroy(struct netconfig *netconfig)
 		netconfig_ipv4_select_and_uninstall(netconfig);
 
 	if (netconfig->rtm_protocol || netconfig->rtm_v6_protocol)
-		resolve_remove(netconfig->ifindex);
+		resolve_revert(netconfig->resolve);
 
+	resolve_free(netconfig->resolve);
 	netconfig_free(netconfig);
 }
 
