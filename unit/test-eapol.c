@@ -3571,7 +3571,7 @@ static void test_ap_sta_run(struct test_ap_sta_data *s)
 	s->sta_success = false;
 	s->to_sta_msg_cnt = 0;
 	s->to_ap_msg_cnt = 0;
-	s->to_sta_data_len = 0,
+	s->to_sta_data_len = 0;
 
 	s->ap_sm = eapol_sm_new(s->ap_hs);
 	eapol_register(s->ap_sm);
