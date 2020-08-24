@@ -2584,6 +2584,14 @@ struct wsc_credential wsc_r_test_wpa2_cred_psk = {
 	.encryption_type = WSC_ENCRYPTION_TYPE_AES_TKIP,
 };
 
+struct wsc_credential wsc_r_test_open_cred = {
+	.ssid_len = 7,
+	.ssid = "thessid",
+	.auth_type = WSC_AUTHENTICATION_TYPE_OPEN,
+	.network_key_len = 0,
+	.encryption_type = WSC_ENCRYPTION_TYPE_NONE,
+};
+
 int main(int argc, char *argv[])
 {
 	l_test_init(&argc, &argv);
@@ -2703,6 +2711,9 @@ int main(int argc, char *argv[])
 	l_test_add("/wsc-r/handshake/PBC Handshake WPA2 PSK test",
 				wsc_r_test_pbc_handshake,
 				&wsc_r_test_wpa2_cred_psk);
+	l_test_add("/wsc-r/handshake/PBC Handshake Open test",
+				wsc_r_test_pbc_handshake,
+				&wsc_r_test_open_cred);
 
 done:
 	return l_test_run();
