@@ -1634,10 +1634,11 @@ static bool wsc_attr_builder_start_attr(struct wsc_attr_builder *builder,
 	/* Record previous attribute's length */
 	if (builder->curlen > 0) {
 		bytes = builder->buf + builder->offset;
-		l_put_be16(builder->curlen, bytes + 2);
-		builder->offset += 4 + builder->curlen;
-		builder->curlen = 0;
+		l_put_be16(builder->curlen - 4, bytes + 2);
+		builder->offset += builder->curlen;
 	}
+
+	builder->curlen = 4;
 
 	if (builder->offset + 4 >= builder->capacity)
 		wsc_attr_builder_grow(builder);
@@ -1650,10 +1651,10 @@ static bool wsc_attr_builder_start_attr(struct wsc_attr_builder *builder,
 
 static bool wsc_attr_builder_put_u8(struct wsc_attr_builder *builder, uint8_t v)
 {
-	if (builder->offset + 4 + builder->curlen + 1 >= builder->capacity)
+	if (builder->offset + builder->curlen + 1 >= builder->capacity)
 		wsc_attr_builder_grow(builder);
 
-	builder->buf[builder->offset + 4 + builder->curlen] = v;
+	builder->buf[builder->offset + builder->curlen] = v;
 	builder->curlen += 1;
 
 	return true;
@@ -1662,10 +1663,10 @@ static bool wsc_attr_builder_put_u8(struct wsc_attr_builder *builder, uint8_t v)
 static bool wsc_attr_builder_put_u16(struct wsc_attr_builder *builder,
 								uint16_t v)
 {
-	if (builder->offset + 4 + builder->curlen + 2 >= builder->capacity)
+	if (builder->offset + builder->curlen + 2 >= builder->capacity)
 		wsc_attr_builder_grow(builder);
 
-	l_put_be16(v, builder->buf + builder->offset + 4 + builder->curlen);
+	l_put_be16(v, builder->buf + builder->offset + builder->curlen);
 	builder->curlen += 2;
 
 	return true;
@@ -1674,10 +1675,10 @@ static bool wsc_attr_builder_put_u16(struct wsc_attr_builder *builder,
 static bool wsc_attr_builder_put_u32(struct wsc_attr_builder *builder,
 								uint32_t v)
 {
-	if (builder->offset + 4 + builder->curlen + 4 >= builder->capacity)
+	if (builder->offset + builder->curlen + 4 >= builder->capacity)
 		wsc_attr_builder_grow(builder);
 
-	l_put_be32(v, builder->buf + builder->offset + 4 + builder->curlen);
+	l_put_be32(v, builder->buf + builder->offset + builder->curlen);
 	builder->curlen += 4;
 
 	return true;
@@ -1686,12 +1687,10 @@ static bool wsc_attr_builder_put_u32(struct wsc_attr_builder *builder,
 static bool wsc_attr_builder_put_bytes(struct wsc_attr_builder *builder,
 					const void *bytes, size_t size)
 {
-	while (builder->offset + 4 + builder->curlen + size >=
-							builder->capacity)
+	while (builder->offset + builder->curlen + size >= builder->capacity)
 		wsc_attr_builder_grow(builder);
 
-	memcpy(builder->buf + builder->offset + 4 + builder->curlen,
-								bytes, size);
+	memcpy(builder->buf + builder->offset + builder->curlen, bytes, size);
 	builder->curlen += size;
 
 	return true;
@@ -1700,10 +1699,10 @@ static bool wsc_attr_builder_put_bytes(struct wsc_attr_builder *builder,
 static bool wsc_attr_builder_put_oui(struct wsc_attr_builder *builder,
 							const uint8_t *oui)
 {
-	if (builder->offset + 4 + builder->curlen + 3 >= builder->capacity)
+	if (builder->offset + builder->curlen + 3 >= builder->capacity)
 		wsc_attr_builder_grow(builder);
 
-	memcpy(builder->buf + builder->offset + 4 + builder->curlen, oui, 3);
+	memcpy(builder->buf + builder->offset + builder->curlen, oui, 3);
 	builder->curlen += 3;
 
 	return true;
@@ -1721,11 +1720,10 @@ static bool wsc_attr_builder_put_string(struct wsc_attr_builder *builder,
 		len = 1;
 	}
 
-	if (builder->offset + 4 + builder->curlen + len >= builder->capacity)
+	if (builder->offset + builder->curlen + len >= builder->capacity)
 		wsc_attr_builder_grow(builder);
 
-	memcpy(builder->buf + builder->offset + 4 + builder->curlen,
-								string, len);
+	memcpy(builder->buf + builder->offset + builder->curlen, string, len);
 	builder->curlen += len;
 
 	return true;
@@ -1753,8 +1751,8 @@ static uint8_t *wsc_attr_builder_free(struct wsc_attr_builder *builder,
 
 	if (builder->curlen > 0) {
 		uint8_t *bytes = builder->buf + builder->offset;
-		l_put_be16(builder->curlen, bytes + 2);
-		builder->offset += 4 + builder->curlen;
+		l_put_be16(builder->curlen - 4, bytes + 2);
+		builder->offset += builder->curlen;
 		builder->curlen = 0;
 	}
 
