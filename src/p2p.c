@@ -3115,7 +3115,8 @@ static void p2p_probe_resp_done(int error, void *user_data)
 }
 
 static void p2p_device_send_probe_resp(struct p2p_device *dev,
-					const uint8_t *dest_addr)
+					const uint8_t *dest_addr,
+					bool to_conn_peer)
 {
 	uint8_t resp_buf[64] __attribute__ ((aligned));
 	size_t resp_len = 0;
@@ -3181,14 +3182,21 @@ static void p2p_device_send_probe_resp(struct p2p_device *dev,
 		return;
 	}
 
-	wsc_info.state = WSC_STATE_CONFIGURED;
-	wsc_info.response_type = WSC_RESPONSE_TYPE_ENROLLEE_OPEN_8021X;
-	wsc_info.uuid_e[15] = 0x01;
+	if (to_conn_peer) {
+		wsc_info.device_password_id = dev->conn_password_id;
+		wsc_info.config_methods = dev->conn_config_method;
+		wsc_uuid_from_addr(dev->conn_addr, wsc_info.uuid_e);
+	} else {
+		wsc_info.config_methods = dev->device_info.wsc_config_methods;
+		wsc_uuid_from_addr(dev->addr, wsc_info.uuid_e);
+	}
+
+	wsc_info.state = WSC_STATE_NOT_CONFIGURED;
+	wsc_info.response_type = WSC_RESPONSE_TYPE_ENROLLEE_INFO;
 	wsc_info.serial_number[0] = '0';
 	wsc_info.primary_device_type = dev->device_info.primary_device_type;
 	l_strlcpy(wsc_info.device_name, dev->device_info.device_name,
 			sizeof(wsc_info.device_name));
-	wsc_info.config_methods = dev->device_info.wsc_config_methods;
 	wsc_info.rf_bands = 0x01;	/* 2.4GHz */
 	wsc_info.version2 = true;
 
@@ -3220,7 +3228,12 @@ static void p2p_device_send_probe_resp(struct p2p_device *dev,
 	iov[iov_len].iov_len = wsc_ie_size;
 	iov_len++;
 
-	if (p2p_own_wfd) {
+	if (to_conn_peer && dev->conn_own_wfd) {
+		iov[iov_len].iov_base = wfd_ie;
+		iov[iov_len].iov_len = p2p_build_wfd_ie(dev->conn_own_wfd,
+							wfd_ie);
+		iov_len++;
+	} else if (p2p_own_wfd) {
 		iov[iov_len].iov_base = wfd_ie;
 		iov[iov_len].iov_len = p2p_build_wfd_ie(p2p_own_wfd, wfd_ie);
 		iov_len++;
@@ -3308,7 +3321,8 @@ static void p2p_device_probe_cb(const struct mmpdu_header *mpdu,
 		 * DSSS Channel etc. in the Probe Request, and to build the
 		 * Response body.
 		 */
-		p2p_device_send_probe_resp(dev, mpdu->address_2);
+		p2p_device_send_probe_resp(dev, mpdu->address_2,
+						from_conn_peer);
 		goto p2p_free;
 	}
 
