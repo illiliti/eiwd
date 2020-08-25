@@ -329,6 +329,7 @@ static uint8_t *p2p_build_scan_ies(struct p2p_device *dev, uint8_t *buf,
 	size_t wsc_ie_size;
 	uint8_t wfd_ie[32];
 	size_t wfd_ie_size;
+	const uint8_t *addr;
 
 	p2p_info.capability = dev->capability;
 	memcpy(p2p_info.listen_channel.country, dev->listen_country, 3);
@@ -350,7 +351,14 @@ static uint8_t *p2p_build_scan_ies(struct p2p_device *dev, uint8_t *buf,
 	wsc_info.request_type = WSC_REQUEST_TYPE_ENROLLEE_INFO;
 	wsc_info.config_methods = dev->device_info.wsc_config_methods;
 
-	if (!wsc_uuid_from_addr(dev->addr, wsc_info.uuid_e))
+	/*
+	 * If we're doing the provisioning scan, we need to use the same UUID-E
+	 * that we'll use in the WSC enrollee registration protocol because the
+	 * GO might validate it.
+	 */
+	addr = dev->conn_peer ? dev->conn_addr : dev->addr;
+
+	if (!wsc_uuid_from_addr(addr, wsc_info.uuid_e))
 		return NULL;
 
 	wsc_info.primary_device_type = dev->device_info.primary_device_type;
