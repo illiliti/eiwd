@@ -1840,6 +1840,7 @@ respond:
 
 	p2p_device_fill_channel_list(dev, &resp_info.channel_list);
 	resp_info.device_info = dev->device_info;
+	resp_info.device_info.wsc_config_methods = dev->conn_config_method;
 	resp_info.device_password_id = dev->conn_password_id;
 
 	if (dev->conn_own_wfd) {
