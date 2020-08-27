@@ -1129,11 +1129,11 @@ static void ap_probe_req_cb(const struct mmpdu_header *hdr, const void *body,
 
 	if (memcmp(hdr->address_1, bssid, 6) &&
 			!util_is_broadcast_address(hdr->address_1))
-		match = false;
+		return;
 
 	if (memcmp(hdr->address_3, bssid, 6) &&
 			!util_is_broadcast_address(hdr->address_3))
-		match = false;
+		return;
 
 	if (!ssid || ssid_len == 0) /* Wildcard SSID */
 		match = true;
