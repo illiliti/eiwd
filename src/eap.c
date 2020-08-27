@@ -245,10 +245,18 @@ void eap_start(struct eap_state *eap)
 {
 	uint8_t buf[5];
 
-	L_WARN_ON(!eap->method || !eap->authenticator || eap->identity);
+	L_WARN_ON(!eap->method || !eap->authenticator);
 
+	/*
+	 * Until we've received the Identity response we can resend the
+	 * Identity request with a constant ID on EAPoL-Start.
+	 */
+	if (eap->identity)
+		return;
+
+	eap->last_id = 1;
 	buf[4] = EAP_TYPE_IDENTITY;
-	eap_send_packet(eap, EAP_CODE_REQUEST, ++eap->last_id, buf, 5);
+	eap_send_packet(eap, EAP_CODE_REQUEST, eap->last_id, buf, 5);
 }
 
 void __eap_handle_request(struct eap_state *eap, uint16_t id,

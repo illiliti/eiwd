@@ -2239,14 +2239,18 @@ static void eapol_rx_auth_packet(uint16_t proto, const uint8_t *from,
 
 	case 1:	/* EAPOL-Start */
 		/*
-		 * The supplicant might have sent an EAPoL-Start even before
-		 * we queued our EAP Identity Request, so this should happen
-		 * mostly while we wait for the EAP Identity Response or before.
-		 * It's safe to ignore this frame in either case.
+		 * The supplicant may have sent an EAPoL-Start even before
+		 * we queued our EAP Identity Request or it may have missed our
+		 * early Identity Request and may need a retransmission.  Tell
+		 * sm->eap so it can decide whether to send a new Identity
+		 * Request or ignore this.
 		 *
 		 * TODO: if we're already past the full handshake, send a
 		 * new msg 1/4.
 		 */
+		if (sm->eap)
+			eap_start(sm->eap);
+
 		break;
 
 	case 3: /* EAPOL-Key */
