@@ -1871,9 +1871,6 @@ static struct eap_wsc_state *eap_wsc_new_common(struct l_settings *settings,
 	if (!util_string_to_address(v, wsc->m1->addr))
 		goto err;
 
-	if (!wsc_uuid_from_addr(wsc->m1->addr, wsc->m1->uuid_e))
-		goto err;
-
 	if (!l_settings_get_uint(settings, "WSC", "ConfigurationMethods", &u32))
 		u32 = WSC_CONFIGURATION_METHOD_VIRTUAL_DISPLAY_PIN;
 
@@ -1988,6 +1985,9 @@ static bool eap_wsc_load_settings(struct eap_state *eap,
 						WSC_ENCRYPTION_TYPE_AES_TKIP;
 	wsc->m1->connection_type_flags = WSC_CONNECTION_TYPE_ESS;
 
+	if (!wsc_uuid_from_addr(wsc->m1->addr, wsc->m1->uuid_e))
+		goto err;
+
 	if (!load_device_data(settings,
 				wsc->m1->manufacturer,
 				wsc->m1->model_name,
@@ -2040,6 +2040,9 @@ static bool eap_wsc_r_load_settings(struct eap_state *eap,
 
 	if (!wsc)
 		return false;
+
+	if (!load_hexencoded(settings, "UUID-E", wsc->m1->uuid_e, 16))
+		goto err;
 
 	if (!load_hexencoded(settings, "UUID-R", wsc->m2->uuid_r, 16))
 		goto err;
