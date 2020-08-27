@@ -53,10 +53,7 @@ struct ap_state {
 	ap_event_func_t event_func;
 	ap_stopped_func_t stopped_func;
 	void *user_data;
-	char *ssid;
-	uint8_t channel;
-	uint8_t *authorized_macs;
-	int authorized_macs_num;
+	struct ap_config *config;
 
 	unsigned int ciphers;
 	enum ie_rsn_cipher_suite group_cipher;
@@ -73,7 +70,6 @@ struct ap_state {
 
 	bool started : 1;
 	bool gtk_set : 1;
-	bool no_cck_rates : 1;
 };
 
 struct sta_state {
@@ -93,6 +89,22 @@ struct sta_state {
 };
 
 static uint32_t netdev_watch;
+
+void ap_config_free(struct ap_config *config)
+{
+	if (unlikely(!config))
+		return;
+
+	l_free(config->ssid);
+
+	if (config->psk) {
+		explicit_bzero(config->psk, strlen(config->psk));
+		l_free(config->psk);
+	}
+
+	l_free(config->authorized_macs);
+	l_free(config);
+}
 
 static void ap_sta_free(void *data)
 {
@@ -121,8 +133,6 @@ static void ap_reset(struct ap_state *ap)
 {
 	struct netdev *netdev = ap->netdev;
 
-	l_free(ap->ssid);
-
 	explicit_bzero(ap->pmk, sizeof(ap->pmk));
 
 	if (ap->mlme_watch)
@@ -138,7 +148,9 @@ static void ap_reset(struct ap_state *ap)
 	if (ap->rates)
 		l_uintset_free(ap->rates);
 
-	l_free(ap->authorized_macs);
+	ap_config_free(ap->config);
+	ap->config = NULL;
+
 	ap->started = false;
 }
 
@@ -318,7 +330,8 @@ static size_t ap_build_beacon_pr_head(struct ap_state *ap,
 
 	/* SSID IE */
 	ie_tlv_builder_next(&builder, IE_TYPE_SSID);
-	ie_tlv_builder_set_data(&builder, ap->ssid, strlen(ap->ssid));
+	ie_tlv_builder_set_data(&builder, ap->config->ssid,
+				strlen(ap->config->ssid));
 
 	/* Supported Rates IE */
 	ie_tlv_builder_next(&builder, IE_TYPE_SUPPORTED_RATES);
@@ -343,7 +356,7 @@ static size_t ap_build_beacon_pr_head(struct ap_state *ap,
 
 	/* DSSS Parameter Set IE for DSSS, HR, ERP and HT PHY rates */
 	ie_tlv_builder_next(&builder, IE_TYPE_DSSS_PARAMETER_SET);
-	ie_tlv_builder_set_data(&builder, &ap->channel, 1);
+	ie_tlv_builder_set_data(&builder, &ap->config->channel, 1);
 
 	ie_tlv_builder_finalize(&builder, &len);
 	return 36 + len;
@@ -375,7 +388,8 @@ static uint32_t ap_send_mgmt_frame(struct ap_state *ap,
 	struct l_genl_msg *msg;
 	uint32_t ifindex = netdev_get_ifindex(ap->netdev);
 	uint32_t id;
-	uint32_t ch_freq = scan_channel_to_freq(ap->channel, SCAN_BAND_2_4_GHZ);
+	uint32_t ch_freq = scan_channel_to_freq(ap->config->channel,
+						SCAN_BAND_2_4_GHZ);
 
 	msg = l_genl_msg_new_sized(NL80211_CMD_FRAME, 128 + frame_len);
 
@@ -386,7 +400,7 @@ static uint32_t ap_send_mgmt_frame(struct ap_state *ap,
 		l_genl_msg_append_attr(msg, NL80211_ATTR_DONT_WAIT_FOR_ACK,
 					0, NULL);
 
-	if (ap->no_cck_rates)
+	if (ap->config->no_cck_rates)
 		l_genl_msg_append_attr(msg, NL80211_ATTR_TX_NO_CCK_RATE, 0,
 					NULL);
 
@@ -446,7 +460,8 @@ static void ap_start_rsna(struct sta_state *sta, const uint8_t *gtk_rsc)
 	sta->hs = netdev_handshake_state_new(netdev);
 
 	handshake_state_set_event_func(sta->hs, ap_handshake_event, sta);
-	handshake_state_set_ssid(sta->hs, (void *)ap->ssid, strlen(ap->ssid));
+	handshake_state_set_ssid(sta->hs, (void *) ap->config->ssid,
+					strlen(ap->config->ssid));
 	handshake_state_set_authenticator(sta->hs, true);
 	handshake_state_set_authenticator_ie(sta->hs, bss_rsne);
 	handshake_state_set_supplicant_ie(sta->hs, sta->assoc_rsne);
@@ -900,8 +915,8 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 			break;
 		}
 
-	if (!rates || !ssid || !rsn || ssid_len != strlen(ap->ssid) ||
-			memcmp(ssid, ap->ssid, ssid_len)) {
+	if (!rates || !ssid || !rsn || ssid_len != strlen(ap->config->ssid) ||
+			memcmp(ssid, ap->config->ssid, ssid_len)) {
 		err = MMPDU_REASON_CODE_INVALID_IE;
 		goto bad_frame;
 	}
@@ -1125,8 +1140,8 @@ static void ap_probe_req_cb(const struct mmpdu_header *hdr, const void *body,
 
 	if (!ssid || ssid_len == 0) /* Wildcard SSID */
 		match = true;
-	else if (ssid && ssid_len == strlen(ap->ssid) && /* Specific SSID */
-			!memcmp(ssid, ap->ssid, ssid_len))
+	else if (ssid && ssid_len == strlen(ap->config->ssid) && /* One SSID */
+			!memcmp(ssid, ap->config->ssid, ssid_len))
 		match = true;
 	else if (ssid_list) { /* SSID List */
 		ie_tlv_iter_init(&iter, ssid_list, ssid_list_len);
@@ -1138,15 +1153,16 @@ static void ap_probe_req_cb(const struct mmpdu_header *hdr, const void *body,
 			ssid = (const char *) ie_tlv_iter_get_data(&iter);
 			ssid_len = ie_tlv_iter_get_length(&iter);
 
-			if (ssid_len == strlen(ap->ssid) &&
-					!memcmp(ssid, ap->ssid, ssid_len)) {
+			if (ssid_len == strlen(ap->config->ssid) &&
+					!memcmp(ssid, ap->config->ssid,
+						ssid_len)) {
 				match = true;
 				break;
 			}
 		}
 	}
 
-	if (dsss_channel != 0 && dsss_channel != ap->channel)
+	if (dsss_channel != 0 && dsss_channel != ap->config->channel)
 		match = false;
 
 	if (!match)
@@ -1247,14 +1263,15 @@ static void ap_auth_cb(const struct mmpdu_header *hdr, const void *body,
 			memcmp(hdr->address_3, bssid, 6))
 		return;
 
-	if (ap->authorized_macs) {
-		int i;
+	if (ap->config->authorized_macs_num) {
+		unsigned int i;
 
-		for (i = 0; i < ap->authorized_macs_num; i++)
-			if (!memcmp(from, ap->authorized_macs + i * 6, 6))
+		for (i = 0; i < ap->config->authorized_macs_num; i++)
+			if (!memcmp(from, ap->config->authorized_macs + i * 6,
+					6))
 				break;
 
-		if (i == ap->authorized_macs_num) {
+		if (i == ap->config->authorized_macs_num) {
 			ap_auth_reply(ap, from, MMPDU_REASON_CODE_UNSPECIFIED);
 			return;
 		}
@@ -1374,7 +1391,8 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 	uint32_t nl_akm = CRYPTO_AKM_PSK;
 	uint32_t wpa_version = NL80211_WPA_VERSION_2;
 	uint32_t auth_type = NL80211_AUTHTYPE_OPEN_SYSTEM;
-	uint32_t ch_freq = scan_channel_to_freq(ap->channel, SCAN_BAND_2_4_GHZ);
+	uint32_t ch_freq = scan_channel_to_freq(ap->config->channel,
+						SCAN_BAND_2_4_GHZ);
 	uint32_t ch_width = NL80211_CHAN_WIDTH_20;
 
 	static const uint8_t bcast_addr[6] = {
@@ -1389,7 +1407,7 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 		return NULL;
 
 	cmd = l_genl_msg_new_sized(NL80211_CMD_START_AP, 256 + head_len +
-					tail_len + strlen(ap->ssid));
+					tail_len + strlen(ap->config->ssid));
 
 	/* SET_BEACON attrs */
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_BEACON_HEAD, head_len, head);
@@ -1403,8 +1421,8 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 				&ap->beacon_interval);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_DTIM_PERIOD, 4, &dtim_period);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_IFINDEX, 4, &ifindex);
-	l_genl_msg_append_attr(cmd, NL80211_ATTR_SSID, strlen(ap->ssid),
-				ap->ssid);
+	l_genl_msg_append_attr(cmd, NL80211_ATTR_SSID, strlen(ap->config->ssid),
+				ap->config->ssid);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_HIDDEN_SSID, 4,
 				&hidden_ssid);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_CIPHER_SUITES_PAIRWISE, 4,
@@ -1462,11 +1480,13 @@ static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)
  * @event_func is required and must react to AP_EVENT_START_FAILED
  * and AP_EVENT_STOPPING by forgetting the ap_state struct, which
  * is going to be freed automatically.
- * @channel is optional.
+ * In the @config struct only .ssid and .psk need to be non-NUL,
+ * other fields are optional.  If @ap_start succeeds, the returned
+ * ap_state takes ownership of @config and the caller shouldn't
+ * free it or any of the memory pointed to by its members (they
+ * also can't be static).
  */
-struct ap_state *ap_start(struct netdev *netdev, const char *ssid,
-				const char *psk, int channel, bool no_cck_rates,
-				const uint8_t **authorized_macs,
+struct ap_state *ap_start(struct netdev *netdev, struct ap_config *config,
 				ap_event_func_t event_func, void *user_data)
 {
 	struct ap_state *ap;
@@ -1476,30 +1496,14 @@ struct ap_state *ap_start(struct netdev *netdev, const char *ssid,
 
 	ap = l_new(struct ap_state, 1);
 	ap->nl80211 = l_genl_family_new(iwd_get_genl(), NL80211_GENL_NAME);
-	ap->ssid = l_strdup(ssid);
+	ap->config = config;
 	ap->netdev = netdev;
-	ap->no_cck_rates = no_cck_rates;
 	ap->event_func = event_func;
 	ap->user_data = user_data;
 
-	if (channel)
-		ap->channel = channel;
-	else {
+	if (!config->channel)
 		/* TODO: Start a Get Survey to decide the channel */
-		ap->channel = 6;
-	}
-
-	if (authorized_macs) {
-		int i;
-
-		for (i = 0; authorized_macs[i]; i++);
-		ap->authorized_macs = l_malloc(i * 6);
-		ap->authorized_macs_num = i;
-
-		for (i = 0; authorized_macs[i]; i++)
-			memcpy(ap->authorized_macs + i * 6, authorized_macs[i],
-				6);
-	}
+		config->channel = 6;
 
 	/* TODO: Add all ciphers supported by wiphy */
 	ap->ciphers = wiphy_select_cipher(wiphy, 0xffff);
@@ -1507,7 +1511,7 @@ struct ap_state *ap_start(struct netdev *netdev, const char *ssid,
 	ap->beacon_interval = 100;
 
 	/* TODO: Pick from actual supported rates */
-	if (no_cck_rates) {
+	if (config->no_cck_rates) {
 		l_uintset_put(ap->rates, 12); /* 6 Mbps*/
 		l_uintset_put(ap->rates, 18); /* 9 Mbps*/
 		l_uintset_put(ap->rates, 24); /* 12 Mbps*/
@@ -1523,8 +1527,8 @@ struct ap_state *ap_start(struct netdev *netdev, const char *ssid,
 		l_uintset_put(ap->rates, 22); /* 11 Mbps*/
 	}
 
-	if (crypto_psk_from_passphrase(psk, (uint8_t *) ssid, strlen(ssid),
-					ap->pmk) < 0)
+	if (crypto_psk_from_passphrase(config->psk, (uint8_t *) config->ssid,
+					strlen(config->ssid), ap->pmk) < 0)
 		goto error;
 
 	if (!frame_watch_add(wdev_id, 0, 0x0000 |
@@ -1757,6 +1761,7 @@ static struct l_dbus_message *ap_dbus_start(struct l_dbus *dbus,
 {
 	struct ap_if_data *ap_if = user_data;
 	const char *ssid, *wpa2_psk;
+	struct ap_config *config;
 
 	if (ap_if->ap && ap_if->ap->started)
 		return dbus_error_already_exists(message);
@@ -1767,10 +1772,15 @@ static struct l_dbus_message *ap_dbus_start(struct l_dbus *dbus,
 	if (!l_dbus_message_get_arguments(message, "ss", &ssid, &wpa2_psk))
 		return dbus_error_invalid_args(message);
 
-	ap_if->ap = ap_start(ap_if->netdev, ssid, wpa2_psk, 0, false, NULL,
-				ap_if_event_func, ap_if);
-	if (!ap_if->ap)
+	config = l_new(struct ap_config, 1);
+	config->ssid = l_strdup(ssid);
+	config->psk = l_strdup(wpa2_psk);
+
+	ap_if->ap = ap_start(ap_if->netdev, config, ap_if_event_func, ap_if);
+	if (!ap_if->ap) {
+		ap_config_free(config);
 		return dbus_error_invalid_args(message);
+	}
 
 	ap_if->pending = l_dbus_message_ref(message);
 	return NULL;

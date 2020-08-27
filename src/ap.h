@@ -45,9 +45,18 @@ typedef void (*ap_event_func_t)(enum ap_event_type type, const void *event_data,
 				void *user_data);
 typedef void (*ap_stopped_func_t)(void *user_data);
 
-struct ap_state *ap_start(struct netdev *netdev, const char *ssid,
-				const char *psk, int channel, bool no_cck_rates,
-				const uint8_t **authorized_macs,
+struct ap_config {
+	char *ssid;
+	char *psk;
+	uint8_t channel;
+	uint8_t *authorized_macs;
+	unsigned int authorized_macs_num;
+	bool no_cck_rates : 1;
+};
+
+void ap_config_free(struct ap_config *config);
+
+struct ap_state *ap_start(struct netdev *netdev, struct ap_config *config,
 				ap_event_func_t event_func, void *user_data);
 void ap_shutdown(struct ap_state *ap, ap_stopped_func_t stopped_func,
 			void *user_data);
