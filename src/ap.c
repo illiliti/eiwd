@@ -443,11 +443,8 @@ static void ap_start_rsna(struct sta_state *sta, const uint8_t *gtk_rsc)
 	struct ap_state *ap = sta->ap;
 	struct netdev *netdev = sta->ap->netdev;
 	const uint8_t *own_addr = netdev_get_address(netdev);
-	struct scan_bss bss;
 	struct ie_rsn_info rsn;
 	uint8_t bss_rsne[24];
-
-	memset(&bss, 0, sizeof(bss));
 
 	ap_set_rsn_info(ap, &rsn);
 	/*
