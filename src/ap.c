@@ -106,6 +106,19 @@ void ap_config_free(struct ap_config *config)
 	l_free(config);
 }
 
+static void ap_stop_handshake(struct sta_state *sta)
+{
+	if (sta->sm) {
+		eapol_sm_free(sta->sm);
+		sta->sm = NULL;
+	}
+
+	if (sta->hs) {
+		handshake_state_free(sta->hs);
+		sta->hs = NULL;
+	}
+}
+
 static void ap_sta_free(void *data)
 {
 	struct sta_state *sta = data;
@@ -120,11 +133,7 @@ static void ap_sta_free(void *data)
 	if (sta->gtk_query_cmd_id)
 		l_genl_family_cancel(ap->nl80211, sta->gtk_query_cmd_id);
 
-	if (sta->sm)
-		eapol_sm_free(sta->sm);
-
-	if (sta->hs)
-		handshake_state_free(sta->hs);
+	ap_stop_handshake(sta);
 
 	l_free(sta);
 }
@@ -180,14 +189,7 @@ static void ap_del_station(struct sta_state *sta, uint16_t reason,
 		sta->gtk_query_cmd_id = 0;
 	}
 
-	if (sta->sm)
-		eapol_sm_free(sta->sm);
-
-	if (sta->hs)
-		handshake_state_free(sta->hs);
-
-	sta->hs = NULL;
-	sta->sm = NULL;
+	ap_stop_handshake(sta);
 
 	if (send_event)
 		ap->event_func(AP_EVENT_STATION_REMOVED, &event_data,
@@ -268,14 +270,7 @@ static void ap_drop_rsna(struct sta_state *sta)
 		l_error("Issuing DEL_KEY failed");
 	}
 
-	if (sta->sm)
-		eapol_sm_free(sta->sm);
-
-	if (sta->hs)
-		handshake_state_free(sta->hs);
-
-	sta->hs = NULL;
-	sta->sm = NULL;
+	ap_stop_handshake(sta);
 
 	if (ap->event_func) {
 		struct ap_event_station_removed_data event_data = {};
@@ -938,6 +933,12 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 		goto unsupported;
 	}
 
+	/* 802.11-2016 11.3.5.3 j) */
+	if (sta->rsna)
+		ap_drop_rsna(sta);
+	else if (sta->associated)
+		ap_stop_handshake(sta);
+
 	if (!sta->associated) {
 		/*
 		 * Everything fine so far, assign an AID, send response.
@@ -961,10 +962,6 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 
 	sta->assoc_rsne = l_memdup(rsn, rsn[1] + 2);
 
-	/* 802.11-2016 11.3.5.3 j) */
-	if (sta->rsna)
-		ap_drop_rsna(sta);
-
 	sta->assoc_resp_cmd_id = ap_assoc_resp(ap, sta, sta->addr, sta->aid, 0,
 						reassoc,
 						ap_success_assoc_resp_cb);
@@ -987,8 +984,10 @@ bad_frame:
 	 *
 	 * For now, we need to drop the RSNA.
 	 */
-	if (sta->associated && sta->rsna)
+	if (sta->rsna)
 		ap_drop_rsna(sta);
+	else if (sta->associated)
+		ap_stop_handshake(sta);
 
 	if (rates)
 		l_uintset_free(rates);
