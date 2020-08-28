@@ -29,6 +29,9 @@ enum ap_event_type {
 	AP_EVENT_STOPPING,
 	AP_EVENT_STATION_ADDED,
 	AP_EVENT_STATION_REMOVED,
+	AP_EVENT_REGISTRATION_START,
+	AP_EVENT_REGISTRATION_SUCCESS,
+	AP_EVENT_PBC_MODE_EXIT,
 };
 
 struct ap_event_station_added_data {
@@ -41,6 +44,14 @@ struct ap_event_station_removed_data {
 	enum mmpdu_reason_code reason;
 };
 
+struct ap_event_registration_start_data {
+	const uint8_t *mac;
+};
+
+struct ap_event_registration_success_data {
+	const uint8_t *mac;
+};
+
 typedef void (*ap_event_func_t)(enum ap_event_type type, const void *event_data,
 				void *user_data);
 typedef void (*ap_stopped_func_t)(void *user_data);
@@ -51,6 +62,8 @@ struct ap_config {
 	uint8_t channel;
 	uint8_t *authorized_macs;
 	unsigned int authorized_macs_num;
+	char *wsc_name;
+	struct wsc_primary_device_type wsc_primary_device_type;
 	bool no_cck_rates : 1;
 };
 
@@ -64,3 +77,5 @@ void ap_free(struct ap_state *ap);
 
 bool ap_station_disconnect(struct ap_state *ap, const uint8_t *mac,
 				enum mmpdu_reason_code reason);
+
+bool ap_push_button(struct ap_state *ap);

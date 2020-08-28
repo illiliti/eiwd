@@ -45,6 +45,7 @@
 #include "src/dbus.h"
 #include "src/nl80211util.h"
 #include "src/frame-xchg.h"
+#include "src/wscutil.h"
 #include "src/ap.h"
 
 struct ap_state {
@@ -64,6 +65,9 @@ struct ap_state {
 	uint32_t mlme_watch;
 	uint8_t gtk[CRYPTO_MAX_GTK_LEN];
 	uint8_t gtk_index;
+	struct l_timeout *wsc_pbc_timeout;
+	uint16_t wsc_dpid;
+	uint8_t wsc_uuid_r[16];
 
 	uint16_t last_aid;
 	struct l_queue *sta_states;
@@ -103,6 +107,7 @@ void ap_config_free(struct ap_config *config)
 	}
 
 	l_free(config->authorized_macs);
+	l_free(config->wsc_name);
 	l_free(config);
 }
 
@@ -358,10 +363,15 @@ static size_t ap_build_beacon_pr_head(struct ap_state *ap,
 }
 
 /* Beacon / Probe Response frame portion after the TIM IE */
-static size_t ap_build_beacon_pr_tail(struct ap_state *ap, uint8_t *out_buf)
+static size_t ap_build_beacon_pr_tail(struct ap_state *ap, bool pr,
+					uint8_t *out_buf)
 {
 	size_t len;
 	struct ie_rsn_info rsn;
+	uint8_t *wsc_data;
+	size_t wsc_data_size;
+	uint8_t *wsc_ie;
+	size_t wsc_ie_size;
 
 	/* TODO: Country IE between TIM IE and RSNE */
 
@@ -371,7 +381,138 @@ static size_t ap_build_beacon_pr_tail(struct ap_state *ap, uint8_t *out_buf)
 		return 0;
 	len = 2 + out_buf[1];
 
+	/* WSC IE */
+	if (pr) {
+		struct wsc_probe_response wsc_pr = {};
+
+		wsc_pr.version2 = true;
+		wsc_pr.state = WSC_STATE_CONFIGURED;
+
+		if (ap->wsc_pbc_timeout) {
+			wsc_pr.selected_registrar = true;
+			wsc_pr.device_password_id = ap->wsc_dpid;
+			wsc_pr.selected_reg_config_methods =
+				WSC_CONFIGURATION_METHOD_PUSH_BUTTON;
+		}
+
+		wsc_pr.response_type = WSC_RESPONSE_TYPE_AP;
+		memcpy(wsc_pr.uuid_e, ap->wsc_uuid_r, sizeof(wsc_pr.uuid_e));
+		wsc_pr.primary_device_type =
+			ap->config->wsc_primary_device_type;
+
+		if (ap->config->wsc_name)
+			l_strlcpy(wsc_pr.device_name, ap->config->wsc_name,
+					sizeof(wsc_pr.device_name));
+
+		wsc_pr.config_methods =
+			WSC_CONFIGURATION_METHOD_PUSH_BUTTON;
+
+		if (ap->config->authorized_macs_num) {
+			size_t len;
+
+			len = ap->config->authorized_macs_num * 6;
+			if (len > sizeof(wsc_pr.authorized_macs))
+				len = sizeof(wsc_pr.authorized_macs);
+
+			memcpy(wsc_pr.authorized_macs,
+				ap->config->authorized_macs, len);
+		}
+
+		wsc_data = wsc_build_probe_response(&wsc_pr, &wsc_data_size);
+	} else {
+		struct wsc_beacon wsc_beacon = {};
+
+		wsc_beacon.version2 = true;
+		wsc_beacon.state = WSC_STATE_CONFIGURED;
+
+		if (ap->wsc_pbc_timeout) {
+			wsc_beacon.selected_registrar = true;
+			wsc_beacon.device_password_id = ap->wsc_dpid;
+			wsc_beacon.selected_reg_config_methods =
+				WSC_CONFIGURATION_METHOD_PUSH_BUTTON;
+		}
+
+		if (ap->config->authorized_macs_num) {
+			size_t len;
+
+			len = ap->config->authorized_macs_num * 6;
+			if (len > sizeof(wsc_beacon.authorized_macs))
+				len = sizeof(wsc_beacon.authorized_macs);
+
+			memcpy(wsc_beacon.authorized_macs,
+				ap->config->authorized_macs, len);
+		}
+
+		wsc_data = wsc_build_beacon(&wsc_beacon, &wsc_data_size);
+	}
+
+	if (!wsc_data)
+		return 0;
+
+	wsc_ie = ie_tlv_encapsulate_wsc_payload(wsc_data, wsc_data_size,
+						&wsc_ie_size);
+	l_free(wsc_data);
+
+	if (!wsc_ie)
+		return 0;
+
+	memcpy(out_buf + len, wsc_ie, wsc_ie_size);
+	len += wsc_ie_size;
+	l_free(wsc_ie);
+
 	return len;
+}
+
+static void ap_set_beacon_cb(struct l_genl_msg *msg, void *user_data)
+{
+	int error = l_genl_msg_get_error(msg);
+
+	if (error < 0)
+		l_error("SET_BEACON failed: %s (%i)", strerror(-error), -error);
+}
+
+static void ap_update_beacon(struct ap_state *ap)
+{
+	struct l_genl_msg *cmd;
+	uint8_t head[256], tail[256];
+	size_t head_len, tail_len;
+	uint64_t wdev_id = netdev_get_wdev_id(ap->netdev);
+	static const uint8_t bcast_addr[6] = {
+		0xff, 0xff, 0xff, 0xff, 0xff, 0xff
+	};
+
+	head_len = ap_build_beacon_pr_head(ap, MPDU_MANAGEMENT_SUBTYPE_BEACON,
+						bcast_addr, head, sizeof(head));
+	tail_len = ap_build_beacon_pr_tail(ap, false, tail);
+	if (L_WARN_ON(!head_len || !tail_len))
+		return;
+
+	cmd = l_genl_msg_new_sized(NL80211_CMD_SET_BEACON,
+					32 + head_len + tail_len);
+	l_genl_msg_append_attr(cmd, NL80211_ATTR_WDEV, 8, &wdev_id);
+	l_genl_msg_append_attr(cmd, NL80211_ATTR_BEACON_HEAD, head_len, head);
+	l_genl_msg_append_attr(cmd, NL80211_ATTR_BEACON_TAIL, tail_len, tail);
+	l_genl_msg_append_attr(cmd, NL80211_ATTR_IE, 0, "");
+	l_genl_msg_append_attr(cmd, NL80211_ATTR_IE_PROBE_RESP, 0, "");
+	l_genl_msg_append_attr(cmd, NL80211_ATTR_IE_ASSOC_RESP, 0, "");
+
+	if (l_genl_family_send(ap->nl80211, cmd, ap_set_beacon_cb, NULL, NULL))
+		return;
+
+	l_genl_msg_unref(cmd);
+	l_error("Issuing SET_BEACON failed");
+}
+
+static void ap_wsc_exit_pbc(struct ap_state *ap)
+{
+	if (!ap->wsc_pbc_timeout)
+		return;
+
+	l_timeout_remove(ap->wsc_pbc_timeout);
+	ap->wsc_dpid = 0;
+	ap_update_beacon(ap);
+
+	ap->event_func(AP_EVENT_PBC_MODE_EXIT, NULL, ap->user_data);
 }
 
 static uint32_t ap_send_mgmt_frame(struct ap_state *ap,
@@ -1069,6 +1210,9 @@ bad_frame:
 		l_error("Sending error Reassociation Response failed");
 }
 
+#define AP_WSC_PBC_MONITOR_TIME	120
+#define AP_WSC_PBC_WALK_TIME	120
+
 static void ap_probe_resp_cb(struct l_genl_msg *msg, void *user_data)
 {
 	if (l_genl_msg_get_error(msg) < 0)
@@ -1167,7 +1311,7 @@ static void ap_probe_req_cb(const struct mmpdu_header *hdr, const void *body,
 	len = ap_build_beacon_pr_head(ap,
 					MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE,
 					hdr->address_2, resp, sizeof(resp));
-	len += ap_build_beacon_pr_tail(ap, resp + len);
+	len += ap_build_beacon_pr_tail(ap, true, resp + len);
 
 	ap_send_mgmt_frame(ap, (struct mmpdu_header *) resp, len, false,
 				ap_probe_resp_cb, NULL);
@@ -1397,7 +1541,7 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 
 	head_len = ap_build_beacon_pr_head(ap, MPDU_MANAGEMENT_SUBTYPE_BEACON,
 						bcast_addr, head, sizeof(head));
-	tail_len = ap_build_beacon_pr_tail(ap, tail);
+	tail_len = ap_build_beacon_pr_tail(ap, false, tail);
 
 	if (!head_len || !tail_len)
 		return NULL;
@@ -1501,6 +1645,17 @@ struct ap_state *ap_start(struct netdev *netdev, struct ap_config *config,
 		/* TODO: Start a Get Survey to decide the channel */
 		config->channel = 6;
 
+	if (!config->wsc_name)
+		config->wsc_name = l_strdup(config->ssid);
+
+	if (!config->wsc_primary_device_type.category) {
+		/* Make ourselves a WFA standard PC by default */
+		config->wsc_primary_device_type.category = 1;
+		memcpy(config->wsc_primary_device_type.oui, wsc_wfa_oui, 3);
+		config->wsc_primary_device_type.oui_type = 0x04;
+		config->wsc_primary_device_type.subcategory = 1;
+	}
+
 	/* TODO: Add all ciphers supported by wiphy */
 	ap->ciphers = wiphy_select_cipher(wiphy, 0xffff);
 	ap->group_cipher = wiphy_select_cipher(wiphy, 0xffff);
@@ -1522,6 +1677,8 @@ struct ap_state *ap_start(struct netdev *netdev, struct ap_config *config,
 		l_uintset_put(ap->rates, 11); /* 5.5 Mbps*/
 		l_uintset_put(ap->rates, 22); /* 11 Mbps*/
 	}
+
+	wsc_uuid_from_addr(netdev_get_address(netdev), ap->wsc_uuid_r);
 
 	if (crypto_psk_from_passphrase(config->psk, (uint8_t *) config->ssid,
 					strlen(config->ssid), ap->pmk) < 0)
@@ -1702,6 +1859,45 @@ bool ap_station_disconnect(struct ap_state *ap, const uint8_t *mac,
 	return true;
 }
 
+static void ap_wsc_pbc_timeout_cb(struct l_timeout *timeout, void *user_data)
+{
+	struct ap_state *ap = user_data;
+
+	l_debug("PBC mode timeout");
+	ap_wsc_exit_pbc(ap);
+}
+
+static void ap_wsc_pbc_timeout_destroy(void *user_data)
+{
+	struct ap_state *ap = user_data;
+
+	ap->wsc_pbc_timeout = NULL;
+}
+
+bool ap_push_button(struct ap_state *ap)
+{
+	if (!ap->started)
+		return false;
+
+	/*
+	 * WSC v2.0.5 Section 11.3: "Multiple presses of the button are
+	 * permitted.  If a PBC button on an Enrollee or Registrar is
+	 * pressed again during Walk Time, the timers for that device are
+	 * restarted at that time [...]"
+	 */
+	if (ap->wsc_pbc_timeout) {
+		l_timeout_modify(ap->wsc_pbc_timeout, AP_WSC_PBC_WALK_TIME);
+		return true;
+	}
+
+	ap->wsc_pbc_timeout = l_timeout_create(AP_WSC_PBC_WALK_TIME,
+						ap_wsc_pbc_timeout_cb, ap,
+						ap_wsc_pbc_timeout_destroy);
+	ap->wsc_dpid = WSC_DEVICE_PASSWORD_ID_PUSH_BUTTON;
+	ap_update_beacon(ap);
+	return true;
+}
+
 struct ap_if_data {
 	struct netdev *netdev;
 	struct ap_state *ap;
@@ -1747,6 +1943,9 @@ static void ap_if_event_func(enum ap_event_type type, const void *event_data,
 
 	case AP_EVENT_STATION_ADDED:
 	case AP_EVENT_STATION_REMOVED:
+	case AP_EVENT_REGISTRATION_START:
+	case AP_EVENT_REGISTRATION_SUCCESS:
+	case AP_EVENT_PBC_MODE_EXIT:
 		/* Ignored */
 		break;
 	}
