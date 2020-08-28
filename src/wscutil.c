@@ -2094,6 +2094,20 @@ static void build_wsc_state(struct wsc_attr_builder *builder,
 	wsc_attr_builder_put_u8(builder, 1);				\
 	wsc_attr_builder_put_u8(builder, 0x20)
 
+static void wfa_build_authorized_macs(struct wsc_attr_builder *builder,
+				const uint8_t authorized_macs[static 30])
+{
+	int count;
+
+	for (count = 1; count < 5; count++)
+		if (util_mem_is_zero(authorized_macs + count * 6, 6))
+			break;
+
+	wsc_attr_builder_put_u8(builder, WSC_WFA_EXTENSION_AUTHORIZED_MACS);
+	wsc_attr_builder_put_u8(builder, count * 6);
+	wsc_attr_builder_put_bytes(builder, authorized_macs, count * 6);
+}
+
 uint8_t *wsc_build_credential(const struct wsc_credential *in, size_t *out_len)
 {
 	struct wsc_attr_builder *builder;
@@ -2204,21 +2218,9 @@ uint8_t *wsc_build_probe_response(
 
 	START_WFA_VENDOR_EXTENSION();
 
-	if (!util_mem_is_zero(probe_response->authorized_macs, 30)) {
-		int count;
-
-		for (count = 1; count < 5; count++)
-			if (util_mem_is_zero(probe_response->authorized_macs +
-						count * 6, 30 - count * 6))
-				break;
-
-		wsc_attr_builder_put_u8(builder,
-					WSC_WFA_EXTENSION_AUTHORIZED_MACS);
-		wsc_attr_builder_put_u8(builder, count * 6);
-		wsc_attr_builder_put_bytes(builder,
-					probe_response->authorized_macs,
-					count * 6);
-	}
+	if (!util_mem_is_zero(probe_response->authorized_macs, 6))
+		wfa_build_authorized_macs(builder,
+					probe_response->authorized_macs);
 
 	if (probe_response->reg_config_methods) {
 		wsc_attr_builder_put_u8(builder,
