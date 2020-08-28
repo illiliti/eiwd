@@ -604,6 +604,7 @@ int wsc_parse_wsc_done(const uint8_t *pdu, uint32_t len, struct wsc_done *out);
 
 uint8_t *wsc_build_credential(const struct wsc_credential *in, size_t *out_len);
 
+uint8_t *wsc_build_beacon(const struct wsc_beacon *beacon, size_t *out_len);
 uint8_t *wsc_build_probe_request(const struct wsc_probe_request *probe_request,
 				size_t *out_len);
 uint8_t *wsc_build_probe_response(
