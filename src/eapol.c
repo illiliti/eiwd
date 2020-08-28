@@ -2417,7 +2417,7 @@ bool eapol_start(struct eapol_sm *sm)
 		sm->timeout = l_timeout_create(eapol_4way_handshake_time,
 				eapol_timeout, sm, NULL);
 
-	if (sm->use_eapol_start) {
+	if (!sm->handshake->authenticator && sm->use_eapol_start) {
 		/*
 		 * We start a short timeout, if EAP packets are not received
 		 * from AP, then we send the EAPoL-Start
@@ -2442,9 +2442,14 @@ bool eapol_start(struct eapol_sm *sm)
 		if (!sm->protocol_version)
 			sm->protocol_version = EAPOL_PROTOCOL_VERSION_2004;
 
-		if (sm->handshake->settings_8021x)
-			eap_start(sm->eap);
-		else {
+		if (sm->handshake->settings_8021x) {
+			/*
+			 * If we're allowed to, send EAP Identity request
+			 * immediately, otherwise wait for an EAPoL-Start.
+			 */
+			if (!sm->use_eapol_start)
+				eap_start(sm->eap);
+		} else {
 			if (L_WARN_ON(!sm->handshake->have_pmk))
 				return false;
 
