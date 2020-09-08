@@ -1682,6 +1682,9 @@ static void ap_probe_req_cb(const struct mmpdu_header *hdr, const void *body,
 	else if (ssid && ssid_len == strlen(ap->config->ssid) && /* One SSID */
 			!memcmp(ssid, ap->config->ssid, ssid_len))
 		match = true;
+	else if (ssid && ssid_len == 7 && !memcmp(ssid, "DIRECT-", 7) &&
+			!memcmp(ssid, ap->config->ssid, 7)) /* P2P wildcard */
+		match = true;
 	else if (ssid_list) { /* SSID List */
 		ie_tlv_iter_init(&iter, ssid_list, ssid_list_len);
 
