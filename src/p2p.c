@@ -3184,7 +3184,7 @@ static void p2p_device_send_probe_resp(struct p2p_device *dev,
 	wsc_info.primary_device_type = dev->device_info.primary_device_type;
 	l_strlcpy(wsc_info.device_name, dev->device_info.device_name,
 			sizeof(wsc_info.device_name));
-	wsc_info.rf_bands = 0x01;	/* 2.4GHz */
+	wsc_info.rf_bands = WSC_RF_BAND_2_4_GHZ;
 	wsc_info.version2 = true;
 
 	wsc_data = wsc_build_probe_response(&wsc_info, &wsc_data_size);
