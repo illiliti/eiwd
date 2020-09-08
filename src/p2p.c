@@ -518,6 +518,9 @@ static void p2p_connect_failed(struct p2p_device *dev)
 	if (dev->scan_id)
 		scan_cancel(dev->wdev_id, dev->scan_id);
 
+	if (l_queue_isempty(dev->discovery_users))
+		p2p_device_discovery_stop(dev);
+
 	if (peer->wsc.pending_connect)
 		dbus_pending_reply(&peer->wsc.pending_connect,
 				dbus_error_failed(peer->wsc.pending_connect));
@@ -1749,10 +1752,6 @@ static void p2p_device_go_negotiation_req_cb(const struct mmpdu_header *mpdu,
 		l_error("GO Negotiation Request parse error %s (%i)",
 			strerror(-r), -r);
 		p2p_connect_failed(dev);
-
-		if (l_queue_isempty(dev->discovery_users))
-			p2p_device_discovery_stop(dev);
-
 		status = P2P_STATUS_FAIL_INVALID_PARAMS;
 		goto respond;
 	}
@@ -1770,10 +1769,6 @@ static void p2p_device_go_negotiation_req_cb(const struct mmpdu_header *mpdu,
 		}
 
 		p2p_connect_failed(dev);
-
-		if (l_queue_isempty(dev->discovery_users))
-			p2p_device_discovery_stop(dev);
-
 		status = P2P_STATUS_FAIL_INCOMPATIBLE_PARAMS;
 		goto p2p_free;
 	}
@@ -1789,10 +1784,6 @@ static void p2p_device_go_negotiation_req_cb(const struct mmpdu_header *mpdu,
 
 		p2p_connect_failed(dev);
 		l_error("Persistent groups not supported");
-
-		if (l_queue_isempty(dev->discovery_users))
-			p2p_device_discovery_stop(dev);
-
 		status = P2P_STATUS_FAIL_INCOMPATIBLE_PARAMS;
 		goto p2p_free;
 	}
@@ -1800,10 +1791,6 @@ static void p2p_device_go_negotiation_req_cb(const struct mmpdu_header *mpdu,
 	if (req_info.device_password_id != dev->conn_password_id) {
 		p2p_connect_failed(dev);
 		l_error("Incompatible Password ID in the GO Negotiation Req");
-
-		if (l_queue_isempty(dev->discovery_users))
-			p2p_device_discovery_stop(dev);
-
 		status = P2P_STATUS_FAIL_INCOMPATIBLE_PROVISIONING;
 		goto p2p_free;
 	}
@@ -1812,10 +1799,6 @@ static void p2p_device_go_negotiation_req_cb(const struct mmpdu_header *mpdu,
 	if (!p2p_device_validate_conn_wfd(dev, req_info.wfd,
 						req_info.wfd_size)) {
 		p2p_connect_failed(dev);
-
-		if (l_queue_isempty(dev->discovery_users))
-			p2p_device_discovery_stop(dev);
-
 		status = P2P_STATUS_FAIL_INCOMPATIBLE_PARAMS;
 		goto p2p_free;
 	}
@@ -1921,9 +1904,6 @@ static void p2p_go_neg_req_timeout(struct l_timeout *timeout, void *user_data)
 	l_debug("");
 
 	p2p_connect_failed(dev);
-
-	if (l_queue_isempty(dev->discovery_users))
-		p2p_device_discovery_stop(dev);
 }
 
 static bool p2p_go_negotiation_resp_cb(const struct mmpdu_header *mpdu,
