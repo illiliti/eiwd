@@ -104,6 +104,7 @@ struct scan_parameters {
 	bool no_cck_rates : 1;
 	bool duration_mandatory : 1;
 	const char *ssid;	/* Used for direct probe request */
+	const uint8_t *source_mac;
 };
 
 static inline int scan_bss_addr_cmp(const struct scan_bss *a1,

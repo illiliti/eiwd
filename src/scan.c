@@ -361,6 +361,18 @@ static struct l_genl_msg *scan_build_cmd(struct scan_context *sc,
 		 */
 		flags |= NL80211_SCAN_FLAG_RANDOM_ADDR;
 
+	if (!is_passive && params->source_mac &&
+			wiphy_can_randomize_mac_addr(sc->wiphy)) {
+		static const uint8_t mask[6] =	/* No random bits */
+			{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+
+		flags |= NL80211_SCAN_FLAG_RANDOM_ADDR;
+		l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, 6,
+					params->source_mac);
+		l_genl_msg_append_attr(msg, NL80211_ATTR_MAC_MASK, 6,
+					mask);
+	}
+
 	if (!is_passive && wiphy_has_ext_feature(sc->wiphy,
 					NL80211_EXT_FEATURE_SCAN_RANDOM_SN))
 		flags |= NL80211_SCAN_FLAG_RANDOM_SN;
