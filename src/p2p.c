@@ -1301,6 +1301,13 @@ static void p2p_provision_scan_start(struct p2p_device *dev)
 	L_WARN_ON(!params.extra_ie);
 
 	/*
+	 * Rather than create the new interface and create a new
+	 * scan_context on it, use the P2P-Device interface and set
+	 * params.source_mac to our future P2P-Client address.
+	 */
+	params.source_mac = dev->conn_addr;
+
+	/*
 	 * Initially scan just the Operating Channel the GO reported
 	 * during the negotiation.  In theory there's no guarantee that
 	 * it is going to be on that channel so we should fall back
