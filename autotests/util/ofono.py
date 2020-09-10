@@ -1,4 +1,5 @@
 import dbus
+import time
 from gi.repository import GLib
 
 SIM_AUTH_IFACE = 'org.ofono.SimAuthentication'
@@ -6,6 +7,14 @@ SIM_AUTH_IFACE = 'org.ofono.SimAuthentication'
 class Ofono(dbus.service.Object):
     def __init__(self):
         self._bus = dbus.SystemBus()
+
+        tries = 0
+
+        while not self._bus.name_has_owner('org.ofono'):
+            if tries > 100:
+                raise TimeoutError('Waiting for org.ofono service timed out')
+            tries += 1
+            time.sleep(0.1)
 
     def enable_modem(self, path):
         self._modem_path = path
@@ -37,11 +46,13 @@ class Ofono(dbus.service.Object):
             self._wait_timed_out = True
             return False
 
-        timeout = GLib.timeout_add_seconds(max_wait, wait_timeout_cb)
-        context = mainloop.get_context()
-        while (not self._sim_auth_up):
-            context.iteration(may_block=True)
-            if self._wait_timed_out:
-                raise TimeoutError('waiting for SimAuthentication timed out')
+        try:
+            timeout = GLib.timeout_add_seconds(max_wait, wait_timeout_cb)
+            context = mainloop.get_context()
+            while (not self._sim_auth_up):
+                context.iteration(may_block=True)
+                if self._wait_timed_out:
+                    raise TimeoutError('waiting for SimAuthentication timed out')
 
-        GLib.source_remove(timeout)
+        finally:
+            GLib.source_remove(timeout)
