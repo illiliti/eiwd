@@ -8,6 +8,7 @@ import iwd
 from iwd import IWD
 import testutil
 import subprocess
+from config import ctx
 
 class Test(unittest.TestCase):
 
@@ -34,11 +35,10 @@ class Test(unittest.TestCase):
 
         # Use --dontaks cmd-line option
         with self.assertRaises(subprocess.CalledProcessError):
-                        subprocess.check_call(['iwctl', '-d', 'station',
-                                                 device.name, 'connect', ssid])
+            ctx.start_process(['iwctl', 'd', 'station', device.name, 'connect', ssid],  check=True)
 
-        subprocess.check_call(['iwctl', '-P', 'passphrase',
-                                'station', device.name, 'connect', ssid])
+        ctx.start_process(['iwctl', '-P', 'passphrase', 'station', device.name, 'connect', ssid],
+                                check=True)
 
         self.check_connection_success(ssid)
 
@@ -47,9 +47,8 @@ class Test(unittest.TestCase):
 
         device = self.wd.list_devices(1)[0]
 
-        subprocess.check_call(['iwctl', '-u', 'user', '-p', 'password',
-                                'station', device.name, 'connect', ssid])
-
+        ctx.start_process(['iwctl', '-u', 'user', '-p', 'password', 'station', \
+                            device.name, 'connect', ssid], check=True)
         self.check_connection_success(ssid)
 
     def test_connection_with_password(self):
@@ -57,8 +56,8 @@ class Test(unittest.TestCase):
 
         device = self.wd.list_devices(1)[0]
 
-        subprocess.check_call(['iwctl', '-p', 'password',
-                                'station', device.name, 'connect', ssid])
+        ctx.start_process(['iwctl', '-p', 'password', 'station', device.name, 'connect', ssid],
+                            check=True)
 
         self.check_connection_success(ssid)
 
@@ -68,8 +67,8 @@ class Test(unittest.TestCase):
         device = self.wd.list_devices(1)[0]
 
         with self.assertRaises(subprocess.CalledProcessError):
-                subprocess.check_call(['iwctl', '-P', 'incorrect_passphrase',
-                                'station', device.name, 'connect', ssid])
+            ctx.start_process(['iwctl', '-P', 'incorrect_passphrase', 'station', device.name, \
+                                'connect', ssid], check=True)
 
     def test_invalid_command_line_option(self):
         ssid = 'ssidPassphrase'
@@ -77,14 +76,13 @@ class Test(unittest.TestCase):
         device = self.wd.list_devices(1)[0]
 
         with self.assertRaises(subprocess.CalledProcessError):
-                subprocess.check_call(['iwctl', '-z',
-                                'station', device.name, 'connect', ssid])
+            ctx.start_process(['iwctl', '-z', 'station', device.name, 'connect', ssid], check=True)
 
     def test_invalid_command(self):
         device = self.wd.list_devices(1)[0]
 
         with self.assertRaises(subprocess.CalledProcessError):
-                subprocess.check_call(['iwctl', 'inexistent', 'command'])
+            ctx.start_process(['iwctl', 'inexistent', 'command'], check=True)
 
     @classmethod
     def setUpClass(cls):
