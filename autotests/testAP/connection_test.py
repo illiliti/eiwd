@@ -24,8 +24,8 @@ class Test(unittest.TestCase):
 
         ordered_network.network_object.connect()
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(dev, condition)
 
         wd.unregister_psk_agent(psk_agent)
 
@@ -74,12 +74,11 @@ class Test(unittest.TestCase):
 
             networks['TestAP2'].network_object.connect()
 
-            condition = 'obj.connected'
-            wd.wait_for_object_condition(networks['TestAP2'].network_object,
-                                         condition)
+            condition = 'obj.state == DeviceState.connected'
+            wd.wait_for_object_condition(dev2, condition)
 
             testutil.test_iface_operstate(dev2.name)
-            testutil.test_ifaces_connected(dev1.name, dev2.name)
+            testutil.test_ifaces_connected(dev1.name, dev2.name, group=False)
 
             wd.unregister_psk_agent(psk_agent)
 
