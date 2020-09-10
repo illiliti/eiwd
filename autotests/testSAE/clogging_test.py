@@ -48,7 +48,8 @@ class Test(unittest.TestCase):
             wd.wait_for_object_condition(n.network_object, condition)
 
         for d in devices:
-            d.wait_for_connected()
+            condition = 'obj.state == DeviceState.connected'
+            wd.wait_for_object_condition(d, condition)
 
         for d in devices:
             d.disconnect()
