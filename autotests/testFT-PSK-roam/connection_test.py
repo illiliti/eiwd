@@ -24,7 +24,11 @@ class Test(unittest.TestCase):
         rule1.source = self.bss_radio[1].addresses[0]
         rule1.bidirectional = True
 
-        wd = self.wd
+        # Check that iwd selects BSS 0 first
+        rule0.signal = -2000
+        rule1.signal = -2500
+
+        wd = IWD(True)
 
         psk_agent = PSKAgent("EasilyGuessedPassword")
         wd.register_psk_agent(psk_agent)
@@ -32,10 +36,6 @@ class Test(unittest.TestCase):
         device = wd.list_devices(1)[0]
         # prevent autoconnect
         device.disconnect()
-
-        # Check that iwd selects BSS 0 first
-        rule0.signal = -2000
-        rule1.signal = -2500
 
         condition = 'not obj.scanning'
         wd.wait_for_object_condition(device, condition)
@@ -61,8 +61,8 @@ class Test(unittest.TestCase):
 
         ordered_network.network_object.connect()
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         self.assertTrue(self.bss_hostapd[0].list_sta())
         self.assertFalse(self.bss_hostapd[1].list_sta())
@@ -109,7 +109,11 @@ class Test(unittest.TestCase):
         rule1.source = self.bss_radio[1].addresses[0]
         rule1.bidirectional = True
 
-        wd = self.wd
+        # Check that iwd selects BSS 0 first
+        rule0.signal = -2000
+        rule1.signal = -2500
+
+        wd = IWD(True)
 
         psk_agent = PSKAgent("EasilyGuessedPassword")
         wd.register_psk_agent(psk_agent)
@@ -117,10 +121,6 @@ class Test(unittest.TestCase):
         device = wd.list_devices(1)[0]
         # prevent autoconnect
         device.disconnect()
-
-        # Check that iwd selects BSS 0 first
-        rule0.signal = -2000
-        rule1.signal = -2500
 
         condition = 'not obj.scanning'
         wd.wait_for_object_condition(device, condition)
@@ -180,27 +180,12 @@ class Test(unittest.TestCase):
         testutil.test_ifaces_connected(self.bss_hostapd[1].ifname, device.name)
         self.assertRaises(Exception, testutil.test_ifaces_connected,
                           (self.bss_hostapd[0].ifname, device.name))
-    def setUp(self):
-        self.wd = IWD()
 
     def tearDown(self):
         os.system('ifconfig "' + self.bss_hostapd[0].ifname + '" down')
         os.system('ifconfig "' + self.bss_hostapd[1].ifname + '" down')
         os.system('ifconfig "' + self.bss_hostapd[0].ifname + '" up')
         os.system('ifconfig "' + self.bss_hostapd[1].ifname + '" up')
-
-        hwsim = Hwsim()
-        device = self.wd.list_devices(1)[0]
-        try:
-            device.disconnect()
-        except:
-            pass
-
-        condition = 'obj.state == DeviceState.disconnected'
-        self.wd.wait_for_object_condition(device, condition)
-
-        for rule in list(hwsim.rules.keys()):
-            del hwsim.rules[rule]
 
     @classmethod
     def setUpClass(cls):
