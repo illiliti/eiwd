@@ -50,11 +50,6 @@ class TestConnectAutoConnect(unittest.TestCase):
         device = devices[0]
 
         if autoconnect:
-            condition = 'obj.scanning'
-            wd.wait_for_object_condition(device, condition)
-            condition = 'not obj.scanning'
-            wd.wait_for_object_condition(device, condition)
-
             self.check_autoconnect_hidden_network(wd, device, ssid, throws)
         else:
             if wait_periodic_scan:
@@ -71,7 +66,6 @@ class TestConnectAutoConnect(unittest.TestCase):
 
     def validate(self, ssid, autoconnect, throws = None, use_agent = False,
                                                     wait_periodic_scan = False):
-        wd = IWD(True, '/tmp')
-
+        wd = IWD(True)
         self.validate_connection(wd, ssid, autoconnect, throws, use_agent,
                                                         wait_periodic_scan)
