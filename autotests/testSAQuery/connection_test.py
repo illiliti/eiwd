@@ -8,7 +8,7 @@ import iwd
 from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
-from hostapd import HostapdCLI, hostapd_map
+from hostapd import HostapdCLI
 
 class Test(unittest.TestCase):
 

@@ -10,7 +10,6 @@ from iwd import NetworkType
 from hlrauc import AuthCenter
 
 from hostapd import HostapdCLI
-from hostapd import hostapd_map
 
 class Test(unittest.TestCase):
 

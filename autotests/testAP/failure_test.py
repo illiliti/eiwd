@@ -8,12 +8,13 @@ import iwd
 from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
-import hostapd
+from hostapd import HostapdCLI
 import testutil
 
 class Test(unittest.TestCase):
 
     def client_connect(self, wd, dev):
+        hostapd = HostapdCLI(config='psk-ccmp.conf')
 
         ordered_network = dev.get_ordered_network('TestAP1', True)
 
@@ -30,8 +31,7 @@ class Test(unittest.TestCase):
         wd.unregister_psk_agent(psk_agent)
 
         testutil.test_iface_operstate(dev.name)
-        testutil.test_ifaces_connected(list(hostapd.hostapd_map.keys())[0],
-                                       dev.name)
+        testutil.test_ifaces_connected(hostapd.ifname, dev.name)
 
         dev.disconnect()
 

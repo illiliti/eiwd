@@ -9,22 +9,17 @@ from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
 import testutil
-import hostapd
+from hostapd import HostapdCLI
 
 class Test(unittest.TestCase):
 
     def do_test_connection_success(self, ssid, passphrase=None):
+        hostapd = HostapdCLI(config=ssid + '.conf')
         wd = IWD()
 
         if passphrase:
             psk_agent = PSKAgent(passphrase)
             wd.register_psk_agent(psk_agent)
-
-        hostapd_ifname = None
-        for ifname in hostapd.hostapd_map:
-            if ssid + '.conf' in hostapd.hostapd_map[ifname].config:
-                hostapd_ifname = ifname
-                break
 
         devices = wd.list_devices(1)
         device = devices[0]
@@ -52,7 +47,7 @@ class Test(unittest.TestCase):
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
         testutil.test_iface_operstate()
-        testutil.test_ifaces_connected(hostapd_ifname, device.name)
+        testutil.test_ifaces_connected(hostapd.ifname, device.name)
 
         device.disconnect()
 

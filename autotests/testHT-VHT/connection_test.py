@@ -9,9 +9,9 @@ from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
 from hwsim import Hwsim
-from hostapd import HostapdCLI, hostapd_map
 import testutil
 from time import sleep
+from hostapd import HostapdCLI
 
 class Test(unittest.TestCase):
     def do_connect(self, wd, device, hostapd):

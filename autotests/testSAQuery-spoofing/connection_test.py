@@ -9,7 +9,7 @@ from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
 from hwsim import Hwsim
-from hostapd import HostapdCLI, hostapd_map
+from hostapd import HostapdCLI
 
 from time import sleep
 

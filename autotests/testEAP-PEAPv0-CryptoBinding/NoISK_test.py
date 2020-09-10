@@ -11,7 +11,6 @@ from iwd import NetworkType
 import testutil
 
 from hostapd import HostapdCLI
-from hostapd import hostapd_map
 
 class Test(unittest.TestCase):
 

@@ -9,7 +9,7 @@ from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
 from hwsim import Hwsim
-from hostapd import HostapdCLI, hostapd_map
+from hostapd import HostapdCLI
 import testutil
 
 class Test(unittest.TestCase):
@@ -24,10 +24,13 @@ class Test(unittest.TestCase):
         rule1.source = self.bss_radio[1].addresses[0]
         rule1.bidirectional = True
 
+        rule2 = hwsim.rules.create()
+        rule2.source = self.bss_radio[2].addresses[0]
+        rule2.bidirectional = True
+
         wd = IWD()
 
-        psk_agent = PSKAgent('user@example.com', ('user@example.com',
-                                                                  'secret123'))
+        psk_agent = PSKAgent("EasilyGuessedPassword")
         wd.register_psk_agent(psk_agent)
 
         device = wd.list_devices(1)[0]
@@ -35,6 +38,7 @@ class Test(unittest.TestCase):
         # Check that iwd selects BSS 0 first
         rule0.signal = -2000
         rule1.signal = -2500
+        rule2.signal = -3000
 
         condition = 'not obj.scanning'
         wd.wait_for_object_condition(device, condition)
@@ -49,7 +53,7 @@ class Test(unittest.TestCase):
 
         ordered_network = device.get_ordered_network('TestFT')
 
-        self.assertEqual(ordered_network.type, NetworkType.eap)
+        self.assertEqual(ordered_network.type, NetworkType.psk)
         self.assertEqual(ordered_network.signal_strength, -2000)
 
         condition = 'not obj.connected'
@@ -66,30 +70,7 @@ class Test(unittest.TestCase):
         self.assertTrue(self.bss_hostapd[0].list_sta())
         self.assertFalse(self.bss_hostapd[1].list_sta())
 
-        testutil.test_iface_operstate(device.name)
-        testutil.test_ifaces_connected(self.bss_hostapd[0].ifname, device.name)
-        self.assertRaises(Exception, testutil.test_ifaces_connected,
-                          (self.bss_hostapd[1].ifname, device.name))
-
-        device.disconnect()
-
-        condition = 'not obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
-
-        ordered_network = device.get_ordered_network('TestFT')
-
-        self.assertEqual(ordered_network.type, NetworkType.eap)
-
-        condition = 'not obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
-
-        ordered_network.network_object.connect()
-
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
-
-        self.assertTrue(self.bss_hostapd[0].list_sta())
-        self.assertFalse(self.bss_hostapd[1].list_sta())
+        wd.unregister_psk_agent(psk_agent)
 
         testutil.test_iface_operstate(device.name)
         testutil.test_ifaces_connected(self.bss_hostapd[0].ifname, device.name)
@@ -112,6 +93,11 @@ class Test(unittest.TestCase):
         condition = 'obj.state != DeviceState.roaming'
         wd.wait_for_object_condition(device, condition, 5)
 
+        rule1.signal = -2000
+
+        # wait for IWD's signal levels to recover
+        wd.wait(5)
+
         self.assertEqual(device.state, iwd.DeviceState.connected)
         self.assertTrue(self.bss_hostapd[1].list_sta())
 
@@ -120,11 +106,32 @@ class Test(unittest.TestCase):
         self.assertRaises(Exception, testutil.test_ifaces_connected,
                           (self.bss_hostapd[0].ifname, device.name))
 
+        # test FT-PSK after FT-SAE
+        rule1.signal = -8000
+        rule0.signal = -8000
+        rule2.signal = -1000
+
+        condition = 'obj.state == DeviceState.roaming'
+        wd.wait_for_object_condition(device, condition, 15)
+
+        condition = 'obj.state != DeviceState.roaming'
+        wd.wait_for_object_condition(device, condition, 5)
+
+        self.assertEqual(device.state, iwd.DeviceState.connected)
+        self.assertTrue(self.bss_hostapd[2].list_sta())
+
+        testutil.test_iface_operstate(device.name)
+        testutil.test_ifaces_connected(self.bss_hostapd[2].ifname, device.name)
+        self.assertRaises(Exception, testutil.test_ifaces_connected,
+                            (self.bss_hostapd[1].ifname, device.name))
+
     def tearDown(self):
         os.system('ifconfig "' + self.bss_hostapd[0].ifname + '" down')
         os.system('ifconfig "' + self.bss_hostapd[1].ifname + '" down')
+        os.system('ifconfig "' + self.bss_hostapd[2].ifname + '" down')
         os.system('ifconfig "' + self.bss_hostapd[0].ifname + '" up')
         os.system('ifconfig "' + self.bss_hostapd[1].ifname + '" up')
+        os.system('ifconfig "' + self.bss_hostapd[2].ifname + '" up')
 
         hwsim = Hwsim()
         wd = IWD()
@@ -142,24 +149,26 @@ class Test(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        os.system('ifconfig lo up')
-        IWD.copy_to_storage('TestFT.8021x')
-
         hwsim = Hwsim()
 
-        cls.bss_hostapd = [ HostapdCLI(config='ft-eap-ccmp-1.conf'),
-                            HostapdCLI(config='ft-eap-ccmp-2.conf') ]
+        cls.bss_hostapd = [ HostapdCLI(config='ft-sae-1.conf'),
+                            HostapdCLI(config='ft-sae-2.conf'),
+                            HostapdCLI(config='ft-psk-3.conf') ]
         cls.bss_radio =  [ hwsim.get_radio('rad0'),
-                           hwsim.get_radio('rad1') ]
+                           hwsim.get_radio('rad1'),
+                           hwsim.get_radio('rad2') ]
 
         # Set interface addresses to those expected by hostapd config files
         os.system('ifconfig "' + cls.bss_hostapd[0].ifname +
                 '" down hw ether 12:00:00:00:00:01 up')
         os.system('ifconfig "' + cls.bss_hostapd[1].ifname +
                 '" down hw ether 12:00:00:00:00:02 up')
+        os.system('ifconfig "' + cls.bss_hostapd[2].ifname +
+                '" down hw ether 12:00:00:00:00:03 up')
 
         cls.bss_hostapd[0].reload()
         cls.bss_hostapd[1].reload()
+        cls.bss_hostapd[2].reload()
 
         # Fill in the neighbor AP tables in both BSSes.  By default each
         # instance knows only about current BSS, even inside one hostapd
@@ -168,8 +177,18 @@ class Test(unittest.TestCase):
         # have to be disabled in the .conf files
         cls.bss_hostapd[0].set_neighbor('12:00:00:00:00:02', 'TestFT',
                 '1200000000028f0000005102060603000000')
+        cls.bss_hostapd[0].set_neighbor('12:00:00:00:00:03', 'TestFT',
+                '1200000000038f0000005102060603000000')
+
         cls.bss_hostapd[1].set_neighbor('12:00:00:00:00:01', 'TestFT',
                 '1200000000018f0000005101060603000000')
+        cls.bss_hostapd[1].set_neighbor('12:00:00:00:00:03', 'TestFT',
+                '1200000000038f0000005101060603000000')
+
+        cls.bss_hostapd[2].set_neighbor('12:00:00:00:00:01', 'TestFT',
+                '1200000000018f0000005101060603000000')
+        cls.bss_hostapd[2].set_neighbor('12:00:00:00:00:02', 'TestFT',
+                '1200000000028f0000005101060603000000')
 
     @classmethod
     def tearDownClass(cls):

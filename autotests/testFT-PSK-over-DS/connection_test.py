@@ -9,7 +9,7 @@ from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
 from hwsim import Hwsim
-from hostapd import HostapdCLI, hostapd_map
+from hostapd import HostapdCLI
 import testutil
 
 class Test(unittest.TestCase):
@@ -26,8 +26,7 @@ class Test(unittest.TestCase):
 
         wd = IWD()
 
-        psk_agent = PSKAgent('user@example.com', ('user@example.com',
-                                                                  'secret123'))
+        psk_agent = PSKAgent("EasilyGuessedPassword")
         wd.register_psk_agent(psk_agent)
 
         device = wd.list_devices(1)[0]
@@ -49,7 +48,7 @@ class Test(unittest.TestCase):
 
         ordered_network = device.get_ordered_network('TestFT')
 
-        self.assertEqual(ordered_network.type, NetworkType.eap)
+        self.assertEqual(ordered_network.type, NetworkType.psk)
         self.assertEqual(ordered_network.signal_strength, -2000)
 
         condition = 'not obj.connected'
@@ -66,30 +65,7 @@ class Test(unittest.TestCase):
         self.assertTrue(self.bss_hostapd[0].list_sta())
         self.assertFalse(self.bss_hostapd[1].list_sta())
 
-        testutil.test_iface_operstate(device.name)
-        testutil.test_ifaces_connected(self.bss_hostapd[0].ifname, device.name)
-        self.assertRaises(Exception, testutil.test_ifaces_connected,
-                          (self.bss_hostapd[1].ifname, device.name))
-
-        device.disconnect()
-
-        condition = 'not obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
-
-        ordered_network = device.get_ordered_network('TestFT')
-
-        self.assertEqual(ordered_network.type, NetworkType.eap)
-
-        condition = 'not obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
-
-        ordered_network.network_object.connect()
-
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
-
-        self.assertTrue(self.bss_hostapd[0].list_sta())
-        self.assertFalse(self.bss_hostapd[1].list_sta())
+        wd.unregister_psk_agent(psk_agent)
 
         testutil.test_iface_operstate(device.name)
         testutil.test_ifaces_connected(self.bss_hostapd[0].ifname, device.name)
@@ -142,13 +118,10 @@ class Test(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        os.system('ifconfig lo up')
-        IWD.copy_to_storage('TestFT.8021x')
-
         hwsim = Hwsim()
 
-        cls.bss_hostapd = [ HostapdCLI(config='ft-eap-ccmp-1.conf'),
-                            HostapdCLI(config='ft-eap-ccmp-2.conf') ]
+        cls.bss_hostapd = [ HostapdCLI(config='ft-psk-ccmp-1.conf'),
+                            HostapdCLI(config='ft-psk-ccmp-2.conf') ]
         cls.bss_radio =  [ hwsim.get_radio('rad0'),
                            hwsim.get_radio('rad1') ]
 

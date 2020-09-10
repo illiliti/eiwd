@@ -9,8 +9,6 @@ from iwd import IWD
 from iwd import DeviceState
 
 from hostapd import HostapdCLI
-from hostapd import hostapd_map
-
 class Test(unittest.TestCase):
 
     def push_button_success(self, wd):
@@ -38,8 +36,7 @@ class Test(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.hostapd_if = list(hostapd_map.values())[0]
-        cls.hostapd = HostapdCLI(cls.hostapd_if)
+        cls.hostapd = HostapdCLI(config='ssidWPS.conf')
 
     @classmethod
     def tearDownClass(cls):

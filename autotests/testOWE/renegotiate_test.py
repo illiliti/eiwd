@@ -7,7 +7,6 @@ sys.path.append('../util')
 import iwd
 from iwd import IWD
 from iwd import NetworkType
-from hostapd import hostapd_map
 from hostapd import HostapdCLI
 import testutil
 

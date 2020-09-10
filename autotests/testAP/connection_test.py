@@ -3,17 +3,17 @@
 import unittest
 import sys, os
 
-sys.path.append('../util')
 import iwd
 from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
-import hostapd
+from hostapd import HostapdCLI
 import testutil
 
 class Test(unittest.TestCase):
 
     def client_connect(self, wd, dev):
+        hostapd = HostapdCLI(config='psk-ccmp.conf')
 
         ordered_network = dev.get_ordered_network('TestAP1', True)
 
@@ -30,8 +30,7 @@ class Test(unittest.TestCase):
         wd.unregister_psk_agent(psk_agent)
 
         testutil.test_iface_operstate(dev.name)
-        testutil.test_ifaces_connected(list(hostapd.hostapd_map.keys())[0],
-                                       dev.name)
+        testutil.test_ifaces_connected(hostapd.ifname, dev.name)
 
         dev.disconnect()
 
@@ -57,6 +56,7 @@ class Test(unittest.TestCase):
             wd.wait_for_object_condition(dev2, condition)
 
             ordered_networks = dev2.get_ordered_networks()
+
             networks = { n.name: n for n in ordered_networks }
             self.assertEqual(networks['TestAP1'].type, NetworkType.psk)
             self.assertEqual(networks['TestAP2'].type, NetworkType.psk)
@@ -66,6 +66,7 @@ class Test(unittest.TestCase):
 
             try:
                 dev2.disconnect()
+
                 condition = 'not obj.connected'
                 wd.wait_for_object_condition(dev2, condition)
             except:

@@ -10,7 +10,6 @@ from iwd import DeviceState
 from iwd import NetworkType
 
 from hostapd import HostapdCLI
-from hostapd import hostapd_map
 
 class Test(unittest.TestCase):
 
@@ -20,8 +19,7 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(1)
         device = devices[0]
 
-        hostapd_if = list(hostapd_map.values())[0]
-        hostapd = HostapdCLI(hostapd_if)
+        hostapd = HostapdCLI(config='ssidOpen.conf')
 
         device.scan()
 

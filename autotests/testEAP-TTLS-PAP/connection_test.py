@@ -11,7 +11,6 @@ from iwd import PSKAgent
 from iwd import NetworkType
 
 from hostapd import HostapdCLI
-from hostapd import hostapd_map
 
 class Test(unittest.TestCase):
 

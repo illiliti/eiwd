@@ -8,17 +8,13 @@ import iwd
 from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
-from hostapd import hostapd_map
+from hostapd import HostapdCLI
 import testutil
 
 class Test(unittest.TestCase):
 
     def validate_connection(self, wd):
-        hostapd_if = None
-
-        for hostapd in hostapd_map.values():
-            if hostapd.config == 'ssidSAE-20.conf':
-                hostapd_if = hostapd.name
+        hostapd = HostapdCLI(config='ssidSAE-20.conf')
 
         psk_agent = PSKAgent("secret123")
         wd.register_psk_agent(psk_agent)
@@ -56,7 +52,7 @@ class Test(unittest.TestCase):
         wd.wait(2)
 
         testutil.test_iface_operstate(intf=device.name)
-        testutil.test_ifaces_connected(if0=device.name, if1=hostapd_if)
+        testutil.test_ifaces_connected(if0=device.name, if1=hostapd.ifname)
 
         device.disconnect()
 
