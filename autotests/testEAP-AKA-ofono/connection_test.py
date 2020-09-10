@@ -9,6 +9,7 @@ from iwd import IWD
 from iwd import NetworkType
 from hlrauc import AuthCenter
 from ofono import Ofono
+from config import ctx
 
 class Test(unittest.TestCase):
 
@@ -56,6 +57,9 @@ class Test(unittest.TestCase):
         auth.stop()
     @classmethod
     def setUpClass(cls):
+        if not ctx.is_process_running('ofonod'):
+            cls.skipTest(cls, "ofono not running")
+
         IWD.copy_to_storage('ssidEAP-AKA.8021x')
 
     @classmethod
