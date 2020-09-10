@@ -366,13 +366,6 @@ man_MANS += tools/hwsim.1
 endif
 endif
 
-if TOOLS
-noinst_PROGRAMS += tools/test-runner
-
-tools_test_runner_SOURCES = tools/test-runner.c
-tools_test_runner_LDADD = $(ell_ldadd)
-endif
-
 unit_tests = unit/test-cmac-aes \
 		unit/test-hmac-md5 unit/test-hmac-sha1 unit/test-hmac-sha256 \
 		unit/test-prf-sha1 unit/test-kdf-sha256 \
