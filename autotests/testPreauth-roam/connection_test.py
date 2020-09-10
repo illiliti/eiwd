@@ -44,13 +44,13 @@ class Test(unittest.TestCase):
         bss_hostapd[1].set_neighbor(bss_radio[0].addresses[0], 'TestPreauth',
                 bss0_nr)
 
-        wd = IWD()
-
-        device = wd.list_devices(1)[0]
-
         # Check that iwd selects BSS 0 first
         rule0.signal = -2500
         rule1.signal = -3500
+
+        wd = IWD()
+
+        device = wd.list_devices(1)[0]
 
         condition = 'not obj.scanning'
         wd.wait_for_object_condition(device, condition)
@@ -76,8 +76,8 @@ class Test(unittest.TestCase):
 
         ordered_network.network_object.connect()
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         self.assertTrue(bss_hostapd[0].list_sta())
         self.assertFalse(bss_hostapd[1].list_sta())
