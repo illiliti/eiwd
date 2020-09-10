@@ -15,7 +15,7 @@ import weakref
 from abc import ABCMeta, abstractmethod
 from enum import Enum
 
-import wiphy
+from config import ctx
 
 IWD_STORAGE_DIR =               '/var/lib/iwd'
 IWD_CONFIG_DIR =                '/etc/iwd'
@@ -38,10 +38,6 @@ IWD_STATION_INTERFACE =         'net.connman.iwd.Station'
 
 IWD_AGENT_MANAGER_PATH =        '/net/connman/iwd'
 IWD_TOP_LEVEL_PATH =            '/'
-
-
-dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-
 
 class UnknownDBusEx(Exception): pass
 class InProgressEx(dbus.DBusException): pass
@@ -108,7 +104,7 @@ class AsyncOpAbstract(object):
         self._exception = _convert_dbus_ex(ex)
 
     def _wait_for_async_op(self):
-        context = mainloop.get_context()
+        context = ctx.mainloop.get_context()
         while not self._is_completed:
             context.iteration(may_block=True)
 
@@ -533,8 +529,8 @@ class Device(IWDDBusAbstract):
             if addr not in props['ConnectedPeers']:
                 return
 
-        GLib.timeout_add(int(30 * 1000), wait_timeout_cb)
-        context = mainloop.get_context()
+        GLib.timeout_add(int(50 * 1000), wait_timeout_cb)
+        context = ctx.mainloop.get_context()
         while not self._adhoc_prop_found:
             context.iteration(may_block=True)
             if self._adhoc_timed_out:
@@ -561,8 +557,8 @@ class Device(IWDDBusAbstract):
             if addr in props['ConnectedPeers']:
                 return
 
-        GLib.timeout_add(int(15 * 1000), wait_timeout_cb)
-        context = mainloop.get_context()
+        GLib.timeout_add(int(50 * 1000), wait_timeout_cb)
+        context = ctx.mainloop.get_context()
         while not self._adhoc_prop_found:
             context.iteration(may_block=True)
             if self._adhoc_timed_out:
@@ -873,7 +869,11 @@ class DeviceList(collections.Mapping):
 
 
 class IWD(AsyncOpAbstract):
-    ''''''
+    '''
+        Start an IWD instance. By default IWD should already be running, but
+        some tests do require starting IWD using this constructor (by passing
+        start_iwd_daemon=True)
+    '''
     _bus = dbus.SystemBus()
 
     _object_manager_if = None
@@ -881,41 +881,22 @@ class IWD(AsyncOpAbstract):
     _iwd_proc = None
     _devices = None
     _instance = None
+    psk_agent = None
 
-    def __init__(self, start_iwd_daemon = False,
-                                               iwd_config_dir = IWD_CONFIG_DIR):
-        global mainloop
-        mainloop = GLib.MainLoop()
+    def __init__(self, start_iwd_daemon = False, iwd_config_dir = '/tmp'):
+        if start_iwd_daemon and ctx.is_process_running('iwd'):
+            raise Exception("IWD requested to start but is already running")
 
         if start_iwd_daemon:
-            args = []
-            iwd_wiphys = [wname for wname, wiphy in wiphy.wiphy_map.items()
-                          if wiphy.use == 'iwd']
-            whitelist = ','.join(iwd_wiphys)
-
-            if os.environ.get('IWD_TEST_VALGRIND', None) == 'on':
-                    args.append('valgrind')
-                    args.append('--leak-check=full')
-                    args.append('--log-file=/tmp/valgrind.log')
-
-            os.environ["CONFIGURATION_DIRECTORY"] = iwd_config_dir;
-
-            args.append('iwd')
-            args.append('-p')
-            args.append(whitelist)
-            args.append('-d')
-
-            import subprocess
-            iwd_proc = subprocess.Popen(args)
-
-            self._iwd_proc = iwd_proc
+            self._iwd_proc = ctx.start_iwd(iwd_config_dir)
 
         tries = 0
         while not self._bus.name_has_owner(IWD_SERVICE):
-            if os.environ['IWD_TEST_TIMEOUTS'] == 'on':
+            if ctx.args.gdb == 'None':
                 if tries > 100:
                     if start_iwd_daemon:
-                        iwd_proc.terminate()
+                        ctx.stop_process(self._iwd_proc)
+                        self._iwd_proc = None
                     raise TimeoutError('IWD has failed to start')
                 tries += 1
             time.sleep(0.1)
@@ -927,20 +908,17 @@ class IWD(AsyncOpAbstract):
         IWD._instance = weakref.ref(self)
 
     def __del__(self):
-        if self._iwd_proc is None:
-            return
+        if self.psk_agent:
+            self.unregister_psk_agent(self.psk_agent)
 
         self._object_manager_if = None
         self._agent_manager_if = None
         self._known_networks = None
         self._devices = None
 
-        self._iwd_proc.terminate()
-        self._iwd_proc.wait()
-
-        self._iwd_proc = None
-
-        del os.environ["CONFIGURATION_DIRECTORY"]
+        if self._iwd_proc is not None:
+            ctx.stop_process(self._iwd_proc)
+            self._iwd_proc = None
 
     @property
     def _object_manager(self):
@@ -966,15 +944,18 @@ class IWD(AsyncOpAbstract):
             self._wait_timed_out = True
             return False
 
-        timeout = GLib.timeout_add_seconds(max_wait, wait_timeout_cb)
-        context = mainloop.get_context()
-        while not eval(condition_str):
-            context.iteration(may_block=True)
-            if self._wait_timed_out and os.environ['IWD_TEST_TIMEOUTS'] == 'on':
-                raise TimeoutError('[' + condition_str + ']'\
-                                   ' condition was not met in '\
-                                   + str(max_wait) + ' sec')
-        GLib.source_remove(timeout)
+        try:
+            timeout = GLib.timeout_add_seconds(max_wait, wait_timeout_cb)
+            context = ctx.mainloop.get_context()
+            while not eval(condition_str):
+                context.iteration(may_block=True)
+                if self._wait_timed_out and ctx.args.gdb == None:
+                    raise TimeoutError('[' + condition_str + ']'\
+                                       ' condition was not met in '\
+                                       + str(max_wait) + ' sec')
+        finally:
+            if not self._wait_timed_out:
+                GLib.source_remove(timeout)
 
     def wait(self, time):
         self._wait_timed_out = False
@@ -982,10 +963,14 @@ class IWD(AsyncOpAbstract):
             self._wait_timed_out = True
             return False
 
-        GLib.timeout_add(int(time * 1000), wait_timeout_cb)
-        context = mainloop.get_context()
-        while not self._wait_timed_out:
-            context.iteration(may_block=True)
+        try:
+            timeout = GLib.timeout_add(int(time * 1000), wait_timeout_cb)
+            context = ctx.mainloop.get_context()
+            while not self._wait_timed_out:
+                context.iteration(may_block=True)
+        finally:
+            if not self._wait_timed_out:
+                GLib.source_remove(timeout)
 
     @staticmethod
     def clear_storage():
@@ -1031,14 +1016,16 @@ class IWD(AsyncOpAbstract):
             self._wait_timed_out = True
             return False
 
-        timeout = GLib.timeout_add_seconds(max_wait, wait_timeout_cb)
-        context = mainloop.get_context()
-        while len(self._devices) < wait_to_appear:
-            context.iteration(may_block=True)
-            if self._wait_timed_out:
-                raise TimeoutError('IWD has no associated devices')
-
-        GLib.source_remove(timeout)
+        try:
+            timeout = GLib.timeout_add_seconds(max_wait, wait_timeout_cb)
+            context = ctx.mainloop.get_context()
+            while len(self._devices) < wait_to_appear:
+                context.iteration(may_block=True)
+                if self._wait_timed_out:
+                    raise TimeoutError('IWD has no associated devices')
+        finally:
+            if not self._wait_timed_out:
+                GLib.source_remove(timeout)
 
         return list(self._devices.values())
 
@@ -1062,6 +1049,7 @@ class IWD(AsyncOpAbstract):
                                      reply_handler=self._success,
                                      error_handler=self._failure)
         self._wait_for_async_op()
+        self.psk_agent = psk_agent
 
     def unregister_psk_agent(self, psk_agent):
         self._agent_manager.UnregisterAgent(
@@ -1070,6 +1058,7 @@ class IWD(AsyncOpAbstract):
                                      reply_handler=self._success,
                                      error_handler=self._failure)
         self._wait_for_async_op()
+        self.psk_agent = None
 
     @staticmethod
     def get_instance():
