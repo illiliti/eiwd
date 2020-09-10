@@ -5,8 +5,8 @@ import fcntl
 import struct
 import select
 
-import wiphy
 import iwd
+from config import ctx
 
 HWSIM_ETHERTYPE = 0x0800
 HWSIM_PACKETLEN = 250
@@ -54,8 +54,9 @@ def tx(fromsock, tosock, src, dst):
 def test_connected(if0=None, if1=None, group=True):
     if if0 is None or if1 is None:
         iwd_list = [dev.name for dev in iwd.IWD.get_instance().list_devices()]
-        non_iwd_list = [ifname for w in wiphy.wiphy_map.values()
-                for ifname in w.interface_map]
+
+        non_iwd_list = [rad.interface.name for rad in ctx.radios if rad.interface is not None]
+
         for intf in iwd_list + non_iwd_list:
             if if0 is None:
                 if0 = intf
