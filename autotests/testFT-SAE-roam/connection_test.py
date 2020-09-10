@@ -11,9 +11,12 @@ from iwd import NetworkType
 from hwsim import Hwsim
 from hostapd import HostapdCLI
 import testutil
+from config import ctx
 
 class Test(unittest.TestCase):
     def test_roam_success(self):
+        wd = IWD()
+
         hwsim = Hwsim()
 
         rule0 = hwsim.rules.create()
@@ -27,8 +30,6 @@ class Test(unittest.TestCase):
         rule2 = hwsim.rules.create()
         rule2.source = self.bss_radio[2].addresses[0]
         rule2.bidirectional = True
-
-        wd = IWD()
 
         psk_agent = PSKAgent("EasilyGuessedPassword")
         wd.register_psk_agent(psk_agent)
@@ -158,17 +159,20 @@ class Test(unittest.TestCase):
                            hwsim.get_radio('rad1'),
                            hwsim.get_radio('rad2') ]
 
-        # Set interface addresses to those expected by hostapd config files
-        os.system('ifconfig "' + cls.bss_hostapd[0].ifname +
-                '" down hw ether 12:00:00:00:00:01 up')
-        os.system('ifconfig "' + cls.bss_hostapd[1].ifname +
-                '" down hw ether 12:00:00:00:00:02 up')
-        os.system('ifconfig "' + cls.bss_hostapd[2].ifname +
-                '" down hw ether 12:00:00:00:00:03 up')
+        ctx.start_process(['ifconfig', cls.bss_hostapd[0].ifname, 'down', 'hw', \
+                                'ether', '12:00:00:00:00:01', 'up'], wait=True)
+        ctx.start_process(['ifconfig', cls.bss_hostapd[1].ifname, 'down', 'hw', \
+                                'ether', '12:00:00:00:00:02', 'up'], wait=True)
+        ctx.start_process(['ifconfig', cls.bss_hostapd[2].ifname, 'down', 'hw', \
+                                'ether', '12:00:00:00:00:03', 'up'], wait=True)
 
+        # Set interface addresses to those expected by hostapd config files
         cls.bss_hostapd[0].reload()
+        cls.bss_hostapd[0].wait_for_event("AP-ENABLED")
         cls.bss_hostapd[1].reload()
+        cls.bss_hostapd[1].wait_for_event("AP-ENABLED")
         cls.bss_hostapd[2].reload()
+        cls.bss_hostapd[2].wait_for_event("AP-ENABLED")
 
         # Fill in the neighbor AP tables in both BSSes.  By default each
         # instance knows only about current BSS, even inside one hostapd
