@@ -867,8 +867,8 @@ class IWD(AsyncOpAbstract):
 
         tries = 0
         while not self._bus.name_has_owner(IWD_SERVICE):
-            if ctx.args.gdb == 'None':
-                if tries > 100:
+            if not ctx.args.gdb:
+                if tries > 200:
                     if start_iwd_daemon:
                         ctx.stop_process(self._iwd_proc)
                         self._iwd_proc = None
@@ -913,7 +913,7 @@ class IWD(AsyncOpAbstract):
                                IWD_AGENT_MANAGER_INTERFACE)
         return self._agent_manager_if
 
-    def wait_for_object_condition(self, obj, condition_str, max_wait = 15):
+    def wait_for_object_condition(self, obj, condition_str, max_wait = 50):
         self._wait_timed_out = False
         def wait_timeout_cb():
             self._wait_timed_out = True
@@ -982,7 +982,7 @@ class IWD(AsyncOpAbstract):
     def remove_from_storage(file_name):
         os.system('rm -rf ' + IWD_STORAGE_DIR + '/\'' + file_name + '\'')
 
-    def list_devices(self, wait_to_appear = 0, max_wait = 15):
+    def list_devices(self, wait_to_appear = 0, max_wait = 50):
         if not wait_to_appear:
             return list(self._devices.values())
 

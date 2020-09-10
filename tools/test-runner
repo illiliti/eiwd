@@ -43,7 +43,7 @@ config = None
 intf_id = 0
 rad_id = 0
 
-TEST_MAX_TIMEOUT = 45
+TEST_MAX_TIMEOUT = 120
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 

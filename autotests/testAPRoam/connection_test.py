@@ -60,10 +60,10 @@ class Test(unittest.TestCase):
                  (bss_radio[2].addresses[0], '8f0000005103060603000000')])
 
         condition = 'obj.state == DeviceState.roaming'
-        wd.wait_for_object_condition(device, condition, 15)
+        wd.wait_for_object_condition(device, condition)
 
         condition = 'obj.state != DeviceState.roaming'
-        wd.wait_for_object_condition(device, condition, 5)
+        wd.wait_for_object_condition(device, condition)
 
         self.assertEqual(device.state, iwd.DeviceState.connected)
         self.assertTrue(bss_hostapd[1].list_sta())

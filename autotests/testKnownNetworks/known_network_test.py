@@ -56,7 +56,7 @@ class Test(unittest.TestCase):
 
         IWD.copy_to_storage('known_networks/ssidPSK.psk')
         condition = 'len(obj.list_known_networks()) == 5'
-        wd.wait_for_object_condition(wd, condition, 1)
+        wd.wait_for_object_condition(wd, condition)
 
         expected = ['ssidNew', 'ssidOpen', 'ssidPSK', 'ssidEAP-TLS',
                     'Hotspot Network']
@@ -65,7 +65,7 @@ class Test(unittest.TestCase):
 
         IWD.remove_from_storage('ssidPSK.psk')
         condition = 'len(obj.list_known_networks()) == 4'
-        wd.wait_for_object_condition(wd, condition, 1)
+        wd.wait_for_object_condition(wd, condition)
 
         for net in known_networks:
             net.forget()

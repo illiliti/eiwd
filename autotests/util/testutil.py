@@ -82,7 +82,7 @@ def test_connected(if0=None, if1=None, group=True):
             rec.append(False)
 
         while not all(rec):
-            r, w, x = select.select([sock0, sock1], [], [], 1.0)
+            r, w, x = select.select([sock0, sock1], [], [], 10)
             if not r:
                 raise Exception('timeout waiting for packets: ' + repr(rec))
 

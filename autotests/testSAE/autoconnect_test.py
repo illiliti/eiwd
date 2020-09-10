@@ -24,7 +24,7 @@ class Test(unittest.TestCase):
         devices[3].disconnect()
 
         condition = 'obj.state == DeviceState.connected'
-        wd.wait_for_object_condition(device, condition, 30)
+        wd.wait_for_object_condition(device, condition)
 
         condition = 'obj.connected_network is not None'
         wd.wait_for_object_condition(device, condition)

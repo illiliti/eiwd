@@ -86,12 +86,12 @@ class Test(unittest.TestCase):
         rule0.signal = -8000
 
         condition = 'obj.state == DeviceState.roaming'
-        wd.wait_for_object_condition(device, condition, 10)
+        wd.wait_for_object_condition(device, condition)
 
         # Check that iwd is on BSS 1 once out of roaming state and doesn't
         # go through 'disconnected', 'autoconnect', 'connecting' in between
         condition = 'obj.state != DeviceState.roaming'
-        wd.wait_for_object_condition(device, condition, 5)
+        wd.wait_for_object_condition(device, condition)
 
         rule1.signal = -2000
 
@@ -112,10 +112,10 @@ class Test(unittest.TestCase):
         rule2.signal = -1000
 
         condition = 'obj.state == DeviceState.roaming'
-        wd.wait_for_object_condition(device, condition, 15)
+        wd.wait_for_object_condition(device, condition)
 
         condition = 'obj.state != DeviceState.roaming'
-        wd.wait_for_object_condition(device, condition, 5)
+        wd.wait_for_object_condition(device, condition)
 
         self.assertEqual(device.state, iwd.DeviceState.connected)
         self.assertTrue(self.bss_hostapd[2].list_sta())

@@ -20,12 +20,12 @@ class TestConnectAutoConnect(unittest.TestCase):
             device.connect_hidden_network(ssid)
 
         condition = 'obj.state == DeviceState.connected'
-        wd.wait_for_object_condition(device, condition, 30)
+        wd.wait_for_object_condition(device, condition)
 
     def check_autoconnect_hidden_network(self, wd, device, ssid, throws):
         if throws is None:
             condition = 'obj.state == DeviceState.connected'
-            wd.wait_for_object_condition(device, condition, 30)
+            wd.wait_for_object_condition(device, condition)
 
             condition = 'obj.connected_network is not None'
             wd.wait_for_object_condition(device, condition)
@@ -37,7 +37,7 @@ class TestConnectAutoConnect(unittest.TestCase):
             device.disconnect()
 
         condition = 'obj.state == DeviceState.disconnected'
-        wd.wait_for_object_condition(device, condition, 30)
+        wd.wait_for_object_condition(device, condition)
 
     def validate_connection(self, wd, ssid, autoconnect, throws, use_agent,
                                                             wait_periodic_scan):

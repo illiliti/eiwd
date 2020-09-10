@@ -36,9 +36,9 @@ class Test(unittest.TestCase):
         device = devices[0]
 
         condition = 'obj.scanning'
-        wd.wait_for_object_condition(device, condition, 20)
+        wd.wait_for_object_condition(device, condition)
         condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition, 20)
+        wd.wait_for_object_condition(device, condition)
 
         device.scan()
 

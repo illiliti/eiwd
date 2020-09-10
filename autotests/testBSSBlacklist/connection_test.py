@@ -99,10 +99,10 @@ class Test(unittest.TestCase):
         # Now we wait... AutoConnect should take over
 
         condition = 'obj.state == DeviceState.connecting'
-        wd.wait_for_object_condition(device, condition, 15)
+        wd.wait_for_object_condition(device, condition)
 
         condition = 'obj.state == DeviceState.connected'
-        wd.wait_for_object_condition(device, condition, 15)
+        wd.wait_for_object_condition(device, condition)
 
         # Same as before, make sure we didn't connect to the blacklisted AP.
         self.assertNotIn(device.address, bss_hostapd[0].list_sta())
