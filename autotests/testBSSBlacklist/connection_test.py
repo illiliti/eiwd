@@ -10,7 +10,6 @@ from iwd import PSKAgent
 from iwd import NetworkType
 
 from hostapd import HostapdCLI
-
 from hwsim import Hwsim
 
 import time
@@ -42,7 +41,7 @@ class Test(unittest.TestCase):
         rule2.bidirectional = True
         rule2.signal = -4000
 
-        wd = IWD(True, '/tmp')
+        wd = IWD(True)
 
         psk_agent = PSKAgent("secret123")
         wd.register_psk_agent(psk_agent)
@@ -66,6 +65,8 @@ class Test(unittest.TestCase):
 
         condition = 'not obj.connected'
         wd.wait_for_object_condition(ordered_network.network_object, condition)
+
+        rule0.drop = True
 
         ordered_network.network_object.connect(wait=False)
 
@@ -139,6 +140,10 @@ class Test(unittest.TestCase):
         self.assertIn(device.address, bss_hostapd[0].list_sta())
 
         wd.unregister_psk_agent(psk_agent)
+
+        rule0.remove()
+        rule1.remove()
+        rule2.remove()
 
     @classmethod
     def setUpClass(cls):

@@ -39,7 +39,7 @@ class Test(unittest.TestCase):
         rule2.bidirectional = True
         rule2.signal = -2000
 
-        wd = IWD(True, '/tmp')
+        wd = IWD(True)
 
         psk_agent = PSKAgent("secret123")
         wd.register_psk_agent(psk_agent)
@@ -63,6 +63,9 @@ class Test(unittest.TestCase):
 
         ordered_network.network_object.connect()
 
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(dev1, condition)
+
         self.assertIn(dev1.address, bss_hostapd[2].list_sta())
 
         # dev1 now connected, this should max out the first AP, causing the next
@@ -84,6 +87,9 @@ class Test(unittest.TestCase):
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
         ordered_network.network_object.connect()
+
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(dev2, condition)
 
         # We should have temporarily blacklisted the first BSS, and connected
         # to this one.
@@ -111,9 +117,16 @@ class Test(unittest.TestCase):
 
         ordered_network.network_object.connect()
 
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(dev2, condition)
+
         self.assertIn(dev2.address, bss_hostapd[2].list_sta())
 
         wd.unregister_psk_agent(psk_agent)
+
+        rule0.remove()
+        rule1.remove()
+        rule2.remove()
 
     @classmethod
     def setUpClass(cls):

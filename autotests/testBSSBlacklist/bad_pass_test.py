@@ -39,7 +39,7 @@ class Test(unittest.TestCase):
         rule2.bidirectional = True
         rule2.signal = -4000
 
-        wd = IWD(True, '/tmp')
+        wd = IWD(True)
 
         psk_agent = PSKAgent("wrong_password")
         wd.register_psk_agent(psk_agent)
@@ -79,6 +79,12 @@ class Test(unittest.TestCase):
 
         condition = 'obj.connected'
         wd.wait_for_object_condition(ordered_network.network_object, condition)
+
+        wd.unregister_psk_agent(psk_agent)
+
+        rule0.remove()
+        rule1.remove()
+        rule2.remove()
 
     @classmethod
     def setUpClass(cls):

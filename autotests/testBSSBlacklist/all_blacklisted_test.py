@@ -37,7 +37,7 @@ class Test(unittest.TestCase):
         rule2 = hwsim.rules.create()
         rule2.source = bss_radio[2].addresses[0]
         rule2.bidirectional = True
-        rule2.signal = -10000
+        rule2.signal = -9000
 
         wd = IWD(True)
 
@@ -72,16 +72,21 @@ class Test(unittest.TestCase):
 
         rule0.drop = False
         rule1.drop = False
+        rule2.drop = False
 
         # This connect should work
         ordered_network.network_object.connect()
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         self.assertIn(device.address, bss_hostapd[0].list_sta())
 
         wd.unregister_psk_agent(psk_agent)
+
+        rule0.remove()
+        rule1.remove()
+        rule2.remove()
 
     @classmethod
     def setUpClass(cls):
