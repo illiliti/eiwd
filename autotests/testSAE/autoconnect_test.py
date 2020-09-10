@@ -23,20 +23,15 @@ class Test(unittest.TestCase):
         devices[2].disconnect()
         devices[3].disconnect()
 
-        condition = 'obj.scanning'
-        wd.wait_for_object_condition(device, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition, 30)
 
-        condition = 'not obj.scanning'
+        condition = 'obj.connected_network is not None'
         wd.wait_for_object_condition(device, condition)
 
         ordered_network = device.get_ordered_network('ssidSAE')
 
-        self.assertEqual(ordered_network.type, NetworkType.psk)
-
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
-
-        device.wait_for_connected()
+        self.assertTrue(ordered_network.network_object.connected)
 
         device.disconnect()
 
