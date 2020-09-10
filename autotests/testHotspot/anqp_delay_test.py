@@ -23,10 +23,8 @@ class Test(unittest.TestCase):
         rule0 = hwsim.rules.create()
         rule0.source = bss_radio.addresses[0]
         rule0.bidirectional = True
-        # Force the case where ANQP does not finish before Connect() comes in
-        rule0.delay = 100
 
-        wd = IWD(True, '/tmp')
+        wd = IWD(True)
 
         hapd = HostapdCLI(config='ssidHotspot.conf')
 
@@ -53,12 +51,15 @@ class Test(unittest.TestCase):
         condition = 'not obj.connected'
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
+        # Force the case where ANQP does not finish before Connect() comes in
+        rule0.delay = 100
+
         ordered_network.network_object.connect()
 
         rule0.delay = 1
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected(device.name, hapd.ifname)
