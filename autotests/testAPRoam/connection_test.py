@@ -24,6 +24,22 @@ class Test(unittest.TestCase):
                        hwsim.get_radio('rad1'),
                        hwsim.get_radio('rad2') ]
 
+        rule0 = hwsim.rules.create()
+        rule0.source = bss_radio[0].addresses[0]
+        rule0.bidirectional = True
+
+        rule1 = hwsim.rules.create()
+        rule1.source = bss_radio[1].addresses[0]
+        rule1.bidirectional = True
+
+        rule2 = hwsim.rules.create()
+        rule2.source = bss_radio[2].addresses[0]
+        rule2.bidirectional = True
+
+        rule0.signal = -2000
+        rule1.signal = -2500
+        rule2.signal = -3000
+
         wd = IWD()
 
         psk_agent = PSKAgent("secret123")
@@ -49,8 +65,10 @@ class Test(unittest.TestCase):
 
         ordered_network.network_object.connect()
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
+
+        bss_hostapd[0].wait_for_event('AP-STA-CONNECTED')
 
         self.assertTrue(bss_hostapd[0].list_sta())
         self.assertFalse(bss_hostapd[1].list_sta())
@@ -65,6 +83,9 @@ class Test(unittest.TestCase):
         condition = 'obj.state != DeviceState.roaming'
         wd.wait_for_object_condition(device, condition)
 
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
+
         self.assertEqual(device.state, iwd.DeviceState.connected)
         self.assertTrue(bss_hostapd[1].list_sta())
         device.disconnect()
@@ -73,6 +94,10 @@ class Test(unittest.TestCase):
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
         wd.unregister_psk_agent(psk_agent)
+
+        rule0.remove()
+        rule1.remove()
+        rule2.remove()
 
     @classmethod
     def setUpClass(cls):
