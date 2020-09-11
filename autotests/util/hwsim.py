@@ -240,6 +240,9 @@ class RadioList(collections.Mapping):
     def __delitem__(self, key):
         self._dict.pop(key).remove()
 
+    def values(self):
+        return self._dict.values()
+
     def _interfaces_added_handler(self, path, interfaces):
         self._dict[path] = Radio(interfaces[HWSIM_RADIO_INTERFACE])
 
@@ -270,6 +273,10 @@ class Hwsim(iwd.AsyncOpAbstract):
 
         self._rules = RuleSet(self, objects)
         self._radios = RadioList(self, objects)
+
+    def __del__(self):
+        for rule in self._rules.values():
+            rule.remove()
 
     @property
     def rules(self):
