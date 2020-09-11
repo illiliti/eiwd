@@ -381,10 +381,10 @@ static size_t ap_build_beacon_pr_head(struct ap_state *ap,
 				flag = 0x80;
 
 			*rates++ = r | flag;
+			count++;
 		}
 
-	ie_tlv_builder_set_length(&builder, rates -
-					ie_tlv_builder_get_data(&builder));
+	ie_tlv_builder_set_length(&builder, count);
 
 	/* DSSS Parameter Set IE for DSSS, HR, ERP and HT PHY rates */
 	ie_tlv_builder_next(&builder, IE_TYPE_DSSS_PARAMETER_SET);
