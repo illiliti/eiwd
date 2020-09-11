@@ -603,3 +603,5 @@ uint8_t *p2p_build_presence_req(const struct p2p_presence_req *data,
 uint8_t *p2p_build_presence_resp(const struct p2p_presence_resp *data,
 					size_t *out_len);
 uint8_t *p2p_build_go_disc_req(size_t *out_len);
+
+void p2p_get_random_string(char *buf, size_t len);

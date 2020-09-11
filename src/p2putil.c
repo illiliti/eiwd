@@ -2611,3 +2611,36 @@ uint8_t *p2p_build_go_disc_req(size_t *out_len)
 	return p2p_build_action_frame(false, P2P_ACTION_GO_DISCOVERABILITY_REQ,
 					0, NULL, NULL, NULL, 0, out_len);
 }
+
+/*
+ * Select a string of random characters from the set defined in section
+ * 3.2.1:
+ *
+ * "Following "DIRECT-" the SSID shall contain two ASCII characters "xy",
+ * randomly selected with a uniform distribution from the following
+ * character set: upper case letters, lower case letters and numbers."
+ *
+ * "The WPA2-Personal pass-phrase shall contain at least eight ASCII
+ * characters randomly selected with a uniform distribution from the
+ * following character set: upper case letters, lower case letters and
+ * numbers."
+ *
+ * Our random distribution is not uniform but close enough for use in
+ * the SSID.
+ */
+void p2p_get_random_string(char *buf, size_t len)
+{
+#define CHARSET "ABCDEFGHIJKLMNOPQRSTUVWXYZ" "abcdefghijklmnopqrstuvwxyz" \
+		"0123456789"
+	static const int set_size = strlen(CHARSET);
+
+	l_getrandom(buf, len);
+
+	while (len) {
+		int index = *buf % set_size;
+
+		*buf++ = CHARSET[index];
+		len--;
+	}
+#undef CHARSET
+}
