@@ -152,7 +152,7 @@ class HostapdCLI:
         return [line for line in lines.split('\n') if line]
 
     def set_neighbor(self, addr, ssid, nr):
-        cmd = self.cmdline + ['set_neighbor', addr, 'ssid=\\""%s"\\"' % ssid, 'nr=%s' % nr]
+        cmd = self.cmdline + ['set_neighbor', addr, 'ssid="%s"' % ssid, 'nr=%s' % nr]
         ctx.start_process(cmd, wait=True)
 
     def send_bss_transition(self, device, nr_list):
