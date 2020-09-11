@@ -58,6 +58,9 @@ def exit_vm():
 		for p in config.ctx.processes:
 			print("Process %s still running!" % p.name)
 
+	if config.ctx and config.ctx.results:
+		print_results(config.ctx.results)
+
 	os.sync()
 
 	RB_AUTOBOOT = 0x01234567
@@ -984,8 +987,6 @@ def run_auto_tests(ctx, args):
 	# Write out kernel log
 	if ctx.args.log:
 		Process(["dmesg"], ctx=ctx, wait=True)
-
-	print_results(ctx.results)
 
 def run_unit_tests(ctx, args):
 	os.chdir(args.testhome + '/unit')
