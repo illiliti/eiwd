@@ -2075,6 +2075,7 @@ struct ap_state *ap_start(struct netdev *netdev, struct ap_config *config,
 	ap->ciphers = wiphy_select_cipher(wiphy, 0xffff);
 	ap->group_cipher = wiphy_select_cipher(wiphy, 0xffff);
 	ap->beacon_interval = 100;
+	ap->rates = l_uintset_new(200);
 
 	/* TODO: Pick from actual supported rates */
 	if (config->no_cck_rates) {
@@ -2087,7 +2088,6 @@ struct ap_state *ap_start(struct netdev *netdev, struct ap_config *config,
 		l_uintset_put(ap->rates, 96); /* 48 Mbps*/
 		l_uintset_put(ap->rates, 108); /* 54 Mbps*/
 	} else {
-		ap->rates = l_uintset_new(200);
 		l_uintset_put(ap->rates, 2); /* 1 Mbps*/
 		l_uintset_put(ap->rates, 11); /* 5.5 Mbps*/
 		l_uintset_put(ap->rates, 22); /* 11 Mbps*/
