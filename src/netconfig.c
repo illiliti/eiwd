@@ -152,7 +152,7 @@ static struct netconfig_ifaddr *netconfig_ipv4_get_ifaddr(
 
 		if (netmask && inet_pton(AF_INET, netmask, &in_addr) > 0)
 			ifaddr->prefix_len = __builtin_popcountl(
-						L_BE32_TO_CPU(in_addr.s_addr));
+								in_addr.s_addr);
 		else
 			ifaddr->prefix_len = 24;
 
@@ -187,7 +187,7 @@ static struct netconfig_ifaddr *netconfig_ipv4_get_ifaddr(
 
 		if (netmask && inet_pton(AF_INET, netmask, &in_addr) > 0)
 			ifaddr->prefix_len = __builtin_popcountl(
-						L_BE32_TO_CPU(in_addr.s_addr));
+								in_addr.s_addr);
 		else
 			ifaddr->prefix_len = 24;
 
