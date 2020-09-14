@@ -2423,6 +2423,8 @@ int __station_connect_network(struct station *station, struct network *network,
 		return r;
 	}
 
+	l_debug("connecting to BSS "MAC, MAC_STR(bss->addr));
+
 	station->connected_bss = bss;
 	station->connected_network = network;
 
