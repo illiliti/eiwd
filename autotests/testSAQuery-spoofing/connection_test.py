@@ -46,8 +46,8 @@ class Test(unittest.TestCase):
 
         ordered_network.network_object.connect()
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         # TODO: for some reason hostapd does not respond to SA query if done
         #       too soon after connection.
@@ -60,8 +60,8 @@ class Test(unittest.TestCase):
         sleep(4)
 
         # Since disassociate was spoofed we should still be connected
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         device.disconnect()
 

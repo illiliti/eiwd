@@ -10,7 +10,6 @@ from iwd import PSKAgent
 from iwd import NetworkType
 from hwsim import Hwsim
 import testutil
-from time import sleep
 from hostapd import HostapdCLI
 
 class Test(unittest.TestCase):
@@ -35,10 +34,8 @@ class Test(unittest.TestCase):
 
         ordered_network.network_object.connect()
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
-
-        sleep(1)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected(device.name, hostapd.ifname)

@@ -36,16 +36,16 @@ class Test(unittest.TestCase):
 
         wpa_net.network_object.connect()
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(wpa_net.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         open_net = device.get_ordered_network('ssidOpen')
         self.assertEqual(open_net.type, NetworkType.open)
 
         open_net.network_object.connect()
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(open_net.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)

@@ -77,8 +77,8 @@ class Test(unittest.TestCase):
         # successfully to bss_hostapd[0]
         self.assertIn(device.address, bss_hostapd[0].list_sta())
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         wd.unregister_psk_agent(psk_agent)
 

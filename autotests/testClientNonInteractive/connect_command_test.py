@@ -20,8 +20,8 @@ class Test(unittest.TestCase):
 
         ordered_network = device.get_ordered_network(ssid)
 
-        condition = 'obj.connected'
-        self.wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        self.wd.wait_for_object_condition(device, condition)
 
         device.disconnect()
 

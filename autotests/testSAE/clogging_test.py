@@ -43,9 +43,9 @@ class Test(unittest.TestCase):
         for n in networks:
             n.network_object.connect(wait=False)
 
-        for n in networks:
-            condition = 'obj.connected'
-            wd.wait_for_object_condition(n.network_object, condition)
+        for d in devices:
+            condition = 'obj.state == DeviceState.connected'
+            wd.wait_for_object_condition(d, condition)
 
         for d in devices:
             condition = 'obj.state == DeviceState.connected'

@@ -44,16 +44,16 @@ class Test(unittest.TestCase):
                 auth.stop()
                 raise
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         hostapd.eapol_reauth(device.address)
 
         hostapd.wait_for_event('CTRL-EVENT-EAP-STARTED')
         hostapd.wait_for_event('CTRL-EVENT-EAP-SUCCESS')
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         device.disconnect()
 

@@ -40,8 +40,8 @@ class Test(unittest.TestCase):
 
         ordered_network.network_object.connect()
 
-        condition = 'obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
 
         # Make AP go down ungracefully, when hostapd comes back up it should
         # send an unprotected disassociate frame so the client will re-auth.
