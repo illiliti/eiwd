@@ -28,8 +28,8 @@
 struct handshake_state;
 enum crypto_cipher;
 
-/* 802.11-2016 Table 12-6 in section 12.7.2 */
 enum handshake_kde {
+	/* 802.11-2016 Table 12-6 in section 12.7.2 */
 	HANDSHAKE_KDE_GTK		= 0x000fac01,
 	HANDSHAKE_KDE_MAC_ADDRESS	= 0x000fac03,
 	HANDSHAKE_KDE_PMKID		= 0x000fac04,
@@ -41,6 +41,9 @@ enum handshake_kde {
 	HANDSHAKE_KDE_KEY_ID		= 0x000fac0a,
 	HANDSHAKE_KDE_MULTIBAND_GTK	= 0x000fac0b,
 	HANDSHAKE_KDE_MULTIBAND_KEY_ID	= 0x000fac0c,
+	/* Wi-Fi P2P Technical Specification v1.7 4.2.8 */
+	HANDSHAKE_KDE_IP_ADDRESS_REQ	= 0x506f9a04,
+	HANDSHAKE_KDE_IP_ADDRESS_ALLOC	= 0x506f9a05,
 };
 
 enum handshake_event {
@@ -124,6 +127,10 @@ struct handshake_state {
 	uint8_t proto_version : 2;
 	unsigned int gtk_index;
 	struct erp_cache_entry *erp_cache;
+	bool support_ip_allocation : 1;
+	uint32_t client_ip_addr;
+	uint32_t subnet_mask;
+	uint32_t go_ip_addr;
 	void *user_data;
 
 	void (*free)(struct handshake_state *s);
