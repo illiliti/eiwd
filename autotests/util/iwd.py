@@ -206,6 +206,20 @@ class SignalAgent(dbus.service.Object):
     def handle_new_level(self, path, level):
         pass
 
+class AdHocDevice(IWDDBusAbstract):
+    '''
+        Class represents an AdHoc device object: net.connman.iwd.AdHoc
+    '''
+    _iface_name = IWD_ADHOC_INTERFACE
+
+    @property
+    def started(self):
+        return self._properties['Started']
+
+    @property
+    def connected_peers(self):
+        return self._properties['ConnectedPeers']
+
 
 class Device(IWDDBusAbstract):
     '''
@@ -505,6 +519,8 @@ class Device(IWDDBusAbstract):
             self._adhoc_iface.Start(ssid, psk, reply_handler=self._success,
                                         error_handler=self._failure)
         self._wait_for_async_op()
+
+        return AdHocDevice(self.device_path)
 
     def stop_adhoc(self):
         self._prop_proxy.Set(IWD_DEVICE_INTERFACE, 'Mode', 'station')
