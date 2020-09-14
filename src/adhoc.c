@@ -52,6 +52,7 @@ struct adhoc_state {
 	struct l_queue *sta_states;
 	uint32_t sta_watch_id;
 	uint32_t netdev_watch_id;
+	unsigned int mlme_watch;
 	struct l_dbus_message *pending;
 	uint32_t ciphers;
 	uint32_t group_cipher;
@@ -137,6 +138,7 @@ static void adhoc_reset(struct adhoc_state *adhoc)
 	adhoc->ssid = NULL;
 
 	netdev_station_watch_remove(adhoc->netdev, adhoc->sta_watch_id);
+	adhoc->sta_watch_id = 0;
 
 	l_queue_destroy(adhoc->sta_states, adhoc_sta_free);
 	adhoc->sta_states = NULL;
@@ -145,6 +147,9 @@ static void adhoc_reset(struct adhoc_state *adhoc)
 
 	l_dbus_property_changed(dbus_get_bus(), netdev_get_path(adhoc->netdev),
 						IWD_ADHOC_INTERFACE, "Started");
+
+	if (adhoc->mlme_watch)
+		l_genl_family_unregister(adhoc->nl80211, adhoc->mlme_watch);
 }
 
 static void adhoc_set_rsn_info(struct adhoc_state *adhoc,
@@ -493,11 +498,35 @@ static void adhoc_join_cb(struct netdev *netdev, int result, void *user_data)
 
 	reply = l_dbus_message_new_method_return(adhoc->pending);
 	dbus_pending_reply(&adhoc->pending, reply);
+}
 
-	adhoc->started = true;
+static void adhoc_mlme_notify(struct l_genl_msg *msg, void *user_data)
+{
+	struct adhoc_state *adhoc = user_data;
+	uint32_t ifindex;
 
-	l_dbus_property_changed(dbus_get_bus(), netdev_get_path(adhoc->netdev),
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFINDEX, &ifindex,
+				NL80211_ATTR_UNSPEC) < 0 ||
+			ifindex != netdev_get_ifindex(adhoc->netdev))
+		return;
+
+	switch (l_genl_msg_get_command(msg)) {
+	case NL80211_CMD_JOIN_IBSS:
+		/*
+		 * if watch is set the join_ibss_cb has come back. This event
+		 * will come in for each new STA joining the IBSS so we only
+		 * want to set it once
+		 */
+		if (adhoc->sta_watch_id && !adhoc->started) {
+			adhoc->started = true;
+
+			l_dbus_property_changed(dbus_get_bus(),
+						netdev_get_path(adhoc->netdev),
 						IWD_ADHOC_INTERFACE, "Started");
+		}
+
+		break;
+	}
 }
 
 static struct l_dbus_message *adhoc_dbus_start(struct l_dbus *dbus,
@@ -538,6 +567,11 @@ static struct l_dbus_message *adhoc_dbus_start(struct l_dbus *dbus,
 			adhoc))
 		return dbus_error_invalid_args(message);
 
+	adhoc->mlme_watch = l_genl_family_register(adhoc->nl80211, "mlme",
+						adhoc_mlme_notify, adhoc, NULL);
+	if (!adhoc->mlme_watch)
+		return dbus_error_failed(message);
+
 	return NULL;
 }
 
@@ -572,6 +606,11 @@ static struct l_dbus_message *adhoc_dbus_start_open(struct l_dbus *dbus,
 	if (netdev_join_adhoc(netdev, ssid, &rsn_ie, 1, false, adhoc_join_cb,
 			adhoc))
 		return dbus_error_invalid_args(message);
+
+	adhoc->mlme_watch = l_genl_family_register(adhoc->nl80211, "mlme",
+						adhoc_mlme_notify, adhoc, NULL);
+	if (!adhoc->mlme_watch)
+		return dbus_error_failed(message);
 
 	return NULL;
 }
