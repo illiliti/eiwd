@@ -179,10 +179,15 @@ static void adhoc_handshake_event(struct handshake_state *hs,
 {
 	struct sta_state *sta = user_data;
 	struct adhoc_state *adhoc = sta->adhoc;
+	va_list args;
+
+	va_start(args, user_data);
 
 	switch (event) {
 	case HANDSHAKE_EVENT_FAILED:
-		l_error("handshake failed with STA "MAC, MAC_STR(sta->addr));
+		l_error("handshake failed with STA "MAC" (%d)",
+						MAC_STR(sta->addr),
+						va_arg(args, int));
 
 		/*
 		 * eapol frees the state machines upon handshake failure. Since
