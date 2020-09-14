@@ -187,6 +187,11 @@ class Test(unittest.TestCase):
         os.system('ifconfig "' + self.bss_hostapd[0].ifname + '" up')
         os.system('ifconfig "' + self.bss_hostapd[1].ifname + '" up')
 
+        hwsim = Hwsim()
+
+        for rule in list(hwsim.rules.keys()):
+            del hwsim.rules[rule]
+
     @classmethod
     def setUpClass(cls):
         hwsim = Hwsim()
