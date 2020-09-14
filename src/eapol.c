@@ -1322,6 +1322,21 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 		key_data_len += gtk_kde[1] + 2;
 	}
 
+	if (sm->handshake->support_ip_allocation) {
+		/* Wi-Fi P2P Technical Specification v1.7 Table 59 */
+		key_data_buf[key_data_len++] = IE_TYPE_VENDOR_SPECIFIC;
+		key_data_buf[key_data_len++] = 4 + 12;
+		l_put_be32(HANDSHAKE_KDE_IP_ADDRESS_ALLOC,
+				key_data_buf + key_data_len + 0);
+		l_put_be32(sm->handshake->client_ip_addr,
+				key_data_buf + key_data_len + 4);
+		l_put_be32(sm->handshake->subnet_mask,
+				key_data_buf + key_data_len + 8);
+		l_put_be32(sm->handshake->go_ip_addr,
+				key_data_buf + key_data_len + 12);
+		key_data_len += 4 + 12;
+	}
+
 	kek = handshake_state_get_kek(sm->handshake);
 	key_data_len = eapol_encrypt_key_data(kek, key_data_buf,
 						key_data_len, ek, sm->mic_len);
@@ -1450,9 +1465,24 @@ static void eapol_handle_ptk_2_of_4(struct eapol_sm *sm,
 	if (!rsne || rsne[1] != sm->handshake->supplicant_ie[1] ||
 			memcmp(rsne + 2, sm->handshake->supplicant_ie + 2,
 				rsne[1])) {
-
 		handshake_failed(sm, MMPDU_REASON_CODE_IE_DIFFERENT);
 		return;
+	}
+
+	if (sm->handshake->support_ip_allocation) {
+		const uint8_t *ip_req_kde =
+			eapol_find_wfa_kde(EAPOL_KEY_DATA(ek, sm->mic_len),
+					EAPOL_KEY_DATA_LEN(ek, sm->mic_len),
+					HANDSHAKE_KDE_IP_ADDRESS_REQ & 255);
+
+		if (ip_req_kde &&
+				(ip_req_kde[1] < 5 || ip_req_kde[6] != 0x01)) {
+			l_debug("Invalid IP Address Request KDE in frame 2/4");
+			handshake_failed(sm, MMPDU_REASON_CODE_INVALID_IE);
+			return;
+		}
+
+		sm->handshake->support_ip_allocation = ip_req_kde != NULL;
 	}
 
 	memcpy(sm->handshake->snonce, ek->key_nonce,
