@@ -525,61 +525,6 @@ class Device(IWDDBusAbstract):
     def stop_adhoc(self):
         self._prop_proxy.Set(IWD_DEVICE_INTERFACE, 'Mode', 'station')
 
-    def adhoc_wait_for_disconnected(self, addr):
-        self._adhoc_prop_found = False
-        self._adhoc_timed_out = False
-
-        def wait_timeout_cb():
-            self._adhoc_timed_out = True
-            return False
-
-        def adhoc_props_changed(iface, changed, invalid):
-            if changed.get('ConnectedPeers', None):
-                if addr not in changed['ConnectedPeers']:
-                    self._adhoc_prop_found = True
-
-        self._prop_proxy.connect_to_signal('PropertiesChanged',
-                                            adhoc_props_changed)
-        props = self._prop_proxy.GetAll(IWD_ADHOC_INTERFACE)
-        if props.get('ConnectedPeers', None):
-            if addr not in props['ConnectedPeers']:
-                return
-
-        GLib.timeout_add(int(50 * 1000), wait_timeout_cb)
-        context = ctx.mainloop.get_context()
-        while not self._adhoc_prop_found:
-            context.iteration(may_block=True)
-            if self._adhoc_timed_out:
-                raise TimeoutError("Timed out waiting for peer %s" % addr)
-
-    def adhoc_wait_for_connected(self, addr):
-        self._adhoc_prop_found = False
-        self._adhoc_timed_out = False
-
-        def wait_timeout_cb():
-            self._adhoc_timed_out = True
-            return False
-
-        def adhoc_props_changed(iface, changed, invalid):
-            if changed.get('ConnectedPeers', None):
-                if addr in changed['ConnectedPeers']:
-                    self._adhoc_prop_found = True
-
-        self._prop_proxy.connect_to_signal('PropertiesChanged',
-                                            adhoc_props_changed)
-
-        props = self._prop_proxy.GetAll(IWD_ADHOC_INTERFACE)
-        if props.get('ConnectedPeers', None):
-            if addr in props['ConnectedPeers']:
-                return
-
-        GLib.timeout_add(int(50 * 1000), wait_timeout_cb)
-        context = ctx.mainloop.get_context()
-        while not self._adhoc_prop_found:
-            context.iteration(may_block=True)
-            if self._adhoc_timed_out:
-                raise TimeoutError("Timed out waiting for peer %s" % addr)
-
     def __str__(self, prefix = ''):
         return prefix + 'Device: ' + self.device_path + '\n'\
                + prefix + '\tName:\t\t' + self.name + '\n'\
