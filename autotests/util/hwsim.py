@@ -274,10 +274,6 @@ class Hwsim(iwd.AsyncOpAbstract):
         self._rules = RuleSet(self, objects)
         self._radios = RadioList(self, objects)
 
-    def __del__(self):
-        for rule in self._rules.values():
-            rule.remove()
-
     @property
     def rules(self):
         return self._rules
