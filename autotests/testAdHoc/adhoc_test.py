@@ -17,11 +17,21 @@ class Test(unittest.TestCase):
         self.assertIsNotNone(dev1)
         self.assertIsNotNone(dev2)
 
-        dev1.start_adhoc("AdHocNetwork", "secret123")
-        dev2.start_adhoc("AdHocNetwork", "secret123")
+        adhoc1 = dev1.start_adhoc("AdHocNetwork", "secret123")
 
-        dev1.adhoc_wait_for_connected(dev2.address)
-        dev2.adhoc_wait_for_connected(dev1.address)
+        condition = 'obj.started == True'
+        wd.wait_for_object_condition(adhoc1, condition)
+
+        adhoc2 = dev2.start_adhoc("AdHocNetwork", "secret123")
+
+        condition = 'obj.started == True'
+        wd.wait_for_object_condition(adhoc1, condition)
+
+        condition = '"%s" in obj.connected_peers' % dev2.address
+        wd.wait_for_object_condition(adhoc1, condition)
+
+        condition = '"%s" in obj.connected_peers' % dev1.address
+        wd.wait_for_object_condition(adhoc2, condition)
 
         testutil.test_iface_operstate(dev1.name)
         testutil.test_iface_operstate(dev2.name)
