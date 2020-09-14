@@ -302,6 +302,7 @@ static void adhoc_start_rsna(struct sta_state *sta, const uint8_t *gtk_rsc)
 	eapol_register(sta->sm_a);
 
 	eapol_start(sta->sm);
+	eapol_start(sta->sm_a);
 
 	return;
 
