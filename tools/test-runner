@@ -465,10 +465,10 @@ class TestContext:
 		self.results = {}
 		self.mainloop = GLib.MainLoop()
 
-	def start_process(self, args, wait=False, multi_test=False, env=None, check=False):
-		p = Process(args, wait, multi_test, env, ctx=self, check=check)
+	def start_process(self, args, **kwargs):
+		p = Process(args, ctx=self, **kwargs)
 
-		if not wait:
+		if not kwargs.get('wait', False):
 			self.processes.append(p)
 
 		return p
