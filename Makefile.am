@@ -128,6 +128,7 @@ ell_sources = ell/private.h \
 			ell/ecc.c \
 			ell/ecdh.c \
 			ell/time.c \
+			ell/time-private.h \
 			ell/path.c
 
 ell_libell_internal_la_SOURCES = $(ell_headers) $(ell_sources)
