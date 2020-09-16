@@ -607,7 +607,6 @@ class TestContext:
 			return
 		elif sim_keys != 'ofono':
 			os.environ['IWD_SIM_KEYS'] = sim_keys
-			self.iwd_extra_options = '--plugin=sim_hardcoded'
 			return
 
 		if not find_binary(['ofonod']) or not find_binary(['phonesim']):
@@ -615,8 +614,6 @@ class TestContext:
 			return
 
 		Process(['ifconfig', 'lo', 'up'], wait=True)
-
-		self.iwd_extra_options = '--plugin=ofono'
 
 		os.environ['OFONO_PHONESIM_CONFIG'] = '/tmp/phonesim.conf'
 
