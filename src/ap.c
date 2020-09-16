@@ -2386,7 +2386,7 @@ static struct l_dbus_message *ap_dbus_start(struct l_dbus *dbus,
 		struct l_dbus_message *message, void *user_data)
 {
 	struct ap_if_data *ap_if = user_data;
-	const char *ssid, *wpa2_psk;
+	const char *ssid, *wpa2_passphrase;
 	struct ap_config *config;
 
 	if (ap_if->ap && ap_if->ap->started)
@@ -2395,12 +2395,14 @@ static struct l_dbus_message *ap_dbus_start(struct l_dbus *dbus,
 	if (ap_if->ap || ap_if->pending)
 		return dbus_error_busy(message);
 
-	if (!l_dbus_message_get_arguments(message, "ss", &ssid, &wpa2_psk))
+	if (!l_dbus_message_get_arguments(message, "ss",
+						&ssid, &wpa2_passphrase))
 		return dbus_error_invalid_args(message);
 
 	config = l_new(struct ap_config, 1);
 	config->ssid = l_strdup(ssid);
-	l_strlcpy(config->passphrase, wpa2_psk, sizeof(config->passphrase));
+	l_strlcpy(config->passphrase, wpa2_passphrase,
+			sizeof(config->passphrase));
 
 	ap_if->ap = ap_start(ap_if->netdev, config, &ap_dbus_ops, ap_if);
 	if (!ap_if->ap) {
@@ -2466,7 +2468,7 @@ static bool ap_dbus_property_get_started(struct l_dbus *dbus,
 static void ap_setup_interface(struct l_dbus_interface *interface)
 {
 	l_dbus_interface_method(interface, "Start", 0, ap_dbus_start, "",
-			"ss", "ssid", "wpa2_psk");
+			"ss", "ssid", "wpa2_passphrase");
 	l_dbus_interface_method(interface, "Stop", 0, ap_dbus_stop, "", "");
 
 	l_dbus_interface_property(interface, "Started", 0, "b",
