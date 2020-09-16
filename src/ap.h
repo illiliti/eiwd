@@ -56,7 +56,8 @@ typedef void (*ap_stopped_func_t)(void *user_data);
 
 struct ap_config {
 	char *ssid;
-	char *psk;
+	char passphrase[64];
+	uint8_t psk[32];
 	uint8_t channel;
 	uint8_t *authorized_macs;
 	unsigned int authorized_macs_num;
