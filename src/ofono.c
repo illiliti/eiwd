@@ -30,11 +30,12 @@
 #include <errno.h>
 
 #include <ell/ell.h>
-#include <ell/plugin.h>
 #include <ell/dbus.h>
 
 #include "src/dbus.h"
 #include "src/simauth.h"
+#include "src/module.h"
+#include "src/iwd.h"
 
 /*
  * This plugin takes care of all the communication with ofono in order to
@@ -783,5 +784,5 @@ static void ofono_exit(void)
 	l_dbus_remove_watch(dbus, ofono_watch);
 }
 
-L_PLUGIN_DEFINE(__iwd_builtin_ofono, ofono, "oFono plugin", "1.0",
-		L_PLUGIN_PRIORITY_DEFAULT, ofono_init, ofono_exit)
+IWD_MODULE(ofono, ofono_init, ofono_exit);
+IWD_MODULE_DEPENDS(ofono, simauth);
