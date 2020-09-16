@@ -149,6 +149,8 @@ busconfig.dtd\">
 <allow receive_type=\"signal\"/>
 <allow receive_type=\"method_return\"/>
 <allow receive_type=\"error\"/>
+<allow send_destination=\"*\" eavesdrop=\"true\"/>
+<allow eavesdrop=\"true\"/>
 </policy>
 </busconfig>
 '''
