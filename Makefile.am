@@ -34,7 +34,6 @@ ell_headers = ell/util.h \
 			ell/io.h \
 			ell/ringbuf.h \
 			ell/log.h \
-			ell/plugin.h \
 			ell/checksum.h \
 			ell/netlink.h \
 			ell/genl.h \
@@ -79,7 +78,6 @@ ell_sources = ell/private.h \
 			ell/io.c \
 			ell/ringbuf.c \
 			ell/log.c \
-			ell/plugin.c \
 			ell/checksum.c \
 			ell/netlink-private.h \
 			ell/netlink.c \
