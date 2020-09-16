@@ -9,6 +9,7 @@ import iwd
 from iwd import IWD
 from iwd import NetworkType
 from hlrauc import AuthCenter
+from ofono import Ofono
 
 class Test(unittest.TestCase):
     def validate_connection(self, wd):
@@ -44,6 +45,11 @@ class Test(unittest.TestCase):
 
     def test_connection_success(self):
         auth = AuthCenter('/tmp/hlrauc.sock', '/tmp/sim.db')
+
+        ofono = Ofono()
+        ofono.enable_modem('/phonesim')
+        ofono.wait_for_sim_auth()
+
         wd = IWD(True)
 
         try:
