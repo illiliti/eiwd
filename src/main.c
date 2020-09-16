@@ -40,7 +40,6 @@
 #include "src/eap.h"
 #include "src/eapol.h"
 #include "src/rfkill.h"
-#include "src/plugin.h"
 #include "src/storage.h"
 #include "src/anqp.h"
 
@@ -54,8 +53,6 @@ static const char *interfaces;
 static const char *nointerfaces;
 static const char *phys;
 static const char *nophys;
-static const char *plugins;
-static const char *noplugins;
 static const char *debugopt;
 static bool terminating;
 static bool nl80211_complete;
@@ -140,8 +137,6 @@ static void usage(void)
 		"\t-I, --nointerfaces     Interfaces to ignore\n"
 		"\t-p, --phys             Phys to manage\n"
 		"\t-P, --nophys           Phys to ignore\n"
-		"\t-l, --plugin           Plugins to include\n"
-		"\t-L, --noplugin         Plugins to exclude\n"
 		"\t-d, --debug            Enable debug output\n"
 		"\t-v, --version          Show version\n"
 		"\t-h, --help             Show help options\n");
@@ -154,8 +149,6 @@ static const struct option main_options[] = {
 	{ "nointerfaces", required_argument, NULL, 'I' },
 	{ "phys",         required_argument, NULL, 'p' },
 	{ "nophys",       required_argument, NULL, 'P' },
-	{ "plugin",       required_argument, NULL, 'l' },
-	{ "noplugin",     required_argument, NULL, 'L' },
 	{ "debug",        optional_argument, NULL, 'd' },
 	{ "help",         no_argument,       NULL, 'h' },
 	{ }
@@ -179,8 +172,6 @@ static void nl80211_appeared(const struct l_genl_family_info *info,
 		l_main_quit();
 		return;
 	}
-
-	plugin_init(plugins, noplugins);
 }
 
 static void request_name_callback(struct l_dbus *dbus, bool success,
@@ -393,12 +384,6 @@ int main(int argc, char *argv[])
 		case 'P':
 			nophys = optarg;
 			break;
-		case 'l':
-			plugins = optarg;
-			break;
-		case 'L':
-			noplugins = optarg;
-			break;
 		case 'd':
 			if (optarg)
 				debugopt = optarg;
@@ -504,7 +489,6 @@ int main(int argc, char *argv[])
 
 	exit_status = l_main_run_with_signal(signal_handler, NULL);
 
-	plugin_exit();
 	iwd_modules_exit();
 	dbus_exit();
 	l_dbus_destroy(dbus);

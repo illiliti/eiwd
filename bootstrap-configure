@@ -13,6 +13,5 @@ fi
 		--enable-hwsim \
 		--enable-tools \
 		--enable-ofono \
-		--enable-sim-hardcoded \
 		--disable-dbus-policy \
 		--disable-systemd-service $*

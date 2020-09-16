@@ -291,11 +291,6 @@ AC_ARG_ENABLE([ofono], AC_HELP_STRING([--enable-ofono],
 					[enable_ofono=${enableval}])
 AM_CONDITIONAL(OFONO, test "${enable_ofono}" = "yes")
 
-AC_ARG_ENABLE([sim_hardcoded], AC_HELP_STRING([--enable-sim-hardcoded],
-				[enable hard coded SIM keys]),
-					[enable_sim_hardcoded=${enableval}])
-AM_CONDITIONAL(SIM_HARDCODED, test "${enable_sim_hardcoded}" = "yes")
-
 AC_CONFIG_FILES(Makefile)
 
 AC_OUTPUT

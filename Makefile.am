@@ -185,7 +185,6 @@ if DAEMON
 libexec_PROGRAMS += src/iwd
 
 src_iwd_SOURCES = src/main.c linux/nl80211.h src/iwd.h src/missing.h \
-					src/plugin.h src/plugin.c \
 					src/netdev.h src/netdev.c \
 					src/wiphy.h src/wiphy.c \
 					src/device.c \
@@ -235,14 +234,9 @@ src_iwd_SOURCES = src/main.c linux/nl80211.h src/iwd.h src/missing.h \
 src_iwd_LDADD = $(ell_ldadd) -ldl
 src_iwd_DEPENDENCIES = $(ell_dependencies)
 
-if SIM_HARDCODED
-builtin_modules += sim_hardcoded
-builtin_sources += plugins/sim_hardcoded.c
-endif
-
 if OFONO
 builtin_modules += ofono
-builtin_sources += plugins/ofono.c
+builtin_sources += src/ofono.c
 endif
 
 if DBUS_POLICY
