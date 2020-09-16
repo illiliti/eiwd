@@ -1718,27 +1718,22 @@ static void eap_wsc_handle_retransmit(struct eap_state *eap,
 static bool load_hexencoded(struct l_settings *settings, const char *key,
 						uint8_t *to, size_t len)
 {
-	const char *v;
-	size_t decoded_len;
-	unsigned char *decoded;
+	uint8_t *v;
+	size_t v_len;
 
-	v = l_settings_get_value(settings, "WSC", key);
+	v = l_settings_get_bytes(settings, "WSC", key, &v_len);
 	if (!v)
 		return false;
 
-	decoded = l_util_from_hexstring(v, &decoded_len);
-	if (!decoded)
-		return false;
-
-	if (decoded_len != len) {
-		explicit_bzero(decoded, decoded_len);
-		l_free(decoded);
+	if (v_len != len) {
+		explicit_bzero(v, v_len);
+		l_free(v);
 		return false;
 	}
 
-	memcpy(to, decoded, len);
-	explicit_bzero(decoded, decoded_len);
-	l_free(decoded);
+	memcpy(to, v, len);
+	explicit_bzero(v, v_len);
+	l_free(v);
 
 	return true;
 }

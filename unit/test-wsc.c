@@ -2005,7 +2005,6 @@ static void wsc_test_pbc_handshake(const void *data)
 	struct verify_data verify;
 	struct handshake_state *hs;
 	struct eapol_sm *sm;
-	char *hex;
 	struct l_settings *settings;
 
 	eap_init();
@@ -2037,16 +2036,11 @@ static void wsc_test_pbc_handshake(const void *data)
 					"0-00000000-0");
 	l_settings_set_string(settings, "WSC", "EnrolleeMAC",
 					util_address_to_string(sta_address));
-
-	hex = l_util_hexstring(m1_data_2.expected.enrollee_nonce, 16);
-	l_settings_set_string(settings, "WSC", "EnrolleeNonce", hex);
-	l_free(hex);
-
-	hex = l_util_hexstring(m1_data_2.private_key,
-						m1_data_2.private_key_size);
-	l_settings_set_string(settings, "WSC", "PrivateKey", hex);
-	l_free(hex);
-
+	l_settings_set_bytes(settings, "WSC", "EnrolleeNonce",
+				m1_data_2.expected.enrollee_nonce, 16);
+	l_settings_set_bytes(settings, "WSC", "PrivateKey",
+				m1_data_2.private_key,
+				m1_data_2.private_key_size);
 	l_settings_set_string(settings, "WSC", "E-SNonce1",
 					"fdbb480ee6f572f3591cc3b364f2185b");
 	l_settings_set_string(settings, "WSC", "E-SNonce2",
@@ -2111,7 +2105,6 @@ static void wsc_test_retransmission_no_fragmentation(const void *data)
 	struct verify_data verify;
 	struct handshake_state *hs;
 	struct eapol_sm *sm;
-	char *hex;
 	struct l_settings *settings;
 
 	eap_init();
@@ -2143,16 +2136,11 @@ static void wsc_test_retransmission_no_fragmentation(const void *data)
 					"0-00000000-0");
 	l_settings_set_string(settings, "WSC", "EnrolleeMAC",
 					util_address_to_string(sta_address));
-
-	hex = l_util_hexstring(m1_data_2.expected.enrollee_nonce, 16);
-	l_settings_set_string(settings, "WSC", "EnrolleeNonce", hex);
-	l_free(hex);
-
-	hex = l_util_hexstring(m1_data_2.private_key,
-						m1_data_2.private_key_size);
-	l_settings_set_string(settings, "WSC", "PrivateKey", hex);
-	l_free(hex);
-
+	l_settings_set_bytes(settings, "WSC", "EnrolleeNonce",
+				m1_data_2.expected.enrollee_nonce, 16);
+	l_settings_set_bytes(settings, "WSC", "PrivateKey",
+				m1_data_2.private_key,
+				m1_data_2.private_key_size);
 	l_settings_set_string(settings, "WSC", "E-SNonce1",
 					"fdbb480ee6f572f3591cc3b364f2185b");
 	l_settings_set_string(settings, "WSC", "E-SNonce2",
@@ -2479,11 +2467,9 @@ static void wsc_r_test_pbc_handshake(const void *data)
 		.expected_creds = *expected_creds,
 	};
 	uint8_t uuid_e[16];
-	L_AUTO_FREE_VAR(char *, uuid_e_str) = NULL;
 	char ssid_str[33];
 
 	wsc_uuid_from_addr(s.sta_address, uuid_e);
-	uuid_e_str = l_util_hexstring(uuid_e, 16);
 
 	memcpy(wsc_data.expected_creds.addr, s.sta_address, 6);
 	memset(wsc_data.expected_creds.ssid + expected_creds->ssid_len, 0,
@@ -2500,7 +2486,7 @@ static void wsc_r_test_pbc_handshake(const void *data)
 					strlen(ap_8021x_str));
 	l_settings_set_string(ap_8021x_settings, "WSC", "EnrolleeMAC",
 				util_address_to_string(s.sta_address));
-	l_settings_set_string(ap_8021x_settings, "WSC", "UUID-E", uuid_e_str);
+	l_settings_set_bytes(ap_8021x_settings, "WSC", "UUID-E", uuid_e, 16);
 
 	if (expected_creds->auth_type == WSC_AUTHENTICATION_TYPE_WPA2_PERSONAL) {
 		l_settings_set_string(ap_8021x_settings, "WSC",

@@ -319,7 +319,8 @@ static struct hs20_config *hs20_config_new(struct l_settings *settings,
 	struct hs20_config *config;
 	char *hessid_str;
 	char **nai_realms = NULL;
-	const char *rc_str;
+	size_t rc_len;
+	uint8_t *rc;
 	char *name;
 	bool autoconnect;
 
@@ -329,7 +330,8 @@ static struct hs20_config *hs20_config_new(struct l_settings *settings,
 	nai_realms = l_settings_get_string_list(settings, "Hotspot",
 						"NAIRealmNames", ',');
 
-	rc_str = l_settings_get_value(settings, "Hotspot", "RoamingConsortium");
+	rc = l_settings_get_bytes(settings, "Hotspot", "RoamingConsortium",
+								&rc_len);
 
 	if (!l_settings_get_bool(settings, "Settings", "AutoConnect",
 								&autoconnect))
@@ -337,7 +339,7 @@ static struct hs20_config *hs20_config_new(struct l_settings *settings,
 
 	name = l_settings_get_string(settings, "Hotspot", "Name");
 
-	if ((!hessid_str && !nai_realms && !rc_str) || !name) {
+	if ((!hessid_str && !nai_realms && !rc) || !name) {
 		l_error("Could not parse hotspot config %s", filename);
 		goto free_values;
 	}
@@ -357,22 +359,21 @@ static struct hs20_config *hs20_config_new(struct l_settings *settings,
 	if (nai_realms)
 		config->nai_realms = nai_realms;
 
-	if (rc_str) {
-		config->rc = l_util_from_hexstring(rc_str,
-							&config->rc_len);
+	if (rc) {
 		/*
 		 * WiFi Alliance Hotspot 2.0 Spec - Section 3.1.4
 		 *
 		 * "The Consortium OI field is 3 or 5-octet field set to a value
 		 * of a roaming consortium OI"
 		 */
-		if (config->rc && config->rc_len != 3 &&
-						config->rc_len != 5) {
-			l_warn("invalid RoamingConsortium length %zu",
-					config->rc_len);
-			l_free(config->rc);
-			config->rc = NULL;
+		if (rc && rc_len != 3 && rc_len != 5) {
+			l_warn("invalid RoamingConsortium length %zu", rc_len);
+			l_free(rc);
+			rc = NULL;
 		}
+
+		config->rc = rc;
+		config->rc_len = rc_len;
 	}
 
 	config->super.is_autoconnectable = autoconnect;
@@ -392,6 +393,7 @@ free_values:
 	l_strv_free(nai_realms);
 	l_free(hessid_str);
 	l_free(name);
+	l_free(rc);
 
 	return NULL;
 }

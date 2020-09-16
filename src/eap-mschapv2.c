@@ -428,13 +428,14 @@ static int eap_mschapv2_check_settings(struct l_settings *settings,
 					const char *prefix,
 					struct l_queue **out_missing)
 {
-	const char *password_hash;
+	L_AUTO_FREE_VAR(uint8_t *, password_hash) = NULL;
 	L_AUTO_FREE_VAR(char *, password) = NULL;
 	L_AUTO_FREE_VAR(char *, identity);
 	const struct eap_secret_info *secret;
 	char setting[64], setting2[64];
 	uint8_t hash[16];
 	int r = 0;
+	size_t hash_len;
 
 	snprintf(setting, sizeof(setting), "%sIdentity", prefix);
 	identity = l_settings_get_string(settings, "Security", setting);
@@ -460,8 +461,8 @@ static int eap_mschapv2_check_settings(struct l_settings *settings,
 	password = l_settings_get_string(settings, "Security", setting2);
 
 	snprintf(setting, sizeof(setting), "%sPassword-Hash", prefix);
-	password_hash = l_settings_get_value(settings, "Security",
-						setting);
+	password_hash = l_settings_get_bytes(settings, "Security",
+						setting, &hash_len);
 
 	if (password && password_hash) {
 		l_error("Exactly one of (%s, %s) must be present",
@@ -471,16 +472,7 @@ static int eap_mschapv2_check_settings(struct l_settings *settings,
 	}
 
 	if (password_hash) {
-		unsigned char *tmp;
-		size_t len;
-
-		tmp = l_util_from_hexstring(password_hash, &len);
-		if (tmp)
-			explicit_bzero(tmp, len);
-
-		l_free(tmp);
-
-		if (!tmp || len != 16) {
+		if (hash_len != 16) {
 			l_error("Property %s is not a 16-byte hexstring",
 				setting);
 			return -EINVAL;
@@ -534,22 +526,15 @@ static bool eap_mschapv2_load_settings(struct eap_state *eap,
 		set_password_from_string(state, password);
 		explicit_bzero(password, strlen(password));
 	} else {
-		unsigned char *tmp;
-		size_t len;
-		const char *hash_str;
+		size_t hash_len;
+		uint8_t *hash;
 
 		snprintf(setting, sizeof(setting), "%sPassword-Hash", prefix);
-		hash_str = l_settings_get_value(settings, "Security", setting);
-		if (!hash_str)
-			goto error;
-
-		tmp = l_util_from_hexstring(hash_str, &len);
-		if (!tmp)
-			goto error;
-
-		memcpy(state->password_hash, tmp, len);
-		explicit_bzero(tmp, len);
-		l_free(tmp);
+		hash = l_settings_get_bytes(settings, "Security", setting,
+						&hash_len);
+		memcpy(state->password_hash, hash, 16);
+		explicit_bzero(hash, 16);
+		l_free(hash);
 	}
 
 	eap_set_data(eap, state);

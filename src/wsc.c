@@ -536,15 +536,10 @@ static void wsc_store_credentials(struct wsc_credentials_info *creds,
 		l_debug("Storing credential for '%s(%s)'", ssid,
 						security_to_str(security));
 
-		if (security == SECURITY_PSK) {
-			char *hex = l_util_hexstring(creds[i].psk,
-						sizeof(creds[i].psk));
-
-			l_settings_set_value(settings, "Security",
-							"PreSharedKey", hex);
-			explicit_bzero(hex, strlen(hex));
-			l_free(hex);
-		}
+		if (security == SECURITY_PSK)
+			l_settings_set_bytes(settings, "Security",
+						"PreSharedKey", creds[i].psk,
+                                                sizeof(creds[i].psk));
 
 		storage_network_sync(security, ssid, settings);
 		l_settings_free(settings);

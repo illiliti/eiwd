@@ -773,21 +773,15 @@ static void ap_start_eap_wsc(struct sta_state *sta)
 	 */
 	bool wait_for_eapol_start = !sta->wsc_v2;
 
-	L_AUTO_FREE_VAR(char *, uuid_r_str) = NULL;
-	L_AUTO_FREE_VAR(char *, uuid_e_str) = NULL;
-
-	uuid_r_str = l_util_hexstring(ap->wsc_uuid_r, 16);
-	uuid_e_str = l_util_hexstring(sta->wsc_uuid_e, 16);
-
 	sta->wsc_settings = l_settings_new();
 	l_settings_set_string(sta->wsc_settings, "Security", "EAP-Method",
 				"WSC-R");
 	l_settings_set_string(sta->wsc_settings, "WSC", "EnrolleeMAC",
 				util_address_to_string(sta->addr));
-	l_settings_set_string(sta->wsc_settings, "WSC", "UUID-R",
-				uuid_r_str);
-	l_settings_set_string(sta->wsc_settings, "WSC", "UUID-E",
-				uuid_e_str);
+	l_settings_set_bytes(sta->wsc_settings, "WSC", "UUID-R",
+				ap->wsc_uuid_r, 16);
+	l_settings_set_bytes(sta->wsc_settings, "WSC", "UUID-E",
+				sta->wsc_uuid_e, 16);
 	l_settings_set_uint(sta->wsc_settings, "WSC", "RFBand",
 				WSC_RF_BAND_2_4_GHZ);
 	l_settings_set_uint(sta->wsc_settings, "WSC", "ConfigurationMethods",
