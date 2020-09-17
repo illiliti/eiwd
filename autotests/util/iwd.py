@@ -120,9 +120,9 @@ class IWDDBusAbstract(AsyncOpAbstract):
 
     _bus = dbus.SystemBus()
 
-    def __init__(self, object_path = None, properties = None):
+    def __init__(self, object_path = None, properties = None, service=IWD_SERVICE):
         self._object_path = object_path
-        proxy = self._bus.get_object(IWD_SERVICE, self._object_path)
+        proxy = self._bus.get_object(service, self._object_path)
         self._iface = dbus.Interface(proxy, self._iface_name)
         self._prop_proxy = dbus.Interface(proxy, DBUS_PROPERTIES)
 
