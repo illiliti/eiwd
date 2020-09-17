@@ -921,12 +921,12 @@ class IWD(AsyncOpAbstract):
         fo.close()
 
     @staticmethod
-    def copy_to_storage(source):
+    def copy_to_storage(source, storage_dir=IWD_STORAGE_DIR):
         import shutil
 
         assert not os.path.isabs(source)
 
-        shutil.copy(source, IWD_STORAGE_DIR)
+        shutil.copy(source, storage_dir)
 
     @staticmethod
     def copy_to_hotspot(source):
