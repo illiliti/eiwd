@@ -8,6 +8,7 @@ import iwd
 from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
+from hostapd import HostapdCLI
 import testutil
 from config import ctx
 
@@ -54,10 +55,11 @@ class Test(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        hapd = HostapdCLI()
         # TODO: This could be moved into test-runner itself if other tests ever
         #       require this functionality (p2p, FILS, etc.). Since its simple
         #       enough it can stay here for now.
-        ctx.start_process(['ifconfig', 'wln0', '192.168.1.1', 'netmask', '255.255.255.0'],
+        ctx.start_process(['ifconfig', hapd.ifname, '192.168.1.1', 'netmask', '255.255.255.0'],
                                 wait=True)
         ctx.start_process(['touch', '/tmp/dhcpd.leases'], wait=True)
         ctx.start_process(['dhcpd', '-cf', '/tmp/dhcpd.conf', '-lf', '/tmp/dhcpd.leases'])
