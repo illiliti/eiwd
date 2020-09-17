@@ -113,6 +113,7 @@ mount_table = [
 	MountInfo('tmpfs', '/dev/shm', 'mode=1777', MS_NOSUID|MS_NODEV|MS_STRICTATIME),
 	MountInfo('tmpfs', '/run', 'mode=0755', MS_NOSUID|MS_NODEV|MS_STRICTATIME),
 	MountInfo('tmpfs', '/var/lib/iwd', 'mode=0755', 0),
+	MountInfo('tmpfs', '/var/lib/ead', 'mode=0755', 0),
 	MountInfo('tmpfs', '/tmp', '', 0),
 	MountInfo('tmpfs', '/usr/share/dbus-1', 'mode=0755', MS_NOSUID|MS_NOEXEC|MS_NODEV|MS_STRICTATIME),
 	MountInfo('debugfs', '/sys/kernel/debug', '', 0)
@@ -377,6 +378,9 @@ class Hostapd:
 
 		print("Initializing hostapd instances")
 
+		ctx.start_process(['ip', 'link', 'set', 'eth0', 'up'], wait=True)
+		ctx.start_process(['ip', 'link', 'set', 'eth1', 'up'], wait=True)
+
 		self.global_ctrl_iface = '/var/run/hostapd/ctrl'
 
 		self.instances = [HostapdInstance(c, r) for c, r in zip(configs, radios)]
@@ -384,7 +388,10 @@ class Hostapd:
 		ifaces = [rad.interface.name for rad in radios]
 		ifaces = ','.join(ifaces)
 
-		args = ['hostapd', '-i', ifaces, '-g', self.global_ctrl_iface]
+		args = ['hostapd', '-g', self.global_ctrl_iface]
+
+		if ifaces:
+			args.extend(['-i', ifaces])
 
 		#
 		# Config files should already be present in /tmp. This appends
@@ -1034,6 +1041,7 @@ def run_tests():
 	os.environ['PATH'] = '%s/src' % args.testhome
 	os.environ['PATH'] += ':%s/tools' % args.testhome
 	os.environ['PATH'] += ':%s/client' % args.testhome
+	os.environ['PATH'] += ':%s/wired' % args.testhome
 	os.environ['PATH'] += ':' + args.path
 
 	sys.path.append(args.testhome + '/autotests/util')
@@ -1219,7 +1227,7 @@ class Main:
 			'-machine', 'type=q35,accel=kvm:tcg',
 			'-nodefaults', '-no-user-config', '-monitor', 'none',
 			'-display', 'none', '-m', '192M', '-nographic', '-vga',
-			'none', '-net', 'none', '-no-acpi', '-no-hpet',
+			'none', '-no-acpi', '-no-hpet',
 			'-no-reboot', '-fsdev',
 			'local,id=fsdev-root,path=/,readonly,security_model=none,multidevs=remap',
 			'-device',
@@ -1237,6 +1245,13 @@ class Main:
 				mac80211_hwsim.radios=0 %s' % (kern_log, options),
 			'-cpu', 'host'
 		]
+
+		# Add two ethernet devices for testing EAD
+		qemu_cmdline.extend([
+				'-net', 'nic,model=virtio',
+				'-net', 'nic,model=virtio',
+				'-net', 'user'
+		])
 
 		if usb_adapters:
 			for bus, addr in [s.split(',') for s in usb_adapters]:
