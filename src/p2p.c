@@ -1810,19 +1810,19 @@ static bool p2p_go_negotiation_confirm_cb(const struct mmpdu_header *mpdu,
 	if (info.dialog_token != dev->conn_go_dialog_token) {
 		l_error("GO Negotiation Response dialog token doesn't match");
 		p2p_connect_failed(dev);
-		return true;
+		goto cleanup;
 	}
 
 	if (info.status != P2P_STATUS_SUCCESS) {
 		l_error("GO Negotiation Confirmation status %i", info.status);
 		p2p_connect_failed(dev);
-		return true;
+		goto cleanup;
 	}
 
 	/* Check whether WFD IE is required, validate it if present */
 	if (!p2p_device_validate_conn_wfd(dev, info.wfd, info.wfd_size)) {
 		p2p_connect_failed(dev);
-		return true;
+		goto cleanup;
 	}
 
 	/*
@@ -1833,7 +1833,7 @@ static bool p2p_go_negotiation_confirm_cb(const struct mmpdu_header *mpdu,
 	if (!p2p_device_validate_channel_list(dev, &info.channel_list,
 						&info.operating_channel)) {
 		p2p_connect_failed(dev);
-		return true;
+		goto cleanup;
 	}
 
 	/*
@@ -1852,7 +1852,7 @@ static bool p2p_go_negotiation_confirm_cb(const struct mmpdu_header *mpdu,
 			l_error("Bad operating channel in GO Negotiation "
 				"Confirmation");
 			p2p_connect_failed(dev);
-			return true;
+			goto cleanup;
 		}
 
 		/*
@@ -1873,7 +1873,7 @@ static bool p2p_go_negotiation_confirm_cb(const struct mmpdu_header *mpdu,
 			l_error("Bad operating channel in GO Negotiation "
 				"Confirmation");
 			p2p_connect_failed(dev);
-			return true;
+			goto cleanup;
 		}
 
 		dev->conn_go_oper_freq = frequency;
@@ -1892,6 +1892,8 @@ static bool p2p_go_negotiation_confirm_cb(const struct mmpdu_header *mpdu,
 						p2p_config_timeout_destroy);
 	}
 
+cleanup:
+	p2p_clear_go_negotiation_confirmation(&info);
 	return true;
 }
 
