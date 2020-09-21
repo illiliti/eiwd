@@ -256,6 +256,7 @@ static void p2p_peer_free(void *user_data)
 	struct p2p_peer *peer = user_data;
 
 	scan_bss_free(peer->bss);
+	l_free(peer->wfd);
 	l_free(peer->name);
 	l_free(peer);
 }
