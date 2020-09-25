@@ -163,7 +163,8 @@ class Process:
 		run over the entire test run and will not be killed after each
 		test exits.
 	'''
-	def __init__(self, args, wait=False, multi_test=False, env=None, ctx=None, check=False):
+	def __init__(self, args, wait=False, multi_test=False, env=None, ctx=None, check=False,
+				outfile=None):
 		self.args = args
 		self.wait = wait
 		self.name = args[0]
@@ -185,6 +186,9 @@ class Process:
 				self.args.extend(args)
 				set_stdout = True
 
+			if outfile:
+				set_stdout = True
+
 			# Anything labeled as multi_test isn't important to
 			# log. These are processes such as dbus-daemon and
 			# haveged.
@@ -200,6 +204,9 @@ class Process:
 
 					self.stdout = open('%s/%s' % (test_dir, args[0]), 'w')
 					self.stderr = open('%s/%s' % (test_dir, args[0]), 'w')
+				elif outfile:
+					self.stdout = open(outfile, 'w')
+					self.stderr = open(outfile, 'w')
 				else:
 					self.stdout = sys.__stdout__
 					self.stderr = sys.__stderr__
@@ -872,6 +879,11 @@ def pre_test(ctx, test):
 	ctx.start_hostapd()
 	ctx.start_ofono()
 
+	if ctx.args.log:
+		ctx.start_process(['iwmon'])
+	elif ctx.args.monitor:
+		ctx.start_process(['iwmon'], outfile=ctx.args.monitor)
+
 	if ctx.hw_config.has_option('SETUP', 'start_iwd'):
 		start = ctx.hw_config.getboolean('SETUP', 'start_iwd')
 	else:
@@ -1028,6 +1040,7 @@ def run_tests():
 	parser.add_argument('--log-gid')
 	parser.add_argument('--log-uid')
 	parser.add_argument('--hw')
+	parser.add_argument('--monitor')
 
 	args = parser.parse_args(options)
 
@@ -1057,6 +1070,9 @@ def run_tests():
 
 	if args.log:
 		mount('logdir', args.log, '9p', 0, 'trans=virtio,version=9p2000.L')
+	elif args.monitor:
+		parent = os.path.abspath(os.path.join(args.monitor, os.pardir))
+		mount('mondir', parent, '9p', 0, 'trans=virtio,version=9p2000.L')
 
 	if config.ctx.args.unit_tests is None:
 		run_auto_tests(config.ctx, args)
@@ -1091,6 +1107,8 @@ class Main:
 				help='Directory for log files')
 		self.parser.add_argument('--hw', '-w', type=str, nargs=1,
 				help='Use physical adapters for tests (passthrough)')
+		self.parser.add_argument('--monitor', '-m', type=str,
+				help='Enables iwmon output to file')
 
 		# Prevent --autotest/--unittest from being used together
 		auto_unit_group = self.parser.add_mutually_exclusive_group()
@@ -1199,6 +1217,10 @@ class Main:
 			options += ' --log-gid %u' % gid
 			options += ' --log-uid %u' % uid
 
+		if self.args.monitor:
+			self.args.monitor = os.path.abspath(self.args.monitor)
+			mon_parent_dir = os.path.abspath(os.path.join(self.args.monitor, os.pardir))
+
 		denylist = [
 			'auto_tests',
 			'qemu',
@@ -1269,6 +1291,13 @@ class Main:
 				'-virtfs',
 				'local,path=%s,mount_tag=logdir,security_model=passthrough,id=logdir' \
 						% self.args.log
+			])
+
+		if self.args.monitor:
+			qemu_cmdline.extend([
+				'-virtfs',
+				'local,path=%s,mount_tag=mondir,security_model=passthrough,id=mondir' \
+						% mon_parent_dir
 			])
 
 		os.execlp(qemu_cmdline[0], *qemu_cmdline)
