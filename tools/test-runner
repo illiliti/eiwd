@@ -573,6 +573,12 @@ class TestContext:
 		env['CONFIGURATION_DIRECTORY'] = config_dir
 		env['STATE_DIRECTORY'] = '/var/lib/iwd'
 
+		if self.is_verbose('iwd-dhcp'):
+			env['IWD_DHCP_DEBUG'] = '1'
+
+		if self.is_verbose('iwd-tls'):
+			env['IWD_TLS_DEBUG'] = '1'
+
 		pid = self.start_process(args, env=env)
 		return pid
 
