@@ -3747,6 +3747,9 @@ static void p2p_device_probe_cb(const struct mmpdu_header *mpdu,
 	 */
 	peer->device_addr = bss->addr;
 
+	if (!dev->peer_list)
+		dev->peer_list = l_queue_new();
+
 	if (!p2p_device_peer_add(dev, peer))
 		p2p_peer_free(peer);
 
