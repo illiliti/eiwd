@@ -115,6 +115,7 @@ struct frame_xchg_data {
 	unsigned int resp_timeout;
 	unsigned int retries_on_ack;
 	struct wiphy_radio_work_item work;
+	bool no_cck_rates;
 };
 
 struct frame_xchg_watch_data {
@@ -951,9 +952,12 @@ static bool frame_xchg_tx_retry(struct wiphy_radio_work_item *item)
 	l_genl_msg_append_attr(msg, NL80211_ATTR_WDEV, 8, &fx->wdev_id);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY_FREQ, 4, &fx->freq);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_OFFCHANNEL_TX_OK, 0, NULL);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_TX_NO_CCK_RATE, 0, NULL);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_FRAME,
 				fx->tx_mpdu_len, fx->tx_mpdu);
+
+	if (fx->no_cck_rates)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_TX_NO_CCK_RATE, 0,
+					NULL);
 
 	if (duration)
 		l_genl_msg_append_attr(msg, NL80211_ATTR_DURATION, 4,
@@ -1102,6 +1106,14 @@ static const struct wiphy_radio_work_item_ops work_ops = {
 	.destroy = frame_xchg_destroy,
 };
 
+static bool frame_xchg_wdev_match(const void *a, const void *b)
+{
+	const struct wdev_info *wdev = a;
+	const uint64_t *id = b;
+
+	return wdev->id == *id;
+}
+
 uint32_t frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 			unsigned int retry_interval, unsigned int resp_timeout,
 			unsigned int retries_on_ack, uint32_t group_id,
@@ -1112,6 +1124,7 @@ uint32_t frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 	size_t frame_len;
 	struct iovec *iov;
 	uint8_t *ptr;
+	struct wdev_info *wdev;
 
 	for (frame_len = 0, iov = frame; iov->iov_base; iov++)
 		frame_len += iov->iov_len;
@@ -1149,6 +1162,12 @@ uint32_t frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 
 	for (iov = frame; iov->iov_base; ptr += iov->iov_len, iov++)
 		memcpy(ptr, iov->iov_base, iov->iov_len);
+
+	wdev = l_queue_find(wdevs, frame_xchg_wdev_match, &wdev_id);
+	fx->no_cck_rates = wdev &&
+		(wdev->iftype == NL80211_IFTYPE_P2P_DEVICE ||
+		 wdev->iftype == NL80211_IFTYPE_P2P_CLIENT ||
+		 wdev->iftype == NL80211_IFTYPE_P2P_GO);
 
 	/*
 	 * Subscribe to the response frames now instead of in the ACK
@@ -1263,14 +1282,6 @@ static void frame_xchg_mlme_notify(struct l_genl_msg *msg, void *user_data)
 
 		break;
 	}
-}
-
-static bool frame_xchg_wdev_match(const void *a, const void *b)
-{
-	const struct wdev_info *wdev = a;
-	const uint64_t *id = b;
-
-	return wdev->id == *id;
 }
 
 static void frame_xchg_config_notify(struct l_genl_msg *msg, void *user_data)
