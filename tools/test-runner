@@ -312,7 +312,7 @@ class VirtualRadio(Radio):
 		self.disable_cipher = None
 		self.disable_iftype = None
 
-		args = ['hwsim', '--create', '--name', self.name, '--nointerface']
+		args = ['hwsim', '--create', '--name', self.name, '--nointerface', '--p2p']
 
 		if config:
 			self.disable_iftype = config.get('iftype_disable', False)
