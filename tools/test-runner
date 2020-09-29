@@ -524,8 +524,9 @@ class TestContext:
 			self.radios.append(VirtualRadio(name, rad_config))
 			self.cur_radio_id += 1
 
-		# register hwsim as medium
-		self.start_process(['hwsim'])
+		if self.hw_config['SETUP'].get('hwsim_medium', 'yes') in ['yes', '1', 'true']:
+			# register hwsim as medium
+			self.start_process(['hwsim'])
 
 	def discover_radios(self):
 		phys = []
