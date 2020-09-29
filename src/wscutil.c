@@ -3031,7 +3031,7 @@ bool wsc_device_type_to_dbus_str(const struct wsc_primary_device_type *val,
 bool wsc_device_type_from_subcategory_str(struct wsc_primary_device_type *out,
 						const char *subcategory_str)
 {
-	struct device_type_category_info *cat = device_type_categories;
+	struct device_type_category_info *cat = device_type_categories + 1;
 	unsigned int i;
 
 	for (i = 1; i < L_ARRAY_SIZE(device_type_categories); i++, cat++) {
