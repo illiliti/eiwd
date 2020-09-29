@@ -114,6 +114,7 @@ ell_sources = ell/private.h \
 			ell/pkcs5.c \
 			ell/file.c \
 			ell/dir.c \
+			ell/net-private.h \
 			ell/net.c \
 			ell/dhcp-private.h \
 			ell/dhcp.c \
