@@ -6487,6 +6487,24 @@ static void genl_ctrl(struct nlmon *nlmon, const void *data, uint32_t len)
 		nlmon->id = id;
 }
 
+static const char *scope_to_string(uint8_t scope)
+{
+	switch (scope) {
+	case RT_SCOPE_UNIVERSE:
+		return "global";
+	case RT_SCOPE_SITE:
+		return "site";
+	case RT_SCOPE_LINK:
+		return "link";
+	case RT_SCOPE_HOST:
+		return "host";
+	case RT_SCOPE_NOWHERE:
+		return "nowhere";
+	default:
+		return "unknown";
+	}
+}
+
 static void print_ifi_addr(unsigned int indent, const char *str,
 						const void *buf, uint16_t size)
 {
@@ -6839,7 +6857,7 @@ static void print_ifaddrmsg(const struct ifaddrmsg *addr)
 	print_field("IFA Family: %u", addr->ifa_family);
 	print_field("IFA Prefixlen: %u", addr->ifa_prefixlen);
 	print_field("IFA Index: %d", addr->ifa_index);
-	print_field("IFA Scope: %u", addr->ifa_scope);
+	print_field("IFA Scope: %s", scope_to_string(addr->ifa_scope));
 	print_field("IFA Flags: %u", addr->ifa_flags);
 }
 
@@ -6859,7 +6877,7 @@ static void print_rtmsg(const struct rtmsg *msg)
 	print_field("RTM TOS Field: %hhu", msg->rtm_tos);
 	print_field("RTM Table: %hhu", msg->rtm_table);
 	print_field("RTM Protocol: %hhu", msg->rtm_protocol);
-	print_field("RTM Scope: %hhu", msg->rtm_scope);
+	print_field("RTM Scope: %s", scope_to_string(msg->rtm_scope));
 	print_field("RTM Type: %hhu", msg->rtm_type);
 	flags_str(rtm_flags, str, sizeof(str), msg->rtm_flags);
 	print_field("RTM Flags: %s", str);
