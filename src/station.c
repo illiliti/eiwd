@@ -2749,6 +2749,15 @@ static struct l_dbus_message *station_dbus_disconnect(struct l_dbus *dbus,
 	 */
 	station_set_autoconnect(station, false);
 
+	if (station->hidden_network_scan_id) {
+		scan_cancel(netdev_get_wdev_id(station->netdev),
+				station->hidden_network_scan_id);
+		dbus_pending_reply(&station->hidden_pending,
+				dbus_error_aborted(station->hidden_pending));
+
+		return l_dbus_message_new_method_return(message);
+	}
+
 	if (!station_is_busy(station))
 		return l_dbus_message_new_method_return(message);
 
