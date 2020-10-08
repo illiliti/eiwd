@@ -1146,6 +1146,9 @@ static struct l_dbus_message *network_connect(struct l_dbus *dbus,
 		 */
 		return l_dbus_message_new_method_return(message);
 
+	if (network->agent_request)
+		return dbus_error_busy(message);
+
 	/*
 	 * Select the best BSS to use at this time.  If we have to query the
 	 * agent this may not be the final choice because BSS visibility can
@@ -1197,6 +1200,11 @@ void network_connect_new_hidden_network(struct network *network,
 	struct l_dbus_message *error;
 
 	l_debug("");
+
+	if (network->agent_request) {
+		error = dbus_error_busy(*message);
+		goto reply_error;
+	}
 
 	/*
 	 * This is not a Known Network.  If connection succeeds, either
