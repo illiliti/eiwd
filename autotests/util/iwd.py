@@ -231,9 +231,12 @@ class Device(IWDDBusAbstract):
         with its properties and methods
     '''
     _iface_name = IWD_DEVICE_INTERFACE
-    _wps_manager_if = None
-    _station_if = None
-    _station_props = None
+
+    def __init__(self, *args, **kwargs):
+        self._wps_manager_if = None
+        self._station_if = None
+        self._station_props = None
+        IWDDBusAbstract.__init__(self, *args, **kwargs)
 
     @property
     def _wps_manager(self):
