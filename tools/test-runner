@@ -246,10 +246,11 @@ class Process:
 				raise Exception("Timed out waiting for socket")
 
 class Interface:
-	def __init__(self, name, config):
+	def __init__(self, name, config, radio):
 		self.name = name
 		self.ctrl_interface = '/var/run/hostapd/' + name
 		self.config = config
+		self.radio = radio
 
 	def __del__(self):
 		Process(['iw', 'dev', self.name, 'del'], True)
@@ -268,17 +269,15 @@ class Radio:
 		print("Removing radio %s" % self.name)
 		self.interface = None
 
-	def create_interface(self, hapd):
+	def create_interface(self, config, use):
 		global intf_id
 
 		ifname = 'wln%s' % intf_id
 
 		intf_id += 1
 
-		self.interface = Interface(ifname, hapd.config)
-		# IWD does not use interfaces in test-runner so any created
-		# interface is assumed to be used by hostapd.
-		self.use = 'hostapd'
+		self.interface = Interface(ifname, config, self)
+		self.use = use
 
 		Process(['iw', 'phy', self.name, 'interface', 'add', ifname,
 				'type', 'managed'], True)
@@ -356,7 +355,7 @@ class HostapdInstance:
 		self.radio = radio
 		self.config = config
 
-		self.intf = radio.create_interface(self)
+		self.intf = radio.create_interface(self.config, 'hostapd')
 		self.intf.set_interface_state('up')
 
 	def __del__(self):
@@ -471,6 +470,7 @@ class TestContext:
 		self.args = args
 		self.hw_config = None
 		self.hostapd = None
+		self.wpas_interfaces = None
 		self.cur_radio_id = 0
 		self.cur_iface_id = 0
 		self.radios = []
@@ -621,6 +621,14 @@ class TestContext:
 
 		self.hostapd = Hostapd(self, hapd_radios, hapd_configs, radius_config)
 
+	def start_wpas_interfaces(self):
+		if 'WPA_SUPPLICANT' not in self.hw_config:
+			return
+
+		settings = self.hw_config['WPA_SUPPLICANT']
+		wpas_radios = [rad for rad in self.radios if rad.name in settings]
+		self.wpas_interfaces = [rad.create_interface(settings[rad.name], 'wpas') for rad in wpas_radios]
+
 	def start_ofono(self):
 		sim_keys = self.hw_config['SETUP'].get('sim_keys', None)
 		if not sim_keys:
@@ -688,6 +696,7 @@ class TestContext:
 	def stop_test_processes(self):
 		self.radios = []
 		self.hostapd = None
+		self.wpas_interfaces = None
 		self.iwd_extra_options = None
 
 		for p in [p for p in self.processes if p.multi_test is False]:
@@ -884,6 +893,7 @@ def pre_test(ctx, test):
 	ctx.start_dbus_monitor()
 	ctx.start_radios()
 	ctx.start_hostapd()
+	ctx.start_wpas_interfaces()
 	ctx.start_ofono()
 
 	if ctx.args.log:
