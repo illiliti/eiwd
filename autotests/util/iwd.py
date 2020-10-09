@@ -35,6 +35,10 @@ IWD_SIGNAL_AGENT_INTERFACE =    'net.connman.iwd.SignalLevelAgent'
 IWD_AP_INTERFACE =              'net.connman.iwd.AccessPoint'
 IWD_ADHOC_INTERFACE =           'net.connman.iwd.AdHoc'
 IWD_STATION_INTERFACE =         'net.connman.iwd.Station'
+IWD_P2P_INTERFACE =             'net.connman.iwd.p2p.Device'
+IWD_P2P_PEER_INTERFACE =        'net.connman.iwd.p2p.Peer'
+IWD_P2P_SERVICE_MANAGER_INTERFACE = 'net.connman.iwd.p2p.ServiceManager'
+IWD_P2P_WFD_INTERFACE =         'net.connman.iwd.p2p.Display'
 
 IWD_AGENT_MANAGER_PATH =        '/net/connman/iwd'
 IWD_TOP_LEVEL_PATH =            '/'
@@ -767,9 +771,107 @@ class PSKAgent(dbus.service.Object):
         return passwd
 
 
+class P2PDevice(IWDDBusAbstract):
+    _iface_name = IWD_P2P_INTERFACE
+
+    def __init__(self, *args, **kwargs):
+        self._discovery_request = False
+        self._peer_dict = {}
+        IWDDBusAbstract.__init__(self, *args, **kwargs)
+
+    @property
+    def name(self):
+        return str(self._properties['Name'])
+
+    @name.setter
+    def name(self, name):
+        self._prop_proxy.Set(self._iface_name, 'Name', name)
+
+    @property
+    def enabled(self):
+        return bool(self._properties['Enabled'])
+
+    @enabled.setter
+    def enabled(self, enabled):
+        self._prop_proxy.Set(self._iface_name, 'Enabled', enabled)
+
+    @property
+    def discovery_request(self):
+        return self._discovery_request
+
+    @discovery_request.setter
+    def discovery_request(self, req):
+        if self._discovery_request == bool(req):
+            return
+
+        if bool(req):
+            self._iface.RequestDiscovery()
+        else:
+            self._iface.ReleaseDiscovery()
+
+        self._discovery_request = bool(req)
+
+    def get_peers(self):
+        old_dict = self._peer_dict
+        self._peer_dict = {}
+
+        for path, rssi in self._iface.GetPeers():
+            self._peer_dict[path] = old_dict[path] if path in old_dict else P2PPeer(path)
+            self._peer_dict[path].rssi = rssi
+
+        return self._peer_dict
+
+
+class P2PPeer(IWDDBusAbstract):
+    _iface_name = IWD_P2P_PEER_INTERFACE
+
+    @property
+    def name(self):
+        return str(self._properties['Name'])
+
+    @property
+    def category(self):
+        return str(self._properties['DeviceCategory'])
+
+    @property
+    def subcategory(self):
+        return str(self._properties['DeviceSubcategory'])
+
+    @property
+    def connected(self):
+        return bool(self._properties['Connected'])
+
+    @property
+    def connected_interface(self):
+        return str(self._properties['ConnectedInterface'])
+
+    @property
+    def connected_ip(self):
+        return str(self._properties['ConnectedIP'])
+
+    def connect(self, wait=True, pin=None):
+        if pin is None:
+            self._iface.PushButton(dbus_interface=IWD_WSC_INTERFACE,
+                            reply_handler=self._success,
+                            error_handler=self._failure)
+        else:
+            self._iface.StartPin(pin,
+                            dbus_interface=IWD_WSC_INTERFACE,
+                            reply_handler=self._success,
+                            error_handler=self._failure)
+
+        if wait:
+            self._wait_for_async_op()
+            return (self.connected_interface, self.connected_ip)
+
+    def disconnect(self):
+        self._iface.Disconnect()
+
+
 class DeviceList(collections.Mapping):
     def __init__(self, iwd):
         self._dict = {}
+        self._p2p_dict = {}
 
         iwd._object_manager.connect_to_signal("InterfacesAdded",
                                                self._interfaces_added_handler)
@@ -782,6 +884,8 @@ class DeviceList(collections.Mapping):
             for interface in objects[path]:
                 if interface == IWD_DEVICE_INTERFACE:
                     self._dict[path] = Device(path, objects[path][interface])
+                elif interface == IWD_P2P_INTERFACE:
+                    self._p2p_dict[path] = P2PDevice(path, objects[path][interface])
 
     def __getitem__(self, key):
         return self._dict.__getitem__(key)
@@ -798,10 +902,18 @@ class DeviceList(collections.Mapping):
     def _interfaces_added_handler(self, path, interfaces):
         if IWD_DEVICE_INTERFACE in interfaces:
             self._dict[path] = Device(path, interfaces[IWD_DEVICE_INTERFACE])
+        elif IWD_P2P_INTERFACE in interfaces:
+            self._p2p_dict[path] = P2PDevice(path, interfaces[IWD_P2P_INTERFACE])
 
     def _interfaces_removed_handler(self, path, interfaces):
         if IWD_DEVICE_INTERFACE in interfaces:
             del self._dict[path]
+        elif IWD_P2P_INTERFACE in interfaces:
+            del self._p2p_dict[path]
+
+    @property
+    def p2p_dict(self):
+        return self._p2p_dict
 
 
 class IWD(AsyncOpAbstract):
@@ -943,9 +1055,9 @@ class IWD(AsyncOpAbstract):
     def remove_from_storage(file_name):
         os.system('rm -rf ' + IWD_STORAGE_DIR + '/\'' + file_name + '\'')
 
-    def list_devices(self, wait_to_appear = 0, max_wait = 50):
+    def list_devices(self, wait_to_appear = 0, max_wait = 50, p2p = False):
         if not wait_to_appear:
-            return list(self._devices.values())
+            return list(self._devices.values() if not p2p else self._devices.p2p_dict.values())
 
         self._wait_timed_out = False
         def wait_timeout_cb():
@@ -963,7 +1075,10 @@ class IWD(AsyncOpAbstract):
             if not self._wait_timed_out:
                 GLib.source_remove(timeout)
 
-        return list(self._devices.values())
+        return list(self._devices.values() if not p2p else self._devices.p2p_dict.values())
+
+    def list_p2p_devices(self, *args, **kwargs):
+        return self.list_devices(*args, **kwargs, p2p=True)
 
     def list_known_networks(self):
         '''Returns the list of KnownNetwork objects.'''
