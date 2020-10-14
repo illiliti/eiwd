@@ -657,6 +657,7 @@ bool scan_cancel(uint64_t wdev_id, uint32_t id)
 		sc->start_cmd_id = 0;
 		l_queue_remove(sc->requests, sr);
 		sc->started = false;
+		sc->work_started = false;
 	} else
 		l_queue_remove(sc->requests, sr);
 
