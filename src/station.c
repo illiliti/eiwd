@@ -1031,9 +1031,8 @@ static void periodic_scan_stop(struct station *station)
 {
 	uint64_t id = netdev_get_wdev_id(station->netdev);
 
-	scan_periodic_stop(id);
-
-	station_property_set_scanning(station, false);
+	if (scan_periodic_stop(id))
+		station_property_set_scanning(station, false);
 }
 
 static bool station_needs_hidden_network_scan(struct station *station)
