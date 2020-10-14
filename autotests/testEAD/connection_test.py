@@ -2,6 +2,7 @@
 
 import unittest
 import sys
+import os
 
 sys.path.append('../util')
 from iwd import IWD
@@ -11,7 +12,9 @@ from ead import EAD
 
 class Test(unittest.TestCase):
     def test_connection_success(self):
-        ctx.start_process(['ead', '-i', 'eth1', '-d'])
+        env = os.environ.copy()
+        env['STATE_DIRECTORY'] = '/tmp/ead'
+        ctx.start_process(['ead', '-i', 'eth1', '-d'], env=env)
 
         ead = EAD()
 
@@ -25,11 +28,13 @@ class Test(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        IWD.copy_to_storage('default.8021x', storage_dir='/var/lib/ead')
+        os.mkdir('/tmp/ead')
+
+        IWD.copy_to_storage('default.8021x', storage_dir='/tmp/ead')
 
     @classmethod
     def tearDownClass(cls):
-        IWD.clear_storage()
+        IWD.clear_storage(storage_dir='/tmp/ead')
 
 if __name__ == '__main__':
     unittest.main(exit=True)

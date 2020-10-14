@@ -17,8 +17,8 @@ from enum import Enum
 
 from config import ctx
 
-IWD_STORAGE_DIR =               '/var/lib/iwd'
-IWD_CONFIG_DIR =                '/etc/iwd'
+IWD_STORAGE_DIR =               '/tmp/iwd'
+IWD_CONFIG_DIR =                '/tmp'
 
 DBUS_OBJECT_MANAGER =           'org.freedesktop.DBus.ObjectManager'
 DBUS_PROPERTIES =               'org.freedesktop.DBus.Properties'
@@ -909,9 +909,9 @@ class IWD(AsyncOpAbstract):
                 GLib.source_remove(timeout)
 
     @staticmethod
-    def clear_storage():
-        os.system('rm -rf ' + IWD_STORAGE_DIR + '/*')
-        os.system('rm -rf ' + IWD_STORAGE_DIR + '/hotspot/*')
+    def clear_storage(storage_dir=IWD_STORAGE_DIR):
+        os.system('rm -rf ' + storage_dir + '/*')
+        os.system('rm -rf ' + storage_dir + '/hotspot/*')
 
     @staticmethod
     def create_in_storage(file_name, file_content):
