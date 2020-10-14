@@ -47,8 +47,8 @@ Methods		array(on) GetPeers()
 
 			Register the agent object to receive signal strength
 			level change notifications on the
-			net.connman.iwd.Station.SignalLevelAgent interface,
-			see station-api.txt.  The "levels" parameter decides
+			net.connman.iwd.SignalLevelAgent interface, see
+			station-api.txt.  The "levels" parameter decides
 			the thresholds in dBm that will generate a call to
 			the agent's Changed method whenever current RSSI
 			crosses any of the values.  The values must be
