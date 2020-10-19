@@ -120,6 +120,7 @@ ell_sources = ell/private.h \
 			ell/dhcp.c \
 			ell/dhcp-transport.c \
 			ell/dhcp-lease.c \
+			ell/dhcp-util.c \
 			ell/cert-private.h \
 			ell/cert.c \
 			ell/ecc-external.c \
