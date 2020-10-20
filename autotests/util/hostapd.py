@@ -32,6 +32,10 @@ class HostapdCLI:
     def _init_hostapd(self, config=None):
         global ctrl_count
         interface = None
+        self.ctrl_sock = None
+
+        if not ctx.hostapd:
+            raise Exception("No hostapd instances are configured")
 
         if not config and len(ctx.hostapd.instances) > 1:
             raise Exception('config must be provided if more than one hostapd instance exists')
@@ -110,6 +114,9 @@ class HostapdCLI:
         raise Exception('timeout waiting for control response')
 
     def _del_hostapd(self, force=False):
+        if not self.ctrl_sock:
+            return
+
         self.ctrl_sock.close()
         os.remove(self.local_ctrl)
 
