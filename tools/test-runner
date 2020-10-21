@@ -578,6 +578,9 @@ class TestContext:
 		if self.is_verbose('iwd-tls'):
 			env['IWD_TLS_DEBUG'] = '1'
 
+		if self.is_verbose('iwd-genl'):
+			env['IWD_GENL_DEBUG'] = '1'
+
 		pid = self.start_process(args, env=env)
 		return pid
 
