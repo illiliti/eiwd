@@ -557,8 +557,8 @@ class TestContext:
 		iwd_radios = ','.join([r.name for r in self.radios if r.use == 'iwd'])
 
 		if self.args.valgrind:
-			args.extend(['valgrind', '--leak-check=full', '--log-file=%s' % \
-					'/tmp/valgrind.log'])
+			args.extend(['valgrind', '--leak-check=full', '--track-origins=yes',
+						'--log-file=/tmp/valgrind.log'])
 
 		args.extend(['iwd', '-p', iwd_radios])
 
@@ -1265,7 +1265,7 @@ class Main:
 			qemu_binary,
 			'-machine', 'type=q35,accel=kvm:tcg',
 			'-nodefaults', '-no-user-config', '-monitor', 'none',
-			'-display', 'none', '-m', '192M', '-nographic', '-vga',
+			'-display', 'none', '-m', '256M', '-nographic', '-vga',
 			'none', '-no-acpi', '-no-hpet',
 			'-no-reboot', '-fsdev',
 			'local,id=fsdev-root,path=/,readonly,security_model=none,multidevs=remap',
