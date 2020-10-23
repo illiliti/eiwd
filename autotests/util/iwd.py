@@ -1078,7 +1078,7 @@ class IWD(AsyncOpAbstract):
             if not self._wait_timed_out:
                 GLib.source_remove(timeout)
 
-        return list(self._devices.values() if not p2p else self._devices.p2p_dict.values())
+        return list(self._devices.values() if not p2p else self._devices.p2p_dict.values())[:wait_to_appear]
 
     def list_p2p_devices(self, *args, **kwargs):
         return self.list_devices(*args, **kwargs, p2p=True)
