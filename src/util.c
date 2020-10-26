@@ -28,6 +28,8 @@
 #include <stdio.h>
 #include <sys/uio.h>
 #include <sys/time.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include <ell/ell.h>
 
@@ -217,4 +219,92 @@ const char *util_get_username(const char *identity)
 	}
 
 	return identity;
+}
+
+static bool is_prefix_valid(uint32_t ip, unsigned int prefix)
+{
+	int i;
+
+	for (i = 31 - prefix; i >= 0; i--) {
+		if (ip & (1 << i))
+			return false;
+	}
+
+	return true;
+}
+
+/*
+ * Parse a prefix notation IP string (e.g. A.B.C.D/E) into an IP range and
+ * netmask. All returned IP addresses/mask will be in host order. The start/end
+ * IP will only include the usable IP range where the last octet is not zero or
+ * 255.
+ */
+bool util_ip_prefix_tohl(const char *ip, uint8_t *prefix_out,
+				uint32_t *start_out, uint32_t *end_out,
+				uint32_t *mask_out)
+{
+	struct in_addr ia;
+	int i;
+	unsigned int prefix = 0;
+	char no_prefix[INET_ADDRSTRLEN];
+	char *endp;
+	uint32_t start_ip;
+	uint32_t end_ip;
+	uint32_t netmask = 0xffffffff;
+
+	/*
+	 * Only iterate over the max length of an IP in case of invalid long
+	 * inputs.
+	 */
+	for (i = 0; i < INET_ADDRSTRLEN && ip[i] != '\0'; i++) {
+		/* Found '/', check the next byte exists and parse prefix */
+		if (ip[i] == '/' && ip[i + 1] != '\0') {
+			prefix = strtoul(ip + i + 1, &endp, 10);
+			if (*endp != '\0')
+				return false;
+
+			break;
+		}
+	}
+
+	if (prefix < 1 || prefix > 31)
+		return false;
+
+	/* 'i' will be at most INET_ADDRSTRLEN - 1 */
+	l_strlcpy(no_prefix, ip, i + 1);
+
+	/* Check if IP preceeding prefix is valid */
+	if (inet_pton(AF_INET, no_prefix, &ia) != 1 || ia.s_addr == 0)
+		return false;
+
+	start_ip = ntohl(ia.s_addr);
+
+	if (!is_prefix_valid(start_ip, prefix))
+		return false;
+
+	/* Usable range is start + 1 .. end - 1 */
+	start_ip += 1;
+
+	/* Calculate end IP and netmask */
+	end_ip = start_ip;
+	for (i = 31 - prefix; i >= 0; i--) {
+		end_ip |= (1 << i);
+		netmask &= ~(1 << i);
+	}
+
+	end_ip -= 1;
+
+	if (prefix_out)
+		*prefix_out = prefix;
+
+	if (start_out)
+		*start_out = start_ip;
+
+	if (end_out)
+		*end_out = end_ip;
+
+	if (mask_out)
+		*mask_out = netmask;
+
+	return true;
 }
