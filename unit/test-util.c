@@ -27,6 +27,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <ell/ell.h>
 
 #include "src/util.h"
@@ -115,6 +117,68 @@ static void get_username_test(const void *data)
 	assert(strcmp(test, "username") == 0);
 }
 
+static void ip_prefix_test(const void *data)
+{
+	unsigned int i;
+	char *invalid[] = {
+		"192.168.0.0", /* Not prefix notation */
+		"192.168./22", /* Incomplete notation */
+		"192.168.0.1/255", /* Too long prefix */
+		"192.168.0.1/0", /* Too short prefix */
+		"192.168.0.1/16", /* Invalid prefix */
+		"192.168.1.2.3/24", /* IP too long */
+		"192.168.111.222.333.444/20", /* IP way too long */
+	};
+
+	struct {
+		char *ip_prefix;
+		uint8_t prefix;
+		char *start;
+		char *end;
+		char *mask;
+	} valid[] = {
+		{"192.168.80.0/22", 22, "192.168.80.1",
+				"192.168.83.254", "255.255.252.0"},
+		{"192.168.128.0/20", 20, "192.168.128.1",
+				"192.168.143.254", "255.255.240.0"},
+		{"192.168.0.0/25", 25, "192.168.0.1",
+				"192.168.0.126", "255.255.255.128"},
+		{"192.168.0.0/29", 29, "192.168.0.1",
+				"192.168.0.6", "255.255.255.248"},
+		{"192.168.0.128/25", 25, "192.168.0.129",
+				"192.168.0.254", "255.255.255.128"},
+		/* Valid notation which is maximum length */
+		{"192.168.111.108/30", 30, "192.168.111.109",
+				"192.168.111.110", "255.255.255.252"},
+	};
+
+	for (i = 0; i < L_ARRAY_SIZE(invalid); i++)
+		assert(!util_ip_prefix_tohl(invalid[i], NULL, NULL,
+						NULL, NULL));
+
+	for (i = 0; i < L_ARRAY_SIZE(valid); i++) {
+		uint8_t prefix;
+		uint32_t start;
+		uint32_t end;
+		uint32_t mask;
+		struct in_addr ia;
+
+		assert(util_ip_prefix_tohl(valid[i].ip_prefix,
+						&prefix, &start, &end, &mask));
+
+		assert(valid[i].prefix == prefix);
+
+		ia.s_addr = htonl(start);
+		assert(strcmp(inet_ntoa(ia), valid[i].start) == 0);
+
+		ia.s_addr = htonl(end);
+		assert(strcmp(inet_ntoa(ia), valid[i].end) == 0);
+
+		ia.s_addr = htonl(mask);
+		assert(strcmp(inet_ntoa(ia), valid[i].mask) == 0);
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	l_test_init(&argc, &argv);
@@ -122,6 +186,7 @@ int main(int argc, char *argv[])
 	l_test_add("/util/ssid_to_utf8/", ssid_to_utf8, ssid_samples);
 	l_test_add("/util/get_domain/", get_domain_test, NULL);
 	l_test_add("/util/get_username/", get_username_test, NULL);
+	l_test_add("/util/ip_prefix/", ip_prefix_test, NULL);
 
 	return l_test_run();
 }
