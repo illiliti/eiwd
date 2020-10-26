@@ -754,7 +754,7 @@ static void p2p_group_start(struct p2p_device *dev)
 	dev->capability.group_caps |= P2P_GROUP_CAP_GO;
 	dev->capability.group_caps |= P2P_GROUP_CAP_GROUP_FORMATION;
 
-	dev->group = ap_start(dev->conn_netdev, config, &p2p_go_ops, dev);
+	dev->group = ap_start(dev->conn_netdev, config, &p2p_go_ops, NULL, dev);
 	if (!dev->group) {
 		ap_config_free(config);
 		p2p_connect_failed(dev);

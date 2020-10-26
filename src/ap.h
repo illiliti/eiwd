@@ -74,7 +74,8 @@ struct ap_ops {
 void ap_config_free(struct ap_config *config);
 
 struct ap_state *ap_start(struct netdev *netdev, struct ap_config *config,
-				const struct ap_ops *ops, void *user_data);
+				const struct ap_ops *ops, int *err,
+				void *user_data);
 void ap_shutdown(struct ap_state *ap, ap_stopped_func_t stopped_func,
 			void *user_data);
 void ap_free(struct ap_state *ap);

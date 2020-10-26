@@ -2033,12 +2033,17 @@ static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)
  * to by its members (which also can't be static).
  */
 struct ap_state *ap_start(struct netdev *netdev, struct ap_config *config,
-				const struct ap_ops *ops, void *user_data)
+				const struct ap_ops *ops, int *err_out,
+				void *user_data)
 {
 	struct ap_state *ap;
 	struct wiphy *wiphy = netdev_get_wiphy(netdev);
 	struct l_genl_msg *cmd;
 	uint64_t wdev_id = netdev_get_wdev_id(netdev);
+	int err = -EINVAL;
+
+	if (err_out)
+		*err_out = err;
 
 	if (L_WARN_ON(!config->ssid))
 		return NULL;
@@ -2146,9 +2151,15 @@ struct ap_state *ap_start(struct netdev *netdev, struct ap_config *config,
 		goto error;
 	}
 
+	if (err_out)
+		*err_out = 0;
+
 	return ap;
 
 error:
+	if (err_out)
+		*err_out = err;
+
 	ap_reset(ap);
 	l_genl_family_free(ap->nl80211);
 	l_free(ap);
@@ -2382,6 +2393,7 @@ static struct l_dbus_message *ap_dbus_start(struct l_dbus *dbus,
 	struct ap_if_data *ap_if = user_data;
 	const char *ssid, *wpa2_passphrase;
 	struct ap_config *config;
+	int err;
 
 	if (ap_if->ap && ap_if->ap->started)
 		return dbus_error_already_exists(message);
@@ -2398,10 +2410,10 @@ static struct l_dbus_message *ap_dbus_start(struct l_dbus *dbus,
 	l_strlcpy(config->passphrase, wpa2_passphrase,
 			sizeof(config->passphrase));
 
-	ap_if->ap = ap_start(ap_if->netdev, config, &ap_dbus_ops, ap_if);
+	ap_if->ap = ap_start(ap_if->netdev, config, &ap_dbus_ops, &err, ap_if);
 	if (!ap_if->ap) {
 		ap_config_free(config);
-		return dbus_error_invalid_args(message);
+		return dbus_error_from_errno(err, message);
 	}
 
 	ap_if->pending = l_dbus_message_ref(message);
