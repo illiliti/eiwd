@@ -7,44 +7,23 @@ import iwd
 from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
-from hostapd import HostapdCLI
+from config import ctx
 import testutil
 
 class Test(unittest.TestCase):
-
-    def client_connect(self, wd, dev):
-        hostapd = HostapdCLI(config='psk-ccmp.conf')
-
-        ordered_network = dev.get_ordered_network('TestAP1', True)
-
-        self.assertEqual(ordered_network.type, NetworkType.psk)
-
-        psk_agent = PSKAgent('Password1')
-        wd.register_psk_agent(psk_agent)
-
-        ordered_network.network_object.connect()
-
-        condition = 'obj.state == DeviceState.connected'
-        wd.wait_for_object_condition(dev, condition)
-
-        wd.unregister_psk_agent(psk_agent)
-
-        testutil.test_iface_operstate(dev.name)
-        testutil.test_ifaces_connected(hostapd.ifname, dev.name)
-
-        dev.disconnect()
-
-        condition = 'not obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
-
     def test_connection_success(self):
-        wd = IWD(True)
+        wd = IWD(True, '/tmp/dhcp')
 
-        dev1, dev2 = wd.list_devices(2)
+        # dev1, dev3, and dev4 are all AP's
+        # The configured IP range only supports 2 subnets, so dev4 should fail
+        # to start AP.
+        dev1, dev2, dev3, dev4 = wd.list_devices(4)
 
-        self.client_connect(wd, dev1)
+        dev1.start_ap('TestAP2', "Password2")
+        dev3.start_ap('TestAP3', 'Password3')
 
-        dev1.start_ap('TestAP2', 'Password2')
+        with self.assertRaises(iwd.AlreadyExistsEx):
+            dev4.start_ap('TestAP4', 'Password4')
 
         try:
             condition = 'not obj.scanning'
@@ -58,7 +37,6 @@ class Test(unittest.TestCase):
             ordered_networks = dev2.get_ordered_networks()
 
             networks = { n.name: n for n in ordered_networks }
-            self.assertEqual(networks['TestAP1'].type, NetworkType.psk)
             self.assertEqual(networks['TestAP2'].type, NetworkType.psk)
 
             psk_agent = PSKAgent('Password2')
@@ -80,6 +58,9 @@ class Test(unittest.TestCase):
             testutil.test_iface_operstate(dev2.name)
             testutil.test_ifaces_connected(dev1.name, dev2.name, group=False)
 
+            testutil.test_ip_address_match(dev1.name, "192.168.80.1")
+            testutil.test_ip_address_match(dev2.name, "192.168.80.2")
+
             wd.unregister_psk_agent(psk_agent)
 
             dev2.disconnect()
@@ -87,15 +68,22 @@ class Test(unittest.TestCase):
             condition = 'not obj.connected'
             wd.wait_for_object_condition(networks['TestAP2'].network_object,
                                          condition)
+
+            # This should release the IP */
+            dev1.stop_ap()
+
+            # This should now succeed and the IP should match the old IP dev1
+            # got initially.
+            dev4.start_ap('TestAP4', 'Password4')
+
+            testutil.test_ip_address_match(dev4.name, "192.168.80.1")
+
         finally:
             dev1.stop_ap()
 
-        # Finally test dev1 can go to client mode and connect again
-        self.client_connect(wd, dev1)
-
     @classmethod
     def setUpClass(cls):
-        IWD.copy_to_storage('TestAP1.psk')
+        pass
 
     @classmethod
     def tearDownClass(cls):

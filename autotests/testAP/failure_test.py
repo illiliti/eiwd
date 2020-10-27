@@ -39,7 +39,7 @@ class Test(unittest.TestCase):
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
     def test_connection_failure(self):
-        wd = IWD()
+        wd = IWD(True)
 
         dev1, dev2 = wd.list_devices(2)
 
