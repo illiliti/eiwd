@@ -260,14 +260,6 @@ Wireless daemon
   Priority: Low
   Complexity: C2
 
-- Use NL80211_CMD_CRIT_PROTOCOL_START / CRIT_PROTOCOL_STOP
-
-  Research whether iwd should be making use of these commands in order to
-  make EAP & 4-way handshakes, as well as DHCP exchanges more reliable.
-
-  Priority: Medium
-  Complexity: C2
-
 - DPP Support
 
   Device Provisioning Protocol is a new specification from WiFi Alliance.
