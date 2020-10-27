@@ -4915,6 +4915,19 @@ static const struct attr_entry frame_types_table[] = {
 	{ }
 };
 
+static const struct attr_entry survey_info_table[] = {
+	{ NL80211_SURVEY_INFO_FREQUENCY, "Frequency", ATTR_U32 },
+	{ NL80211_SURVEY_INFO_NOISE, "Noise dBm", ATTR_S8 },
+	{ NL80211_SURVEY_INFO_IN_USE, "Channel Currently In Use", ATTR_FLAG },
+	{ NL80211_SURVEY_INFO_TIME, "Survey Time", ATTR_U64 },
+	{ NL80211_SURVEY_INFO_TIME_BUSY, "Busy Time", ATTR_U64 },
+	{ NL80211_SURVEY_INFO_TIME_EXT_BUSY, "Busy Time Extension Channel", ATTR_U64 },
+	{ NL80211_SURVEY_INFO_TIME_RX, "RX Time", ATTR_U64 },
+	{ NL80211_SURVEY_INFO_TIME_TX, "TX Time", ATTR_U64 },
+	{ NL80211_SURVEY_INFO_TIME_SCAN, "Scan Time", ATTR_U64 },
+	{ }
+};
+
 static void print_cqm_event(unsigned int level, const char *label,
 					const void *data, uint16_t size)
 {
@@ -5596,7 +5609,7 @@ static const struct attr_entry attr_table[] = {
 	{ NL80211_ATTR_4ADDR,
 			"4-Address", ATTR_U8 },
 	{ NL80211_ATTR_SURVEY_INFO,
-			"Survey Info" },
+			"Survey Info", ATTR_NESTED, { survey_info_table } },
 	{ NL80211_ATTR_PMKID,
 			"PMKID", ATTR_BINARY },
 	{ NL80211_ATTR_MAX_NUM_PMKIDS,
