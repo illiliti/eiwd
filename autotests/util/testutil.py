@@ -125,6 +125,7 @@ def test_ifaces_connected(if0=None, if1=None, group=True):
             raise e
 
 SIOCGIFFLAGS = 0x8913
+SIOCGIFADDR = 0x8915
 IFF_UP = 1 << 0
 IFF_RUNNING = 1 << 6
 
@@ -143,3 +144,11 @@ def test_iface_operstate(intf=None):
             raise Exception(intf + ' operstate wrong')
     finally:
         sock.close()
+
+def test_ip_address_match(intf, ip):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    addr = fcntl.ioctl(s.fileno(), SIOCGIFADDR, struct.pack('256s', intf.encode('utf-8')))
+    addr = socket.inet_ntoa(addr[20:24])
+
+    if ip != addr:
+        raise Exception('IP for %s did not match %s (was %s)' % (intf, ip, addr))
