@@ -47,7 +47,7 @@ class Test(unittest.TestCase):
         #
         # Remove provisioning file, this should cause a disconnect.
         #
-        os.remove("/var/lib/iwd/ssidWPA2-1.psk")
+        os.remove("/tmp/iwd/ssidWPA2-1.psk")
 
         condition = 'obj.state == DeviceState.disconnected'
         wd.wait_for_object_condition(device, condition)
@@ -74,7 +74,7 @@ class Test(unittest.TestCase):
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected(device.name, hapd_hotspot.ifname)
 
-        os.remove('/var/lib/iwd/hotspot/autoconnect.conf')
+        os.remove('/tmp/iwd/hotspot/autoconnect.conf')
 
         #
         # make sure removal of hotspot conf file resulted in disconnect
