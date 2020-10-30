@@ -59,7 +59,9 @@ ell_headers = ell/util.h \
 			ell/ecc.h \
 			ell/ecdh.h \
 			ell/time.h \
-			ell/path.h
+			ell/path.h \
+			ell/icmp6.h \
+			ell/dhcp6.h
 
 ell_sources = ell/private.h \
 			ell/missing.h \
@@ -130,7 +132,13 @@ ell_sources = ell/private.h \
 			ell/ecdh.c \
 			ell/time.c \
 			ell/time-private.h \
-			ell/path.c
+			ell/path.c \
+			ell/dhcp6.c \
+			ell/dhcp6-private.h \
+			ell/icmp6.c \
+			ell/icmp6-private.h \
+			ell/dhcp6-lease.c \
+			ell/dhcp6-transport.c
 
 ell_libell_internal_la_SOURCES = $(ell_headers) $(ell_sources)
 endif
