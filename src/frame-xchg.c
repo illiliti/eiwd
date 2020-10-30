@@ -773,8 +773,10 @@ static void frame_xchg_reset(struct frame_xchg_data *fx)
 	if (fx->timeout)
 		l_timeout_remove(fx->timeout);
 
-	if (fx->tx_cmd_id)
+	if (fx->tx_cmd_id) {
 		l_genl_family_cancel(nl80211, fx->tx_cmd_id);
+		fx->tx_cmd_id = 0;
+	}
 
 	l_free(fx->early_frame.mpdu);
 	fx->early_frame.mpdu = NULL;
@@ -901,6 +903,8 @@ static void frame_xchg_tx_cb(struct l_genl_msg *msg, void *user_data)
 	uint64_t cookie;
 	bool early_status;
 
+	fx->tx_cmd_id = 0;
+
 	l_debug("err %i", -error);
 
 	if (error < 0) {
@@ -932,13 +936,6 @@ static void frame_xchg_tx_cb(struct l_genl_msg *msg, void *user_data)
 	return;
 error:
 	frame_xchg_done(fx, error);
-}
-
-static void frame_xchg_tx_destroy(void *user_data)
-{
-	struct frame_xchg_data *fx = user_data;
-
-	fx->tx_cmd_id = 0;
 }
 
 static bool frame_xchg_tx_retry(struct wiphy_radio_work_item *item)
@@ -974,7 +971,7 @@ static bool frame_xchg_tx_retry(struct wiphy_radio_work_item *item)
 					&duration);
 
 	fx->tx_cmd_id = l_genl_family_send(nl80211, msg, frame_xchg_tx_cb, fx,
-						frame_xchg_tx_destroy);
+						NULL);
 	if (!fx->tx_cmd_id) {
 		l_error("Error sending frame");
 		l_genl_msg_unref(msg);
