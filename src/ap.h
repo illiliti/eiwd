@@ -63,6 +63,9 @@ struct ap_config {
 	unsigned int authorized_macs_num;
 	char *wsc_name;
 	struct wsc_primary_device_type wsc_primary_device_type;
+
+	char *profile;
+
 	bool no_cck_rates : 1;
 };
 
