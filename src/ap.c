@@ -2412,7 +2412,7 @@ static int ap_load_profile_and_dhcp(struct ap_state *ap, bool *wait_dhcp)
 
 		if (!ap->rtnl_add_cmd) {
 			l_error("Failed to add IPv4 address");
-			return false;
+			return -EIO;
 		}
 
 		ap->cleanup_ip = true;
