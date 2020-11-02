@@ -80,9 +80,12 @@ struct ap_state {
 	struct l_dhcp_server *server;
 	uint32_t rtnl_add_cmd;
 	char *own_ip;
+	unsigned int ip_prefix;
 
 	bool started : 1;
 	bool gtk_set : 1;
+	bool cleanup_ip : 1;
+	bool use_ip_pool : 1;
 };
 
 struct sta_state {
@@ -315,13 +318,18 @@ static void ap_reset(struct ap_state *ap)
 
 	ap->started = false;
 
-	if (ap->own_ip) {
+	/* Delete IP if one was set by IWD */
+	if (ap->cleanup_ip)
 		l_rtnl_ifaddr4_delete(rtnl, netdev_get_ifindex(netdev),
-					pool.prefix, ap->own_ip,
+					ap->ip_prefix, ap->own_ip,
 					broadcast_from_ip(ap->own_ip),
 					NULL, NULL, NULL);
 
-		ip_pool_put(ap->own_ip);
+	if (ap->own_ip) {
+		/* Release IP from pool if used */
+		if (ap->use_ip_pool)
+			ip_pool_put(ap->own_ip);
+
 		l_free(ap->own_ip);
 	}
 
@@ -2212,28 +2220,214 @@ static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)
 	}
 }
 
-static bool ap_load_profile(struct ap_state *ap)
+static bool dhcp_load_settings(struct ap_state *ap, struct l_settings *settings)
 {
+	struct l_dhcp_server *server = ap->server;
+	struct in_addr ia;
+
+	L_AUTO_FREE_VAR(char *, netmask) = l_settings_get_string(settings,
+							"IPv4", "Netmask");
+	L_AUTO_FREE_VAR(char *, gateway) = l_settings_get_string(settings,
+							"IPv4", "Gateway");
+	char **dns = l_settings_get_string_list(settings, "IPv4",
+							"DNSList", ',');
+	char **ip_range = l_settings_get_string_list(settings, "IPv4",
+							"IPRange", ',');
+	unsigned int lease_time;
+	bool ret = false;
+
+	if (!l_settings_get_uint(settings, "IPv4", "LeaseTime", &lease_time))
+		lease_time = 0;
+
+	if (ip_range && l_strv_length(ip_range) != 2)
+		goto parse_error;
+
+	if (netmask && !l_dhcp_server_set_netmask(server, netmask))
+		goto parse_error;
+
+	if (gateway && !l_dhcp_server_set_gateway(server, gateway))
+		goto parse_error;
+
+	if (dns && !l_dhcp_server_set_dns(server, dns))
+		goto parse_error;
+
+	if (ip_range && !l_dhcp_server_set_ip_range(server, ip_range[0],
+							ip_range[1]))
+		goto parse_error;
+
+	if (lease_time && !l_dhcp_server_set_lease_time(server, lease_time))
+		goto parse_error;
+
+	if (netmask && inet_pton(AF_INET, netmask, &ia) > 0)
+		ap->ip_prefix = __builtin_popcountl(ia.s_addr);
+	else
+		ap->ip_prefix = 24;
+
+	ret = true;
+
+parse_error:
+	l_strv_free(dns);
+	l_strv_free(ip_range);
+	return ret;
+}
+
+/*
+ * This will determine the IP being used for DHCP. The IP will be automatically
+ * set to ap->own_ip.
+ *
+ * The address to set (or keep) is determined in this order:
+ * 1. Address defined in provisioning file
+ * 2. Address already set on interface
+ * 3. Address in IP pool.
+ *
+ * Returns:  0 if an IP was successfully selected and needs to be set
+ *          -EALREADY if an IP was already set on the interface
+ *          -EEXIST if the IP pool ran out of IP's
+ *          -EINVAL if there was an error.
+ */
+static int ap_setup_dhcp(struct ap_state *ap, struct l_settings *settings)
+{
+	uint32_t ifindex = netdev_get_ifindex(ap->netdev);
+	struct in_addr ia;
+	uint32_t address = 0;
+	int ret = -EINVAL;
+
+	ap->server = l_dhcp_server_new(ifindex);
+	if (!ap->server) {
+		l_error("Failed to create DHCP server on %u", ifindex);
+		return -EINVAL;;
+	}
+
+	if (getenv("IWD_DHCP_DEBUG"))
+		l_dhcp_server_set_debug(ap->server, do_debug,
+							"[DHCPv4 SERV] ", NULL);
+
+	/* get the current address if there is one */
+	if (l_net_get_address(ifindex, &ia) && ia.s_addr != 0)
+		address = ia.s_addr;
+
+	if (ap->config->profile) {
+		char *addr;
+
+		addr = l_settings_get_string(settings, "IPv4", "Address");
+		if (addr) {
+			if (inet_pton(AF_INET, addr, &ia) < 0)
+				goto free_addr;
+
+			/* Is a matching address already set on interface? */
+			if (ia.s_addr == address)
+				ret = -EALREADY;
+			else
+				ret = 0;
+		} else if (address) {
+			/* No address in config, but interface has one set */
+			addr = l_strdup(inet_ntoa(ia));
+			ret = -EALREADY;
+		} else
+			goto free_addr;
+
+		/* Set the remaining DHCP options in config file */
+		if (!dhcp_load_settings(ap, settings)) {
+			ret = -EINVAL;
+			goto free_addr;
+		}
+
+		if (!l_dhcp_server_set_ip_address(ap->server, addr)) {
+			ret = -EINVAL;
+			goto free_addr;
+		}
+
+		ap->own_ip = l_strdup(addr);
+
+free_addr:
+		l_free(addr);
+
+		return ret;
+	} else if (address) {
+		/* No config file and address is already set */
+		ap->own_ip = l_strdup(inet_ntoa(ia));
+
+		return -EALREADY;
+	} else if (pool.used) {
+		/* No config file, no address set. Use IP pool */
+		ap->own_ip = ip_pool_get();
+		if (!ap->own_ip) {
+			l_error("No more IP's in pool, cannot start AP on %u",
+					ifindex);
+			return -EEXIST;
+		}
+
+		ap->use_ip_pool = true;
+		ap->ip_prefix = pool.prefix;
+
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+static int ap_load_profile_and_dhcp(struct ap_state *ap, bool *wait_dhcp)
+{
+	uint32_t ifindex = netdev_get_ifindex(ap->netdev);
 	char *passphrase;
-	L_AUTO_FREE_VAR(struct l_settings *, settings) = l_settings_new();
+	L_AUTO_FREE_VAR(struct l_settings *, settings) = NULL;
+	int err;
 
-	if (!l_settings_load_from_file(settings, ap->config->profile))
-		return false;
+	/* No profile or DHCP settings */
+	if (!ap->config->profile && !pool.used)
+		return 0;
 
-	passphrase = l_settings_get_string(settings, "Security", "Passphrase");
-	if (passphrase) {
-		if (strlen(passphrase) > 63) {
-			l_error("[Security].Passphrase must not exceed "
-					"63 characters");
+	if (ap->config->profile) {
+		settings = l_settings_new();
+
+		if (!l_settings_load_from_file(settings, ap->config->profile))
+			return -EINVAL;
+
+		passphrase = l_settings_get_string(settings, "Security",
+							"Passphrase");
+		if (passphrase) {
+			if (strlen(passphrase) > 63) {
+				l_error("[Security].Passphrase must not exceed "
+						"63 characters");
+				return -EINVAL;
+			}
+
+			strcpy(ap->config->passphrase, passphrase);
+			l_free(passphrase);
+		}
+
+		if (!l_settings_has_group(settings, "IPv4")) {
+			*wait_dhcp = false;
+			return 0;
+		}
+	}
+
+	err = ap_setup_dhcp(ap, settings);
+	if (err == 0) {
+		/* Address change required */
+		ap->rtnl_add_cmd = l_rtnl_ifaddr4_add(rtnl, ifindex,
+					ap->ip_prefix, ap->own_ip,
+					broadcast_from_ip(ap->own_ip),
+					ap_ifaddr4_added_cb, ap, NULL);
+
+		if (!ap->rtnl_add_cmd) {
+			l_error("Failed to add IPv4 address");
 			return false;
 		}
 
-		strcpy(ap->config->passphrase, passphrase);
-		l_free(passphrase);
+		ap->cleanup_ip = true;
+
+		*wait_dhcp = true;
+
+		return 0;
+	/* Selected address already set, continue normally */
+	} else if (err == -EALREADY) {
+		*wait_dhcp = false;
+
+		return 0;
 	}
 
-	l_info("Loaded AP configuration %s", ap->config->ssid);
-	return true;
+	return err;
 }
 
 /*
@@ -2256,9 +2450,8 @@ struct ap_state *ap_start(struct netdev *netdev, struct ap_config *config,
 	struct wiphy *wiphy = netdev_get_wiphy(netdev);
 	struct l_genl_msg *cmd;
 	uint64_t wdev_id = netdev_get_wdev_id(netdev);
-	uint32_t ifindex = netdev_get_ifindex(netdev);
-	struct in_addr ia;
 	int err = -EINVAL;
+	bool wait_on_address = false;
 
 	if (err_out)
 		*err_out = err;
@@ -2277,7 +2470,14 @@ struct ap_state *ap_start(struct netdev *netdev, struct ap_config *config,
 	ap->ops = ops;
 	ap->user_data = user_data;
 
-	if (config->profile && !ap_load_profile(ap))
+	/*
+	 * This both loads a profile if required and loads DHCP settings either
+	 * by the profile itself or the IP pool (or does nothing in the case
+	 * of a profile-less configuration). wait_on_address will be set true
+	 * if an address change is required.
+	 */
+	err = ap_load_profile_and_dhcp(ap, &wait_on_address);
+	if (err < 0)
 		goto error;
 
 	if (!config->channel)
@@ -2361,54 +2561,13 @@ struct ap_state *ap_start(struct netdev *netdev, struct ap_config *config,
 	if (!ap->mlme_watch)
 		l_error("Registering for MLME notification failed");
 
-	/* No IP pool initialized, DHCP is not being used */
-	if (!pool.used)
-		goto done;
-
-	ap->server = l_dhcp_server_new(ifindex);
-	if (!ap->server) {
-		l_error("Failed to create DHCP server on %u", ifindex);
-		goto error;
-	}
-
-	if (getenv("IWD_DHCP_DEBUG"))
-		l_dhcp_server_set_debug(ap->server, do_debug,
-							"[DHCPv4 SERV] ", NULL);
-
-	/*
-	 * If there is no IP set on the interface use one from the IP pool
-	 * defined in main.conf.
-	 */
-	if (!l_net_get_address(ifindex, &ia) || ia.s_addr == 0) {
-		ap->own_ip = ip_pool_get();
-
-		if (!ap->own_ip) {
-			l_error("No more IP's in pool, cannot start AP on %u",
-					ifindex);
-			err = -EEXIST;
-			goto error;
-		}
-
-		ap->rtnl_add_cmd = l_rtnl_ifaddr4_add(rtnl, ifindex,
-					pool.prefix, ap->own_ip,
-					broadcast_from_ip(ap->own_ip),
-					ap_ifaddr4_added_cb, ap, NULL);
-
-		if (!ap->rtnl_add_cmd) {
-			l_error("Failed to add IPv4 address");
-			goto error;
-		}
-
-
+	if (wait_on_address) {
 		if (err_out)
 			*err_out = 0;
 
-		/* Finish starting AP in added callback */
 		return ap;
 	}
-	/* Else honor the IP set on the interface prior to calling Start() */
 
-done:
 	cmd = ap_build_cmd_start_ap(ap);
 	if (!cmd)
 		goto error;
@@ -2876,9 +3035,9 @@ static int ap_init(void)
 
 		if (!ip_pool_create(ip_prefix))
 			return -EINVAL;
-
-		rtnl = iwd_get_rtnl();
 	}
+
+	rtnl = iwd_get_rtnl();
 
 	return 0;
 }
