@@ -467,7 +467,7 @@ class Device(IWDDBusAbstract):
                                         error_handler=self._failure)
         self._wait_for_async_op()
 
-    def start_ap(self, ssid, psk):
+    def start_ap(self, ssid, psk=None):
         try:
             self._prop_proxy.Set(IWD_DEVICE_INTERFACE, 'Mode', 'ap')
         except Exception as e:
@@ -476,8 +476,12 @@ class Device(IWDDBusAbstract):
         self._ap_iface = dbus.Interface(self._bus.get_object(IWD_SERVICE,
                                             self.device_path),
                                             IWD_AP_INTERFACE)
-        self._ap_iface.Start(ssid, psk, reply_handler=self._success,
-                                     error_handler=self._failure)
+        if psk:
+            self._ap_iface.Start(ssid, psk, reply_handler=self._success,
+                                    error_handler=self._failure)
+        else:
+            self._ap_iface.StartProfile(ssid, reply_handler=self._success,
+                                    error_handler=self._failure)
         self._wait_for_async_op()
 
     def stop_ap(self):
