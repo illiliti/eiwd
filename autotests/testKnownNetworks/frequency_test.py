@@ -67,7 +67,7 @@ class Test(unittest.TestCase):
         hs20_freqs = None
         hs20_uuid = None
         config = ConfigParser()
-        config.read('/var/lib/iwd/.known_network.freq')
+        config.read('/tmp/iwd/.known_network.freq')
         for s in config.sections():
             if os.path.basename(config[s]['name']) == 'ssidCCMP.psk':
                 psk_freqs = config[s]['list']
@@ -116,7 +116,7 @@ class Test(unittest.TestCase):
         psk_uuid2 = None
         hs20_freqs = None
         config = ConfigParser()
-        config.read('/var/lib/iwd/.known_network.freq')
+        config.read('/tmp/iwd/.known_network.freq')
         for s in config.sections():
             self.assertNotEqual(os.path.basename(config[s]['name']),
                                     'example.conf')
