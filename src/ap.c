@@ -3028,9 +3028,14 @@ static int ap_init(void)
 
 		ip_prefix = l_settings_get_string(settings, "General",
 							"APRanges");
+		/*
+		 * In this case its assumed the user only cares about station
+		 * netconfig so we let ap_init pass but DHCP will not be
+		 * enabled.
+		 */
 		if (!ip_prefix) {
-			l_error("[General].APRanges must be set for DHCP");
-			return -EINVAL;
+			l_warn("[General].APRanges must be set for DHCP");
+			return 0;
 		}
 
 		if (!ip_pool_create(ip_prefix))
