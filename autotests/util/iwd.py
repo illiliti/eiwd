@@ -705,17 +705,22 @@ class OrderedNetwork(object):
                         str(self.signal_strength)) + '\n'\
                 '\tObject: \n' + self.network_object.__str__('\t\t')
 
+agent_count = 0
 
 class PSKAgent(dbus.service.Object):
 
     def __init__(self, passphrases=[], users=[]):
+        global agent_count
+
         if type(passphrases) != list:
             passphrases = [passphrases]
         self.passphrases = passphrases
         if type(users) != list:
             users = [users]
         self.users = users
-        self._path = '/test/agent/' + str(int(round(time.time() * 1000)))
+        self._path = '/test/agent/%s' % agent_count
+
+        agent_count += 1
 
         dbus.service.Object.__init__(self, dbus.SystemBus(), self._path)
 
