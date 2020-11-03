@@ -246,11 +246,10 @@ class Process:
 				raise Exception("Timed out waiting for socket")
 
 class Interface:
-	def __init__(self, name, config, radio):
+	def __init__(self, name, config):
 		self.name = name
 		self.ctrl_interface = '/var/run/hostapd/' + name
 		self.config = config
-		self.radio = radio
 
 	def __del__(self):
 		Process(['iw', 'dev', self.name, 'del'], True)
@@ -276,7 +275,7 @@ class Radio:
 
 		intf_id += 1
 
-		self.interface = Interface(ifname, config, self)
+		self.interface = Interface(ifname, config)
 		self.use = use
 
 		Process(['iw', 'phy', self.name, 'interface', 'add', ifname,
