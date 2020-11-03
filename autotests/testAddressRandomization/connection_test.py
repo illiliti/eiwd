@@ -54,7 +54,7 @@ class Test(unittest.TestCase):
         wd.wait_for_object_condition(device, condition)
 
         # 1. Test per-network deterministic MAC generation
-        os.system('cat pernetwork.psk > /var/lib/iwd/ssidCCMP.psk')
+        os.system('cat pernetwork.psk > /tmp/iwd/ssidCCMP.psk')
         new_addr = self.try_connection(wd)
         self.assertNotEqual(perm_addr, new_addr)
         # try again to ensure the generation was deterministic
@@ -62,7 +62,7 @@ class Test(unittest.TestCase):
         self.assertEqual(new_addr, new_addr2)
 
         # 2. Test FullAddressRandomization
-        os.system('cat full_random.psk > /var/lib/iwd/ssidCCMP.psk')
+        os.system('cat full_random.psk > /tmp/iwd/ssidCCMP.psk')
         new_addr = self.try_connection(wd)
         self.assertNotEqual(perm_addr, new_addr)
         # try again to make sure the generation was random
@@ -70,7 +70,7 @@ class Test(unittest.TestCase):
         self.assertNotEqual(new_addr, new_addr2)
 
         # 3. Test AddressOverride
-        os.system('cat override.psk > /var/lib/iwd/ssidCCMP.psk')
+        os.system('cat override.psk > /tmp/iwd/ssidCCMP.psk')
         new_addr = self.try_connection(wd)
         self.assertEqual(new_addr, 'e6:f6:38:a9:02:02')
 
