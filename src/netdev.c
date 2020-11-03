@@ -671,16 +671,6 @@ struct netdev *netdev_find(int ifindex)
 	return l_queue_find(netdev_list, netdev_match, L_UINT_TO_PTR(ifindex));
 }
 
-static void netdev_lost_beacon(struct netdev *netdev)
-{
-	if (!netdev->connected)
-		return;
-
-	if (netdev->event_filter)
-		netdev->event_filter(netdev, NETDEV_EVENT_LOST_BEACON, NULL,
-							netdev->user_data);
-}
-
 /* Threshold RSSI for roaming to trigger, configurable in main.conf */
 static int LOW_SIGNAL_THRESHOLD;
 
@@ -771,10 +761,6 @@ static void netdev_cqm_event(struct l_genl_msg *msg, struct netdev *netdev)
 
 			while (l_genl_attr_next(&nested, &type, &len, &data)) {
 				switch (type) {
-				case NL80211_ATTR_CQM_BEACON_LOSS_EVENT:
-					netdev_lost_beacon(netdev);
-					break;
-
 				case NL80211_ATTR_CQM_RSSI_THRESHOLD_EVENT:
 					if (len != 4)
 						continue;
