@@ -2085,29 +2085,6 @@ static bool station_cannot_roam(struct station *station)
 					station->state == STATION_STATE_ROAMING;
 }
 
-static void station_lost_beacon(struct station *station)
-{
-	l_debug("%u", netdev_get_ifindex(station->netdev));
-
-	if (station->state != STATION_STATE_ROAMING &&
-			station->state != STATION_STATE_CONNECTED)
-		return;
-
-	/*
-	 * Tell the roam mechanism to not bother requesting Neighbor Reports,
-	 * preauthenticating or performing other over-the-DS type of
-	 * authentication to target AP, even while station->connected_bss is
-	 * still non-NULL.  The current connection is in a serious condition
-	 * and we might wasting our time with those mechanisms.
-	 */
-	station->roam_no_orig_ap = true;
-
-	if (station_cannot_roam(station))
-		return;
-
-	station_roam_trigger_cb(NULL, station);
-}
-
 #define WNM_REQUEST_MODE_PREFERRED_CANDIDATE_LIST	(1 << 0)
 #define WNM_REQUEST_MODE_TERMINATION_IMMINENT		(1 << 3)
 #define WNM_REQUEST_MODE_ESS_DISASSOCIATION_IMMINENT	(1 << 4)
@@ -2234,9 +2211,6 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 		break;
 	case NETDEV_EVENT_ASSOCIATING:
 		l_debug("Associating");
-		break;
-	case NETDEV_EVENT_LOST_BEACON:
-		station_lost_beacon(station);
 		break;
 	case NETDEV_EVENT_DISCONNECT_BY_AP:
 	case NETDEV_EVENT_DISCONNECT_BY_SME:

@@ -247,9 +247,6 @@ static void wsc_enrollee_netdev_event(struct netdev *netdev,
 	case NETDEV_EVENT_AUTHENTICATING:
 	case NETDEV_EVENT_ASSOCIATING:
 		break;
-	case NETDEV_EVENT_LOST_BEACON:
-		l_debug("Lost beacon");
-		break;
 	case NETDEV_EVENT_DISCONNECT_BY_AP:
 		l_debug("Disconnect by AP");
 		wsc_enrollee_connect_cb(wsce->netdev,
