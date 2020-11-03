@@ -62,7 +62,8 @@ class Test(unittest.TestCase):
         ctx.start_process(['ifconfig', hapd.ifname, '192.168.1.1', 'netmask', '255.255.255.0'],
                                 wait=True)
         ctx.start_process(['touch', '/tmp/dhcpd.leases'], wait=True)
-        ctx.start_process(['dhcpd', '-cf', '/tmp/dhcpd.conf', '-lf', '/tmp/dhcpd.leases'])
+        ctx.start_process(['dhcpd', '-cf', '/tmp/dhcpd.conf', '-lf', '/tmp/dhcpd.leases',
+                            hapd.ifname])
 
     @classmethod
     def tearDownClass(cls):
