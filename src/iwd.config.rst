@@ -67,9 +67,22 @@ The group ``[General]`` contains general settings.
        obtain the dynamic addresses from the network through the built-in
        DHCP client.
 
+       This also enables DHCP server when in AP mode when either
+       [General].APRanges is set or an AP profile is being used.
+
        The network configuration feature is disabled by default.  See
        ``[Network]`` settings for additional settings related to network
        configuration.
+
+   * - APRanges
+     - Values: <IP in prefix notation>
+
+       Sets the range of IP's used for DHCP server (AP mode). The IP should be
+       in prefix notation e.g. aaa.bbb.ccc.ddd/xx. AP's which are started in a
+       profile-less configuration will use this pool of IP's to set the AP's
+       interface address as well as default DHCP server options. Each AP will
+       get a new subnet from the range and clients will be addressed in that
+       subnet to avoid IP conflicts if multiple AP's are started.
 
    * - UseDefaultInterface
      - Values: true, **false**
