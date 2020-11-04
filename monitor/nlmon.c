@@ -6871,6 +6871,24 @@ static const char *family_to_string(uint8_t family)
 	}
 }
 
+static const char *protocol_to_string(uint8_t proto)
+{
+	switch (proto) {
+	case RTPROT_DHCP:
+		return "dhcp";
+	case RTPROT_RA:
+		return "ra";
+	case RTPROT_KERNEL:
+		return "kernel";
+	case RTPROT_BOOT:
+		return "boot";
+	case RTPROT_STATIC:
+		return "static";
+	default:
+		return "Unknown";
+	}
+}
+
 static void print_ifinfomsg(const struct ifinfomsg *info)
 {
 	static struct flag_names iff_flags[] = {
@@ -6936,7 +6954,8 @@ static void print_rtmsg(const struct rtmsg *msg)
 	print_field("RTM Source Len: %hhu", msg->rtm_src_len);
 	print_field("RTM TOS Field: %hhu", msg->rtm_tos);
 	print_field("RTM Table: %hhu", msg->rtm_table);
-	print_field("RTM Protocol: %hhu", msg->rtm_protocol);
+	print_field("RTM Protocol: %s",
+			protocol_to_string(msg->rtm_protocol));
 	print_field("RTM Scope: %s", scope_to_string(msg->rtm_scope));
 	print_field("RTM Type: %hhu", msg->rtm_type);
 	flags_str(rtm_flags, str, sizeof(str), msg->rtm_flags);
