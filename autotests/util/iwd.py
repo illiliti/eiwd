@@ -1055,14 +1055,10 @@ class IWD(AsyncOpAbstract):
 
     @staticmethod
     def copy_to_hotspot(source):
-        import shutil
-
-        assert not os.path.isabs(source)
-
         if not os.path.exists(IWD_STORAGE_DIR + "/hotspot"):
             os.mkdir(IWD_STORAGE_DIR + "/hotspot")
 
-        shutil.copy(source, IWD_STORAGE_DIR + "/hotspot")
+        IWD.copy_to_storage(source, IWD_STORAGE_DIR + "/hotspot")
 
     @staticmethod
     def copy_to_ap(source):
