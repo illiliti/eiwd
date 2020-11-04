@@ -25,6 +25,18 @@ Methods		void Start(string ssid, string psk)
 						net.connman.iwd.Failed
 						net.connman.iwd.InvalidArguments
 
+		void StartProfile(string ssid)
+
+			Start a profile based access point. A profile must exist
+			in IWD's AP configuration directory (/var/lib/iwd/ap/
+			by default) of the name <ssid>.ap.
+
+			Possible errors:	net.connman.iwd.Busy
+						net.connman.iwd.Failed
+						net.connman.iwd.InvalidArguments
+						net.connman.iwd.AlreadyExists
+						net.connman.iwd.NotFound
+
 Properties	boolean Started [readonly]
 
 			Reflects whether an access point has been started.
