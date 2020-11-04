@@ -6701,6 +6701,32 @@ static void print_inet_addr(unsigned int indent, const char *str,
 	print_attr(indent, "%s: %s", str, ip);
 }
 
+static void print_cacheinfo(unsigned int indent, const char *str,
+						const void *buf, uint16_t size)
+{
+	const struct ifa_cacheinfo *cinfo = buf;
+
+	print_attr(indent, "%s:", str);
+
+	if (size != sizeof(struct ifa_cacheinfo)) {
+		printf("malformed packet\n");
+		return;
+	}
+
+	if (cinfo->ifa_prefered == 0xffffffffu)
+		print_attr(indent + 1, "ifa_prefered: infinite");
+	else
+		print_attr(indent + 1, "ifa_prefered: %u", cinfo->ifa_prefered);
+
+	if (cinfo->ifa_valid == 0xffffffffu)
+		print_attr(indent + 1, "ifa_valid: infinite");
+	else
+		print_attr(indent + 1, "ifa_valid: %u", cinfo->ifa_valid);
+
+	print_attr(indent + 1, "tstamp: %u, cstamp: %u",
+				cinfo->tstamp, cinfo->cstamp);
+}
+
 static struct attr_entry addr_entry[] = {
 	{ IFA_ADDRESS,		"Interface Address", ATTR_CUSTOM,
 					{ .function = print_inet_addr } },
@@ -6711,7 +6737,8 @@ static struct attr_entry addr_entry[] = {
 	{ IFA_ANYCAST,		"Anycast Address", ATTR_CUSTOM,
 					{ .function = print_inet_addr } },
 	{ IFA_LABEL,		"Label",	ATTR_STRING },
-	{ IFA_CACHEINFO,	"CacheInfo",	ATTR_BINARY },
+	{ IFA_CACHEINFO,	"CacheInfo",	ATTR_CUSTOM,
+					{ .function = print_cacheinfo } },
 	{ IFA_FLAGS,		"Flags", ATTR_CUSTOM,
 					{ .function = print_ifa_flags } },
 	{ },
