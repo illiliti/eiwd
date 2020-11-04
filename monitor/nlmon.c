@@ -6744,6 +6744,11 @@ static struct attr_entry addr_entry[] = {
 	{ },
 };
 
+static const struct attr_entry metrics_table[] = {
+	{ RTAX_MTU,	"MTU",		ATTR_U32 },
+	{ }
+};
+
 static struct attr_entry route_entry[] = {
 	{ RTA_DST,		"Destination Address", ATTR_CUSTOM,
 					{ .function = print_inet_addr } },
@@ -6754,10 +6759,13 @@ static struct attr_entry route_entry[] = {
 	{ RTA_GATEWAY,		"Gateway", ATTR_CUSTOM,
 					{ .function = print_inet_addr } },
 	{ RTA_PRIORITY,		"Priority of the route", ATTR_S32 },
-	{ RTA_METRICS,		"Metric of the route", ATTR_S32 },
 	{ RTA_TABLE,		"Routing Table", ATTR_U32 },
+	{ RTA_EXPIRES,		"Route lifetime", ATTR_U32 },
+	{ RTA_PREF,		"Route Preference", ATTR_U8 },
 	{ RTA_PREFSRC,		"Preferred Source", ATTR_CUSTOM,
 					{ .function = print_inet_addr } },
+	{ RTA_METRICS,		"Metrics",
+				ATTR_NESTED, { metrics_table } },
 	{ },
 };
 
