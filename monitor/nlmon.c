@@ -6949,7 +6949,7 @@ static void print_rtmsg(const struct rtmsg *msg)
 	};
 	char str[256];
 
-	print_field("RTM Family: %hhu", msg->rtm_family);
+	print_field("RTM Family: %s", family_to_string(msg->rtm_family));
 	print_field("RTM Destination Len: %hhu", msg->rtm_dst_len);
 	print_field("RTM Source Len: %hhu", msg->rtm_src_len);
 	print_field("RTM TOS Field: %hhu", msg->rtm_tos);
