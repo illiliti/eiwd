@@ -6687,13 +6687,18 @@ static void print_ifa_flags(unsigned int indent, const char *str,
 static void print_inet_addr(unsigned int indent, const char *str,
 						const void *buf, uint16_t size)
 {
-	struct in_addr addr;
+	int family;
+	char ip[INET6_ADDRSTRLEN];
 
-	if (size != sizeof(struct in_addr))
+	if (size == sizeof(struct in_addr))
+		family = AF_INET;
+	else if (size == sizeof(struct in6_addr))
+		family = AF_INET6;
+	else
 		return;
 
-	addr = *((struct in_addr *) buf);
-	print_attr(indent, "%s: %s", str, inet_ntoa(addr));
+	inet_ntop(family, buf, ip, sizeof(ip));
+	print_attr(indent, "%s: %s", str, ip);
 }
 
 static struct attr_entry addr_entry[] = {
