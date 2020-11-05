@@ -30,6 +30,12 @@
 #include <netinet/if_ether.h>
 #include <netinet/in.h>
 #include <linux/rtnetlink.h>
+#include <limits.h>
+#include <string.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <ell/ell.h>
 
@@ -45,6 +51,7 @@
 struct netconfig {
 	uint32_t ifindex;
 	struct l_dhcp_client *dhcp_client;
+	struct l_dhcp6_client *dhcp6_client;
 	struct l_queue *ifaddr_list;
 	uint8_t rtm_protocol;
 	uint8_t rtm_v6_protocol;
@@ -80,6 +87,38 @@ static void do_debug(const char *str, void *user_data)
 	l_info("%s%s", prefix, str);
 }
 
+static int write_string(const char *file, const char *value)
+{
+	size_t l = strlen(value);
+	int fd;
+	int r;
+
+	fd = L_TFR(open(file, O_WRONLY));
+	if (fd < 0)
+		return -errno;
+
+	r = L_TFR(write(fd, value, l));
+	L_TFR(close(fd));
+
+	return r;
+}
+
+static int sysfs_write_ipv6_setting(const char *ifname, const char *setting,
+					const char *value)
+{
+	int r;
+
+	L_AUTO_FREE_VAR(char *, file) =
+		l_strdup_printf("/proc/sys/net/ipv6/conf/%s/%s",
+							ifname, setting);
+
+	r = write_string(file, value);
+	if (r < 0)
+		l_error("Unable to write %s to %s", setting, file);
+
+	return r;
+}
+
 static void netconfig_ifaddr_destroy(void *data)
 {
 	struct netconfig_ifaddr *ifaddr = data;
@@ -95,6 +134,7 @@ static void netconfig_free(void *data)
 	struct netconfig *netconfig = data;
 
 	l_dhcp_client_destroy(netconfig->dhcp_client);
+	l_dhcp6_client_destroy(netconfig->dhcp6_client);
 
 	l_queue_destroy(netconfig->ifaddr_list, netconfig_ifaddr_destroy);
 
@@ -582,6 +622,10 @@ static void netconfig_ifaddr_ipv6_added(struct netconfig *netconfig,
 					uint32_t len)
 {
 	struct netconfig_ifaddr *ifaddr;
+	struct in6_addr in6;
+
+	if (ifa->ifa_flags & IFA_F_TENTATIVE)
+		return;
 
 	ifaddr = l_new(struct netconfig_ifaddr, 1);
 	ifaddr->family = ifa->ifa_family;
@@ -593,6 +637,22 @@ static void netconfig_ifaddr_ipv6_added(struct netconfig *netconfig,
 							ifaddr->prefix_len);
 
 	l_queue_push_tail(netconfig->ifaddr_list, ifaddr);
+
+	if (netconfig->rtm_v6_protocol != RTPROT_DHCP)
+		return;
+
+	inet_pton(AF_INET6, ifaddr->ip, &in6);
+	if (!IN6_IS_ADDR_LINKLOCAL(&in6))
+		return;
+
+	l_dhcp6_client_set_link_local_address(netconfig->dhcp6_client,
+						ifaddr->ip);
+
+	if (l_dhcp6_client_start(netconfig->dhcp6_client))
+		return;
+
+	l_error("netconfig: Failed to start DHCPv6 client for "
+			"interface %u", netconfig->ifindex);
 }
 
 static void netconfig_ifaddr_ipv6_deleted(struct netconfig *netconfig,
@@ -998,19 +1058,25 @@ static void netconfig_ipv4_dhcp_event_handler(struct l_dhcp_client *client,
 	}
 }
 
-static bool netconfig_ipv4_dhcp_create(struct netconfig *netconfig)
+static void netconfig_dhcp6_event_handler(struct l_dhcp6_client *client,
+						enum l_dhcp6_client_event event,
+						void *userdata)
 {
-	netconfig->dhcp_client = l_dhcp_client_new(netconfig->ifindex);
+	struct netconfig *netconfig = userdata;
 
-	l_dhcp_client_set_event_handler(netconfig->dhcp_client,
-					netconfig_ipv4_dhcp_event_handler,
-					netconfig, NULL);
-
-	if (getenv("IWD_DHCP_DEBUG"))
-		l_dhcp_client_set_debug(netconfig->dhcp_client, do_debug,
-							"[DHCPv4] ", NULL);
-
-	return true;
+	switch (event) {
+	case L_DHCP6_CLIENT_EVENT_IP_CHANGED:
+	case L_DHCP6_CLIENT_EVENT_LEASE_OBTAINED:
+	case L_DHCP6_CLIENT_EVENT_LEASE_RENEWED:
+		break;
+	case L_DHCP6_CLIENT_EVENT_LEASE_EXPIRED:
+		l_debug("Lease for interface %u expired", netconfig->ifindex);
+		break;
+	case L_DHCP6_CLIENT_EVENT_NO_LEASE:
+		l_error("netconfig: Failed to obtain DHCPv6 lease "
+				"for interface %u", netconfig->ifindex);
+		break;
+	}
 }
 
 static void netconfig_ipv4_select_and_install(struct netconfig *netconfig)
@@ -1061,17 +1127,7 @@ static void netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 		return;
 	}
 
-	/*
-	 *      TODO
-	 *
-	 *      netconfig->rtm_v6_protocol = RTPROT_DHCP;
-	 *
-	 *      if (l_dhcp_v6_client_start(netconfig->l_dhcp_v6_client))
-	 *            return;
-	 *
-	 *      l_error("netconfig: Failed to start DHCPv6 client for "
-	 *                  "interface %u", netconfig->ifindex);
-	 */
+	netconfig->rtm_v6_protocol = RTPROT_DHCP;
 }
 
 static void netconfig_ipv6_select_and_uninstall(struct netconfig *netconfig)
@@ -1079,17 +1135,14 @@ static void netconfig_ipv6_select_and_uninstall(struct netconfig *netconfig)
 	struct netconfig_ifaddr *ifaddr;
 	char *gateway;
 
+	l_dhcp6_client_stop(netconfig->dhcp6_client);
+
 	ifaddr = netconfig_ipv6_get_ifaddr(netconfig,
 						netconfig->rtm_v6_protocol);
 	if (ifaddr) {
 		netconfig_uninstall_address(netconfig, ifaddr);
 		netconfig_ifaddr_destroy(ifaddr);
 	}
-
-	/*
-	 * TODO
-	 * l_dhcp_v6_client_stop(netconfig->l_dhcp_v6_client);
-	 */
 
 	gateway = netconfig_ipv6_get_gateway(netconfig);
 	if (!gateway)
@@ -1116,6 +1169,8 @@ bool netconfig_configure(struct netconfig *netconfig,
 	netconfig->user_data = user_data;
 
 	l_dhcp_client_set_address(netconfig->dhcp_client, ARPHRD_ETHER,
+							mac_address, ETH_ALEN);
+	l_dhcp6_client_set_address(netconfig->dhcp6_client, ARPHRD_ETHER,
 							mac_address, ETH_ALEN);
 
 	netconfig_ipv4_select_and_install(netconfig);
@@ -1167,7 +1222,9 @@ char *netconfig_get_dhcp_server_ipv4(struct netconfig *netconfig)
 
 struct netconfig *netconfig_new(uint32_t ifindex)
 {
+	struct netdev *netdev = netdev_find(ifindex);
 	struct netconfig *netconfig;
+	struct l_icmp6_client *icmp6;
 
 	if (!netconfig_list)
 		return NULL;
@@ -1183,9 +1240,34 @@ struct netconfig *netconfig_new(uint32_t ifindex)
 	netconfig->ifaddr_list = l_queue_new();
 	netconfig->resolve = resolve_new(ifindex);
 
-	netconfig_ipv4_dhcp_create(netconfig);
+	netconfig->dhcp_client = l_dhcp_client_new(ifindex);
+	l_dhcp_client_set_event_handler(netconfig->dhcp_client,
+					netconfig_ipv4_dhcp_event_handler,
+					netconfig, NULL);
+
+	if (getenv("IWD_DHCP_DEBUG"))
+		l_dhcp_client_set_debug(netconfig->dhcp_client, do_debug,
+							"[DHCPv4] ", NULL);
+
+	netconfig->dhcp6_client = l_dhcp6_client_new(ifindex);
+	l_dhcp6_client_set_event_handler(netconfig->dhcp6_client,
+						netconfig_dhcp6_event_handler,
+						netconfig, NULL);
+	l_dhcp6_client_set_lla_randomized(netconfig->dhcp6_client, true);
+	l_dhcp6_client_set_nodelay(netconfig->dhcp6_client, true);
+	l_dhcp6_client_set_rtnl(netconfig->dhcp6_client, rtnl);
+
+	if (getenv("IWD_DHCP_DEBUG"))
+		l_dhcp6_client_set_debug(netconfig->dhcp6_client, do_debug,
+							"[DHCPv6] ", NULL);
+
+	icmp6 = l_dhcp6_client_get_icmp6(netconfig->dhcp6_client);
+	l_icmp6_client_set_rtnl(icmp6, rtnl);
+	l_icmp6_client_set_route_priority(icmp6, ROUTE_PRIORITY_OFFSET);
 
 	l_queue_push_tail(netconfig_list, netconfig);
+
+	sysfs_write_ipv6_setting(netdev_get_name(netdev), "accept_ra", "0");
 
 	return netconfig;
 }
