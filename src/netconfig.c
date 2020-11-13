@@ -79,6 +79,7 @@ static struct l_queue *netconfig_list;
  * priority offset is preferred.
  */
 static uint32_t ROUTE_PRIORITY_OFFSET;
+static bool ipv6_enabled;
 
 static void do_debug(const char *str, void *user_data)
 {
@@ -1116,7 +1117,20 @@ static void netconfig_ipv4_select_and_uninstall(struct netconfig *netconfig)
 
 static void netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 {
+	struct netdev *netdev = netdev_find(netconfig->ifindex);
 	struct netconfig_ifaddr *ifaddr;
+	bool enabled;
+
+	if (!l_settings_get_bool(netconfig->active_settings, "IPv6",
+					"Enabled", &enabled))
+		enabled = ipv6_enabled;
+
+	if (!enabled) {
+		l_debug("IPV6 configuration disabled");
+		return;
+	}
+
+	sysfs_write_ipv6_setting(netdev_get_name(netdev), "disable_ipv6", "0");
 
 	ifaddr = netconfig_ipv6_get_ifaddr(netconfig, RTPROT_STATIC);
 	if (ifaddr) {
@@ -1195,6 +1209,8 @@ bool netconfig_reconfigure(struct netconfig *netconfig)
 
 bool netconfig_reset(struct netconfig *netconfig)
 {
+	struct netdev *netdev = netdev_find(netconfig->ifindex);
+
 	netconfig_ipv4_select_and_uninstall(netconfig);
 	netconfig->rtm_protocol = 0;
 
@@ -1202,6 +1218,8 @@ bool netconfig_reset(struct netconfig *netconfig)
 	netconfig->rtm_v6_protocol = 0;
 
 	resolve_revert(netconfig->resolve);
+
+	sysfs_write_ipv6_setting(netdev_get_name(netdev), "disable_ipv6", "1");
 
 	return true;
 }
@@ -1268,6 +1286,7 @@ struct netconfig *netconfig_new(uint32_t ifindex)
 	l_queue_push_tail(netconfig_list, netconfig);
 
 	sysfs_write_ipv6_setting(netdev_get_name(netdev), "accept_ra", "0");
+	sysfs_write_ipv6_setting(netdev_get_name(netdev), "disable_ipv6", "1");
 
 	return netconfig;
 }
@@ -1334,6 +1353,11 @@ static int netconfig_init(void)
 							"RoutePriorityOffset",
 							&ROUTE_PRIORITY_OFFSET))
 		ROUTE_PRIORITY_OFFSET = 300;
+
+	if (!l_settings_get_bool(iwd_get_config(), "Network",
+					"EnableIPv6",
+					&ipv6_enabled))
+		ipv6_enabled = false;
 
 	netconfig_list = l_queue_new();
 
