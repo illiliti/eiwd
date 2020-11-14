@@ -702,7 +702,8 @@ static uint32_t ap_send_mgmt_frame(struct ap_state *ap,
 					callback, user_data, NULL, NULL);
 }
 
-static void ap_start_handshake(struct sta_state *sta, bool use_eapol_start)
+static void ap_start_handshake(struct sta_state *sta, bool use_eapol_start,
+				const uint8_t *gtk_rsc)
 {
 	struct ap_state *ap = sta->ap;
 	const uint8_t *own_addr = netdev_get_address(ap->netdev);
@@ -721,6 +722,10 @@ static void ap_start_handshake(struct sta_state *sta, bool use_eapol_start)
 	 */
 	ie_build_rsne(&rsn, bss_rsne);
 	handshake_state_set_authenticator_ie(sta->hs, bss_rsne);
+
+	if (gtk_rsc)
+		handshake_state_set_gtk(sta->hs, sta->ap->gtk,
+					sta->ap->gtk_index, gtk_rsc);
 
 	sta->sm = eapol_sm_new(sta->hs);
 	if (!sta->sm) {
@@ -774,12 +779,7 @@ static void ap_start_rsna(struct sta_state *sta, const uint8_t *gtk_rsc)
 	handshake_state_set_event_func(sta->hs, ap_handshake_event, sta);
 	handshake_state_set_supplicant_ie(sta->hs, sta->assoc_rsne);
 	handshake_state_set_pmk(sta->hs, sta->ap->config->psk, 32);
-
-	if (gtk_rsc)
-		handshake_state_set_gtk(sta->hs, sta->ap->gtk,
-					sta->ap->gtk_index, gtk_rsc);
-
-	ap_start_handshake(sta, false);
+	ap_start_handshake(sta, false, gtk_rsc);
 }
 
 static void ap_gtk_query_cb(struct l_genl_msg *msg, void *user_data)
@@ -924,7 +924,7 @@ static void ap_start_eap_wsc(struct sta_state *sta)
 	handshake_state_set_event_func(sta->hs, ap_wsc_handshake_event, sta);
 	handshake_state_set_8021x_config(sta->hs, sta->wsc_settings);
 
-	ap_start_handshake(sta, wait_for_eapol_start);
+	ap_start_handshake(sta, wait_for_eapol_start, NULL);
 }
 
 static struct l_genl_msg *ap_build_cmd_del_key(struct ap_state *ap)
