@@ -209,17 +209,27 @@ class Process:
 					self.stdout = sys.__stdout__
 					self.stderr = sys.__stderr__
 
-		if not wait and not check:
-			self.pid = subprocess.Popen(self.args, stdout=self.stdout, \
+
+		self.pid = subprocess.Popen(self.args, stdout=self.stdout, \
 							stderr=self.stderr, env=env, \
 							cwd=os.getcwd())
-			print("Starting process {}".format(self.pid.args))
-		else:
-			self.ret = subprocess.call(self.args, stdout=self.stdout, \
-							stderr=self.stderr)
-			print("%s returned %d" % (args[0], self.ret))
-			if check and self.ret != 0:
-				raise subprocess.CalledProcessError(returncode=self.ret, cmd=self.args)
+
+		print("Starting process {}".format(self.pid.args))
+
+		if not wait and not check:
+			return
+
+		self.pid.wait()
+
+		self.out, _ = self.pid.communicate()
+		self.ret = self.pid.returncode
+
+		if self.out:
+			self.out = self.out.decode('utf-8')
+
+		print("%s returned %d" % (args[0], self.ret))
+		if check and self.ret != 0:
+			raise subprocess.CalledProcessError(returncode=self.ret, cmd=self.args)
 
 	def __del__(self):
 		print("Del process %s" % self.args)
