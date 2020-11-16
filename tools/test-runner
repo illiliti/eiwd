@@ -1005,18 +1005,18 @@ def run_auto_tests(ctx, args):
 	shutil.copytree(args.testhome + '/autotests/misc/secrets', '/tmp/secrets')
 	shutil.copy(args.testhome + '/autotests/misc/phonesim/phonesim.conf', '/tmp')
 
-	if args.shell:
-		#
-		# Shell really isn't meant to be used with multiple tests. If
-		# a set of tests was passed in just start out in the first.
-		#
-		os.chdir(tests[0])
-		os.system('/bin/bash')
-		exit()
-
 	for test in tests:
 		try:
 			copied, subtests = pre_test(ctx, test)
+
+			if args.shell:
+				#
+				# Shell really isn't meant to be used with multiple tests. If
+				# a set of tests was passed in just start out in the first.
+				#
+				os.chdir(tests[0])
+				os.system('/bin/bash')
+				exit()
 
 			if len(subtests) < 1:
 				dbg("No tests to run")
