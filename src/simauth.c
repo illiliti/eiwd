@@ -99,7 +99,7 @@ static void destroy_provider(void *data)
 
 void iwd_sim_auth_remove(struct iwd_sim_auth *auth)
 {
-	if (auth->driver->cancel_request)
+	if (auth->driver && auth->driver->cancel_request)
 		auth->driver->cancel_request(auth, auth->pending);
 
 	WATCHLIST_NOTIFY_NO_ARGS(&auth->auth_watchers,
