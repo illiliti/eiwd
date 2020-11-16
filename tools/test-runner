@@ -802,6 +802,7 @@ def build_test_list(args):
 	'''
 	tests = []
 	test_root = args.testhome + '/autotests'
+	full_list = sorted(os.listdir(test_root))
 
 	# Run all tests
 	if not args.auto_tests:
@@ -809,15 +810,19 @@ def build_test_list(args):
 		if args.shell:
 			return [test_root + '/shell']
 
-		tests = os.listdir(test_root)
 		# Pair down any non-tests and append full path
-		tests = [test_root + '/' + t for t in tests if t.startswith('test')]
+		tests = [test_root + '/' + t for t in full_list if t.startswith('test')]
 	else:
 		print("Generating partial test list")
 		for t in args.auto_tests.split(','):
 			path = '%s/%s' % (test_root, t)
-			# Full test path specified
-			if os.path.exists(t):
+			if t.endswith('+'):
+				t = t.split('+')[0]
+				i = full_list.index(t)
+
+				tests = [test_root + '/' + x for x in full_list[i:] \
+							if x.startswith('test')]
+			elif os.path.exists(t):
 				tests.append(t)
 			elif os.path.exists(path):
 				tests.append(path)
