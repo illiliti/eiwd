@@ -152,11 +152,12 @@ class HostapdCLI:
         ctx.start_process(self.cmdline + ['enable'], wait=True)
 
     def list_sta(self):
-        proc = ctx.start_process(self.cmdline + ['list_sta'])
-        proc.pid.wait()
-        lines = proc.pid.stdout.read().decode('utf-8')
+        proc = ctx.start_process(self.cmdline + ['list_sta'], wait=True)
 
-        return [line for line in lines.split('\n') if line]
+        if not proc.out:
+            return []
+
+        return [line for line in proc.out.split('\n') if line]
 
     def set_neighbor(self, addr, ssid, nr):
         cmd = self.cmdline + ['set_neighbor', addr, 'ssid="%s"' % ssid, 'nr=%s' % nr]
