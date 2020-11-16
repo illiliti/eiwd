@@ -291,6 +291,48 @@ network configuration with the static addresses.
        `optional`. DomainName setting can be used to override the DomainName
        value obtained from the DHCP server.
 
+The group ``[IPv6]`` contains settings for Internet Protocol version 6 (IPv6)
+network configuration.
+
+.. list-table::
+   :header-rows: 0
+   :stub-columns: 0
+   :widths: 20 80
+   :align: left
+
+   * - Enabled
+     - Boolean
+
+       Whether IPv6 is enabled for this network.  If not provided, then the
+       global default provided by [Network].EnableIPv6 setting will be used.
+       If IPv6 is disabled, then the 'disable_ipv6' setting in sysfs will be
+       set to 1 and no IPv6 addresses or routes will be created for this
+       network.
+   * - Address
+     - IPv6 address string
+
+       The IPv6 address to assign. This field is `required` for the static
+       configuration.  The recognized format is according to inet_pton
+       followed by '/' and prefix length.  If prefix length is omitted, then
+       128 is assumed.
+   * - Gateway
+     - IPv6 address string
+
+       The IPv6 address of the gateway (router). This field is `required` for
+       the static configuration.
+   * - DNS
+     - IPv6 address string
+
+       The IPv6 address of the Domain Name System (DNS). This field is
+       `optional`. DNS setting can be used to override the DNS entries received
+       from the DHCPv6 server or via Router Advertisements.
+   * - DomainName
+     - string
+
+       The DomainName is the name of the local Internet domain. This field is
+       `optional`. DomainName setting can be used to override the DomainName
+       value obtained from the DHCPv6 server or via Router Advertisements.
+
 
 Embedded PEMs
 -------------
