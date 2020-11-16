@@ -945,15 +945,19 @@ def post_test(ctx, to_copy):
 	'''
 		Remove copied files, and stop test processes.
 	'''
-	for f in to_copy:
-		if os.path.isdir('/tmp/' + f):
-			shutil.rmtree('/tmp/' + f)
-		else:
-			os.remove('/tmp/' + f)
+	try:
+		for f in to_copy:
+			if os.path.isdir('/tmp/' + f):
+				shutil.rmtree('/tmp/' + f)
+			else:
+				os.remove('/tmp/' + f)
 
-	Process(['ifconfig', 'lo', 'down'], wait=True)
+		Process(['ifconfig', 'lo', 'down'], wait=True)
+	except Exception as e:
+		print("Exception thrown in post_test")
+	finally:
+		ctx.stop_test_processes()
 
-	ctx.stop_test_processes()
 	if ctx.args.valgrind:
 		with open('/tmp/valgrind.log', 'r') as f:
 				dbg(f.read())
