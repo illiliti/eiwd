@@ -399,14 +399,12 @@ class Device(IWDDBusAbstract):
         elif not scan_if_needed:
             return None
 
-        iwd = IWD.get_instance()
-
         self.scan()
 
         condition = 'obj.scanning'
-        iwd.wait_for_object_condition(self, condition)
+        IWD._wait_for_object_condition(self, condition)
         condition = 'not obj.scanning'
-        iwd.wait_for_object_condition(self, condition)
+        IWD._wait_for_object_condition(self, condition)
 
         for bus_obj in self._station.GetOrderedNetworks():
             ordered_network = OrderedNetwork(bus_obj)
@@ -940,7 +938,7 @@ class IWD(AsyncOpAbstract):
     _agent_manager_if = None
     _iwd_proc = None
     _devices = None
-    _instance = None
+    _default_instance = None
     psk_agent = None
 
     def __init__(self, start_iwd_daemon = False, iwd_config_dir = '/tmp'):
@@ -964,8 +962,11 @@ class IWD(AsyncOpAbstract):
         self._devices = DeviceList(self)
 
         # Weak to make sure the test's reference to @self is the only counted
-        # reference so that __del__ gets called when it's released
-        IWD._instance = weakref.ref(self)
+        # reference so that __del__ gets called when it's released. This is only
+        # done for the root namespace in order to allow testutil to function
+        # correctly in non-namespace tests.
+        if self.namespace.name == "root":
+            IWD._default_instance = weakref.ref(self)
 
     def __del__(self):
         if self.psk_agent:
@@ -998,10 +999,11 @@ class IWD(AsyncOpAbstract):
                                IWD_AGENT_MANAGER_INTERFACE)
         return self._agent_manager_if
 
-    def wait_for_object_condition(self, obj, condition_str, max_wait = 50):
-        self._wait_timed_out = False
+    @staticmethod
+    def _wait_for_object_condition(obj, condition_str, max_wait = 50):
+        _wait_timed_out = False
         def wait_timeout_cb():
-            self._wait_timed_out = True
+            _wait_timed_out = True
             return False
 
         try:
@@ -1009,13 +1011,16 @@ class IWD(AsyncOpAbstract):
             context = ctx.mainloop.get_context()
             while not eval(condition_str):
                 context.iteration(may_block=True)
-                if self._wait_timed_out and ctx.args.gdb == None:
+                if _wait_timed_out and ctx.args.gdb == None:
                     raise TimeoutError('[' + condition_str + ']'\
                                        ' condition was not met in '\
                                        + str(max_wait) + ' sec')
         finally:
-            if not self._wait_timed_out:
+            if not _wait_timed_out:
                 GLib.source_remove(timeout)
+
+    def wait_for_object_condition(self, *args, **kwargs):
+        self._wait_for_object_condition(*args, **kwargs)
 
     def wait(self, time):
         self._wait_timed_out = False
@@ -1129,4 +1134,4 @@ class IWD(AsyncOpAbstract):
 
     @staticmethod
     def get_instance():
-        return IWD._instance()
+        return IWD._default_instance()
