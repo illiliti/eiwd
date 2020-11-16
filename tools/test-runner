@@ -973,16 +973,20 @@ def print_results(results):
 	total_time = 0
 
 	for test, result in results.items():
-		if result.time != TEST_MAX_TIMEOUT:
+
+		if result.time == TEST_MAX_TIMEOUT:
+			failed = "Timed out"
+			passed = "Timed out"
+		elif result.time == 0:
+			failed = "Exception"
+			passed = "Exception"
+		else:
 			failed = result.failures + result.errors
 			passed = result.run - failed
 
 			total_pass += passed
 			total_fail += failed
 			total_skip += result.skipped
-		else:
-			failed = "Timed out"
-			passed = "Timed out"
 
 		total_time += result.time
 
@@ -1046,8 +1050,8 @@ def run_auto_tests(ctx, args):
 		except Exception as ex:
 			print(ex)
 			print("Uncaught exception thrown for %s" % test)
-			ctx.results[os.path.basename(test)] = SimpleResult(run=-1, failures=-1,
-								errors=-1, skipped=-1, time=-1)
+			ctx.results[os.path.basename(test)] = SimpleResult(run=0, failures=0,
+								errors=0, skipped=0, time=0)
 		finally:
 			post_test(ctx, copied)
 
