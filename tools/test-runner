@@ -892,6 +892,18 @@ def pre_test(ctx, test):
 		else:
 			shutil.copy(f, '/tmp')
 
+	# Prune down any subtests if needed
+	if ctx.args.sub_tests:
+		ctx.args.sub_tests = ctx.args.sub_tests.split(',')
+		pruned = []
+
+		for s in subtests:
+			# Allow test name both with and without the extension
+			if s in ctx.args.sub_tests or os.path.splitext(s)[0] in ctx.args.sub_tests:
+				pruned.append(s)
+
+		subtests = pruned
+
 	ctx.start_dbus_monitor()
 	ctx.start_radios()
 	ctx.start_hostapd()
@@ -996,6 +1008,10 @@ def run_auto_tests(ctx, args):
 		try:
 			copied, subtests = pre_test(ctx, test)
 
+			if len(subtests) < 1:
+				dbg("No tests to run")
+				exit()
+
 			rqueue = multiprocessing.Queue()
 			p = multiprocessing.Process(target=start_test, args=(ctx, subtests, rqueue))
 			p.start()
@@ -1060,6 +1076,7 @@ def run_tests():
 	parser.add_argument('--log-uid')
 	parser.add_argument('--hw')
 	parser.add_argument('--monitor')
+	parser.add_argument('--sub_tests')
 
 	args = parser.parse_args(options)
 
@@ -1128,6 +1145,9 @@ class Main:
 				help='Use physical adapters for tests (passthrough)')
 		self.parser.add_argument('--monitor', '-m', type=str,
 				help='Enables iwmon output to file')
+		self.parser.add_argument('--sub-tests', '-S', metavar='<subtests>',
+				type=str, nargs=1, help='List of subtests to run',
+				default=None, dest='sub_tests')
 
 		# Prevent --autotest/--unittest from being used together
 		auto_unit_group = self.parser.add_mutually_exclusive_group()
@@ -1153,9 +1173,24 @@ class Main:
 
 		self.args = self.parser.parse_args()
 
+		if self.args.auto_tests:
+			self.args.auto_tests = self.args.auto_tests[0].split(',')
+
+		if self.args.sub_tests:
+			self.args.sub_tests = self.args.sub_tests[0].split(',')
+
 		if self.args.log and self.args.unit_tests:
 			dbg("Cannot use --log with --unit-tests")
 			quit()
+
+		if self.args.sub_tests:
+			if not self.args.auto_tests:
+				dbg("--sub-tests must be used with --auto-tests")
+				quit()
+
+			if len(self.args.auto_tests) > 1:
+				dbg("--sub-tests must be used with a single auto test")
+				quit()
 
 	def start(self):
 		usb_adapters = None
@@ -1220,6 +1255,9 @@ class Main:
 		if self.args.auto_tests:
 			options += ' --auto_tests %s' % ','.join(self.args.auto_tests)
 
+		if self.args.sub_tests:
+			options += ' --sub_tests %s' % ','.join(self.args.sub_tests)
+
 		if self.args.log:
 			if os.environ.get('SUDO_GID', None) is None:
 				print("--log can only be used as root user")
@@ -1242,6 +1280,7 @@ class Main:
 
 		denylist = [
 			'auto_tests',
+			'sub_tests',
 			'qemu',
 			'kernel'
 		]
