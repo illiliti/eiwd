@@ -152,3 +152,13 @@ def test_ip_address_match(intf, ip):
 
     if ip != addr:
         raise Exception('IP for %s did not match %s (was %s)' % (intf, ip, addr))
+
+def test_ip_connected(tup0, tup1):
+    ip0, ns0 = tup0
+    ip1, ns1 = tup1
+
+    try:
+        ns0.start_process(['ping', '-c', '5', '-i', '0.2', ip1], check=True)
+        ns1.start_process(['ping', '-c', '5', '-i', '0.2', ip0], check=True)
+    except:
+        raise Exception('Could not ping between %s and %s' % (ip0, ip1))
