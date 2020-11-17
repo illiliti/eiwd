@@ -16,7 +16,15 @@ class Test(unittest.TestCase):
         # this range.
         wd = IWD(True, '/tmp/dhcp')
 
-        dev1, dev2 = wd.list_devices(2)
+        ns0 = ctx.get_namespace('ns0')
+
+        wd_ns0 = IWD(True, '/tmp/dhcp', namespace=ns0)
+
+        dev1 = wd_ns0.list_devices(1)[0]
+        dev2, dev3, dev4, dev5 = wd.list_devices(4)
+        dev3.disconnect()
+        dev4.disconnect()
+        dev5.disconnect()
 
         dev1.start_ap('APConfig')
 
@@ -51,10 +59,13 @@ class Test(unittest.TestCase):
             wd.wait_for_object_condition(dev2, condition)
 
             testutil.test_iface_operstate(dev2.name)
-            testutil.test_ifaces_connected(dev1.name, dev2.name, group=False)
-
-            testutil.test_ip_address_match(dev1.name, "192.168.1.1")
+            #
+            # TODO: cannot yet check the AP interface IP since its in a
+            #       different namespace.
+            #
             testutil.test_ip_address_match(dev2.name, "192.168.1.3")
+
+            testutil.test_ip_connected(('192.168.1.3', ctx), ('192.168.1.1', ns0))
 
             wd.unregister_psk_agent(psk_agent)
 
