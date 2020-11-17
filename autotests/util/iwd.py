@@ -122,9 +122,9 @@ class AsyncOpAbstract(object):
 class IWDDBusAbstract(AsyncOpAbstract):
     __metaclass__ = ABCMeta
 
-    _bus = dbus.SystemBus()
+    def __init__(self, object_path = None, properties = None, service=IWD_SERVICE, namespace=ctx):
+        self._bus = namespace.get_bus()
 
-    def __init__(self, object_path = None, properties = None, service=IWD_SERVICE):
         self._object_path = object_path
         proxy = self._bus.get_object(service, self._object_path)
         self._iface = dbus.Interface(proxy, self._iface_name)
@@ -190,7 +190,7 @@ class SignalAgent(dbus.service.Object):
     def __init__(self, passphrase = None):
         self._path = '/test/agent/' + str(int(round(time.time() * 1000)))
 
-        dbus.service.Object.__init__(self, dbus.SystemBus(), self._path)
+        dbus.service.Object.__init__(self, ctx.get_bus(), self._path)
 
     @property
     def path(self):
@@ -391,7 +391,7 @@ class Device(IWDDBusAbstract):
         '''
         ordered_networks = []
         for bus_obj in self._station.GetOrderedNetworks():
-            ordered_network = OrderedNetwork(bus_obj)
+            ordered_network = OrderedNetwork(bus_obj, self._bus)
             ordered_networks.append(ordered_network)
 
         if len(ordered_networks) > 0:
@@ -407,7 +407,7 @@ class Device(IWDDBusAbstract):
         IWD._wait_for_object_condition(self, condition)
 
         for bus_obj in self._station.GetOrderedNetworks():
-            ordered_network = OrderedNetwork(bus_obj)
+            ordered_network = OrderedNetwork(bus_obj, self._bus)
             ordered_networks.append(ordered_network)
 
         if len(ordered_networks) > 0:
@@ -643,9 +643,8 @@ class KnownNetwork(IWDDBusAbstract):
 class OrderedNetwork(object):
     '''Represents a network found in the scan'''
 
-    _bus = dbus.SystemBus()
-
-    def __init__(self, o_n_tuple):
+    def __init__(self, o_n_tuple, bus):
+        self._bus = bus
         self._network_object = Network(o_n_tuple[0])
         self._network_proxy = dbus.Interface(self._bus.get_object(IWD_SERVICE,
                                         o_n_tuple[0]),
@@ -707,7 +706,7 @@ agent_count = 0
 
 class PSKAgent(dbus.service.Object):
 
-    def __init__(self, passphrases=[], users=[]):
+    def __init__(self, passphrases=[], users=[], namespace=ctx):
         global agent_count
 
         if type(passphrases) != list:
@@ -720,7 +719,7 @@ class PSKAgent(dbus.service.Object):
 
         agent_count += 1
 
-        dbus.service.Object.__init__(self, dbus.SystemBus(), self._path)
+        dbus.service.Object.__init__(self, namespace.get_bus(), self._path)
 
     @property
     def path(self):
@@ -882,6 +881,7 @@ class DeviceList(collections.Mapping):
     def __init__(self, iwd):
         self._dict = {}
         self._p2p_dict = {}
+        self._namespace = iwd.namespace
 
         iwd._object_manager.connect_to_signal("InterfacesAdded",
                                                self._interfaces_added_handler)
@@ -893,9 +893,11 @@ class DeviceList(collections.Mapping):
         for path in objects:
             for interface in objects[path]:
                 if interface == IWD_DEVICE_INTERFACE:
-                    self._dict[path] = Device(path, objects[path][interface])
+                    self._dict[path] = Device(path, objects[path][interface],
+                                                namespace=self._namespace)
                 elif interface == IWD_P2P_INTERFACE:
-                    self._p2p_dict[path] = P2PDevice(path, objects[path][interface])
+                    self._p2p_dict[path] = P2PDevice(path, objects[path][interface],
+                                                namespace=self._namespace)
 
     def __getitem__(self, key):
         return self._dict.__getitem__(key)
@@ -911,9 +913,11 @@ class DeviceList(collections.Mapping):
 
     def _interfaces_added_handler(self, path, interfaces):
         if IWD_DEVICE_INTERFACE in interfaces:
-            self._dict[path] = Device(path, interfaces[IWD_DEVICE_INTERFACE])
+            self._dict[path] = Device(path, interfaces[IWD_DEVICE_INTERFACE],
+                                            namespace=self._namespace)
         elif IWD_P2P_INTERFACE in interfaces:
-            self._p2p_dict[path] = P2PDevice(path, interfaces[IWD_P2P_INTERFACE])
+            self._p2p_dict[path] = P2PDevice(path, interfaces[IWD_P2P_INTERFACE],
+                                            namespace=self._namespace)
 
     def _interfaces_removed_handler(self, path, interfaces):
         if IWD_DEVICE_INTERFACE in interfaces:
@@ -932,8 +936,6 @@ class IWD(AsyncOpAbstract):
         some tests do require starting IWD using this constructor (by passing
         start_iwd_daemon=True)
     '''
-    _bus = dbus.SystemBus()
-
     _object_manager_if = None
     _agent_manager_if = None
     _iwd_proc = None
@@ -941,19 +943,22 @@ class IWD(AsyncOpAbstract):
     _default_instance = None
     psk_agent = None
 
-    def __init__(self, start_iwd_daemon = False, iwd_config_dir = '/tmp'):
-        if start_iwd_daemon and ctx.is_process_running('iwd'):
-            raise Exception("IWD requested to start but is already running")
+    def __init__(self, start_iwd_daemon = False, iwd_config_dir = '/tmp', namespace=ctx):
+        self.namespace = namespace
+        self._bus = namespace.get_bus()
 
         if start_iwd_daemon:
-            self._iwd_proc = ctx.start_iwd(iwd_config_dir)
+            if self.namespace.is_process_running('iwd'):
+                raise Exception("IWD requested to start but is already running")
+
+            self._iwd_proc = self.namespace.start_iwd(iwd_config_dir)
 
         tries = 0
         while not self._bus.name_has_owner(IWD_SERVICE):
             if not ctx.args.gdb:
                 if tries > 200:
                     if start_iwd_daemon:
-                        ctx.stop_process(self._iwd_proc)
+                        self.namespace.stop_process(self._iwd_proc)
                         self._iwd_proc = None
                     raise TimeoutError('IWD has failed to start')
                 tries += 1
@@ -978,7 +983,7 @@ class IWD(AsyncOpAbstract):
         self._devices = None
 
         if self._iwd_proc is not None:
-            ctx.stop_process(self._iwd_proc)
+            self.namespace.stop_process(self._iwd_proc)
             self._iwd_proc = None
 
     @property

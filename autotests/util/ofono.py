@@ -1,12 +1,13 @@
 import dbus
 import time
 from gi.repository import GLib
+from config import ctx
 
 SIM_AUTH_IFACE = 'org.ofono.SimAuthentication'
 
 class Ofono(dbus.service.Object):
-    def __init__(self):
-        self._bus = dbus.SystemBus()
+    def __init__(self, namespace=ctx):
+        self._bus = namespace.get_bus()
 
         tries = 0
 

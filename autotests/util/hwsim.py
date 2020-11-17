@@ -7,6 +7,7 @@ from abc import ABCMeta, abstractmethod
 from enum import Enum
 
 import iwd
+from config import ctx
 
 HWSIM_SERVICE =                 'net.connman.hwsim'
 HWSIM_RULE_MANAGER_INTERFACE =  'net.connman.hwsim.RuleManager'
@@ -20,9 +21,8 @@ HWSIM_AGENT_MANAGER_PATH =      '/'
 class HwsimDBusAbstract(iwd.AsyncOpAbstract):
     __metaclass__ = ABCMeta
 
-    _bus = dbus.SystemBus()
-
-    def __init__(self, object_path, properties = None):
+    def __init__(self, object_path, properties = None, namespace=ctx):
+        self._bus = namespace.get_bus()
         self._object_path = object_path
         proxy = self._bus.get_object(HWSIM_SERVICE, self._object_path)
         self._iface = dbus.Interface(proxy, self._iface_name)
@@ -256,9 +256,9 @@ class RadioList(collections.Mapping):
         return obj
 
 class Hwsim(iwd.AsyncOpAbstract):
-    _bus = dbus.SystemBus()
+    def __init__(self, namespace=ctx):
+        self._bus = namespace.get_bus()
 
-    def __init__(self):
         self._rule_manager_if = dbus.Interface(
                 self._bus.get_object(HWSIM_SERVICE, '/'),
                 HWSIM_RULE_MANAGER_INTERFACE)

@@ -75,7 +75,7 @@ class AdapterList(collections.Mapping):
             del self._dict[path]
 
 class EAD(iwd.AsyncOpAbstract):
-    _bus = dbus.SystemBus()
+    _bus = ctx.get_bus()
 
     _object_manager_if = None
     _adapters = None
