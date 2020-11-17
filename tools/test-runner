@@ -126,6 +126,9 @@ dev_table = [
 	DevInfo('/proc/self/fd/2', '/dev/stderr')
 ]
 
+# Partial DBus config. The remainder (<listen>) will be filled in for each
+# namespace that is created so each individual dbus-daemon has its own socket
+# and address.
 dbus_config = '''
 <!DOCTYPE busconfig PUBLIC \
 "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN" \
@@ -133,7 +136,6 @@ dbus_config = '''
 busconfig.dtd\">
 <busconfig>
 <type>system</type>
-<listen>unix:path=/run/dbus/system_bus_socket</listen>
 <limit name=\"reply_timeout\">2147483647</limit>
 <auth>ANONYMOUS</auth>
 <allow_anonymous/>
@@ -151,7 +153,6 @@ busconfig.dtd\">
 <allow send_destination=\"*\" eavesdrop=\"true\"/>
 <allow eavesdrop=\"true\"/>
 </policy>
-</busconfig>
 '''
 class Process:
 	'''
@@ -162,7 +163,7 @@ class Process:
 		test exits.
 	'''
 	def __init__(self, args, wait=False, multi_test=False, env=None, ctx=None, check=False,
-				outfile=None):
+				outfile=None, namespace=None):
 		self.args = args
 		self.wait = wait
 		self.name = args[0]
@@ -171,6 +172,10 @@ class Process:
 		self.stderr = subprocess.PIPE
 		self.ret = None
 		self.ctx = ctx
+
+		if namespace:
+			self.args = ['ip', 'netns', 'exec', namespace]
+			self.args.extend(args)
 
 		if ctx:
 			set_stdout = False
@@ -209,7 +214,6 @@ class Process:
 					self.stdout = sys.__stdout__
 					self.stderr = sys.__stderr__
 
-
 		self.pid = subprocess.Popen(self.args, stdout=self.stdout, \
 							stderr=self.stderr, env=env, \
 							cwd=os.getcwd())
@@ -233,9 +237,8 @@ class Process:
 
 	def __del__(self):
 		print("Del process %s" % self.args)
-		if self.ctx and self.ctx.args.log:
-			self.stdout.close()
-			self.stderr.close()
+		self.stdout = None
+		self.stderr = None
 
 	def kill(self, force=False):
 		print("Killing process %s" % self.args)
@@ -469,12 +472,172 @@ class Hostapd:
 		self.instances = None
 		self.process.kill()
 
-class TestContext:
+dbus_count = 0
+
+class Namespace:
+	dbus_address = None
+	processes = []
+	radios = []
+
+	def __init__(self, args, name, radios):
+		self.name = name
+		self.radios = radios
+		self.args = args
+
+		Process(['ip', 'netns', 'add', name], wait=True)
+		for r in radios:
+			Process(['iw', 'phy', r.name, 'set', 'netns', 'name', name], wait=True)
+
+		self.start_dbus(multi_test=False)
+
+	def reset(self):
+		self.radios = []
+		self._bus = None
+
+		if self.name == "root":
+			self._bus = dbus.bus.BusConnection(address_or_type=self.dbus_address)
+
+		for p in [p for p in self.processes if p.multi_test is False]:
+			print("Killing process %s" % p.name)
+			self.stop_process(p)
+
+	def __del__(self):
+		print("Removing namespace %s" % self.name)
+		self.reset()
+
+		Process(['ip', 'netns', 'del', self.name], wait=True)
+
+	def get_bus(self):
+		return self._bus
+
+	def start_process(self, args, env=None, **kwargs):
+		# Special case for 'root' namespace (aka TestContext)
+		if self.name == "root":
+			ns = None
+		else:
+			ns = self.name
+
+		if not env:
+			env = os.environ.copy()
+
+		# In case this process needs DBus...
+		env['DBUS_SYSTEM_BUS_ADDRESS'] = self.dbus_address
+
+		p = Process(args, ctx=self, namespace=ns, env=env, **kwargs)
+
+		if not kwargs.get('wait', False):
+			self.processes.append(p)
+
+		return p
+
+	def stop_process(self, p, force=False):
+		p.kill(force)
+		self.processes.remove(p)
+
+	def is_process_running(self, process):
+		for p in self.processes:
+			if p.name == process:
+				return True
+		return False
+
+	def start_dbus(self, multi_test=True):
+		global dbus_count
+
+		self.dbus_address = 'unix:path=/tmp/dbus%d' % dbus_count
+		dbus_cfg = '/tmp/dbus%d.conf' % dbus_count
+		dbus_count += 1
+
+		with open(dbus_cfg, 'w+') as f:
+			f.write(dbus_config)
+			f.write('<listen>%s</listen>\n' % self.dbus_address)
+			f.write('</busconfig>\n')
+
+		p = self.start_process(['dbus-daemon', '--config-file=%s' % dbus_cfg],
+					wait=False, multi_test=multi_test)
+
+		p.wait_for_socket(self.dbus_address.split('=')[1], wait=5)
+
+		self._bus = dbus.bus.BusConnection(address_or_type=self.dbus_address)
+
+	def start_iwd(self, config_dir = '/tmp'):
+		args = []
+		iwd_radios = ','.join([r.name for r in self.radios if r.use == 'iwd'])
+
+		if self.args.valgrind:
+			args.extend(['valgrind', '--leak-check=full', '--track-origins=yes',
+						'--log-file=/tmp/valgrind.log'])
+
+		args.extend(['iwd', '-p', iwd_radios])
+
+		if self.is_verbose(args[0]):
+			args.append('-d')
+
+		env = os.environ.copy()
+
+		env['CONFIGURATION_DIRECTORY'] = config_dir
+		env['STATE_DIRECTORY'] = '/tmp/iwd'
+
+		if self.is_verbose('iwd-dhcp'):
+			env['IWD_DHCP_DEBUG'] = '1'
+
+		if self.is_verbose('iwd-tls'):
+			env['IWD_TLS_DEBUG'] = '1'
+
+		if self.is_verbose('iwd-genl'):
+			env['IWD_GENL_DEBUG'] = '1'
+
+		pid = self.start_process(args, env=env)
+		return pid
+
+	def is_verbose(self, process):
+		process = os.path.basename(process)
+
+		if self.args is None:
+			return False
+
+		# every process is verbose when logging is enabled
+		if self.args.log:
+			return True
+
+		if process in self.args.verbose:
+			return True
+
+		# Special case here to enable verbose output with valgrind running
+		if process == 'valgrind' and 'iwd' in self.args.verbose:
+			return True
+
+		# Handle any glob matches
+		for item in self.args.verbose:
+			if process in glob(item):
+				return True
+
+		return False
+
+	def __str__(self):
+		ret = 'Namespace: %s\n' % self.name
+		ret += 'Processes:\n'
+		for p in self.processes:
+			ret += '\t%s\n' % str(p.args)
+
+		ret += 'Radios:\n'
+		if len(self.radios) > 0:
+			for r in self.radios:
+				ret += '\t%s\n' % str(r)
+		else:
+			ret += '\tNo Radios\n'
+
+		ret += 'DBus Address: %s\n' % self.dbus_address
+		ret += '===================================================\n\n'
+
+		return ret
+
+class TestContext(Namespace):
 	'''
 		Contains all information for a given set of tests being run
 		such as processes, radios, interfaces and test results.
 	'''
 	def __init__(self, args):
+		self.name = "root"
 		self.processes = []
 		self.args = args
 		self.hw_config = None
@@ -484,31 +647,15 @@ class TestContext:
 		self.cur_iface_id = 0
 		self.radios = []
 		self.loopback_started = False
-		self.iwd_extra_options = None
 		self.results = {}
 		self.mainloop = GLib.MainLoop()
-
-	def start_process(self, args, **kwargs):
-		p = Process(args, ctx=self, **kwargs)
-
-		if not kwargs.get('wait', False):
-			self.processes.append(p)
-
-		return p
-
-	def start_dbus(self):
-		with open('/usr/share/dbus-1/system.conf', 'w+') as f:
-			f.write(dbus_config)
-
-		os.mkdir('/run/dbus', 755)
-
-		self.start_process(['dbus-daemon', '--system', '--nosyslog'], multi_test=True)
+		self.namespaces = []
 
 	def start_dbus_monitor(self):
 		if not self.is_verbose('dbus-monitor'):
 			return
 
-		self.start_process(['dbus-monitor', '--system'])
+		self.start_process(['dbus-monitor', '--address', self.dbus_address])
 
 	def start_haveged(self):
 		self.start_process(['haveged'], multi_test=True)
@@ -560,38 +707,6 @@ class TestContext:
 			self.discover_radios()
 		else:
 			self.create_radios()
-
-	def start_iwd(self, config_dir = '/tmp'):
-		args = []
-		iwd_radios = ','.join([r.name for r in self.radios if r.use == 'iwd'])
-
-		if self.args.valgrind:
-			args.extend(['valgrind', '--leak-check=full', '--track-origins=yes',
-						'--log-file=/tmp/valgrind.log'])
-
-		args.extend(['iwd', '-p', iwd_radios])
-
-		if self.is_verbose(args[0]):
-			args.append('-d')
-
-		if self.iwd_extra_options:
-			args.append(self.iwd_extra_options)
-
-		env = os.environ.copy()
-		env['CONFIGURATION_DIRECTORY'] = config_dir
-		env['STATE_DIRECTORY'] = '/tmp/iwd'
-
-		if self.is_verbose('iwd-dhcp'):
-			env['IWD_DHCP_DEBUG'] = '1'
-
-		if self.is_verbose('iwd-tls'):
-			env['IWD_TLS_DEBUG'] = '1'
-
-		if self.is_verbose('iwd-genl'):
-			env['IWD_GENL_DEBUG'] = '1'
-
-		pid = self.start_process(args, env=env)
-		return pid
 
 	def start_hostapd(self):
 		if not 'HOSTAPD' in self.hw_config:
@@ -677,65 +792,38 @@ class TestContext:
 
 		print("Ofono started")
 
-	def is_verbose(self, process):
-		process = os.path.basename(process)
+	def create_namespaces(self):
+		if not self.hw_config.has_section('NameSpaces'):
+			return
 
-		if self.args is None:
-			return False
+		for key, value in self.hw_config.items('NameSpaces'):
+			radio_names = value.split(',')
+			# Gather up radio objects for this namespace
+			radios = [rad for rad in self.radios if rad.name in radio_names]
 
-		# every process is verbose when logging is enabled
-		if self.args.log:
-			return True
+			# Remove radios from 'root' namespace
+			self.radios = list(set(self.radios) - set(radios))
 
-		if process in self.args.verbose:
-			return True
+			self.namespaces.append(Namespace(self.args, key, radios))
 
-		# Special case here to enable verbose output with valgrind running
-		if process == 'valgrind' and 'iwd' in self.args.verbose:
-			return True
+	def get_namespace(self, ns):
+		for n in self.namespaces:
+			if n.name == ns:
+				return n
 
-		# Handle any glob matches
-		for item in self.args.verbose:
-			if process in glob(item):
-				return True
-
-		return False
-
-	def stop_process(self, p, force=False):
-		p.kill(force)
-		self.processes.remove(p)
+		return None
 
 	def stop_test_processes(self):
-		self.radios = []
+		self.namespaces = []
 		self.hostapd = None
 		self.wpas_interfaces = None
-		self.iwd_extra_options = None
 
-		for p in [p for p in self.processes if p.multi_test is False]:
-			print("Killing process %s" % p.name)
-			self.stop_process(p)
-
-	def is_process_running(self, process):
-		for p in self.processes:
-			if p.name == process:
-				return True
-		return False
+		self.reset()
 
 	def __str__(self):
 		ret = 'Arguments:\n'
 		for arg in vars(self.args):
 			ret += '\t --%s %s\n' % (arg, str(getattr(self.args, arg)))
-
-		ret += 'Processes:\n'
-		for p in self.processes:
-			ret += '\t%s\n' % str(p.args)
-
-		ret += 'Radios:\n'
-		if len(self.radios) > 0:
-			for r in self.radios:
-				ret += '\t%s\n' % str(r)
-		else:
-			ret += '\tNo Radios\n'
 
 		ret += 'Hostapd:\n'
 		if self.hostapd:
@@ -743,6 +831,11 @@ class TestContext:
 				ret += '\t%s\n' % str(h)
 		else:
 			ret += '\tNo Hostapd instances\n'
+
+		ret += super().__str__()
+
+		for n in self.namespaces:
+			ret += n.__str__()
 
 		return ret
 
@@ -921,6 +1014,7 @@ def pre_test(ctx, test):
 
 	ctx.start_dbus_monitor()
 	ctx.start_radios()
+	ctx.create_namespaces()
 	ctx.start_hostapd()
 	ctx.start_wpas_interfaces()
 	ctx.start_ofono()
