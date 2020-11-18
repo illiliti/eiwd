@@ -222,6 +222,65 @@ static int netconfig_set_dns(struct netconfig *netconfig)
 	return 0;
 }
 
+static void append_domain(char **domains, unsigned int *n_domains,
+				size_t max, char *domain)
+{
+	unsigned int i;
+
+	if (*n_domains == max)
+		return;
+
+	for (i = 0; i < *n_domains; i++)
+		if (!strcmp(domains[i], domain))
+			return;
+
+	domains[*n_domains] = domain;
+	*n_domains += 1;
+}
+
+static int netconfig_set_domains(struct netconfig *netconfig)
+{
+	char *domains[31];
+	unsigned int n_domains = 0;
+	char *v4_domain = NULL;
+	char **v6_domains = NULL;
+	char **p;
+
+	memset(domains, 0, sizeof(domains));
+
+	/* Allow to override the DHCP domain name with setting entry. */
+	v4_domain = l_settings_get_string(netconfig->active_settings,
+							"IPv4", "DomainName");
+	if (!v4_domain && netconfig->rtm_protocol == RTPROT_DHCP) {
+		const struct l_dhcp_lease *lease =
+			l_dhcp_client_get_lease(netconfig->dhcp_client);
+
+		if (lease)
+			v4_domain = l_dhcp_lease_get_domain_name(lease);
+	}
+
+	append_domain(domains, &n_domains,
+					L_ARRAY_SIZE(domains) - 1, v4_domain);
+
+	if (netconfig->rtm_v6_protocol == RTPROT_DHCP) {
+		const struct l_dhcp6_lease *lease =
+			l_dhcp6_client_get_lease(netconfig->dhcp6_client);
+
+		if (lease)
+			v6_domains = l_dhcp6_lease_get_domains(lease);
+	}
+
+	for (p = v6_domains; p && *p; p++)
+		append_domain(domains, &n_domains,
+					L_ARRAY_SIZE(domains) - 1, *p);
+
+	resolve_set_domains(netconfig->resolve, domains);
+	l_strv_free(v6_domains);
+	l_free(v4_domain);
+
+	return 0;
+}
+
 static struct netconfig_ifaddr *netconfig_ipv4_get_ifaddr(
 						struct netconfig *netconfig,
 						uint8_t proto)
@@ -331,28 +390,6 @@ static char *netconfig_ipv4_get_gateway(struct netconfig *netconfig)
 	}
 
 	return NULL;
-}
-
-static char *netconfig_ipv4_get_domain_name(struct netconfig *netconfig,
-								uint8_t proto)
-{
-	const struct l_dhcp_lease *lease;
-	char *domain_name;
-
-	domain_name = l_settings_get_string(netconfig->active_settings,
-							"IPv4", "DomainName");
-	if (domain_name)
-		/* Allow to override the DHCP domain name with setting entry. */
-		return domain_name;
-
-	if (proto != RTPROT_DHCP)
-		return NULL;
-
-	lease = l_dhcp_client_get_lease(netconfig->dhcp_client);
-	if (!lease)
-		return NULL;
-
-	return l_dhcp_lease_get_domain_name(lease);
 }
 
 static struct netconfig_ifaddr *netconfig_ipv6_get_ifaddr(
@@ -775,7 +812,6 @@ static void netconfig_ipv4_ifaddr_add_cmd_cb(int error, uint16_t type,
 {
 	struct netconfig *netconfig = user_data;
 	struct netconfig_ifaddr *ifaddr;
-	char *domain_name;
 
 	if (error && error != -EEXIST) {
 		l_error("netconfig: Failed to add IP address. "
@@ -798,14 +834,7 @@ static void netconfig_ipv4_ifaddr_add_cmd_cb(int error, uint16_t type,
 	}
 
 	netconfig_set_dns(netconfig);
-
-	domain_name = netconfig_ipv4_get_domain_name(netconfig,
-						netconfig->rtm_protocol);
-	if (!domain_name)
-		goto done;
-
-	resolve_add_domain_name(netconfig->resolve, domain_name);
-	l_free(domain_name);
+	netconfig_set_domains(netconfig);
 
 done:
 	netconfig_ifaddr_destroy(ifaddr);

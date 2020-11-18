@@ -39,8 +39,7 @@
 
 struct resolve_ops {
 	void (*set_dns)(struct resolve *resolve, char **dns_list);
-	void (*add_domain_name)(struct resolve *resolve,
-					const char *domain_name);
+	void (*set_domains)(struct resolve *resolve, char **domain_list);
 	void (*revert)(struct resolve *resolve);
 	void (*destroy)(struct resolve *resolve);
 };
@@ -68,15 +67,15 @@ void resolve_set_dns(struct resolve *resolve, char **dns_list)
 	resolve->ops->set_dns(resolve, dns_list);
 }
 
-void resolve_add_domain_name(struct resolve *resolve, const char *domain_name)
+void resolve_set_domains(struct resolve *resolve, char **domain_list)
 {
-	if (!domain_name)
+	if (!domain_list)
 		return;
 
-	if (!resolve->ops->add_domain_name)
+	if (!resolve->ops->set_domains)
 		return;
 
-	resolve->ops->add_domain_name(resolve, domain_name);
+	resolve->ops->set_domains(resolve, domain_list);
 }
 
 void resolve_revert(struct resolve *resolve)
@@ -210,7 +209,7 @@ static void resolve_systemd_set_dns(struct resolve *resolve, char **dns_list)
 								NULL, NULL);
 }
 
-static void systemd_link_add_domains_reply(struct l_dbus_message *message,
+static void systemd_set_link_domains_reply(struct l_dbus_message *message,
 								void *user_data)
 {
 	const char *name;
@@ -225,10 +224,12 @@ static void systemd_link_add_domains_reply(struct l_dbus_message *message,
 								name, text);
 }
 
-static void resolve_systemd_add_domain_name(struct resolve *resolve,
-						const char *domain_name)
+static void resolve_systemd_set_domains(struct resolve *resolve,
+						char **domain_list)
 {
 	struct l_dbus_message *message;
+	struct l_dbus_message_builder *builder;
+	bool f = false;
 
 	l_debug("ifindex: %u", resolve->ifindex);
 
@@ -244,11 +245,29 @@ static void resolve_systemd_add_domain_name(struct resolve *resolve,
 	if (!message)
 		return;
 
-	l_dbus_message_set_arguments(message, "ia(sb)", resolve->ifindex,
-						1, domain_name, false);
+	builder = l_dbus_message_builder_new(message);
+	if (!builder) {
+		l_dbus_message_unref(message);
+		return;
+	}
+
+	l_dbus_message_builder_append_basic(builder, 'i', &resolve->ifindex);
+	l_dbus_message_builder_enter_array(builder, "(sb)");
+
+	for (; *domain_list; domain_list++) {
+		l_dbus_message_builder_enter_struct(builder, "sb");
+		l_dbus_message_builder_append_basic(builder, 's', *domain_list);
+		l_dbus_message_builder_append_basic(builder, 'b', &f);
+		l_dbus_message_builder_leave_struct(builder);
+	}
+
+	l_dbus_message_builder_leave_array(builder);
+
+	l_dbus_message_builder_finalize(builder);
+	l_dbus_message_builder_destroy(builder);
 
 	l_dbus_send_with_reply(dbus_get_bus(), message,
-				systemd_link_add_domains_reply, NULL, NULL);
+				systemd_set_link_domains_reply, NULL, NULL);
 }
 
 static void resolve_systemd_revert(struct resolve *resolve)
@@ -282,7 +301,7 @@ static void resolve_systemd_destroy(struct resolve *resolve)
 
 static const struct resolve_ops systemd_ops = {
 	.set_dns = resolve_systemd_set_dns,
-	.add_domain_name = resolve_systemd_add_domain_name,
+	.set_domains = resolve_systemd_set_domains,
 	.revert = resolve_systemd_revert,
 	.destroy = resolve_systemd_destroy,
 };
@@ -398,19 +417,25 @@ static void resolve_resolvconf_set_dns(struct resolve *resolve, char **dns_list)
 		rc->have_dns = true;
 }
 
-static void resolve_resolvconf_add_domain_name(struct resolve *resolve,
-							const char *domain_name)
+static void resolve_resolvconf_set_domains(struct resolve *resolve,
+							char **domain_list)
 {
 	struct resolvconf *rc =
 			l_container_of(resolve, struct resolvconf, super);
-	L_AUTO_FREE_VAR(char *, domain_str) = NULL;
+	struct l_string *content;
+	L_AUTO_FREE_VAR(char *, str) = NULL;
 
 	if (L_WARN_ON(!resolvconf_path))
 		return;
 
-	domain_str = l_strdup_printf("search %s\n", domain_name);
+	content = l_string_new(0);
 
-	if (resolvconf_invoke(rc->ifname, "domain", domain_str))
+	for (; *domain_list; domain_list++)
+		l_string_append_printf(content, "search %s\n", *domain_list);
+
+	str = l_string_unwrap(content);
+
+	if (resolvconf_invoke(rc->ifname, "domain", str))
 		rc->have_domain = true;
 }
 
@@ -440,7 +465,7 @@ static void resolve_resolvconf_destroy(struct resolve *resolve)
 
 static struct resolve_ops resolvconf_ops = {
 	.set_dns = resolve_resolvconf_set_dns,
-	.add_domain_name = resolve_resolvconf_add_domain_name,
+	.set_domains = resolve_resolvconf_set_domains,
 	.revert = resolve_resolvconf_revert,
 	.destroy = resolve_resolvconf_destroy,
 };
