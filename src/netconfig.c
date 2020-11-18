@@ -55,6 +55,8 @@ struct netconfig {
 	struct l_queue *ifaddr_list;
 	uint8_t rtm_protocol;
 	uint8_t rtm_v6_protocol;
+	char **dns4_overrides;
+	char **dns6_overrides;
 
 	const struct l_settings *active_settings;
 
@@ -157,6 +159,67 @@ static struct netconfig *netconfig_find(uint32_t ifindex)
 	}
 
 	return NULL;
+}
+
+#define APPEND_STRDUPV(dest, index, src)			\
+	do {							\
+		char **p;					\
+		for (p = src; p && *p; p++)			\
+			dest[index++] = l_strdup(*p);		\
+	} while (0)						\
+
+#define APPENDV(dest, index, src)				\
+	do {							\
+		char **p;					\
+		for (p = src; p && *p; p++)			\
+			dest[index++] = *p;			\
+	} while (0)						\
+
+static int netconfig_set_dns(struct netconfig *netconfig)
+{
+	char **dns6_list = NULL;
+	char **dns4_list = NULL;
+	unsigned int n_entries = 0;
+	char **dns_list;
+
+	if (!netconfig->dns4_overrides &&
+			netconfig->rtm_protocol == RTPROT_DHCP) {
+		const struct l_dhcp_lease *lease =
+			l_dhcp_client_get_lease(netconfig->dhcp_client);
+
+		if (lease)
+			dns4_list = l_dhcp_lease_get_dns(lease);
+	}
+
+	if (!netconfig->dns6_overrides &&
+			netconfig->rtm_v6_protocol == RTPROT_DHCP) {
+		const struct l_dhcp6_lease *lease =
+			l_dhcp6_client_get_lease(netconfig->dhcp6_client);
+
+		if (lease)
+			dns6_list = l_dhcp6_lease_get_dns(lease);
+	}
+
+	n_entries += l_strv_length(netconfig->dns4_overrides);
+	n_entries += l_strv_length(netconfig->dns6_overrides);
+	n_entries += l_strv_length(dns4_list);
+	n_entries += l_strv_length(dns6_list);
+
+	dns_list = l_new(char *, n_entries + 1);
+	n_entries = 0;
+
+	APPEND_STRDUPV(dns_list, n_entries, netconfig->dns4_overrides);
+	APPENDV(dns_list, n_entries, dns4_list);
+	/* Contents now belong to ret, so not l_strfreev */
+	l_free(dns4_list);
+	APPEND_STRDUPV(dns_list, n_entries, netconfig->dns6_overrides);
+	APPENDV(dns_list, n_entries, dns6_list);
+	/* Contents now belong to ret, so not l_strfreev */
+	l_free(dns6_list);
+
+	resolve_set_dns(netconfig->resolve, dns_list);
+	l_strv_free(dns_list);
+	return 0;
 }
 
 static struct netconfig_ifaddr *netconfig_ipv4_get_ifaddr(
@@ -265,56 +328,6 @@ static char *netconfig_ipv4_get_gateway(struct netconfig *netconfig)
 			return NULL;
 
 		return l_dhcp_lease_get_gateway(lease);
-	}
-
-	return NULL;
-}
-
-static char **netconfig_ipv4_get_dns(struct netconfig *netconfig, uint8_t proto)
-{
-	const struct l_dhcp_lease *lease;
-	struct in_addr in_addr;
-	char **dns_list;
-
-	dns_list = l_settings_get_string_list(netconfig->active_settings,
-							"IPv4", "DNS", ' ');
-	if (!dns_list)
-		dns_list = l_settings_get_string_list(
-						netconfig->active_settings,
-						"IPv4", "dns", ' ');
-
-	if (dns_list && *dns_list) {
-		char **p;
-
-		for (p = dns_list; *p; p++) {
-			if (inet_pton(AF_INET, *p, &in_addr) == 1)
-				continue;
-
-			l_error("netconfig: Invalid IPv4 DNS address '%s' is "
-				"provided in network configuration file.", *p);
-
-			l_strv_free(dns_list);
-
-			return NULL;
-		}
-
-		/* Allow to override the DHCP DNSs with static addressing. */
-		return dns_list;
-	} else if (dns_list) {
-		l_error("netconfig: No IPv4 DNS address is provided in network "
-							"configuration file.");
-
-		l_strv_free(dns_list);
-
-		return NULL;
-	}
-
-	if (proto == RTPROT_DHCP) {
-		lease = l_dhcp_client_get_lease(netconfig->dhcp_client);
-		if (!lease)
-			return NULL;
-
-		return l_dhcp_lease_get_dns(lease);
 	}
 
 	return NULL;
@@ -434,54 +447,6 @@ static char *netconfig_ipv6_get_gateway(struct netconfig *netconfig)
 		return gateway;
 
 	case RTPROT_DHCP:
-		/* TODO */
-
-		return NULL;
-	}
-
-	return NULL;
-}
-
-static char **netconfig_ipv6_get_dns(struct netconfig *netconfig, uint8_t proto)
-{
-	struct in6_addr in6_addr;
-	char **dns_list;
-
-	dns_list = l_settings_get_string_list(netconfig->active_settings,
-							"IPv6", "DNS", ' ');
-
-	if (!dns_list)
-		dns_list = l_settings_get_string_list(
-						netconfig->active_settings,
-						"IPv6", "dns", ' ');
-
-	if (dns_list && *dns_list) {
-		char **p;
-
-		for (p = dns_list; *p; p++) {
-			if (inet_pton(AF_INET6, *p, &in6_addr) == 1)
-				continue;
-
-			l_error("netconfig: Invalid IPv6 DNS address '%s' is "
-				"provided in network configuration file.", *p);
-
-			l_strv_free(dns_list);
-
-			return NULL;
-		}
-
-		/* Allow to override the DHCP DNSs with static addressing. */
-		return dns_list;
-	} else if (dns_list) {
-		l_error("netconfig: No IPv6 DNS address is provided in network "
-							"configuration file.");
-
-		l_strv_free(dns_list);
-
-		return NULL;
-	}
-
-	if (proto == RTPROT_DHCP) {
 		/* TODO */
 
 		return NULL;
@@ -810,7 +775,6 @@ static void netconfig_ipv4_ifaddr_add_cmd_cb(int error, uint16_t type,
 {
 	struct netconfig *netconfig = user_data;
 	struct netconfig_ifaddr *ifaddr;
-	char **dns;
 	char *domain_name;
 
 	if (error && error != -EEXIST) {
@@ -833,16 +797,8 @@ static void netconfig_ipv4_ifaddr_add_cmd_cb(int error, uint16_t type,
 		goto done;
 	}
 
-	dns = netconfig_ipv4_get_dns(netconfig, netconfig->rtm_protocol);
-	if (!dns) {
-		l_error("netconfig: Failed to obtain DNS addresses.");
-		goto domain_name;
-	}
+	netconfig_set_dns(netconfig);
 
-	resolve_add_dns(netconfig->resolve, ifaddr->family, dns);
-	l_strv_free(dns);
-
-domain_name:
 	domain_name = netconfig_ipv4_get_domain_name(netconfig,
 						netconfig->rtm_protocol);
 	if (!domain_name)
@@ -887,7 +843,6 @@ static void netconfig_ipv6_ifaddr_add_cmd_cb(int error, uint16_t type,
 						void *user_data)
 {
 	struct netconfig *netconfig = user_data;
-	char **dns;
 
 	if (error && error != -EEXIST) {
 		l_error("netconfig: Failed to add IPv6 address. "
@@ -901,16 +856,7 @@ static void netconfig_ipv6_ifaddr_add_cmd_cb(int error, uint16_t type,
 		return;
 	}
 
-	dns = netconfig_ipv6_get_dns(netconfig, netconfig->rtm_v6_protocol);
-	if (!dns) {
-		l_error("netconfig: Failed to obtain the DNS addresses from "
-			"%s.", netconfig->rtm_v6_protocol == RTPROT_STATIC ?
-				"setting file" : "DHCPv6 lease");
-		return;
-	}
-
-	resolve_add_dns(netconfig->resolve, AF_INET6, dns);
-	l_strv_free(dns);
+	netconfig_set_dns(netconfig);
 }
 
 static void netconfig_install_address(struct netconfig *netconfig,
@@ -1069,9 +1015,11 @@ static void netconfig_dhcp6_event_handler(struct l_dhcp6_client *client,
 	case L_DHCP6_CLIENT_EVENT_IP_CHANGED:
 	case L_DHCP6_CLIENT_EVENT_LEASE_OBTAINED:
 	case L_DHCP6_CLIENT_EVENT_LEASE_RENEWED:
+		netconfig_set_dns(netconfig);
 		break;
 	case L_DHCP6_CLIENT_EVENT_LEASE_EXPIRED:
 		l_debug("Lease for interface %u expired", netconfig->ifindex);
+		netconfig_set_dns(netconfig);
 		break;
 	case L_DHCP6_CLIENT_EVENT_NO_LEASE:
 		l_error("netconfig: Failed to obtain DHCPv6 lease "
@@ -1173,11 +1121,70 @@ static void netconfig_ipv6_select_and_uninstall(struct netconfig *netconfig)
 	l_free(gateway);
 }
 
+static int validate_dns_list(int family, char **dns_list)
+{
+	unsigned int n_valid = 0;
+	struct in_addr in_addr;
+	struct in6_addr in6_addr;
+	char **p;
+
+	for (p = dns_list; *p; p++) {
+		int r;
+
+		if (family == AF_INET)
+			r = inet_pton(AF_INET, *p, &in_addr);
+		else if (family == AF_INET6)
+			r = inet_pton(AF_INET6, *p, &in6_addr);
+		else
+			r = -EAFNOSUPPORT;
+
+		if (r > 0) {
+			n_valid += 1;
+			continue;
+		}
+
+		l_error("netconfig: Invalid DNS address '%s'.", *p);
+		return -EINVAL;
+	}
+
+	return n_valid;
+}
+
 bool netconfig_configure(struct netconfig *netconfig,
 				const struct l_settings *active_settings,
 				const uint8_t *mac_address,
 				netconfig_notify_func_t notify, void *user_data)
 {
+	netconfig->dns4_overrides = l_settings_get_string_list(active_settings,
+							"IPv4", "DNS", ' ');
+
+	if (netconfig->dns4_overrides) {
+		int r = validate_dns_list(AF_INET, netconfig->dns4_overrides);
+
+		if (r <= 0) {
+			l_strfreev(netconfig->dns4_overrides);
+			netconfig->dns4_overrides = NULL;
+		}
+
+		if (r == 0)
+			l_error("netconfig: Empty IPv4.DNS entry, skipping...");
+	}
+
+	netconfig->dns6_overrides = l_settings_get_string_list(active_settings,
+							"IPv6", "DNS", ' ');
+
+	if (netconfig->dns6_overrides) {
+		int r = validate_dns_list(AF_INET6, netconfig->dns6_overrides);
+
+		if (r <= 0) {
+			l_strfreev(netconfig->dns6_overrides);
+			netconfig->dns6_overrides = NULL;
+		}
+
+		if (r == 0)
+			l_error("netconfig: Empty IPv6.DNS entry, skipping...");
+	}
+
 	netconfig->active_settings = active_settings;
 	netconfig->notify = notify;
 	netconfig->user_data = user_data;
@@ -1218,6 +1225,11 @@ bool netconfig_reset(struct netconfig *netconfig)
 	netconfig->rtm_v6_protocol = 0;
 
 	resolve_revert(netconfig->resolve);
+
+	l_strfreev(netconfig->dns4_overrides);
+	netconfig->dns4_overrides = NULL;
+	l_strfreev(netconfig->dns6_overrides);
+	netconfig->dns6_overrides = NULL;
 
 	sysfs_write_ipv6_setting(netdev_get_name(netdev), "disable_ipv6", "1");
 
