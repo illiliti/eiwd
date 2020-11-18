@@ -1020,10 +1020,12 @@ static void netconfig_dhcp6_event_handler(struct l_dhcp6_client *client,
 	case L_DHCP6_CLIENT_EVENT_LEASE_EXPIRED:
 		l_debug("Lease for interface %u expired", netconfig->ifindex);
 		netconfig_set_dns(netconfig);
-		break;
+
+		/* Fall through */
 	case L_DHCP6_CLIENT_EVENT_NO_LEASE:
-		l_error("netconfig: Failed to obtain DHCPv6 lease "
-				"for interface %u", netconfig->ifindex);
+		if (!l_dhcp6_client_start(netconfig->dhcp6_client))
+			l_error("netconfig: Failed to re-start DHCPv6 client "
+					"for interface %u", netconfig->ifindex);
 		break;
 	}
 }
