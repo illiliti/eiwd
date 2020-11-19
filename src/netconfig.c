@@ -52,7 +52,6 @@ struct netconfig {
 	uint32_t ifindex;
 	struct l_dhcp_client *dhcp_client;
 	struct l_dhcp6_client *dhcp6_client;
-	struct l_queue *ifaddr_list;
 	uint8_t rtm_protocol;
 	uint8_t rtm_v6_protocol;
 	struct l_rtnl_address *v4_address;
@@ -65,13 +64,6 @@ struct netconfig {
 	void *user_data;
 
 	struct resolve *resolve;
-};
-
-struct netconfig_ifaddr {
-	uint8_t family;
-	uint8_t prefix_len;
-	char *ip;
-	char *broadcast;
 };
 
 static struct l_netlink *rtnl;
@@ -123,24 +115,12 @@ static int sysfs_write_ipv6_setting(const char *ifname, const char *setting,
 	return r;
 }
 
-static void netconfig_ifaddr_destroy(void *data)
-{
-	struct netconfig_ifaddr *ifaddr = data;
-
-	l_free(ifaddr->ip);
-	l_free(ifaddr->broadcast);
-
-	l_free(ifaddr);
-}
-
 static void netconfig_free(void *data)
 {
 	struct netconfig *netconfig = data;
 
 	l_dhcp_client_destroy(netconfig->dhcp_client);
 	l_dhcp6_client_destroy(netconfig->dhcp6_client);
-
-	l_queue_destroy(netconfig->ifaddr_list, netconfig_ifaddr_destroy);
 
 	l_free(netconfig);
 }
@@ -457,66 +437,27 @@ static struct l_rtnl_address *netconfig_get_dhcp4_address(
 	return ret;
 }
 
-static bool netconfig_ifaddr_match(const void *a, const void *b)
-{
-	const struct netconfig_ifaddr *entry = a;
-	const struct netconfig_ifaddr *query = b;
-
-	if (entry->family != query->family)
-		return false;
-
-	if (entry->prefix_len != query->prefix_len)
-		return false;
-
-	if (strcmp(entry->ip, query->ip))
-		return false;
-
-	return true;
-}
-
 static void netconfig_ifaddr_added(struct netconfig *netconfig,
 					const struct ifaddrmsg *ifa,
 					uint32_t len)
 {
-	struct netconfig_ifaddr *ifaddr;
-	char *label;
+	L_AUTO_FREE_VAR(char *, label);
+	L_AUTO_FREE_VAR(char *, ip);
+	L_AUTO_FREE_VAR(char *, broadcast);
 
-	ifaddr = l_new(struct netconfig_ifaddr, 1);
-	ifaddr->family = ifa->ifa_family;
-	ifaddr->prefix_len = ifa->ifa_prefixlen;
-
-	l_rtnl_ifaddr4_extract(ifa, len, &label, &ifaddr->ip,
-					&ifaddr->broadcast);
-
-	l_debug("%s: ifaddr %s/%u broadcast %s", label, ifaddr->ip,
-					ifaddr->prefix_len, ifaddr->broadcast);
-	l_free(label);
-
-	l_queue_push_tail(netconfig->ifaddr_list, ifaddr);
+	l_rtnl_ifaddr4_extract(ifa, len, &label, &ip, &broadcast);
+	l_debug("%s: ifaddr %s/%u broadcast %s", label,
+					ip, ifa->ifa_prefixlen, broadcast);
 }
 
 static void netconfig_ifaddr_deleted(struct netconfig *netconfig,
 					const struct ifaddrmsg *ifa,
 					uint32_t len)
 {
-	struct netconfig_ifaddr *ifaddr;
-	struct netconfig_ifaddr query;
+	L_AUTO_FREE_VAR(char *, ip);
 
-	l_rtnl_ifaddr4_extract(ifa, len, NULL, &query.ip, NULL);
-
-	query.family = ifa->ifa_family;
-	query.prefix_len = ifa->ifa_prefixlen;
-
-	ifaddr = l_queue_remove_if(netconfig->ifaddr_list,
-						netconfig_ifaddr_match, &query);
-	l_free(query.ip);
-
-	if (!ifaddr)
-		return;
-
-	l_debug("ifaddr %s/%u", ifaddr->ip, ifaddr->prefix_len);
-
-	netconfig_ifaddr_destroy(ifaddr);
+	l_rtnl_ifaddr4_extract(ifa, len, NULL, &ip, NULL);
+	l_debug("ifaddr %s/%u", ip, ifa->ifa_prefixlen);
 }
 
 static void netconfig_ifaddr_notify(uint16_t type, const void *data,
@@ -563,32 +504,25 @@ static void netconfig_ifaddr_ipv6_added(struct netconfig *netconfig,
 					const struct ifaddrmsg *ifa,
 					uint32_t len)
 {
-	struct netconfig_ifaddr *ifaddr;
 	struct in6_addr in6;
+	L_AUTO_FREE_VAR(char *, ip) = NULL;
 
 	if (ifa->ifa_flags & IFA_F_TENTATIVE)
 		return;
 
-	ifaddr = l_new(struct netconfig_ifaddr, 1);
-	ifaddr->family = ifa->ifa_family;
-	ifaddr->prefix_len = ifa->ifa_prefixlen;
+	l_rtnl_ifaddr6_extract(ifa, len, &ip);
 
-	l_rtnl_ifaddr6_extract(ifa, len, &ifaddr->ip);
-
-	l_debug("ifindex %u: ifaddr %s/%u", netconfig->ifindex, ifaddr->ip,
-							ifaddr->prefix_len);
-
-	l_queue_push_tail(netconfig->ifaddr_list, ifaddr);
+	l_debug("ifindex %u: ifaddr %s/%u", netconfig->ifindex,
+			ip, ifa->ifa_prefixlen);
 
 	if (netconfig->rtm_v6_protocol != RTPROT_DHCP)
 		return;
 
-	inet_pton(AF_INET6, ifaddr->ip, &in6);
+	inet_pton(AF_INET6, ip, &in6);
 	if (!IN6_IS_ADDR_LINKLOCAL(&in6))
 		return;
 
-	l_dhcp6_client_set_link_local_address(netconfig->dhcp6_client,
-						ifaddr->ip);
+	l_dhcp6_client_set_link_local_address(netconfig->dhcp6_client, ip);
 
 	if (l_dhcp6_client_start(netconfig->dhcp6_client))
 		return;
@@ -601,25 +535,11 @@ static void netconfig_ifaddr_ipv6_deleted(struct netconfig *netconfig,
 						const struct ifaddrmsg *ifa,
 						uint32_t len)
 {
-	struct netconfig_ifaddr *ifaddr;
-	struct netconfig_ifaddr query;
+	L_AUTO_FREE_VAR(char *, ip);
 
-	l_rtnl_ifaddr6_extract(ifa, len, &query.ip);
-
-	query.family = ifa->ifa_family;
-	query.prefix_len = ifa->ifa_prefixlen;
-
-	ifaddr = l_queue_remove_if(netconfig->ifaddr_list,
-						netconfig_ifaddr_match, &query);
-
-	l_free(query.ip);
-
-	if (!ifaddr)
-		return;
-
-	l_debug("ifaddr %s/%u", ifaddr->ip, ifaddr->prefix_len);
-
-	netconfig_ifaddr_destroy(ifaddr);
+	l_rtnl_ifaddr6_extract(ifa, len, &ip);
+	l_debug("ifindex %u: ifaddr %s/%u", netconfig->ifindex,
+			ip, ifa->ifa_prefixlen);
 }
 
 static void netconfig_ifaddr_ipv6_notify(uint16_t type, const void *data,
@@ -1088,7 +1008,6 @@ struct netconfig *netconfig_new(uint32_t ifindex)
 
 	netconfig = l_new(struct netconfig, 1);
 	netconfig->ifindex = ifindex;
-	netconfig->ifaddr_list = l_queue_new();
 	netconfig->resolve = resolve_new(ifindex);
 
 	netconfig->dhcp_client = l_dhcp_client_new(ifindex);
