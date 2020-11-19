@@ -457,39 +457,29 @@ proceed:
 	return NULL;
 }
 
-static char *netconfig_ipv6_get_gateway(struct netconfig *netconfig)
+static struct l_rtnl_route *netconfig_get_static6_gateway(
+						struct netconfig *netconfig)
 {
-	struct in6_addr in6_addr;
-	char *gateway;
+	L_AUTO_FREE_VAR(char *, gateway);
+	struct l_rtnl_route *ret;
 
-	switch (netconfig->rtm_v6_protocol) {
-	case RTPROT_STATIC:
-		gateway = l_settings_get_string(netconfig->active_settings,
-							"IPv6", "Gateway");
-		if (!gateway)
-			gateway = l_settings_get_string(
-						netconfig->active_settings,
-						"IPv6", "gateway");
-
-		if (inet_pton(AF_INET6, gateway, &in6_addr) < 1) {
-			l_error("netconfig: Invalid IPv6 gateway address %s is "
-				"provided in network configuration file.",
-				gateway);
-
-			l_free(gateway);
-
-			return NULL;
-		}
-
-		return gateway;
-
-	case RTPROT_DHCP:
-		/* TODO */
-
+	gateway = l_settings_get_string(netconfig->active_settings,
+						"IPv6", "Gateway");
+	if (!gateway)
 		return NULL;
+
+	ret = l_rtnl_route_new_gateway(gateway);
+	if (!ret) {
+		l_error("netconfig: Invalid IPv6 gateway address %s is "
+			"provided in network configuration file.",
+			gateway);
+		return ret;
 	}
 
-	return NULL;
+	l_rtnl_route_set_priority(ret, ROUTE_PRIORITY_OFFSET);
+	l_rtnl_route_set_protocol(ret, RTPROT_STATIC);
+
+	return ret;
 }
 
 static bool netconfig_ifaddr_match(const void *a, const void *b)
@@ -742,18 +732,6 @@ static void netconfig_route_add_cmd_cb(int error, uint16_t type,
 	netconfig->notify = NULL;
 }
 
-static void netconfig_route_del_cmd_cb(int error, uint16_t type,
-						const void *data, uint32_t len,
-						void *user_data)
-{
-	if (!error)
-		return;
-
-	l_error("netconfig: Failed to delete route. Error %d: %s",
-						error, strerror(-error));
-
-}
-
 static bool netconfig_ipv4_routes_install(struct netconfig *netconfig,
 						struct netconfig_ifaddr *ifaddr)
 {
@@ -840,38 +818,12 @@ done:
 	netconfig_ifaddr_destroy(ifaddr);
 }
 
-static bool netconfig_ipv6_routes_install(struct netconfig *netconfig)
-{
-	L_AUTO_FREE_VAR(char *, gateway) = NULL;
-
-	gateway = netconfig_ipv6_get_gateway(netconfig);
-	if (!gateway) {
-		l_error("netconfig: Failed to obtain gateway from %s.",
-				netconfig->rtm_v6_protocol == RTPROT_STATIC ?
-				"settings file" : "DHCPv6 lease");
-
-		return false;
-	}
-
-	if (!l_rtnl_route6_add_gateway(rtnl, netconfig->ifindex, gateway,
-						ROUTE_PRIORITY_OFFSET,
-						netconfig->rtm_v6_protocol,
-						netconfig_route_add_cmd_cb,
-						netconfig, NULL)) {
-		l_error("netconfig: Failed to add route for: %s gateway.",
-								gateway);
-
-		return false;
-	}
-
-	return true;
-}
-
 static void netconfig_ipv6_ifaddr_add_cmd_cb(int error, uint16_t type,
 						const void *data, uint32_t len,
 						void *user_data)
 {
 	struct netconfig *netconfig = user_data;
+	struct l_rtnl_route *gateway;
 
 	if (error && error != -EEXIST) {
 		l_error("netconfig: Failed to add IPv6 address. "
@@ -879,10 +831,13 @@ static void netconfig_ipv6_ifaddr_add_cmd_cb(int error, uint16_t type,
 		return;
 	}
 
-	if (!netconfig_ipv6_routes_install(netconfig)) {
-		l_error("netconfig: Failed to install IPv6 routes.");
-
-		return;
+	gateway = netconfig_get_static6_gateway(netconfig);
+	if (gateway) {
+		L_WARN_ON(!l_rtnl_route_add(rtnl, netconfig->ifindex,
+						gateway,
+						netconfig_route_add_cmd_cb,
+						netconfig, NULL));
+		l_rtnl_route_free(gateway);
 	}
 
 	netconfig_set_dns(netconfig);
@@ -1126,7 +1081,6 @@ static void netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 static void netconfig_ipv6_select_and_uninstall(struct netconfig *netconfig)
 {
 	struct netconfig_ifaddr *ifaddr;
-	char *gateway;
 
 	l_dhcp6_client_stop(netconfig->dhcp6_client);
 
@@ -1136,20 +1090,6 @@ static void netconfig_ipv6_select_and_uninstall(struct netconfig *netconfig)
 		netconfig_uninstall_address(netconfig, ifaddr);
 		netconfig_ifaddr_destroy(ifaddr);
 	}
-
-	gateway = netconfig_ipv6_get_gateway(netconfig);
-	if (!gateway)
-		return;
-
-	if (!l_rtnl_route6_delete_gateway(rtnl, netconfig->ifindex,
-			gateway, ROUTE_PRIORITY_OFFSET,
-			netconfig->rtm_v6_protocol,
-			netconfig_route_del_cmd_cb, NULL, NULL)) {
-		l_error("netconfig: Failed to delete route for: %s gateway.",
-								gateway);
-	}
-
-	l_free(gateway);
 }
 
 static int validate_dns_list(int family, char **dns_list)
