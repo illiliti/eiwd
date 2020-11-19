@@ -392,69 +392,42 @@ static char *netconfig_ipv4_get_gateway(struct netconfig *netconfig)
 	return NULL;
 }
 
-static struct netconfig_ifaddr *netconfig_ipv6_get_ifaddr(
-						struct netconfig *netconfig,
-						uint8_t proto)
+static struct l_rtnl_address *netconfig_get_static6_address(
+						struct netconfig *netconfig)
 {
-	struct in6_addr in6_addr;
-	struct netconfig_ifaddr *ifaddr;
-	char *ip;
+	L_AUTO_FREE_VAR(char *, ip);
 	char *p;
+	struct l_rtnl_address *ret;
+	uint32_t prefix_len = 128;
 
-	switch (proto) {
-	case RTPROT_STATIC:
-		ip = l_settings_get_string(netconfig->active_settings, "IPv6",
+	ip = l_settings_get_string(netconfig->active_settings, "IPv6",
 								"Address");
-		if (!ip) {
-			ip = l_settings_get_string(netconfig->active_settings,
-								"IPv6", "ip");
-			if (!ip)
-				return NULL;
-		}
+	if (!ip)
+		return NULL;
 
-		ifaddr = l_new(struct netconfig_ifaddr, 1);
-		ifaddr->ip = ip;
+	p = strrchr(ip, '/');
+	if (!p)
+		goto no_prefix_len;
 
-		p = strrchr(ifaddr->ip, '/');
-		if (!p)
-			goto no_prefix_len;
+	*p = '\0';
+	if (*++p == '\0')
+		goto no_prefix_len;
 
-		*p = '\0';
-
-		if (inet_pton(AF_INET6, ifaddr->ip, &in6_addr) < 1) {
-			l_error("netconfig: Invalid IPv6 address %s is "
-				"provided in network configuration file.",
-				ifaddr->ip);
-
-			netconfig_ifaddr_destroy(ifaddr);
-
-			return NULL;
-		}
-
-		if (*++p == '\0')
-			goto no_prefix_len;
-
-		ifaddr->prefix_len = strtoul(p, NULL, 10);
-
-		if (!unlikely(errno == EINVAL || errno == ERANGE ||
-				!ifaddr->prefix_len ||
-				ifaddr->prefix_len > 128))
-			goto proceed;
-
-no_prefix_len:
-		ifaddr->prefix_len = 128;
-proceed:
-		ifaddr->family = AF_INET6;
-
-		return ifaddr;
-
-	case RTPROT_DHCP:
-		/* TODO */
-
+	prefix_len = strtoul(p, NULL, 10);
+	if (!unlikely(errno == EINVAL || errno == ERANGE ||
+			!prefix_len || prefix_len > 128)) {
+		l_error("netconfig: Invalid prefix '%s'  provided in network"
+				" configuration file", p);
 		return NULL;
 	}
 
-	return NULL;
+no_prefix_len:
+	ret = l_rtnl_address_new(ip, prefix_len);
+	if (!ret)
+		l_error("netconfig: Invalid IPv6 address %s is "
+				"provided in network configuration file.", ip);
+
+	return ret;
 }
 
 static struct l_rtnl_route *netconfig_get_static6_gateway(
@@ -1052,7 +1025,7 @@ static void netconfig_ipv4_select_and_uninstall(struct netconfig *netconfig)
 static void netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 {
 	struct netdev *netdev = netdev_find(netconfig->ifindex);
-	struct netconfig_ifaddr *ifaddr;
+	struct l_rtnl_address *address;
 	bool enabled;
 
 	if (!l_settings_get_bool(netconfig->active_settings, "IPv6",
@@ -1066,30 +1039,17 @@ static void netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 
 	sysfs_write_ipv6_setting(netdev_get_name(netdev), "disable_ipv6", "0");
 
-	ifaddr = netconfig_ipv6_get_ifaddr(netconfig, RTPROT_STATIC);
-	if (ifaddr) {
+	address = netconfig_get_static6_address(netconfig);
+	if (address) {
 		netconfig->rtm_v6_protocol = RTPROT_STATIC;
-		netconfig_install_address(netconfig, ifaddr);
-		netconfig_ifaddr_destroy(ifaddr);
-
+		L_WARN_ON(!l_rtnl_ifaddr_add(rtnl, netconfig->ifindex, address,
+					netconfig_ipv6_ifaddr_add_cmd_cb,
+					netconfig, NULL));
+		l_rtnl_address_free(address);
 		return;
 	}
 
 	netconfig->rtm_v6_protocol = RTPROT_DHCP;
-}
-
-static void netconfig_ipv6_select_and_uninstall(struct netconfig *netconfig)
-{
-	struct netconfig_ifaddr *ifaddr;
-
-	l_dhcp6_client_stop(netconfig->dhcp6_client);
-
-	ifaddr = netconfig_ipv6_get_ifaddr(netconfig,
-						netconfig->rtm_v6_protocol);
-	if (ifaddr) {
-		netconfig_uninstall_address(netconfig, ifaddr);
-		netconfig_ifaddr_destroy(ifaddr);
-	}
 }
 
 static int validate_dns_list(int family, char **dns_list)
@@ -1192,7 +1152,7 @@ bool netconfig_reset(struct netconfig *netconfig)
 	netconfig_ipv4_select_and_uninstall(netconfig);
 	netconfig->rtm_protocol = 0;
 
-	netconfig_ipv6_select_and_uninstall(netconfig);
+	l_dhcp6_client_stop(netconfig->dhcp6_client);
 	netconfig->rtm_v6_protocol = 0;
 
 	resolve_revert(netconfig->resolve);
