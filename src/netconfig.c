@@ -441,9 +441,9 @@ static void netconfig_ifaddr_added(struct netconfig *netconfig,
 					const struct ifaddrmsg *ifa,
 					uint32_t len)
 {
-	L_AUTO_FREE_VAR(char *, label);
-	L_AUTO_FREE_VAR(char *, ip);
-	L_AUTO_FREE_VAR(char *, broadcast);
+	L_AUTO_FREE_VAR(char *, label) = NULL;
+	L_AUTO_FREE_VAR(char *, ip) = NULL;
+	L_AUTO_FREE_VAR(char *, broadcast) = NULL;
 
 	l_rtnl_ifaddr4_extract(ifa, len, &label, &ip, &broadcast);
 	l_debug("%s: ifaddr %s/%u broadcast %s", label,
