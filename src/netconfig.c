@@ -729,9 +729,14 @@ static void netconfig_ipv4_dhcp_event_handler(struct l_dhcp_client *client,
 	l_debug("DHCPv4 event %d", event);
 
 	switch (event) {
-	case L_DHCP_CLIENT_EVENT_LEASE_RENEWED:
-	case L_DHCP_CLIENT_EVENT_LEASE_OBTAINED:
 	case L_DHCP_CLIENT_EVENT_IP_CHANGED:
+		L_WARN_ON(!l_rtnl_ifaddr_delete(rtnl, netconfig->ifindex,
+					netconfig->v4_address,
+					netconfig_ifaddr_del_cmd_cb,
+					netconfig, NULL));
+		l_rtnl_address_free(netconfig->v4_address);
+		/* Fall through. */
+	case L_DHCP_CLIENT_EVENT_LEASE_OBTAINED:
 		netconfig->v4_address = netconfig_get_dhcp4_address(netconfig);
 		if (!netconfig->v4_address) {
 			l_error("netconfig: Failed to obtain IP addresses from "
@@ -743,6 +748,8 @@ static void netconfig_ipv4_dhcp_event_handler(struct l_dhcp_client *client,
 					netconfig->v4_address,
 					netconfig_ipv4_ifaddr_add_cmd_cb,
 					netconfig, NULL));
+		break;
+	case L_DHCP_CLIENT_EVENT_LEASE_RENEWED:
 		break;
 	case L_DHCP_CLIENT_EVENT_LEASE_EXPIRED:
 		L_WARN_ON(!l_rtnl_ifaddr_delete(rtnl, netconfig->ifindex,
