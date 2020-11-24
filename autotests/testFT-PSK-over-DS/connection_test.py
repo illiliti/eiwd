@@ -88,7 +88,9 @@ class Test(unittest.TestCase):
         condition = 'obj.state != DeviceState.roaming'
         wd.wait_for_object_condition(device, condition)
 
-        self.assertEqual(device.state, iwd.DeviceState.connected)
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
+
         self.assertTrue(self.bss_hostapd[1].list_sta())
 
         testutil.test_iface_operstate(device.name)
