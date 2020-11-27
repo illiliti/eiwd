@@ -1444,22 +1444,26 @@ static void network_unset_hotspot(struct network *network, void *user_data)
 	network_set_info(network, NULL);
 }
 
-static void emit_known_network_changed(struct station *station, void *user_data)
+static void emit_known_network_removed(struct station *station, void *user_data)
 {
 	struct network_info *info = user_data;
+	struct network *connected_network;
 	struct network *network;
 
-	if (!info->is_hotspot) {
+	/* Clear network info, as this network is no longer known */
+	if (info->is_hotspot)
+		station_network_foreach(station, network_unset_hotspot, info);
+	else {
 		network = station_network_find(station, info->ssid, info->type);
 		if (!network)
 			return;
 
 		network_set_info(network, NULL);
-		return;
 	}
 
-	/* This is a removed hotspot */
-	station_network_foreach(station, network_unset_hotspot, info);
+	connected_network = station_get_connected_network(station);
+	if (connected_network && connected_network->info == NULL)
+		station_disconnect(station);
 }
 
 static void network_update_hotspot(struct network *network, void *user_data)
@@ -1487,17 +1491,6 @@ static void match_known_network(struct station *station, void *user_data)
 	station_network_foreach(station, network_update_hotspot, info);
 }
 
-static void disconnect_no_longer_known(struct station *station, void *user_data)
-{
-	struct network_info *info = user_data;
-	struct network *network;
-
-	network = station_get_connected_network(station);
-
-	if (network && network->info == info)
-		station_disconnect(station);
-}
-
 static void known_networks_changed(enum known_networks_event event,
 					const struct network_info *info,
 					void *user_data)
@@ -1510,8 +1503,7 @@ static void known_networks_changed(enum known_networks_event event,
 		known_network_frequency_sync((struct network_info *)info);
 		break;
 	case KNOWN_NETWORKS_EVENT_REMOVED:
-		station_foreach(disconnect_no_longer_known, (void *) info);
-		station_foreach(emit_known_network_changed, (void *) info);
+		station_foreach(emit_known_network_removed, (void *) info);
 		break;
 	}
 }
