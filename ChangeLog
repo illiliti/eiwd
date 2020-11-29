@@ -1,3 +1,9 @@
+ver 1.10:
+	Add support for DHCP v6 configuration.
+	Add support for DHCP server operation with AP mode.
+	Add support for IP allocation during the 4-Way Handshake.
+	Add support for P2P Group-owner handling.
+
 ver 1.9:
 	Fix issue with WPA3 connections in transition mode.
 	Fix issue with handling roaming attempt failures.
