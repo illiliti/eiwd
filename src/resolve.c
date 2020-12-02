@@ -406,6 +406,14 @@ static void resolve_resolvconf_set_dns(struct resolve *resolve, char **dns_list)
 	if (L_WARN_ON(!resolvconf_path))
 		return;
 
+	if (!dns_list || !dns_list[0]) {
+		if (rc->have_dns)
+			resolvconf_invoke(rc->ifname, "dns", NULL);
+
+		rc->have_dns = false;
+		return;
+	}
+
 	content = l_string_new(0);
 
 	for (; *dns_list; dns_list++)
@@ -427,6 +435,14 @@ static void resolve_resolvconf_set_domains(struct resolve *resolve,
 
 	if (L_WARN_ON(!resolvconf_path))
 		return;
+
+	if (!domain_list || !domain_list[0]) {
+		if (rc->have_domain)
+			resolvconf_invoke(rc->ifname, "domain", NULL);
+
+		rc->have_domain = false;
+		return;
+	}
 
 	content = l_string_new(0);
 
