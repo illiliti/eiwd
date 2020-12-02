@@ -698,6 +698,7 @@ static void netconfig_ipv6_ifaddr_add_cmd_cb(int error, uint16_t type,
 	}
 
 	netconfig_set_dns(netconfig);
+	netconfig_set_domains(netconfig);
 }
 
 static void netconfig_ifaddr_del_cmd_cb(int error, uint16_t type,
@@ -787,10 +788,12 @@ static void netconfig_dhcp6_event_handler(struct l_dhcp6_client *client,
 	case L_DHCP6_CLIENT_EVENT_LEASE_OBTAINED:
 	case L_DHCP6_CLIENT_EVENT_LEASE_RENEWED:
 		netconfig_set_dns(netconfig);
+		netconfig_set_domains(netconfig);
 		break;
 	case L_DHCP6_CLIENT_EVENT_LEASE_EXPIRED:
 		l_debug("Lease for interface %u expired", netconfig->ifindex);
 		netconfig_set_dns(netconfig);
+		netconfig_set_domains(netconfig);
 
 		/* Fall through */
 	case L_DHCP6_CLIENT_EVENT_NO_LEASE:
