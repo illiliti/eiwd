@@ -86,7 +86,7 @@ The group ``[General]`` contains general settings.
      - Values: <IP in prefix notation>
 
        Sets the range of IP's used for DHCP server (AP mode). The IP should be
-       in prefix notation e.g. aaa.bbb.ccc.ddd/xx. AP's which are started in a
+       in prefix notation e.g. 192.168.1.0/24. AP's which are started in a
        profile-less configuration will use this pool of IP's to set the AP's
        interface address as well as default DHCP server options. Each AP will
        get a new subnet from the range and clients will be addressed in that
