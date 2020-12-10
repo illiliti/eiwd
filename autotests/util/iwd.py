@@ -943,7 +943,8 @@ class IWD(AsyncOpAbstract):
     _default_instance = None
     psk_agent = None
 
-    def __init__(self, start_iwd_daemon = False, iwd_config_dir = '/tmp', namespace=ctx):
+    def __init__(self, start_iwd_daemon = False, iwd_config_dir = '/tmp',
+                            iwd_storage_dir = '/tmp/iwd', namespace=ctx):
         self.namespace = namespace
         self._bus = namespace.get_bus()
 
@@ -951,7 +952,8 @@ class IWD(AsyncOpAbstract):
             if self.namespace.is_process_running('iwd'):
                 raise Exception("IWD requested to start but is already running")
 
-            self._iwd_proc = self.namespace.start_iwd(iwd_config_dir)
+            self._iwd_proc = self.namespace.start_iwd(iwd_config_dir,
+                                                        iwd_storage_dir)
 
         tries = 0
         while not self._bus.name_has_owner(IWD_SERVICE):
