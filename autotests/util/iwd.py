@@ -124,6 +124,7 @@ class IWDDBusAbstract(AsyncOpAbstract):
 
     def __init__(self, object_path = None, properties = None, service=IWD_SERVICE, namespace=ctx):
         self._bus = namespace.get_bus()
+        self._namespace = namespace
 
         self._object_path = object_path
         proxy = self._bus.get_object(service, self._object_path)
@@ -391,7 +392,7 @@ class Device(IWDDBusAbstract):
         '''
         ordered_networks = []
         for bus_obj in self._station.GetOrderedNetworks():
-            ordered_network = OrderedNetwork(bus_obj, self._bus)
+            ordered_network = OrderedNetwork(bus_obj, self._bus, self._namespace)
             ordered_networks.append(ordered_network)
 
         if len(ordered_networks) > 0:
@@ -407,7 +408,7 @@ class Device(IWDDBusAbstract):
         IWD._wait_for_object_condition(self, condition)
 
         for bus_obj in self._station.GetOrderedNetworks():
-            ordered_network = OrderedNetwork(bus_obj, self._bus)
+            ordered_network = OrderedNetwork(bus_obj, self._bus, self._namespace)
             ordered_networks.append(ordered_network)
 
         if len(ordered_networks) > 0:
@@ -643,9 +644,9 @@ class KnownNetwork(IWDDBusAbstract):
 class OrderedNetwork(object):
     '''Represents a network found in the scan'''
 
-    def __init__(self, o_n_tuple, bus):
+    def __init__(self, o_n_tuple, bus, namespace=ctx):
         self._bus = bus
-        self._network_object = Network(o_n_tuple[0])
+        self._network_object = Network(o_n_tuple[0], namespace=namespace)
         self._network_proxy = dbus.Interface(self._bus.get_object(IWD_SERVICE,
                                         o_n_tuple[0]),
                                         DBUS_PROPERTIES)
