@@ -16,23 +16,29 @@ import os
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
-        wd = IWD(True)
+        wd = IWD(True, iwd_storage_dir='/tmp/storage')
+
+        ns0 = ctx.get_namespace('ns0')
+
+        wd_ns0 = IWD(True, namespace=ns0)
 
         psk_agent = PSKAgent("secret123")
+        psk_agent_ns0 = PSKAgent("secret123", namespace=ns0)
         wd.register_psk_agent(psk_agent)
+        wd_ns0.register_psk_agent(psk_agent_ns0)
 
-        devices = wd.list_devices(1)
-        device = devices[0]
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
+        dev1 = wd.list_devices(1)[0]
+        dev2 = wd_ns0.list_devices(1)[0]
 
         condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
+        wd.wait_for_object_condition(dev1, condition)
 
-        ordered_network = device.get_ordered_network('ssidTKIP')
+        dev1.scan()
+
+        condition = 'not obj.scanning'
+        wd.wait_for_object_condition(dev1, condition)
+
+        ordered_network = dev1.get_ordered_network('ssidTKIP')
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
@@ -42,12 +48,33 @@ class Test(unittest.TestCase):
         ordered_network.network_object.connect()
 
         condition = 'obj.state == DeviceState.connected'
-        wd.wait_for_object_condition(device, condition)
+        wd.wait_for_object_condition(dev1, condition)
 
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected()
 
-        device.disconnect()
+        testutil.test_ip_address_match(dev1.name, '192.168.1.10')
+
+        dev2.scan()
+
+        condition = 'not obj.scanning'
+        wd_ns0.wait_for_object_condition(dev2, condition)
+
+        ordered_network = dev2.get_ordered_network('ssidTKIP', scan_if_needed=True)
+
+        condition = 'not obj.connected'
+        wd_ns0.wait_for_object_condition(ordered_network.network_object, condition)
+
+        ordered_network.network_object.connect()
+
+        condition = 'obj.state == DeviceState.connected'
+        wd_ns0.wait_for_object_condition(dev2, condition)
+
+        wd.wait(1)
+        testutil.test_ip_address_match(dev1.name, None)
+
+        dev1.disconnect()
+        dev2.disconnect()
 
         condition = 'not obj.connected'
         wd.wait_for_object_condition(ordered_network.network_object, condition)
@@ -66,6 +93,7 @@ class Test(unittest.TestCase):
         cls.dhcpd_pid = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf',
                                             '-lf', '/tmp/dhcpd.leases',
                                             hapd.ifname])
+        IWD.copy_to_storage('ssidTKIP.psk', '/tmp/storage')
 
     @classmethod
     def tearDownClass(cls):
