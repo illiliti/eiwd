@@ -64,6 +64,8 @@ struct netconfig {
 	void *user_data;
 
 	struct resolve *resolve;
+
+	struct l_acd *acd;
 };
 
 static struct l_netlink *rtnl;
@@ -804,15 +806,87 @@ static void netconfig_dhcp6_event_handler(struct l_dhcp6_client *client,
 	}
 }
 
-static void netconfig_ipv4_select_and_install(struct netconfig *netconfig)
+static void netconfig_reset_v4(struct netconfig *netconfig)
 {
-	netconfig->v4_address = netconfig_get_static4_address(netconfig);
-	if (netconfig->v4_address) {
-		netconfig->rtm_protocol = RTPROT_STATIC;
+	if (netconfig->rtm_protocol) {
+		if (netconfig->v4_address) {
+			L_WARN_ON(!l_rtnl_ifaddr_delete(rtnl,
+						netconfig->ifindex,
+						netconfig->v4_address,
+						netconfig_ifaddr_del_cmd_cb,
+						netconfig, NULL));
+			l_rtnl_address_free(netconfig->v4_address);
+			netconfig->v4_address = NULL;
+		}
+
+		l_strfreev(netconfig->dns4_overrides);
+		netconfig->dns4_overrides = NULL;
+
+		l_dhcp_client_stop(netconfig->dhcp_client);
+		netconfig->rtm_protocol = 0;
+	}
+}
+
+static void netconfig_ipv4_acd_event(enum l_acd_event event, void *user_data)
+{
+	struct netconfig *netconfig = user_data;
+
+	switch (event) {
+	case L_ACD_EVENT_AVAILABLE:
 		L_WARN_ON(!l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
 					netconfig->v4_address,
 					netconfig_ipv4_ifaddr_add_cmd_cb,
 					netconfig, NULL));
+		return;
+	case L_ACD_EVENT_CONFLICT:
+		/*
+		 * Conflict found, no IP was actually set so just free/unset
+		 * anything we set prior to starting ACD.
+		 */
+		l_error("netconfig: statically configured address conflict!");
+		l_rtnl_address_free(netconfig->v4_address);
+		netconfig->v4_address = NULL;
+		netconfig->rtm_protocol = 0;
+		break;
+	case L_ACD_EVENT_LOST:
+		/*
+		 * Set IP but lost it some time after. Full (IPv4) reset in this
+		 * case.
+		 */
+		l_error("netconfig: statically configured address was lost");
+		netconfig_reset_v4(netconfig);
+		break;
+	}
+}
+
+static void netconfig_ipv4_select_and_install(struct netconfig *netconfig)
+{
+	netconfig->v4_address = netconfig_get_static4_address(netconfig);
+	if (netconfig->v4_address) {
+		char ip[INET6_ADDRSTRLEN];
+
+		netconfig->rtm_protocol = RTPROT_STATIC;
+		netconfig->acd = l_acd_new(netconfig->ifindex);
+		l_acd_set_event_handler(netconfig->acd,
+					netconfig_ipv4_acd_event, netconfig,
+					NULL);
+		if (getenv("IWD_ACD_DEBUG"))
+			l_acd_set_debug(netconfig->acd, do_debug,
+					"[ACD] ", NULL);
+
+		l_rtnl_address_get_address(netconfig->v4_address, ip);
+
+		if (!l_acd_start(netconfig->acd, ip)) {
+			l_error("failed to start ACD, continuing anyways");
+			l_acd_destroy(netconfig->acd);
+			netconfig->acd = NULL;
+
+			L_WARN_ON(!l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
+					netconfig->v4_address,
+					netconfig_ipv4_ifaddr_add_cmd_cb,
+					netconfig, NULL));
+		}
+
 		return;
 	}
 
@@ -955,23 +1029,7 @@ bool netconfig_reset(struct netconfig *netconfig)
 	if (netconfig->rtm_protocol || netconfig->rtm_v6_protocol)
 		resolve_revert(netconfig->resolve);
 
-	if (netconfig->rtm_protocol) {
-		if (netconfig->v4_address) {
-			L_WARN_ON(!l_rtnl_ifaddr_delete(rtnl,
-						netconfig->ifindex,
-						netconfig->v4_address,
-						netconfig_ifaddr_del_cmd_cb,
-						netconfig, NULL));
-			l_rtnl_address_free(netconfig->v4_address);
-			netconfig->v4_address = NULL;
-		}
-
-		l_strfreev(netconfig->dns4_overrides);
-		netconfig->dns4_overrides = NULL;
-
-		l_dhcp_client_stop(netconfig->dhcp_client);
-		netconfig->rtm_protocol = 0;
-	}
+	netconfig_reset_v4(netconfig);
 
 	if (netconfig->rtm_v6_protocol) {
 		l_strfreev(netconfig->dns6_overrides);
