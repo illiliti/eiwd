@@ -1402,6 +1402,19 @@ class Main:
 			'kernel'
 		]
 
+		nproc = multiprocessing.cpu_count()
+
+		#
+		# Specially handle CPU systems with minimal cores, otherwise
+		# use half the host cores.
+		#
+		if nproc < 2:
+			smp = 1
+		else:
+			smp = int(nproc / 2)
+
+		print("Using %d cores for VM" % smp)
+
 		#
 		# This passes through most of the command line options to
 		# the kernel command line. Some are not relevant (e.g. qemu)
@@ -1440,7 +1453,7 @@ class Main:
 				rootflags=trans=virtio,version=9p2000.u \
 				acpi=off pci=noacpi %s ro \
 				mac80211_hwsim.radios=0 %s' % (kern_log, options),
-			'-cpu', 'host'
+			'-cpu', 'host', '-smp', str(smp)
 		]
 
 		# Add two ethernet devices for testing EAD
