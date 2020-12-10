@@ -559,7 +559,7 @@ class Namespace:
 
 		self._bus = dbus.bus.BusConnection(address_or_type=self.dbus_address)
 
-	def start_iwd(self, config_dir = '/tmp'):
+	def start_iwd(self, config_dir = '/tmp', storage_dir = '/tmp/iwd'):
 		args = []
 		iwd_radios = ','.join([r.name for r in self.radios if r.use == 'iwd'])
 
@@ -575,7 +575,7 @@ class Namespace:
 		env = os.environ.copy()
 
 		env['CONFIGURATION_DIRECTORY'] = config_dir
-		env['STATE_DIRECTORY'] = '/tmp/iwd'
+		env['STATE_DIRECTORY'] = storage_dir
 
 		if self.is_verbose('iwd-dhcp'):
 			env['IWD_DHCP_DEBUG'] = '1'
