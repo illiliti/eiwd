@@ -146,9 +146,15 @@ def test_iface_operstate(intf=None):
         sock.close()
 
 def test_ip_address_match(intf, ip):
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    addr = fcntl.ioctl(s.fileno(), SIOCGIFADDR, struct.pack('256s', intf.encode('utf-8')))
-    addr = socket.inet_ntoa(addr[20:24])
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        addr = fcntl.ioctl(s.fileno(), SIOCGIFADDR, struct.pack('256s', intf.encode('utf-8')))
+        addr = socket.inet_ntoa(addr[20:24])
+    except OSError as e:
+        if e.errno != 99 or ip != None:
+            raise Exception('SIOCGIFADDR failed with %d' % e.errno)
+
+        return
 
     if ip != addr:
         raise Exception('IP for %s did not match %s (was %s)' % (intf, ip, addr))
