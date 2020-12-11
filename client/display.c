@@ -39,7 +39,8 @@
 #include "client/command.h"
 #include "client/display.h"
 
-#define IWD_PROMPT COLOR_GREEN "[iwd]" COLOR_OFF "# "
+#define IWD_PROMPT \
+	"\001" COLOR_GREEN "\002" "[iwd]" "\001" COLOR_OFF "\002" "# "
 #define LINE_LEN 81
 
 static struct l_signal *window_change_signal;
