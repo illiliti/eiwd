@@ -288,7 +288,7 @@ client_iwctl_SOURCES = client/main.c \
 			client/network.h client/network.c \
 			client/properties.h client/properties.c \
 			client/wsc.c client/station.c
-client_iwctl_LDADD = $(ell_ldadd) -lreadline
+client_iwctl_LDADD = $(ell_ldadd) $(READLINE_LIBS)
 
 if MANUAL_PAGES
 man_MANS += client/iwctl.1
@@ -504,7 +504,7 @@ unit_test_client_SOURCES = unit/test-client.c \
 				client/display.h client/display.c \
 				client/network.h client/network.c \
 				client/properties.h client/properties.c
-unit_test_client_LDADD = $(ell_ldadd) -lreadline
+unit_test_client_LDADD = $(ell_ldadd) $(READLINE_LIBS)
 endif
 
 unit_test_sae_SOURCES = unit/test-sae.c \

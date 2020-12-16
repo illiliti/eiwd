@@ -154,6 +154,9 @@ AC_ARG_ENABLE([client], AC_HELP_STRING([--disable-client],
 if (test "${enable_client}" != "no"); then
 	AC_CHECK_HEADERS(readline/readline.h, enable_readline=yes,
 			AC_MSG_ERROR(readline header files are required))
+	PKG_CHECK_MODULES(READLINE, readline, dummy=yes, READLINE_LIBS=-lreadline)
+	AC_SUBST(READLINE_CFLAGS)
+	AC_SUBST(READLINE_LIBS)
 fi
 AM_CONDITIONAL(CLIENT, test "${enable_client}" != "no")
 
