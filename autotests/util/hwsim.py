@@ -249,8 +249,15 @@ class RadioList(collections.Mapping):
     def _interfaces_removed_handler(self, path, interfaces):
         del _dict[path]
 
-    def create(self, name='', p2p_device=False):
-        path = self._radio_manager.CreateRadio(name, p2p_device)
+    def create(self, name=None, p2p_device=False):
+        args = dbus.Dictionary({
+            'P2P': p2p_device,
+        }, signature='sv')
+
+        if name:
+            args['Name'] = name
+
+        path = self._radio_manager.CreateRadio(args)
         obj = Radio(path)
         self._dict[path] = obj
         return obj
