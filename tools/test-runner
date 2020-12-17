@@ -675,6 +675,14 @@ class TestContext(Namespace):
 	def create_radios(self):
 		setup = self.hw_config['SETUP']
 		nradios = int(setup['num_radios'])
+		args = ['hwsim']
+
+		if not self.hw_config['SETUP'].get('hwsim_medium', 'yes') in ['yes', '1', 'true']:
+			# register hwsim as medium
+			args.extend(['--no-register'])
+
+		self.start_process(args)
+		self.wait_for_dbus_service('net.connman.hwsim')
 
 		for i in range(nradios):
 			name = 'rad%u' % i
@@ -689,10 +697,6 @@ class TestContext(Namespace):
 
 			self.radios.append(VirtualRadio(name, rad_config))
 			self.cur_radio_id += 1
-
-		if self.hw_config['SETUP'].get('hwsim_medium', 'yes') in ['yes', '1', 'true']:
-			# register hwsim as medium
-			self.start_process(['hwsim'])
 
 	def discover_radios(self):
 		phys = []
