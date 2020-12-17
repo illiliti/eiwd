@@ -151,6 +151,7 @@ static enum action {
 
 static bool no_vif_attr;
 static bool p2p_attr;
+static bool no_register = false;
 static const char *radio_name_attr;
 static struct l_dbus *dbus;
 static struct l_queue *rules;
@@ -2347,6 +2348,9 @@ static void get_interface_done_initial(void *user_data)
 {
 	struct l_genl_msg *msg;
 
+	if (no_register)
+		return;
+
 	msg = l_genl_msg_new_sized(HWSIM_CMD_REGISTER, 4);
 	l_genl_family_send(hwsim, msg, register_callback, NULL, NULL);
 }
@@ -2625,6 +2629,7 @@ static const struct option main_options[] = {
 	{ "version",	 no_argument,		NULL, 'v' },
 	{ "iftype-disable", required_argument,	NULL, 't' },
 	{ "cipher-disable", required_argument,	NULL, 'c' },
+	{ "no-register", no_argument,		NULL, 'r' },
 	{ "help",	 no_argument,		NULL, 'h' },
 	{ }
 };
@@ -2636,7 +2641,7 @@ int main(int argc, char *argv[])
 	for (;;) {
 		int opt;
 
-		opt = getopt_long(argc, argv, ":L:CD:kndetc:ipvh", main_options,
+		opt = getopt_long(argc, argv, ":L:CD:kndetrc:ipvh", main_options,
 									NULL);
 		if (opt < 0)
 			break;
@@ -2681,6 +2686,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'c':
 			hwsim_disable_ciphers(optarg);
+			break;
+		case 'r':
+			no_register = true;
 			break;
 		case 'v':
 			printf("%s\n", VERSION);
