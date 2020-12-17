@@ -610,7 +610,8 @@ static bool station_start_anqp(struct station *station, struct network *network,
  */
 void station_set_scan_results(struct station *station,
 						struct l_queue *new_bss_list,
-						bool add_to_autoconnect)
+						bool add_to_autoconnect,
+						bool expire)
 {
 	const struct l_queue_entry *bss_entry;
 	struct network *network;
@@ -624,7 +625,8 @@ void station_set_scan_results(struct station *station,
 	l_queue_destroy(station->autoconnect_list, l_free);
 	station->autoconnect_list = l_queue_new();
 
-	station_bss_list_remove_expired_bsses(station);
+	if (expire)
+		station_bss_list_remove_expired_bsses(station);
 
 	for (bss_entry = l_queue_get_entries(station->bss_list); bss_entry;
 						bss_entry = bss_entry->next) {
@@ -1022,7 +1024,7 @@ static bool new_scan_results(int err, struct l_queue *bss_list, void *userdata)
 		return false;
 
 	autoconnect = station_is_autoconnecting(station);
-	station_set_scan_results(station, bss_list, autoconnect);
+	station_set_scan_results(station, bss_list, autoconnect, true);
 
 	return true;
 }
@@ -1088,7 +1090,7 @@ static bool station_quick_scan_results(int err, struct l_queue *bss_list,
 		goto done;
 
 	autoconnect = station_is_autoconnecting(station);
-	station_set_scan_results(station, bss_list, autoconnect);
+	station_set_scan_results(station, bss_list, autoconnect, true);
 
 done:
 	if (station->state == STATION_STATE_AUTOCONNECT_QUICK)
@@ -2889,9 +2891,20 @@ static struct l_dbus_message *station_dbus_get_hidden_access_points(
 	return reply;
 }
 
-static void station_dbus_scan_done(struct station *station)
+static void station_dbus_scan_done(struct station *station, bool expired)
 {
 	station->dbus_scan_id = 0;
+
+	if (!expired) {
+		/*
+		 * We haven't dropped old BSS records from bss_list during
+		 * this scan yet so do it now.  Call station_set_scan_results
+		 * with an empty new BSS list to do this.  Not the cheapest
+		 * but this should only happen when station_dbus_scan_done is
+		 * called early, i.e. due to an error.
+		 */
+		station_set_scan_results(station, l_queue_new(), false, true);
+	}
 
 	station_property_set_scanning(station, false);
 }
@@ -2910,7 +2923,7 @@ static void station_dbus_scan_triggered(int err, void *user_data)
 			dbus_pending_reply(&station->scan_pending, reply);
 		}
 
-		station_dbus_scan_done(station);
+		station_dbus_scan_done(station, false);
 		return;
 	}
 
@@ -2937,7 +2950,7 @@ static bool station_dbus_scan_results(int err, struct l_queue *bss_list, void *u
 	bool last_subset;
 
 	if (err) {
-		station_dbus_scan_done(station);
+		station_dbus_scan_done(station, false);
 		return false;
 	}
 
@@ -2945,12 +2958,12 @@ static bool station_dbus_scan_results(int err, struct l_queue *bss_list, void *u
 	last_subset = next_idx >= L_ARRAY_SIZE(station->scan_freqs_order) ||
 		station->scan_freqs_order[next_idx] == NULL;
 
-	station_set_scan_results(station, bss_list, autoconnect);
+	station_set_scan_results(station, bss_list, autoconnect, last_subset);
 
 	station->dbus_scan_subset_idx = next_idx;
 
 	if (last_subset || !station_dbus_scan_subset(station))
-		station_dbus_scan_done(station);
+		station_dbus_scan_done(station, last_subset);
 
 	return true;
 }
