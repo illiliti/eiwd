@@ -41,7 +41,6 @@ TIOCSTTY = 0x540E
 
 config = None
 intf_id = 0
-rad_id = 0
 
 TEST_MAX_TIMEOUT = 120
 
@@ -314,35 +313,26 @@ class VirtualRadio(Radio):
 		than the command line.
 	'''
 	def __init__(self, name, config=None):
-		global rad_id
-
-		super().__init__(name)
-
 		self.disable_cipher = None
 		self.disable_iftype = None
 
-		args = ['hwsim', '--create', '--name', self.name, '--nointerface', '--p2p']
+		hwsim = importlib.import_module('hwsim').Hwsim()
 
 		if config:
-			self.disable_iftype = config.get('iftype_disable', False)
-			if self.disable_iftype:
-				args.append('--iftype-disable')
-				args.append(self.disable_iftype)
+			self.disable_iftype = config.get('iftype_disable', None)
+			self.disable_cipher = config.get('cipher_disable', None)
 
-			self.disable_cipher = config.get('cipher_disable', False)
-			if self.disable_cipher:
-				args.append('--cipher-disable')
-				args.append(self.disable_cipher)
+		self._radio = hwsim.radios.create(name, p2p_device=True,
+					iftype_disable=self.disable_iftype,
+					cipher_disable=self.disable_cipher)
 
-		Process(args, wait=True)
-
-		self.id = rad_id
-		rad_id += 1
+		super().__init__(self._radio.name)
 
 	def __del__(self):
 		super().__del__()
 
-		Process(['hwsim', '--destroy=%s' % self.id])
+		self._radio.remove()
+		self._radio = None
 
 	def __str__(self):
 		ret = super().__str__()
