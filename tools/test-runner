@@ -616,6 +616,15 @@ class Namespace:
 
 		return False
 
+	def wait_for_dbus_service(self, service):
+		tries = 0
+
+		while not self._bus.name_has_owner(service):
+			if tries > 200:
+				raise TimeoutError('DBus service %s did not appear', service)
+			tries += 1
+			sleep(0.1)
+
 	def __str__(self):
 		ret = 'Namespace: %s\n' % self.name
 		ret += 'Processes:\n'
