@@ -203,7 +203,7 @@ class Radio(HwsimDBusAbstract):
         return [str(addr) for addr in self._properties['Addresses']]
 
     def remove(self):
-        self._iface.Remove(reply_handler=self._success,
+        self._iface.Destroy(reply_handler=self._success,
                 error_handler=self._failure)
 
         self._wait_for_async_op()
