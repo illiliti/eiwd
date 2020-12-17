@@ -1579,7 +1579,7 @@ static void radio_manager_create_callback(struct l_genl_msg *msg,
 	 */
 	radio = l_queue_find(radio_info, radio_info_match_id,
 				L_UINT_TO_PTR(pending_create_radio_id));
-	if (radio) {
+	if (radio && pending_create_msg) {
 		const char *path = radio_get_path(radio);
 
 		reply = l_dbus_message_new_method_return(pending_create_msg);
