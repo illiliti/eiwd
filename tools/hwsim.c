@@ -1599,20 +1599,38 @@ static struct l_dbus_message *radio_manager_create(struct l_dbus *dbus,
 					void *user_data)
 {
 	struct l_genl_msg *new_msg;
-	const char *name;
-	bool p2p;
+	struct l_dbus_message_iter dict;
+	struct l_dbus_message_iter variant;
+	const char *key;
+	const char *name = NULL;
+	bool p2p = false;
 
 	if (pending_create_msg)
 		return dbus_error_busy(message);
 
-	if (!l_dbus_message_get_arguments(message, "sb", &name, &p2p))
-		return dbus_error_invalid_args(message);
+	if (!l_dbus_message_get_arguments(message, "a{sv}", &dict))
+		goto invalid;
 
-	new_msg = l_genl_msg_new_sized(HWSIM_CMD_NEW_RADIO, 16 + strlen(name));
+	while (l_dbus_message_iter_next_entry(&dict, &key, &variant)) {
+		bool ret = false;
+
+		if (!strcmp(key, "Name"))
+			ret = l_dbus_message_iter_get_variant(&variant,
+								"s", &name);
+		else if (!strcmp(key, "P2P"))
+			ret = l_dbus_message_iter_get_variant(&variant,
+								"b", &p2p);
+
+		if (!ret)
+			goto invalid;
+	}
+
+	new_msg = l_genl_msg_new_sized(HWSIM_CMD_NEW_RADIO,
+					16 + name ? strlen(name) : 0);
 	l_genl_msg_append_attr(new_msg, HWSIM_ATTR_DESTROY_RADIO_ON_CLOSE,
 				0, NULL);
 
-	if (name[0])
+	if (name)
 		l_genl_msg_append_attr(new_msg, HWSIM_ATTR_RADIO_NAME,
 					strlen(name) + 1, name);
 
@@ -1627,12 +1645,15 @@ static struct l_dbus_message *radio_manager_create(struct l_dbus *dbus,
 	pending_create_radio_id = 0;
 
 	return NULL;
+
+invalid:
+	return dbus_error_invalid_args(message);
 }
 
 static void setup_radio_manager_interface(struct l_dbus_interface *interface)
 {
 	l_dbus_interface_method(interface, "CreateRadio", 0,
-				radio_manager_create, "o", "sb",
+				radio_manager_create, "o", "a{sv}",
 				"path", "name", "p2p_device");
 }
 
