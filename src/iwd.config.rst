@@ -74,14 +74,6 @@ The group ``[General]`` contains general settings.
        ``[Network]`` settings for additional settings related to network
        configuration.
 
-   * - EnableIPv6
-     - Values: true, **false**
-
-       Sets the global default that tells **iwd** whether it should configure
-       IPv6 addresses and routes (either provided via static settings,
-       Router Advertisements or DHCPv6 protocol).  This setting is disabled
-       by default.  This setting can also be overriden on a per-network basis.
-
    * - APRanges
      - Values: <IP in prefix notation>
 
@@ -185,6 +177,14 @@ The group ``[Network]`` contains network configuration related settings.
    :stub-columns: 0
    :widths: 20 80
    :align: left
+
+   * - EnableIPv6
+     - Values: true, **false**
+
+       Sets the global default that tells **iwd** whether it should configure
+       IPv6 addresses and routes (either provided via static settings,
+       Router Advertisements or DHCPv6 protocol).  This setting is disabled
+       by default.  This setting can also be overriden on a per-network basis.
 
    * - NameResolvingService
      - Values: resolvconf, **systemd**
