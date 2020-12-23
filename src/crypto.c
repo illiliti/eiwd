@@ -552,8 +552,9 @@ int crypto_psk_from_passphrase(const char *passphrase,
 	if (ssid_len == 0 || ssid_len > 32)
 		return -ERANGE;
 
-	result = l_pkcs5_pbkdf2(L_CHECKSUM_SHA1, passphrase, ssid, ssid_len,
-				4096, psk, sizeof(psk));
+	result = l_cert_pkcs5_pbkdf2(L_CHECKSUM_SHA1, passphrase,
+					ssid, ssid_len, 4096,
+					psk, sizeof(psk));
 	if (!result)
 		return -ENOKEY;
 
