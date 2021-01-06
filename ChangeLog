@@ -1,3 +1,7 @@
+ver 1.11:
+	Add support for ACD client for static configuration.
+	Add support for intelligent scan of all frequencies.
+
 ver 1.10:
 	Add support for DHCP v6 configuration.
 	Add support for DHCP server operation with AP mode.
