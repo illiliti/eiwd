@@ -50,7 +50,6 @@ ell_headers = ell/util.h \
 			ell/tls.h \
 			ell/uuid.h \
 			ell/key.h \
-			ell/pkcs5.h \
 			ell/file.h \
 			ell/dir.h \
 			ell/net.h \
@@ -113,8 +112,6 @@ ell_sources = ell/private.h \
 			ell/tls-extensions.c \
 			ell/uuid.c \
 			ell/key.c \
-			ell/pkcs5-private.h \
-			ell/pkcs5.c \
 			ell/file.c \
 			ell/dir.c \
 			ell/net-private.h \
@@ -127,6 +124,7 @@ ell_sources = ell/private.h \
 			ell/dhcp-server.c \
 			ell/cert-private.h \
 			ell/cert.c \
+			ell/cert-crypto.c \
 			ell/ecc-external.c \
 			ell/ecc-private.h \
 			ell/ecc.c \
