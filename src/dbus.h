@@ -39,6 +39,7 @@
 #define IWD_P2P_PEER_INTERFACE "net.connman.iwd.p2p.Peer"
 #define IWD_P2P_SERVICE_MANAGER_INTERFACE "net.connman.iwd.p2p.ServiceManager"
 #define IWD_P2P_WFD_INTERFACE "net.connman.iwd.p2p.Display"
+#define IWD_STATION_DIAGNOSTIC_INTERFACE "net.connman.iwd.StationDiagnostic"
 
 #define IWD_BASE_PATH "/net/connman/iwd"
 #define IWD_AGENT_MANAGER_PATH IWD_BASE_PATH
