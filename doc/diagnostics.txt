@@ -1,0 +1,36 @@
+Station diagnostic hierarchy [experimental]
+============================
+
+Service		net.connman.iwd
+Interface	net.connman.iwd.StationDiagnostic
+Object path	/net/connman/iwd/{phy0,phy1,...}/{1,2,...}
+
+Methods		dict GetDiagnostics()
+
+			Get all diagnostic information for this interface. The
+			diagnostics are contained in a single dictionary. Values
+			here are generally low level and not meant for general
+			purpose applications which could get by with the
+			existing Station interface or values which are volatile
+			and change too frequently to be represented as
+			properties. The values in the dictionary may come and
+			go depending on the state of IWD.
+
+			Below is a list of possible diagnostic dictionary
+			values:
+
+			ConnectedBss - MAC address of currently connected BSS.
+
+			RSSI -	The RSSI of the currently connected BSS.
+
+			RxRate - Receive rate in 100kbit/s
+
+			RxMCS - Receiving MCS index
+
+			TxRate - Transmission rate in 100kbit/s
+
+			TxMCS - Transmitting MCS index
+
+			Possible errors: net.connman.iwd.Busy
+					 net.connman.iwd.Failed
+					 net.connman.iwd.NotConnected
