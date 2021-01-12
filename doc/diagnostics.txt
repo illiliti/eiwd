@@ -21,15 +21,15 @@ Methods		dict GetDiagnostics()
 
 			ConnectedBss - MAC address of currently connected BSS.
 
-			RSSI -	The RSSI of the currently connected BSS.
+			RSSI [optional] - The RSSI of the currently connected BSS.
 
-			RxRate - Receive rate in 100kbit/s
+			RxRate [optional] - Receive rate in 100kbit/s
 
-			RxMCS - Receiving MCS index
+			RxMCS [optional] - Receiving MCS index
 
-			TxRate - Transmission rate in 100kbit/s
+			TxRate [optional] - Transmission rate in 100kbit/s
 
-			TxMCS - Transmitting MCS index
+			TxMCS [optional] - Transmitting MCS index
 
 			Possible errors: net.connman.iwd.Busy
 					 net.connman.iwd.Failed
