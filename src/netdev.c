@@ -132,6 +132,11 @@ struct netdev {
 	void *set_powered_user_data;
 	netdev_destroy_func_t set_powered_destroy;
 
+	uint32_t get_station_cmd_id;
+	netdev_get_station_cb_t get_station_cb;
+	void *get_station_data;
+	netdev_destroy_func_t get_station_destroy;
+
 	struct watchlist station_watches;
 
 	struct l_io *pae_io;  /* for drivers without EAPoL over NL80211 */
@@ -361,6 +366,28 @@ int netdev_set_powered(struct netdev *netdev, bool powered,
 	netdev->set_powered_destroy = destroy;
 
 	return 0;
+}
+
+static bool netdev_parse_sta_info(struct l_genl_attr *attr,
+					struct netdev_station_info *info)
+{
+	uint16_t type, len;
+	const void *data;
+
+	while (l_genl_attr_next(attr, &type, &len, &data)) {
+		switch (type) {
+		case NL80211_STA_INFO_SIGNAL_AVG:
+			if (len != 1)
+				return false;
+
+			info->cur_rssi = *(const int8_t *) data;
+			info->have_cur_rssi = true;
+
+			break;
+		}
+	}
+
+	return true;
 }
 
 static void netdev_set_rssi_level_idx(struct netdev *netdev)
@@ -634,6 +661,11 @@ static void netdev_free(void *data)
 	if (netdev->mac_change_cmd_id) {
 		l_netlink_cancel(rtnl, netdev->mac_change_cmd_id);
 		netdev->mac_change_cmd_id = 0;
+	}
+
+	if (netdev->get_station_cmd_id) {
+		l_genl_family_cancel(nl80211, netdev->get_station_cmd_id);
+		netdev->get_station_cmd_id = 0;
 	}
 
 	if (netdev->events_ready)
@@ -4020,6 +4052,96 @@ done:
 	netdev_rssi_polling_update(netdev);
 
 	return 0;
+}
+
+static void netdev_get_station_cb(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev = user_data;
+	struct l_genl_attr attr, nested;
+	uint16_t type, len;
+	const void *data;
+	struct netdev_station_info info;
+
+	netdev->get_station_cmd_id = 0;
+
+	if (!l_genl_attr_init(&attr, msg))
+		goto parse_error;
+
+	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+		switch (type) {
+		case NL80211_ATTR_STA_INFO:
+			if (!l_genl_attr_recurse(&attr, &nested))
+				goto parse_error;
+
+			if (!netdev_parse_sta_info(&nested, &info))
+				goto parse_error;
+
+			break;
+
+		case NL80211_ATTR_MAC:
+			if (len != 6)
+				goto parse_error;
+
+			memcpy(info.addr, data, 6);
+
+			break;
+		}
+	}
+
+	if (netdev->get_station_cb)
+		netdev->get_station_cb(&info, netdev->get_station_data);
+
+	return;
+
+parse_error:
+	if (netdev->get_station_cb)
+		netdev->get_station_cb(NULL, netdev->get_station_data);
+}
+
+static void netdev_get_station_destroy(void *user_data)
+{
+	struct netdev *netdev = user_data;
+
+	netdev->get_station_cmd_id = 0;
+
+	if (netdev->get_station_destroy)
+		netdev->get_station_destroy(netdev->get_station_data);
+}
+
+int netdev_get_station(struct netdev *netdev, const uint8_t *mac,
+			netdev_get_station_cb_t cb, void *user_data,
+			netdev_destroy_func_t destroy)
+{
+	struct l_genl_msg *msg;
+
+	if (netdev->get_station_cmd_id)
+		return -EBUSY;
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_GET_STATION, 64);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, mac);
+
+	netdev->get_station_cmd_id = l_genl_family_send(nl80211, msg,
+						netdev_get_station_cb, netdev,
+						netdev_get_station_destroy);
+	if (!netdev->get_station_cmd_id) {
+		l_genl_msg_unref(msg);
+		return -EIO;
+	}
+
+	netdev->get_station_cb = cb;
+	netdev->get_station_data = user_data;
+	netdev->get_station_destroy = destroy;
+
+	return 0;
+}
+
+int netdev_get_current_station(struct netdev *netdev,
+			netdev_get_station_cb_t cb, void *user_data,
+			netdev_destroy_func_t destroy)
+{
+	return netdev_get_station(netdev, netdev->handshake->aa, cb,
+					user_data, destroy);
 }
 
 static int netdev_cqm_rssi_update(struct netdev *netdev)
