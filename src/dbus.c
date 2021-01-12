@@ -202,6 +202,32 @@ void dbus_pending_reply(struct l_dbus_message **msg,
 	*msg = NULL;
 }
 
+/*
+ * Convenience helper for appending a dictionary "{sv}". This only works when
+ * the variant is a basic type.
+ */
+bool dbus_append_dict_basic(struct l_dbus_message_builder *builder,
+				const char *name, char type,
+				const void *data)
+{
+	char strtype[] = { type, '\0' };
+
+	if (!l_dbus_message_builder_enter_dict(builder, "sv"))
+		return false;
+	if (!l_dbus_message_builder_append_basic(builder, 's', name))
+		return false;
+	if (!l_dbus_message_builder_enter_variant(builder, strtype))
+		return false;
+	if (!l_dbus_message_builder_append_basic(builder, type, data))
+		return false;
+	if (!l_dbus_message_builder_leave_variant(builder))
+		return false;
+	if (!l_dbus_message_builder_leave_dict(builder))
+		return false;
+
+	return true;
+}
+
 struct l_dbus *dbus_get_bus(void)
 {
 	return g_dbus;
