@@ -1,0 +1,36 @@
+#!/usr/bin/python3
+
+import sys
+import dbus
+
+# Map dict keys to units. Units can be a function/lambda which should return the
+# entire value with units as a string.
+unit_map = {
+    "ConnectedBss" : None,
+    "RSSI" : "dBm",
+    "RxBitrate" : lambda k : str(100 * int(k)) + ' Kbps',
+    "RxMCS" : lambda i : str(int(i)),
+    "TxBitrate" : lambda k : str(100 * int(k)) + ' Kbps',
+    "TxMCS" : lambda i : str(int(i)),
+    "ExpectedThroughput" : "Kbps"
+}
+
+if (len(sys.argv) != 2):
+    print("Usage: %s <device>" % (sys.argv[0]))
+    sys.exit(1)
+
+bus = dbus.SystemBus()
+device = dbus.Interface(bus.get_object("net.connman.iwd", sys.argv[1]),
+                                    "net.connman.iwd.StationDiagnostic")
+diagnostics = device.GetDiagnostics()
+
+for key, value in diagnostics.items():
+    if key in unit_map:
+        units = unit_map[key]
+        if units is None:
+            units = ''
+        elif callable(units):
+            value = units(value)
+            units = ''
+
+        print('%s : %s %s' % (key, value, units))
