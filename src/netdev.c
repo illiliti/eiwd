@@ -408,6 +408,7 @@ static void netdev_rssi_poll_cb(struct l_genl_msg *msg, void *user_data)
 	uint16_t type, len;
 	const void *data;
 	bool found;
+	struct netdev_station_info info;
 	uint8_t prev_rssi_level_idx = netdev->cur_rssi_level_idx;
 
 	netdev->rssi_poll_cmd_id = 0;
@@ -420,28 +421,20 @@ static void netdev_rssi_poll_cb(struct l_genl_msg *msg, void *user_data)
 		if (type != NL80211_ATTR_STA_INFO)
 			continue;
 
+		if (!l_genl_attr_recurse(&attr, &nested))
+			goto done;
+
+		if (!netdev_parse_sta_info(&nested, &info))
+			goto done;
+
 		found = true;
 		break;
 	}
 
-	if (!found || !l_genl_attr_recurse(&attr, &nested))
+	if (!found || !info.have_cur_rssi)
 		goto done;
 
-	found = false;
-	while (l_genl_attr_next(&nested, &type, &len, &data)) {
-		if (type != NL80211_STA_INFO_SIGNAL_AVG)
-			continue;
-
-		if (len != 1)
-			continue;
-
-		found = true;
-		netdev->cur_rssi = *(const int8_t *) data;
-		break;
-	}
-
-	if (!found)
-		goto done;
+	netdev->cur_rssi = info.cur_rssi;
 
 	/*
 	 * Note we don't have to handle LOW_SIGNAL_THRESHOLD here.  The
