@@ -146,6 +146,7 @@ struct netdev {
 	struct wiphy_radio_work_item work;
 
 	bool connected : 1;
+	bool associated : 1;
 	bool operational : 1;
 	bool rekey_offload_support : 1;
 	bool pae_over_nl80211 : 1;
@@ -649,6 +650,7 @@ static void netdev_connect_free(struct netdev *netdev)
 		netdev->group_handshake_timeout = NULL;
 	}
 
+	netdev->associated = false;
 	netdev->operational = false;
 	netdev->connected = false;
 	netdev->connect_cb = NULL;
@@ -1056,7 +1058,48 @@ static struct l_genl_msg *netdev_build_cmd_disconnect(struct netdev *netdev,
 static void netdev_deauthenticate_event(struct l_genl_msg *msg,
 							struct netdev *netdev)
 {
+	struct l_genl_attr attr;
+	uint16_t type, len;
+	const void *data;
+	const struct mmpdu_header *hdr = NULL;
+	uint16_t reason_code;
+
 	l_debug("");
+
+	/*
+	 * If we got to the association phase, process the connect event
+	 * instead
+	 */
+	if (!netdev->connected || netdev->associated)
+		return;
+
+	/*
+	 * Handle the bizarre case of AP accepting authentication, then
+	 * deauthenticating immediately afterwards
+	 */
+
+	if (L_WARN_ON(!l_genl_attr_init(&attr, msg)))
+		return;
+
+	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+		switch (type) {
+		case NL80211_ATTR_FRAME:
+			hdr = mpdu_validate(data, len);
+			break;
+		}
+	}
+
+	if (L_WARN_ON(!hdr))
+		return;
+
+	reason_code = l_get_u8(mmpdu_body(hdr));
+
+	l_info("deauth event, src="MAC" dest="MAC" bssid="MAC" reason=%u",
+			MAC_STR(hdr->address_2), MAC_STR(hdr->address_1),
+			MAC_STR(hdr->address_3), reason_code);
+
+	netdev_connect_failed(netdev, NETDEV_RESULT_AUTHENTICATION_FAILED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
 }
 
 static struct l_genl_msg *netdev_build_cmd_deauthenticate(struct netdev *netdev,
@@ -2155,8 +2198,10 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 	if (!netdev->connected || netdev->aborting)
 		return;
 
-	if (!netdev->ap)
+	if (!netdev->ap) {
+		netdev->associated = true;
 		return;
+	}
 
 	if (!l_genl_attr_init(&attr, msg)) {
 		l_debug("attr init failed");
@@ -2212,6 +2257,7 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 								false);
 
 			netdev->in_ft = false;
+			netdev->associated = true;
 			return;
 		} else if (ret == -EAGAIN) {
 			/*
@@ -2970,6 +3016,7 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 
 	memcpy(netdev->prev_bssid, orig_bss->addr, ETH_ALEN);
 
+	netdev->associated = false;
 	netdev->operational = false;
 
 	netdev_rssi_polling_update(netdev);
@@ -3332,6 +3379,7 @@ static int fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 							target_bss->rsne);
 	memcpy(netdev->handshake->mde + 2, target_bss->mde, 3);
 
+	netdev->associated = false;
 	netdev->operational = false;
 	netdev->in_ft = true;
 	netdev->connect_cb = cb;
