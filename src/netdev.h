@@ -114,11 +114,29 @@ typedef void (*netdev_station_watch_func_t)(struct netdev *netdev,
 					const uint8_t *mac, bool added,
 					void *user_data);
 
+enum netdev_mcs_type {
+	NETDEV_MCS_TYPE_NONE,
+	NETDEV_MCS_TYPE_HT,
+	NETDEV_MCS_TYPE_VHT,
+	NETDEV_MCS_TYPE_HE,
+};
+
 struct netdev_station_info {
 	uint8_t addr[6];
 	int8_t cur_rssi;
 
+	enum netdev_mcs_type rx_mcs_type;
+	uint32_t rx_bitrate;
+	uint8_t rx_mcs;
+	enum netdev_mcs_type tx_mcs_type;
+	uint32_t tx_bitrate;
+	uint8_t tx_mcs;
+
 	bool have_cur_rssi : 1;
+	bool have_rx_mcs : 1;
+	bool have_tx_mcs : 1;
+	bool have_rx_bitrate : 1;
+	bool have_tx_bitrate : 1;
 };
 
 typedef void (*netdev_get_station_cb_t)(const struct netdev_station_info *info,

@@ -368,11 +368,74 @@ int netdev_set_powered(struct netdev *netdev, bool powered,
 	return 0;
 }
 
+static bool netdev_parse_bitrate(struct l_genl_attr *attr,
+					enum netdev_mcs_type *type_out,
+					uint32_t *rate_out,
+					uint8_t *mcs_out)
+{
+	uint16_t type, len;
+	const void *data;
+	uint32_t rate = 0;
+	uint8_t mcs = 0;
+	enum netdev_mcs_type mcs_type = NETDEV_MCS_TYPE_NONE;
+
+	while (l_genl_attr_next(attr, &type, &len, &data)) {
+		switch (type) {
+		case NL80211_RATE_INFO_BITRATE32:
+			if (len != 4)
+				return false;
+
+			rate = l_get_u32(data);
+
+			break;
+
+		case NL80211_RATE_INFO_MCS:
+			if (len != 1)
+				return false;
+
+			mcs = l_get_u8(data);
+			mcs_type = NETDEV_MCS_TYPE_HT;
+
+			break;
+
+		case NL80211_RATE_INFO_VHT_MCS:
+			if (len != 1)
+				return false;
+
+			mcs = l_get_u8(data);
+			mcs_type = NETDEV_MCS_TYPE_VHT;
+
+			break;
+
+		case NL80211_RATE_INFO_HE_MCS:
+			if (len != 1)
+				return false;
+
+			mcs = l_get_u8(data);
+			mcs_type = NETDEV_MCS_TYPE_HE;
+
+			break;
+		}
+	}
+
+	if (!rate)
+		return false;
+
+	*type_out = mcs_type;
+	*rate_out = rate;
+
+	if (mcs_type != NETDEV_MCS_TYPE_NONE)
+		*mcs_out = mcs;
+
+	return true;
+}
+
 static bool netdev_parse_sta_info(struct l_genl_attr *attr,
 					struct netdev_station_info *info)
 {
 	uint16_t type, len;
 	const void *data;
+	struct l_genl_attr nested;
 
 	while (l_genl_attr_next(attr, &type, &len, &data)) {
 		switch (type) {
@@ -382,6 +445,37 @@ static bool netdev_parse_sta_info(struct l_genl_attr *attr,
 
 			info->cur_rssi = *(const int8_t *) data;
 			info->have_cur_rssi = true;
+
+			break;
+		case NL80211_STA_INFO_RX_BITRATE:
+			if (!l_genl_attr_recurse(attr, &nested))
+				return false;
+
+			if (!netdev_parse_bitrate(&nested, &info->rx_mcs_type,
+							&info->rx_bitrate,
+							&info->rx_mcs))
+				return false;
+
+			info->have_rx_bitrate = true;
+
+			if (info->rx_mcs_type != NETDEV_MCS_TYPE_NONE)
+				info->have_rx_mcs = true;
+
+			break;
+
+		case NL80211_STA_INFO_TX_BITRATE:
+			if (!l_genl_attr_recurse(attr, &nested))
+				return false;
+
+			if (!netdev_parse_bitrate(&nested, &info->tx_mcs_type,
+							&info->tx_bitrate,
+							&info->tx_mcs))
+				return false;
+
+			info->have_tx_bitrate = true;
+
+			if (info->tx_mcs_type != NETDEV_MCS_TYPE_NONE)
+				info->have_tx_mcs = true;
 
 			break;
 		}
