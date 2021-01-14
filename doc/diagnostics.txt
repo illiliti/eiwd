@@ -23,9 +23,15 @@ Methods		dict GetDiagnostics()
 
 			RSSI [optional] - The RSSI of the currently connected BSS.
 
+			RxMode [optional] -	The phy technology being used
+						(802.11n, 802.11ac or 802.11ax).
+
 			RxRate [optional] - Receive rate in 100kbit/s
 
 			RxMCS [optional] - Receiving MCS index
+
+			TxMode [optional] -	Same meaning as RxMode, just for
+						transmission.
 
 			TxRate [optional] - Transmission rate in 100kbit/s
 
