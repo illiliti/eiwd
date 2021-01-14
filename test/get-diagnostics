@@ -8,8 +8,10 @@ import dbus
 unit_map = {
     "ConnectedBss" : None,
     "RSSI" : "dBm",
+    "RxMode" : None,
     "RxBitrate" : lambda k : str(100 * int(k)) + ' Kbps',
     "RxMCS" : lambda i : str(int(i)),
+    "TxMode" : None,
     "TxBitrate" : lambda k : str(100 * int(k)) + ' Kbps',
     "TxMCS" : lambda i : str(int(i)),
     "ExpectedThroughput" : "Kbps"
