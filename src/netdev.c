@@ -478,6 +478,15 @@ static bool netdev_parse_sta_info(struct l_genl_attr *attr,
 				info->have_tx_mcs = true;
 
 			break;
+
+		case NL80211_STA_INFO_EXPECTED_THROUGHPUT:
+			if (len != 4)
+				return false;
+
+			info->expected_throughput = l_get_u32(data);
+			info->have_expected_throughput = true;
+
+			break;
 		}
 	}
 

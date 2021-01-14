@@ -132,11 +132,14 @@ struct netdev_station_info {
 	uint32_t tx_bitrate;
 	uint8_t tx_mcs;
 
+	uint32_t expected_throughput;
+
 	bool have_cur_rssi : 1;
 	bool have_rx_mcs : 1;
 	bool have_tx_mcs : 1;
 	bool have_rx_bitrate : 1;
 	bool have_tx_bitrate : 1;
+	bool have_expected_throughput : 1;
 };
 
 typedef void (*netdev_get_station_cb_t)(const struct netdev_station_info *info,
