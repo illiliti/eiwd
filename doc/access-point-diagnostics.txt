@@ -1,0 +1,36 @@
+Access Point diagnostic hierarchy [experimental]
+============================
+
+Service		net.connman.iwd
+Interface	net.connman.iwd.AccessPointDiagnostic
+Object path	/net/connman/iwd/{phy0,phy1,...}/{1,2,...}
+
+Methods		array{dict} GetDiagnostics()
+
+			Get all diagnostic information for this access points
+			connected clients. This will return an array of
+			dictionaries, each corresponding to an individual
+			client. Below is a list of possible diagnostic
+			dictionary values:
+
+			Address - The station's MAC address
+
+			RSSI [optional] - The RSSI of the currently connected BSS.
+
+			RxMode [optional] -	The phy technology being used
+						(802.11n, 802.11ac or 802.11ax).
+
+			RxRate [optional] - Receive rate in 100kbit/s
+
+			RxMCS [optional] - Receiving MCS index
+
+			TxMode [optional] -	Same meaning as RxMode, just for
+						transmission.
+
+			TxRate [optional] - Transmission rate in 100kbit/s
+
+			TxMCS [optional] - Transmitting MCS index
+
+			Possible errors: net.connman.iwd.Failed
+					 net.connman.iwd.NotConnected
+					 net.connman.iwd.NotFound
