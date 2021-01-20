@@ -211,6 +211,8 @@ int netdev_get_station(struct netdev *netdev, const uint8_t *mac,
 int netdev_get_current_station(struct netdev *netdev,
 			netdev_get_station_cb_t cb, void *user_data,
 			netdev_destroy_func_t destroy);
+int netdev_get_all_stations(struct netdev *netdev, netdev_get_station_cb_t cb,
+				void *user_data, netdev_destroy_func_t destroy);
 
 void netdev_handshake_failed(struct handshake_state *hs, uint16_t reason_code);
 

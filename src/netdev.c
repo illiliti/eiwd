@@ -4240,6 +4240,32 @@ int netdev_get_current_station(struct netdev *netdev,
 					user_data, destroy);
 }
 
+int netdev_get_all_stations(struct netdev *netdev, netdev_get_station_cb_t cb,
+				void *user_data, netdev_destroy_func_t destroy)
+{
+	struct l_genl_msg *msg;
+
+	if (netdev->get_station_cmd_id)
+		return -EBUSY;
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_GET_STATION, 64);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
+
+	netdev->get_station_cmd_id = l_genl_family_dump(nl80211, msg,
+						netdev_get_station_cb, netdev,
+						netdev_get_station_destroy);
+	if (!netdev->get_station_cmd_id) {
+		l_genl_msg_unref(msg);
+		return -EIO;
+	}
+
+	netdev->get_station_cb = cb;
+	netdev->get_station_data = user_data;
+	netdev->get_station_destroy = destroy;
+
+	return 0;
+}
+
 static int netdev_cqm_rssi_update(struct netdev *netdev)
 {
 	struct l_genl_msg *msg;
