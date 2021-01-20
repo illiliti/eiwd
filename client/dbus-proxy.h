@@ -34,6 +34,7 @@ struct proxy_interface;
 #define IWD_WSC_INTERFACE                "net.connman.iwd.SimpleConfiguration"
 #define IWD_STATION_INTERFACE            "net.connman.iwd.Station"
 #define IWD_STATION_DIAGNOSTIC_INTERFACE "net.connman.iwd.StationDiagnostic"
+#define IWD_AP_DIAGNOSTIC_INTERFACE      "net.connman.iwd.AccessPointDiagnostic"
 
 typedef bool (*proxy_property_match_func_t) (const void *a, const void *b);
 
