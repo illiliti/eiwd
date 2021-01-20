@@ -106,7 +106,6 @@ struct station {
 	bool preparing_roam : 1;
 	bool roam_scan_full : 1;
 	bool signal_low : 1;
-	bool roam_no_orig_ap : 1;
 	bool ap_directed_roaming : 1;
 	bool scanning : 1;
 	bool autoconnect : 1;
@@ -1369,7 +1368,6 @@ static void station_roamed(struct station *station)
 	 */
 	station->signal_low = false;
 	station->roam_min_time.tv_sec = 0;
-	station->roam_no_orig_ap = false;
 	station->roam_scan_full = false;
 
 	if (station->netconfig)
@@ -1627,7 +1625,6 @@ static void station_transition_start(struct station *station,
 	 * the current association."
 	 */
 	if (security == SECURITY_8021X &&
-			!station->roam_no_orig_ap &&
 			scan_bss_get_rsn_info(station->connected_bss,
 						&cur_rsne) >= 0 &&
 			scan_bss_get_rsn_info(bss, &target_rsne) >= 0 &&
@@ -2069,8 +2066,7 @@ static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
 			l_debug("Using cached neighbor report for roam");
 			return;
 		}
-	} else if (station->connected_bss->cap_rm_neighbor_report &&
-			!station->roam_no_orig_ap) {
+	} else if (station->connected_bss->cap_rm_neighbor_report) {
 		if (netdev_neighbor_report_req(station->netdev,
 					station_neighbor_report_cb) == 0) {
 			l_debug("Requesting neighbor report for roam");
