@@ -22,6 +22,24 @@
 
 struct command;
 struct command_family;
+struct l_dbus_message_iter;
+
+typedef void (*display_dict_custom_func_t)(struct l_dbus_message_iter *variant,
+				const char *key, const char *margin,
+				int name_column_width, int value_column_width);
+
+/*
+ * Maps dictionary keys to types/units. 'type' should be a valid DBus type, or
+ * zero for displaying in a custom fashion. When the display needs to be
+ * customized 'units' should point to a custom display function of the form
+ * display_dict_custom_func_t which should display the entire value as well
+ * as any units required.
+ */
+struct display_dict_mapping {
+	const char *key;
+	char type;
+	void *units;
+};
 
 #define COLOR_BOLDGRAY	"\x1B[1;30m"
 #define COLOR_GRAY	"\x1b[37m"
@@ -41,6 +59,10 @@ void display_table_footer(void);
 void display_error(const char *error);
 void display_command_line(const char *command_family,
 						const struct command *cmd);
+void display_dictionary(struct l_dbus_message_iter *dict,
+			const struct display_dict_mapping *mapping,
+			const char *margin,
+			int name_column_width, int value_column_width);
 
 void display_refresh_timeout_set(void);
 void display_refresh_reset(void);

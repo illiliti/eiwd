@@ -393,6 +393,100 @@ void display_command_line(const char *command_family,
 	l_free(cmd_line);
 }
 
+static const struct display_dict_mapping *find_mapping(const char *key,
+				const struct display_dict_mapping *mapping)
+{
+	int idx = 0;
+
+	while (mapping[idx].key) {
+		if (!strcmp(mapping[idx].key, key))
+			return &mapping[idx];
+
+		idx++;
+	}
+
+	return NULL;
+}
+
+void display_dictionary(struct l_dbus_message_iter *dict,
+			const struct display_dict_mapping *mapping,
+			const char *margin, int name_column_width,
+			int value_column_width)
+{
+	struct l_dbus_message_iter variant;
+	const char *key;
+	const struct display_dict_mapping *map;
+	display_dict_custom_func_t custom;
+	char display_text[160];
+
+	while (l_dbus_message_iter_next_entry(dict, &key, &variant)) {
+		const char *s_value;
+		uint32_t u_value;
+		int16_t n_value;
+		uint8_t y_value;
+
+		map = find_mapping(key, mapping);
+		if (!map)
+			continue;
+
+		switch (map->type) {
+		case 0:
+			if (!map->units)
+				continue;
+
+			custom = (display_dict_custom_func_t)map->units;
+
+			custom(&variant, key, margin, name_column_width,
+					value_column_width);
+
+			/* custom should handle any units, so continue */
+			continue;
+
+		case 's':
+			l_dbus_message_iter_get_variant(&variant, "s",
+							&s_value);
+			sprintf(display_text, "%s%-*s%-*s", margin,
+					name_column_width, key,
+					value_column_width, s_value);
+			break;
+
+		case 'u':
+			l_dbus_message_iter_get_variant(&variant, "u",
+							&u_value);
+			sprintf(display_text, "%s%-*s%-*u", margin,
+						name_column_width, key,
+						value_column_width, u_value);
+			break;
+
+		case 'n':
+			l_dbus_message_iter_get_variant(&variant, "n",
+							&n_value);
+			sprintf(display_text, "%s%-*s%-*i", margin,
+						name_column_width, key,
+						value_column_width, n_value);
+			break;
+
+		case 'y':
+			l_dbus_message_iter_get_variant(&variant, "y",
+							&y_value);
+			sprintf(display_text, "%s%-*s%-*u", margin,
+						name_column_width, key,
+						value_column_width, y_value);
+			break;
+
+		default:
+			display("type %c not handled", map->type);
+			continue;
+		}
+
+		if (map->units)
+			display("%s %s\n", display_text,
+					(const char *)map->units);
+		else
+			display("%s\n", display_text);
+	}
+}
+
 static void display_completion_matches(char **matches, int num_matches,
 								int max_length)
 {
