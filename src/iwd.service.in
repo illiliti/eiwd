@@ -1,5 +1,6 @@
 [Unit]
 Description=Wireless service
+After=network-pre.target
 Before=network.target
 Wants=network.target
 
