@@ -1362,13 +1362,14 @@ static int station_roam_scan(struct station *station,
 
 static void station_roamed(struct station *station)
 {
-	/*
-	 * New signal high/low notification should occur on the next
-	 * beacon from new AP.
-	 */
-	station->signal_low = false;
-	station->roam_min_time.tv_sec = 0;
 	station->roam_scan_full = false;
+
+	/*
+	 * Schedule another roaming attempt in case the signal continues to
+	 * remain low. A subsequent high signal notification will cancel it.
+	 */
+	if (station->signal_low)
+		station_roam_timeout_rearm(station, 60);
 
 	if (station->netconfig)
 		netconfig_reconfigure(station->netconfig);
@@ -2227,6 +2228,7 @@ static void station_ok_rssi(struct station *station)
 	station->roam_trigger_timeout = NULL;
 
 	station->signal_low = false;
+	station->roam_min_time.tv_sec = 0;
 }
 
 static void station_rssi_level_changed(struct station *station,
