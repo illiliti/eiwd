@@ -47,3 +47,6 @@ struct diagnostic_station_info {
 	bool have_tx_bitrate : 1;
 	bool have_expected_throughput : 1;
 };
+
+bool diagnostic_info_to_dict(const struct diagnostic_station_info *info,
+				struct l_dbus_message_builder *builder);

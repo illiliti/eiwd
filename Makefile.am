@@ -239,6 +239,7 @@ src_iwd_SOURCES = src/main.c linux/nl80211.h src/iwd.h src/missing.h \
 					src/frame-xchg.h src/frame-xchg.c \
 					src/eap-wsc.c src/eap-wsc.h \
 					src/wscutil.h src/wscutil.c \
+					src/diagnostic.h src/diagnostic.c \
 					$(eap_sources) \
 					$(builtin_sources)
 
