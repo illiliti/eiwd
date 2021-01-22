@@ -133,6 +133,13 @@ The group ``[General]`` contains general settings.
 
        This can be used to control how aggressively **iwd** roams.
 
+   * - RoamRetryInterval
+     - Value: unsigned int value in seconds (default: **60**)
+
+       Specifies how long **iwd** will wait before attempting to roam again if
+       the last roam attempt failed, or if the signal of the newly connected BSS
+       is still considered weak.
+
    * - ManagementFrameProtection
      - Values: 0, **1** or 2
 
