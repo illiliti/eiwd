@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <time.h>
 #include <sys/time.h>
+#include <limits.h>
 #include <linux/if_ether.h>
 
 #include <ell/ell.h>
@@ -57,6 +58,7 @@
 static struct l_queue *station_list;
 static uint32_t netdev_watch;
 static uint32_t mfp_setting;
+static uint32_t roam_retry_interval;
 static bool anqp_disabled;
 static bool netconfig_enabled;
 static struct watchlist anqp_watches;
@@ -1369,7 +1371,7 @@ static void station_roamed(struct station *station)
 	 * remain low. A subsequent high signal notification will cancel it.
 	 */
 	if (station->signal_low)
-		station_roam_timeout_rearm(station, 60);
+		station_roam_timeout_rearm(station, roam_retry_interval);
 
 	if (station->netconfig)
 		netconfig_reconfigure(station->netconfig);
@@ -1416,7 +1418,7 @@ delayed_retry:
 	station->ap_directed_roaming = false;
 
 	if (station->signal_low)
-		station_roam_timeout_rearm(station, 60);
+		station_roam_timeout_rearm(station, roam_retry_interval);
 }
 
 static void station_netconfig_event_handler(enum netconfig_event event,
@@ -3645,6 +3647,14 @@ static int station_init(void)
 				" using default of 1", mfp_setting);
 		mfp_setting = 1;
 	}
+
+	if (!l_settings_get_uint(iwd_get_config(), "General",
+				"RoamRetryInterval",
+				&roam_retry_interval))
+		roam_retry_interval = 60;
+
+	if (roam_retry_interval > INT_MAX)
+		roam_retry_interval = INT_MAX;
 
 	if (!l_settings_get_bool(iwd_get_config(), "General", "DisableANQP",
 				&anqp_disabled))
