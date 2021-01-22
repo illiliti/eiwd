@@ -61,6 +61,7 @@
 #include "src/fils.h"
 #include "src/auth-proto.h"
 #include "src/frame-xchg.h"
+#include "src/diagnostic.h"
 
 #ifndef ENOTSUPP
 #define ENOTSUPP 524
@@ -369,7 +370,7 @@ int netdev_set_powered(struct netdev *netdev, bool powered,
 }
 
 static bool netdev_parse_bitrate(struct l_genl_attr *attr,
-					enum netdev_mcs_type *type_out,
+					enum diagnostic_mcs_type *type_out,
 					uint32_t *rate_out,
 					uint8_t *mcs_out)
 {
@@ -377,7 +378,7 @@ static bool netdev_parse_bitrate(struct l_genl_attr *attr,
 	const void *data;
 	uint32_t rate = 0;
 	uint8_t mcs = 0;
-	enum netdev_mcs_type mcs_type = NETDEV_MCS_TYPE_NONE;
+	enum diagnostic_mcs_type mcs_type = DIAGNOSTIC_MCS_TYPE_NONE;
 
 	while (l_genl_attr_next(attr, &type, &len, &data)) {
 		switch (type) {
@@ -394,7 +395,7 @@ static bool netdev_parse_bitrate(struct l_genl_attr *attr,
 				return false;
 
 			mcs = l_get_u8(data);
-			mcs_type = NETDEV_MCS_TYPE_HT;
+			mcs_type = DIAGNOSTIC_MCS_TYPE_HT;
 
 			break;
 
@@ -403,7 +404,7 @@ static bool netdev_parse_bitrate(struct l_genl_attr *attr,
 				return false;
 
 			mcs = l_get_u8(data);
-			mcs_type = NETDEV_MCS_TYPE_VHT;
+			mcs_type = DIAGNOSTIC_MCS_TYPE_VHT;
 
 			break;
 
@@ -412,7 +413,7 @@ static bool netdev_parse_bitrate(struct l_genl_attr *attr,
 				return false;
 
 			mcs = l_get_u8(data);
-			mcs_type = NETDEV_MCS_TYPE_HE;
+			mcs_type = DIAGNOSTIC_MCS_TYPE_HE;
 
 			break;
 		}
@@ -424,14 +425,14 @@ static bool netdev_parse_bitrate(struct l_genl_attr *attr,
 	*type_out = mcs_type;
 	*rate_out = rate;
 
-	if (mcs_type != NETDEV_MCS_TYPE_NONE)
+	if (mcs_type != DIAGNOSTIC_MCS_TYPE_NONE)
 		*mcs_out = mcs;
 
 	return true;
 }
 
 static bool netdev_parse_sta_info(struct l_genl_attr *attr,
-					struct netdev_station_info *info)
+					struct diagnostic_station_info *info)
 {
 	uint16_t type, len;
 	const void *data;
@@ -458,7 +459,7 @@ static bool netdev_parse_sta_info(struct l_genl_attr *attr,
 
 			info->have_rx_bitrate = true;
 
-			if (info->rx_mcs_type != NETDEV_MCS_TYPE_NONE)
+			if (info->rx_mcs_type != DIAGNOSTIC_MCS_TYPE_NONE)
 				info->have_rx_mcs = true;
 
 			break;
@@ -474,7 +475,7 @@ static bool netdev_parse_sta_info(struct l_genl_attr *attr,
 
 			info->have_tx_bitrate = true;
 
-			if (info->tx_mcs_type != NETDEV_MCS_TYPE_NONE)
+			if (info->tx_mcs_type != DIAGNOSTIC_MCS_TYPE_NONE)
 				info->have_tx_mcs = true;
 
 			break;
@@ -511,7 +512,7 @@ static void netdev_rssi_poll_cb(struct l_genl_msg *msg, void *user_data)
 	uint16_t type, len;
 	const void *data;
 	bool found;
-	struct netdev_station_info info;
+	struct diagnostic_station_info info;
 	uint8_t prev_rssi_level_idx = netdev->cur_rssi_level_idx;
 
 	netdev->rssi_poll_cmd_id = 0;
@@ -4156,7 +4157,7 @@ static void netdev_get_station_cb(struct l_genl_msg *msg, void *user_data)
 	struct l_genl_attr attr, nested;
 	uint16_t type, len;
 	const void *data;
-	struct netdev_station_info info;
+	struct diagnostic_station_info info;
 
 	netdev->get_station_cmd_id = 0;
 

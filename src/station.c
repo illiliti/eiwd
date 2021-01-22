@@ -54,6 +54,7 @@
 #include "src/netconfig.h"
 #include "src/anqp.h"
 #include "src/anqputil.h"
+#include "src/diagnostic.h"
 
 static struct l_queue *station_list;
 static uint32_t netdev_watch;
@@ -3459,8 +3460,9 @@ static void station_destroy_interface(void *user_data)
 	station_free(station);
 }
 
-static void station_get_diagnostic_cb(const struct netdev_station_info *info,
-					void *user_data)
+static void station_get_diagnostic_cb(
+				const struct diagnostic_station_info *info,
+				void *user_data)
 {
 	struct station *station = user_data;
 	struct l_dbus_message *reply;
@@ -3488,19 +3490,19 @@ static void station_get_diagnostic_cb(const struct netdev_station_info *info,
 
 	if (info->have_rx_mcs) {
 		switch (info->rx_mcs_type) {
-		case NETDEV_MCS_TYPE_HT:
+		case DIAGNOSTIC_MCS_TYPE_HT:
 			dbus_append_dict_basic(builder, "RxMode", 's',
 						"802.11n");
 			dbus_append_dict_basic(builder, "RxMCS", 'y',
 						&info->rx_mcs);
 			break;
-		case NETDEV_MCS_TYPE_VHT:
+		case DIAGNOSTIC_MCS_TYPE_VHT:
 			dbus_append_dict_basic(builder, "RxMode", 's',
 						"802.11ac");
 			dbus_append_dict_basic(builder, "RxMCS", 'y',
 						&info->rx_mcs);
 			break;
-		case NETDEV_MCS_TYPE_HE:
+		case DIAGNOSTIC_MCS_TYPE_HE:
 			dbus_append_dict_basic(builder, "RxMode", 's',
 						"802.11ax");
 			dbus_append_dict_basic(builder, "RxMCS", 'y',
@@ -3513,19 +3515,19 @@ static void station_get_diagnostic_cb(const struct netdev_station_info *info,
 
 	if (info->have_tx_mcs) {
 		switch (info->tx_mcs_type) {
-		case NETDEV_MCS_TYPE_HT:
+		case DIAGNOSTIC_MCS_TYPE_HT:
 			dbus_append_dict_basic(builder, "TxMode", 's',
 						"802.11n");
 			dbus_append_dict_basic(builder, "TxMCS", 'y',
 						&info->tx_mcs);
 			break;
-		case NETDEV_MCS_TYPE_VHT:
+		case DIAGNOSTIC_MCS_TYPE_VHT:
 			dbus_append_dict_basic(builder, "TxMode", 's',
 						"802.11ac");
 			dbus_append_dict_basic(builder, "TxMCS", 'y',
 						&info->tx_mcs);
 			break;
-		case NETDEV_MCS_TYPE_HE:
+		case DIAGNOSTIC_MCS_TYPE_HE:
 			dbus_append_dict_basic(builder, "TxMode", 's',
 						"802.11ax");
 			dbus_append_dict_basic(builder, "TxMCS", 'y',
