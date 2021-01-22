@@ -3467,7 +3467,6 @@ static void station_get_diagnostic_cb(
 	struct station *station = user_data;
 	struct l_dbus_message *reply;
 	struct l_dbus_message_builder *builder;
-	int16_t rssi;
 
 	if (!info) {
 		reply = dbus_error_aborted(station->get_station_pending);
@@ -3476,8 +3475,6 @@ static void station_get_diagnostic_cb(
 
 	reply = l_dbus_message_new_method_return(station->get_station_pending);
 
-	rssi = (int16_t)info->cur_rssi;
-
 	builder = l_dbus_message_builder_new(reply);
 
 	l_dbus_message_builder_enter_array(builder, "{sv}");
@@ -3485,70 +3482,7 @@ static void station_get_diagnostic_cb(
 	dbus_append_dict_basic(builder, "ConnectedBss", 's',
 					util_address_to_string(info->addr));
 
-	if (info->have_cur_rssi)
-		dbus_append_dict_basic(builder, "RSSI", 'n', &rssi);
-
-	if (info->have_rx_mcs) {
-		switch (info->rx_mcs_type) {
-		case DIAGNOSTIC_MCS_TYPE_HT:
-			dbus_append_dict_basic(builder, "RxMode", 's',
-						"802.11n");
-			dbus_append_dict_basic(builder, "RxMCS", 'y',
-						&info->rx_mcs);
-			break;
-		case DIAGNOSTIC_MCS_TYPE_VHT:
-			dbus_append_dict_basic(builder, "RxMode", 's',
-						"802.11ac");
-			dbus_append_dict_basic(builder, "RxMCS", 'y',
-						&info->rx_mcs);
-			break;
-		case DIAGNOSTIC_MCS_TYPE_HE:
-			dbus_append_dict_basic(builder, "RxMode", 's',
-						"802.11ax");
-			dbus_append_dict_basic(builder, "RxMCS", 'y',
-						&info->rx_mcs);
-			break;
-		default:
-			break;
-		}
-	}
-
-	if (info->have_tx_mcs) {
-		switch (info->tx_mcs_type) {
-		case DIAGNOSTIC_MCS_TYPE_HT:
-			dbus_append_dict_basic(builder, "TxMode", 's',
-						"802.11n");
-			dbus_append_dict_basic(builder, "TxMCS", 'y',
-						&info->tx_mcs);
-			break;
-		case DIAGNOSTIC_MCS_TYPE_VHT:
-			dbus_append_dict_basic(builder, "TxMode", 's',
-						"802.11ac");
-			dbus_append_dict_basic(builder, "TxMCS", 'y',
-						&info->tx_mcs);
-			break;
-		case DIAGNOSTIC_MCS_TYPE_HE:
-			dbus_append_dict_basic(builder, "TxMode", 's',
-						"802.11ax");
-			dbus_append_dict_basic(builder, "TxMCS", 'y',
-						&info->tx_mcs);
-			break;
-		default:
-			break;
-		}
-	}
-
-	if (info->have_tx_bitrate)
-		dbus_append_dict_basic(builder, "TxBitrate", 'u',
-					&info->tx_bitrate);
-
-	if (info->have_rx_bitrate)
-		dbus_append_dict_basic(builder, "RxBitrate", 'u',
-					&info->rx_bitrate);
-
-	if (info->have_expected_throughput)
-		dbus_append_dict_basic(builder, "ExpectedThroughput", 'u',
-					&info->expected_throughput);
+	diagnostic_info_to_dict(info, builder);
 
 	l_dbus_message_builder_leave_array(builder);
 	l_dbus_message_builder_finalize(builder);
