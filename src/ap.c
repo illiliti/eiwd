@@ -52,6 +52,7 @@
 #include "src/eap-wsc.h"
 #include "src/ap.h"
 #include "src/storage.h"
+#include "src/diagnostic.h"
 
 struct ap_state {
 	struct netdev *netdev;
@@ -2963,6 +2964,90 @@ static void ap_destroy_interface(void *user_data)
 	l_free(ap_if);
 }
 
+struct diagnostic_data {
+	struct l_dbus_message *pending;
+	struct l_dbus_message_builder *builder;
+};
+
+static void ap_get_station_cb(const struct diagnostic_station_info *info,
+				void *user_data)
+{
+	struct diagnostic_data *data = user_data;
+
+	/* First station info */
+	if (!data->builder) {
+		struct l_dbus_message *reply =
+				l_dbus_message_new_method_return(data->pending);
+
+		data->builder = l_dbus_message_builder_new(reply);
+
+		l_dbus_message_builder_enter_array(data->builder, "a{sv}");
+	}
+
+	l_dbus_message_builder_enter_array(data->builder, "{sv}");
+	dbus_append_dict_basic(data->builder, "Address", 's',
+					util_address_to_string(info->addr));
+
+	diagnostic_info_to_dict(info, data->builder);
+
+	l_dbus_message_builder_leave_array(data->builder);
+}
+
+static void ap_get_station_destroy(void *user_data)
+{
+	struct diagnostic_data *data = user_data;
+	struct l_dbus_message *reply;
+
+	if (!data->builder) {
+		reply = l_dbus_message_new_method_return(data->pending);
+
+		data->builder = l_dbus_message_builder_new(reply);
+
+		l_dbus_message_builder_enter_array(data->builder, "a{sv}");
+	}
+
+	l_dbus_message_builder_leave_array(data->builder);
+	reply = l_dbus_message_builder_finalize(data->builder);
+	l_dbus_message_builder_destroy(data->builder);
+
+	dbus_pending_reply(&data->pending, reply);
+
+	l_free(data);
+}
+
+static struct l_dbus_message *ap_dbus_get_diagnostics(struct l_dbus *dbus,
+		struct l_dbus_message *message, void *user_data)
+{
+	struct ap_if_data *ap_if = user_data;
+	struct diagnostic_data *data;
+	int ret;
+
+	data = l_new(struct diagnostic_data, 1);
+	data->pending = l_dbus_message_ref(message);
+
+	ret = netdev_get_all_stations(ap_if->ap->netdev, ap_get_station_cb,
+					data, ap_get_station_destroy);
+
+	if (ret < 0) {
+		l_dbus_message_unref(data->pending);
+		l_free(data);
+		return dbus_error_from_errno(ret, message);
+	}
+
+	return NULL;
+}
+
+static void ap_setup_diagnostic_interface(struct l_dbus_interface *interface)
+{
+	l_dbus_interface_method(interface, "GetDiagnostics", 0,
+				ap_dbus_get_diagnostics,
+				"aa{sv}", "", "diagnostic");
+}
+
+static void ap_diagnostic_interface_destroy(void *user_data)
+{
+}
+
 static void ap_add_interface(struct netdev *netdev)
 {
 	struct ap_if_data *ap_if;
@@ -2978,12 +3063,16 @@ static void ap_add_interface(struct netdev *netdev)
 	/* setup ap dbus interface */
 	l_dbus_object_add_interface(dbus_get_bus(),
 			netdev_get_path(netdev), IWD_AP_INTERFACE, ap_if);
+	l_dbus_object_add_interface(dbus_get_bus(), netdev_get_path(netdev),
+			IWD_AP_DIAGNOSTIC_INTERFACE, ap_if);
 }
 
 static void ap_remove_interface(struct netdev *netdev)
 {
 	l_dbus_object_remove_interface(dbus_get_bus(),
 			netdev_get_path(netdev), IWD_AP_INTERFACE);
+	l_dbus_object_remove_interface(dbus_get_bus(), netdev_get_path(netdev),
+			IWD_AP_DIAGNOSTIC_INTERFACE);
 }
 
 static void ap_netdev_watch(struct netdev *netdev,
@@ -3014,6 +3103,9 @@ static int ap_init(void)
 
 	l_dbus_register_interface(dbus_get_bus(), IWD_AP_INTERFACE,
 			ap_setup_interface, ap_destroy_interface, false);
+	l_dbus_register_interface(dbus_get_bus(), IWD_AP_DIAGNOSTIC_INTERFACE,
+			ap_setup_diagnostic_interface,
+			ap_diagnostic_interface_destroy, false);
 
 	/*
 	 * Reusing [General].EnableNetworkConfiguration as a switch to enable
