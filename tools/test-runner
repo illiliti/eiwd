@@ -973,7 +973,7 @@ def start_test(ctx, subtests, rqueue):
 	# This may not be required since we are manually popping sys.modules
 	importlib.invalidate_caches()
 
-def pre_test(ctx, test):
+def pre_test(ctx, test, copied):
 	'''
 		Copy test files, start processes, and any other pre test work.
 	'''
@@ -1005,6 +1005,7 @@ def pre_test(ctx, test):
 			shutil.copytree(f, '/tmp/' + f)
 		else:
 			shutil.copy(f, '/tmp')
+		copied.append(f)
 
 	# Prune down any subtests if needed
 	if ctx.args.sub_tests:
@@ -1044,7 +1045,7 @@ def pre_test(ctx, test):
 
 	sys.path.insert(1, test)
 
-	return (to_copy, sorted(subtests))
+	return sorted(subtests)
 
 def post_test(ctx, to_copy):
 	'''
@@ -1119,8 +1120,9 @@ def run_auto_tests(ctx, args):
 	shutil.copy(args.testhome + '/autotests/misc/phonesim/phonesim.conf', '/tmp')
 
 	for test in tests:
+		copied = []
 		try:
-			copied, subtests = pre_test(ctx, test)
+			subtests = pre_test(ctx, test, copied)
 
 			if args.shell:
 				#
