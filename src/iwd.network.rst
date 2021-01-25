@@ -301,9 +301,9 @@ network configuration with the static addresses.
        The IPv4 address of the gateway (router). This field is `required` for
        the static configuration.
    * - DNS
-     - IPv4 address string
+     - IPv4 address string list, space delimited
 
-       The IPv4 address of the Domain Name System (DNS). This field is
+       The IPv4 address(es) of the Domain Name System (DNS). This field is
        `optional`. DNS setting can be used to override the DNS entries received
        from the DHCP server.
    * - Netmask
@@ -352,9 +352,9 @@ network configuration.
        The IPv6 address of the gateway (router). This field is `required` for
        the static configuration.
    * - DNS
-     - IPv6 address string
+     - IPv6 address string list, space delimited
 
-       The IPv6 address of the Domain Name System (DNS). This field is
+       The IPv6 address(es) of the Domain Name System (DNS). This field is
        `optional`. DNS setting can be used to override the DNS entries received
        from the DHCPv6 server or via Router Advertisements.
    * - DomainName
