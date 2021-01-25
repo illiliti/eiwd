@@ -66,11 +66,15 @@ class Test(unittest.TestCase):
     def test_eap_tls3(self):
         self.do_test_connection_success('ssidEAP-TLS3', 'abc')
 
+    def test_eap_tls4(self):
+        self.do_test_connection_success('ssidEAP-TLS4')
+
     @classmethod
     def setUpClass(cls):
         IWD.copy_to_storage('ssidEAP-TLS.8021x')
         IWD.copy_to_storage('ssidEAP-TLS2.8021x')
         IWD.copy_to_storage('ssidEAP-TLS3.8021x')
+        IWD.copy_to_storage('ssidEAP-TLS4.8021x')
 
     @classmethod
     def tearDownClass(cls):
