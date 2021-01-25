@@ -608,7 +608,7 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 	L_AUTO_FREE_VAR(char *, gateway) = NULL;
 	struct in_addr in_addr;
 	char *network;
-	char ip[INET6_ADDRSTRLEN];
+	char ip[INET_ADDRSTRLEN];
 	unsigned int prefix_len =
 		l_rtnl_address_get_prefix_length(netconfig->v4_address);
 
