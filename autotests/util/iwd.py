@@ -1009,9 +1009,10 @@ class IWD(AsyncOpAbstract):
 
     @staticmethod
     def _wait_for_object_condition(obj, condition_str, max_wait = 50):
-        _wait_timed_out = False
+        obj._wait_timed_out = False
+
         def wait_timeout_cb():
-            _wait_timed_out = True
+            obj._wait_timed_out = True
             return False
 
         try:
@@ -1019,12 +1020,12 @@ class IWD(AsyncOpAbstract):
             context = ctx.mainloop.get_context()
             while not eval(condition_str):
                 context.iteration(may_block=True)
-                if _wait_timed_out and ctx.args.gdb == None:
+                if obj._wait_timed_out and ctx.args.gdb == None:
                     raise TimeoutError('[' + condition_str + ']'\
                                        ' condition was not met in '\
                                        + str(max_wait) + ' sec')
         finally:
-            if not _wait_timed_out:
+            if not obj._wait_timed_out:
                 GLib.source_remove(timeout)
 
     def wait_for_object_condition(self, *args, **kwargs):
