@@ -48,6 +48,12 @@ void eap_tls_common_handle_request(struct eap_state *eap,
 void eap_tls_common_handle_retransmit(struct eap_state *eap,
 						const uint8_t *pkt, size_t len);
 
+struct l_certchain *eap_tls_load_client_cert(struct l_settings *settings,
+						const char *value);
+struct l_key *eap_tls_load_priv_key(struct l_settings *settings,
+				const char *value, const char *passphrase,
+				bool *is_encrypted);
+
 int eap_tls_common_settings_check(struct l_settings *settings,
 						struct l_queue *secrets,
 						const char *prefix,
@@ -56,6 +62,9 @@ bool eap_tls_common_settings_load(struct eap_state *eap,
 				struct l_settings *settings, const char *prefix,
 				const struct eap_tls_variant_ops *variant_ops,
 				void *variant_data);
+void eap_tls_common_set_keys(struct eap_state *eap,
+				struct l_certchain *client_cert,
+				struct l_key *client_key);
 
 void eap_tls_common_send_empty_response(struct eap_state *eap);
 enum eap_tls_version eap_tls_common_get_negotiated_version(
