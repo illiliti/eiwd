@@ -49,10 +49,13 @@ void eap_tls_common_handle_retransmit(struct eap_state *eap,
 						const uint8_t *pkt, size_t len);
 
 struct l_certchain *eap_tls_load_client_cert(struct l_settings *settings,
-						const char *value);
+						const char *value,
+						const char *passphrase,
+						bool *out_is_encrypted);
 struct l_key *eap_tls_load_priv_key(struct l_settings *settings,
-				const char *value, const char *passphrase,
-				bool *is_encrypted);
+					const char *value,
+					const char *passphrase,
+					bool *out_is_encrypted);
 
 int eap_tls_common_settings_check(struct l_settings *settings,
 						struct l_queue *secrets,

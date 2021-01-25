@@ -868,12 +868,25 @@ static struct l_queue *eap_tls_load_ca_cert(struct l_settings *settings,
 }
 
 struct l_certchain *eap_tls_load_client_cert(struct l_settings *settings,
-						const char *value)
+						const char *value,
+						const char *passphrase,
+						bool *out_is_encrypted)
 {
 	const char *pem;
 
-	if (!is_embedded(value))
-		return l_pem_load_certificate_chain(value);
+	if (!is_embedded(value)) {
+		struct l_certchain *certchain;
+
+		if (l_cert_load_container_file(value, passphrase,
+						&certchain, NULL,
+						out_is_encrypted))
+			return certchain;
+
+		if (out_is_encrypted)
+			*out_is_encrypted = false;
+
+		return NULL;
+	}
 
 	pem = load_embedded_pem(settings, value);
 	if (!pem)
@@ -883,20 +896,31 @@ struct l_certchain *eap_tls_load_client_cert(struct l_settings *settings,
 }
 
 struct l_key *eap_tls_load_priv_key(struct l_settings *settings,
-				const char *value, const char *passphrase,
-				bool *is_encrypted)
+					const char *value,
+					const char *passphrase,
+					bool *out_is_encrypted)
 {
 	const char *pem;
 
-	if (!is_embedded(value))
-		return l_pem_load_private_key(value, passphrase, is_encrypted);
+	if (!is_embedded(value)) {
+		struct l_key *key;
+
+		if (l_cert_load_container_file(value, passphrase, NULL, &key,
+						out_is_encrypted))
+			return key;
+
+		if (out_is_encrypted)
+			*out_is_encrypted = false;
+
+		return NULL;
+	}
 
 	pem = load_embedded_pem(settings, value);
 	if (!pem)
 		return NULL;
 
 	return l_pem_load_private_key_from_data(pem, strlen(pem),
-						passphrase, is_encrypted);
+						passphrase, out_is_encrypted);
 }
 
 int eap_tls_common_settings_check(struct l_settings *settings,

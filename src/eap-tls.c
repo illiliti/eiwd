@@ -123,13 +123,15 @@ static int eap_tls_settings_check(struct l_settings *settings,
 	char passphrase_setting[72];
 	char client_cert_setting[72];
 	char priv_key_setting[72];
+	char bundle_setting[72];
 	L_AUTO_FREE_VAR(char *, passphrase) = NULL;
 	L_AUTO_FREE_VAR(char *, client_cert_value) = NULL;
 	L_AUTO_FREE_VAR(char *, priv_key_value) = NULL;
+	L_AUTO_FREE_VAR(char *, bundle_value) = NULL;
 	struct l_certchain *client_cert = NULL;
 	struct l_key *priv_key = NULL;
 	const char *error_str;
-	bool is_encrypted;
+	bool priv_key_encrypted, cert_encrypted;
 	int ret;
 
 	snprintf(tls_prefix, sizeof(tls_prefix), "%sTLS-", prefix);
@@ -149,6 +151,11 @@ static int eap_tls_settings_check(struct l_settings *settings,
 	priv_key_value = l_settings_get_string(settings, "Security",
 						priv_key_setting);
 
+	snprintf(bundle_setting, sizeof(bundle_setting),
+			"%sClientKeyBundle", tls_prefix);
+	bundle_value = l_settings_get_string(settings, "Security",
+						bundle_setting);
+
 	snprintf(passphrase_setting, sizeof(passphrase_setting),
 			"%sClientKeyPassphrase", tls_prefix);
 	passphrase = l_settings_get_string(settings, "Security",
@@ -167,7 +174,12 @@ static int eap_tls_settings_check(struct l_settings *settings,
 	 * Check whether the combination of settings that are present/missing
 	 * makes sense before validating each setting.
 	 */
-	if (priv_key_value && !client_cert_value) {
+	if (bundle_value && (priv_key_value || client_cert)) {
+		l_error("Either %s or %s/%s can be used, not both",
+			bundle_setting, priv_key_setting, client_cert_setting);
+		ret = -EEXIST;
+		goto done;
+	} else if (priv_key_value && !client_cert_value) {
 		l_error("%s present but no client certificate (%s)",
 			priv_key_setting, client_cert_setting);
 		ret = -ENOENT;
@@ -179,9 +191,9 @@ static int eap_tls_settings_check(struct l_settings *settings,
 		goto done;
 	}
 
-	if (!priv_key_value) {
+	if (!priv_key_value && !bundle_value) {
 		if (passphrase) {
-			l_error("%s present but no client private key set (%s)",
+			l_error("%s present but no client keys set (%s)",
 				passphrase_setting, priv_key_setting);
 			ret = -ENOENT;
 			goto done;
@@ -191,30 +203,77 @@ static int eap_tls_settings_check(struct l_settings *settings,
 		goto done;
 	}
 
-	client_cert = eap_tls_load_client_cert(settings, client_cert_value);
-	if (!client_cert) {
-		l_error("Failed to load %s", client_cert_value);
-		ret = -EIO;
+	if (bundle_value &&
+			(!l_cert_load_container_file(bundle_value, passphrase,
+							&client_cert, &priv_key,
+							&priv_key_encrypted) ||
+			 !client_cert || !priv_key)) {
+		if (client_cert) {
+			l_error("No private key loaded from %s", bundle_value);
+			ret = -ENOKEY;
+			goto done;
+		} else if (priv_key) {
+			l_error("No certificates loaded from %s", bundle_value);
+			ret = -ENOKEY;
+			goto done;
+		} else if (!priv_key_encrypted) {
+			l_error("Error loading %s", bundle_value);
+			ret = -EIO;
+			goto done;
+		} else if (passphrase) {
+			l_error("Error loading key pair from encrypted file %s",
+				bundle_value);
+			ret = -EACCES;
+			goto done;
+		}
+
+		/*
+		 * We've got an encrypted file and passphrase was not saved
+		 * in the network settings, need to request the passphrase.
+		 */
+		eap_append_secret(out_missing,
+					EAP_SECRET_LOCAL_PKEY_PASSPHRASE,
+					passphrase_setting, NULL,
+					bundle_value, EAP_CACHE_TEMPORARY);
+		ret = 0;
 		goto done;
 	}
 
-	/*
-	 * Sanity check that certchain provided is valid.  We do not verify
-	 * the certchain against the provided CA since the CA that issued
-	 * user certificates might be different from the one that is used
-	 * to verify the peer.
-	 */
-	if (!l_certchain_verify(client_cert, NULL, &error_str)) {
-		l_error("Certificate chain %s fails verification: %s",
-			client_cert_value, error_str);
-		ret = -EINVAL;
+	if (bundle_value)
+		goto validate_keys;
+
+	client_cert = eap_tls_load_client_cert(settings, client_cert_value,
+						passphrase, &cert_encrypted);
+	if (!client_cert) {
+		if (!cert_encrypted) {
+			l_error("Failed to load %s", client_cert_value);
+			ret = -EIO;
+			goto done;
+		}
+
+		if (passphrase) {
+			l_error("Error loading certificate from encrypted "
+				"file %s", client_cert_value);
+			ret = -EACCES;
+			goto done;
+		}
+
+		/*
+		 * We've got an encrypted file and passphrase was not saved
+		 * in the network settings, need to request the passphrase.
+		 */
+		eap_append_secret(out_missing,
+					EAP_SECRET_LOCAL_PKEY_PASSPHRASE,
+					passphrase_setting, NULL,
+					client_cert_value, EAP_CACHE_TEMPORARY);
+		ret = 0;
 		goto done;
 	}
 
 	priv_key = eap_tls_load_priv_key(settings, priv_key_value, passphrase,
-						&is_encrypted);
+						&priv_key_encrypted);
 	if (!priv_key) {
-		if (!is_encrypted) {
+		if (!priv_key_encrypted) {
 			l_error("Error loading client private key %s",
 				priv_key_value);
 			ret = -EIO;
@@ -240,10 +299,24 @@ static int eap_tls_settings_check(struct l_settings *settings,
 		goto done;
 	}
 
-	if (passphrase && !is_encrypted) {
-		l_error("%s present but client private key %s is not encrypted",
-			passphrase_setting, priv_key_value);
+validate_keys:
+	if (passphrase && !priv_key_encrypted && !cert_encrypted) {
+		l_error("%s present but keys are not encrypted",
+			passphrase_setting);
 		ret = -ENOENT;
+		goto done;
+	}
+
+	/*
+	 * Sanity check that certchain provided is valid.  We do not verify
+	 * the certchain against the provided CA since the CA that issued
+	 * user certificates might be different from the one that is used
+	 * to verify the peer.
+	 */
+	if (!l_certchain_verify(client_cert, NULL, &error_str)) {
+		l_error("Certificate chain %s fails verification: %s",
+			client_cert_value, error_str);
+		ret = -EINVAL;
 		goto done;
 	}
 
@@ -290,7 +363,8 @@ static bool eap_tls_settings_load(struct eap_state *eap,
 	snprintf(setting_key, sizeof(setting_key), "%sClientCert", tls_prefix);
 	value = l_settings_get_string(settings, "Security", setting_key);
 	if (value) {
-		client_cert = eap_tls_load_client_cert(settings, value);
+		client_cert = eap_tls_load_client_cert(settings, value,
+							passphrase, NULL);
 		if (!client_cert)
 			goto load_error;
 	}
@@ -304,6 +378,21 @@ static bool eap_tls_settings_load(struct eap_state *eap,
 							passphrase, NULL);
 		if (!client_key)
 			goto load_error;
+	}
+
+	l_free(value);
+
+	snprintf(setting_key, sizeof(setting_key), "%sClientKeyBundle",
+			tls_prefix);
+	value = l_settings_get_string(settings, "Security", setting_key);
+	if (value && !client_cert && !client_key &&
+			(!l_cert_load_container_file(value, passphrase,
+							&client_cert,
+							&client_key, NULL) ||
+			 !client_cert || !client_key)) {
+		l_certchain_free(client_cert);
+		l_key_free(client_key);
+		goto load_error;
 	}
 
 	eap_tls_common_set_keys(eap, client_cert, client_key);
