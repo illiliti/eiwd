@@ -1212,6 +1212,9 @@ def run_tests():
 	if not args.debug:
 		sys.stdout = open(os.devnull, 'w')
 
+	if args.verbose != []:
+		args.verbose = args.verbose.split(',')
+
 	os.environ['PATH'] = '%s/src' % args.testhome
 	os.environ['PATH'] += ':%s/tools' % args.testhome
 	os.environ['PATH'] += ':%s/client' % args.testhome
