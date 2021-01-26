@@ -180,7 +180,7 @@ class Process:
 			set_stdout = False
 
 			if ctx.is_verbose(args[0]):
-				dbg("Verbose on for %s" % args[0])
+				print("Verbose on for %s" % args[0])
 				set_stdout = True
 
 			if os.path.basename(args[0]) == ctx.args.gdb:
