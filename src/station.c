@@ -2539,6 +2539,12 @@ void station_connect_network(struct station *station, struct network *network,
 				dbus_error_failed(station->hidden_pending));
 	}
 
+	if (station->quick_scan_id) {
+		scan_cancel(netdev_get_wdev_id(station->netdev),
+				station->quick_scan_id);
+		station->quick_scan_id = 0;
+	}
+
 	if (station_is_busy(station)) {
 		station_disconnect_onconnect(station, network, bss, message);
 
