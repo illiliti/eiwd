@@ -152,7 +152,7 @@ class HostapdCLI:
         ctx.start_process(self.cmdline + ['enable'], wait=True)
 
     def list_sta(self):
-        proc = ctx.start_process(self.cmdline + ['list_sta'], wait=True)
+        proc = ctx.start_process(self.cmdline + ['list_sta'], wait=True, need_out=True)
 
         if not proc.out:
             return []

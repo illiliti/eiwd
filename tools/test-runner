@@ -162,7 +162,7 @@ class Process:
 		test exits.
 	'''
 	def __init__(self, args, wait=False, multi_test=False, env=None, ctx=None, check=False,
-				outfile=None, namespace=None):
+				outfile=None, namespace=None, need_out=False):
 		self.args = args
 		self.wait = wait
 		self.name = args[0]
@@ -171,14 +171,13 @@ class Process:
 		self.stderr = subprocess.PIPE
 		self.ret = None
 		self.ctx = ctx
+		set_stdout = False
 
 		if namespace:
 			self.args = ['ip', 'netns', 'exec', namespace]
 			self.args.extend(args)
 
 		if ctx:
-			set_stdout = False
-
 			if ctx.is_verbose(args[0]):
 				print("Verbose on for %s" % args[0])
 				set_stdout = True
@@ -204,12 +203,12 @@ class Process:
 						os.chown(test_dir, int(ctx.args.log_uid), \
 								int(ctx.args.log_gid))
 
-					self.stdout = open('%s/%s' % (test_dir, args[0]), 'w')
-					self.stderr = open('%s/%s' % (test_dir, args[0]), 'w')
+					self.stdout = open('%s/%s' % (test_dir, args[0]), 'w+')
+					self.stderr = open('%s/%s' % (test_dir, args[0]), 'w+')
 				elif outfile:
 					self.stdout = open(outfile, 'w')
 					self.stderr = open(outfile, 'w')
-				else:
+				elif not need_out:
 					self.stdout = sys.__stdout__
 					self.stderr = sys.__stderr__
 
@@ -224,11 +223,16 @@ class Process:
 
 		self.pid.wait()
 
-		self.out, _ = self.pid.communicate()
-		self.ret = self.pid.returncode
+		if ctx and ctx.args.log or outfile:
+			self.stdout.seek(0)
+			self.out = self.stdout.read()
+		else:
+			self.out, _ = self.pid.communicate()
 
-		if self.out:
-			self.out = self.out.decode('utf-8')
+			if self.out:
+				self.out = self.out.decode('utf-8')
+
+		self.ret = self.pid.returncode
 
 		print("%s returned %d" % (args[0], self.ret))
 		if check and self.ret != 0:
