@@ -48,7 +48,7 @@ minimal options for a successful boot and execution:
 
 	<arch>_defconfig 			Default kernel configuration
 
-	kvmconfig				Default configuration for
+	kvm_guest.config			Default configuration for
 						kvm guests
 
 	<iwd>/tools/test_runner_kernel_config	The test-runner specific
@@ -62,7 +62,7 @@ as follows:
 
 	$ make x86_64_defconfig
 
-	$ make kvmconfig
+	$ make kvm_guest.config
 
 	$ sh <iwd>/tools/test_runner_kernel_config
 
