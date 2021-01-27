@@ -82,6 +82,7 @@ static const char *default_if_driver_list[] = {
 	"rtl88*",
 	"rtw_*",
 	"brcmfmac",
+	"bcmsdh_sdmmc",
 
 	NULL,
 };
