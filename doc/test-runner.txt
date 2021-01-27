@@ -137,16 +137,16 @@ tests shipped with IWD:
 	$ sudo ./test-runner
 
 One can specify a particular set of test configurations to be executed by using
-'-t <dir1,dir2>' parameter. An absolute path is necessary for the test
+'-A <dir1,dir2>' parameter. An absolute path is necessary for the test
 configuration directories outside of <iwd>/autotests.
 
 The command line may look as follows:
 
-	$ sudo ./test-runner -t test1,test3,/home/test4
+	$ sudo ./test-runner -A test1,test3,/home/test4
 
 Glob matching is also supported when specifying a test list:
 
-	$ sudo ./test-runner -t testWPA*
+	$ sudo ./test-runner -A testWPA*
 
 
 Creating Test Configurations
