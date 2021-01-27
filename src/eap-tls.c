@@ -174,7 +174,7 @@ static int eap_tls_settings_check(struct l_settings *settings,
 	 * Check whether the combination of settings that are present/missing
 	 * makes sense before validating each setting.
 	 */
-	if (bundle_value && (priv_key_value || client_cert)) {
+	if (bundle_value && (priv_key_value || client_cert_value)) {
 		l_error("Either %s or %s/%s can be used, not both",
 			bundle_setting, priv_key_setting, client_cert_setting);
 		ret = -EEXIST;
@@ -184,7 +184,7 @@ static int eap_tls_settings_check(struct l_settings *settings,
 			priv_key_setting, client_cert_setting);
 		ret = -ENOENT;
 		goto done;
-	} else if (!priv_key_value && client_cert) {
+	} else if (!priv_key_value && client_cert_value) {
 		l_error("%s present but no client private key (%s)",
 			client_cert_setting, priv_key_setting);
 		ret = -ENOENT;
