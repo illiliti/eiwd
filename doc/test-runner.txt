@@ -40,6 +40,15 @@ Note: Running EAP-SIM/AKA/AKA' tests using oFono will require oFono and
 phonesim to be installed on the host. This is explained further in the
 "Running with oFono and phonesim" section.
 
+In addition, the following Python packages are required:
+
+	Name:			Tested ver.:
+	 1. python-prettytable	0.7.2
+	 2. python-termcolor	1.1.0
+	 3. python-pyroute2	0.5.14
+	 4. python-gobject	3.38.0
+	 5. python-dbus		1.2.16
+
 Building Kernel
 ===============
 
