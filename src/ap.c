@@ -790,9 +790,17 @@ static void ap_gtk_query_cb(struct l_genl_msg *msg, void *user_data)
 
 	sta->gtk_query_cmd_id = 0;
 
-	gtk_rsc = nl80211_parse_get_key_seq(msg);
-	if (!gtk_rsc)
+	if (l_genl_msg_get_error(msg) < 0)
 		goto error;
+
+	gtk_rsc = nl80211_parse_get_key_seq(msg);
+	if (!gtk_rsc) {
+		/* Try allowing connection with no group traffic */
+		l_warn("Failed to get GTK. This may be a driver/FW issue, "
+			"disabling group traffic");
+		ap_start_rsna(sta, NULL);
+		return;
+	}
 
 	ap_start_rsna(sta, gtk_rsc);
 	return;
