@@ -2189,6 +2189,114 @@ error:
 	ap_start_failed(ap);
 }
 
+static bool ap_parse_ie(const void *data, uint16_t len, uint8_t **rsn_out,
+				struct l_uintset **rates_out)
+{
+	struct ie_tlv_iter iter;
+	uint8_t *rsn = NULL;
+	struct l_uintset *rates = NULL;
+
+	ie_tlv_iter_init(&iter, data, len);
+
+	while (ie_tlv_iter_next(&iter)) {
+		switch (ie_tlv_iter_get_tag(&iter)) {
+		case IE_TYPE_RSN:
+			if (ie_parse_rsne(&iter, NULL) < 0)
+				goto parse_error;
+
+			rsn = l_memdup(ie_tlv_iter_get_data(&iter) - 2,
+					ie_tlv_iter_get_length(&iter) + 1);
+			break;
+		case IE_TYPE_EXTENDED_SUPPORTED_RATES:
+			if (ap_parse_supported_rates(&iter, &rates) < 0)
+				goto parse_error;
+
+			break;
+		}
+	}
+
+	*rsn_out = rsn;
+	*rates_out = rates;
+
+	return true;
+
+parse_error:
+	if (rsn)
+		l_free(rsn);
+
+	if (rates)
+		l_uintset_free(rates);
+
+	return false;
+}
+
+static void ap_new_station(struct ap_state *ap, struct l_genl_msg *msg)
+{
+	struct sta_state *sta;
+	struct l_genl_attr attr;
+	uint16_t type;
+	uint16_t len;
+	const void *data;
+	uint8_t mac[6];
+	uint8_t *assoc_rsne = NULL;
+	struct l_uintset *rates = NULL;
+
+	if (!l_genl_attr_init(&attr, msg))
+		return;
+
+	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+		switch (type) {
+		case NL80211_ATTR_IE:
+			if (!ap_parse_ie(data, len, &assoc_rsne, &rates))
+				return;
+			break;
+		case NL80211_ATTR_MAC:
+			if (len != 6)
+				return;
+
+			memcpy(mac, data, 6);
+			break;
+		}
+	}
+
+	if (!assoc_rsne || !rates)
+		return;
+
+	/*
+	 * Softmac's should already have a station created. The above check
+	 * may also fail for softmac cards.
+	 */
+	sta = l_queue_find(ap->sta_states, ap_sta_match_addr, mac);
+	if (sta) {
+		l_free(assoc_rsne);
+		l_uintset_free(rates);
+		return;
+	}
+
+	sta = l_new(struct sta_state, 1);
+	memcpy(sta->addr, mac, 6);
+	sta->ap = ap;
+	sta->assoc_rsne = assoc_rsne;
+	sta->rates = rates;
+	sta->aid = ++ap->last_aid;
+
+	sta->associated = true;
+
+	if (!ap->sta_states)
+		ap->sta_states = l_queue_new();
+
+	l_queue_push_tail(ap->sta_states, sta);
+
+	msg = nl80211_build_set_station_unauthorized(
+					netdev_get_ifindex(ap->netdev), mac);
+
+	if (!l_genl_family_send(ap->nl80211, msg, ap_associate_sta_cb,
+								sta, NULL)) {
+		l_genl_msg_unref(msg);
+		l_error("Issuing SET_STATION failed");
+		ap_del_station(sta, MMPDU_REASON_CODE_UNSPECIFIED, true);
+	}
+}
 
 static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)
 {
@@ -2217,6 +2325,9 @@ static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)
 		ap_reset(ap);
 		l_genl_family_free(ap->nl80211);
 		l_free(ap);
+		break;
+	case NL80211_CMD_NEW_STATION:
+		ap_new_station(ap, msg);
 		break;
 	}
 }
