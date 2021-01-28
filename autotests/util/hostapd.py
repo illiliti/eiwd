@@ -184,7 +184,10 @@ class HostapdCLI:
                         (addr, bss_info, op_class, chan_num, phy_num)]
             pref += 1
 
-        ctx.start_process(cmd, wait=True)
+        proc = ctx.start_process(cmd, wait=True, need_out=True)
+
+        if 'OK' not in proc.out:
+            raise Exception('BSS_TM_REQ failed, is hostapd built with CONFIG_WNM_AP=y?')
 
     def get_config_value(self, key):
         # first find the right config file
