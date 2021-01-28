@@ -659,6 +659,7 @@ static void netdev_connect_free(struct netdev *netdev)
 	netdev->in_ft = false;
 	netdev->ignore_connect_event = false;
 	netdev->expect_connect_failure = false;
+	netdev->cur_rssi_low = false;
 
 	if (netdev->connect_cmd) {
 		l_genl_msg_unref(netdev->connect_cmd);
@@ -2810,7 +2811,6 @@ static int netdev_connect_common(struct netdev *netdev,
 	netdev->handshake = hs;
 	netdev->sm = sm;
 	netdev->frequency = bss->frequency;
-	netdev->cur_rssi_low = false; /* Gets updated on the 1st CQM event */
 	netdev->cur_rssi = bss->signal_strength / 100;
 	netdev_rssi_level_init(netdev);
 
