@@ -1998,8 +1998,11 @@ static void parse_neighbor_report(struct station *station,
 		scan_freq_set_add(freq_set_no_md, current_freq);
 		*set = freq_set_no_md;
 		scan_freq_set_free(freq_set_md);
-	} else
+	} else {
+		scan_freq_set_free(freq_set_no_md);
+		scan_freq_set_free(freq_set_md);
 		*set = NULL;
+	}
 }
 
 static void station_neighbor_report_cb(struct netdev *netdev, int err,
