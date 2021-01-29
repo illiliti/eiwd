@@ -910,29 +910,38 @@ static int known_network_frequencies_load(void)
 		const char *path = l_settings_get_value(known_freqs, groups[i],
 							"name");
 		if (!path)
-			continue;
+			goto invalid_entry;
 
 		info = find_network_info_from_path(path);
 		if (!info)
-			continue;
+			goto invalid_entry;
+
+		if (info->has_uuid)
+			goto invalid_entry;
 
 		freq_list = l_settings_get_string(known_freqs, groups[i],
 							"list");
 		if (!freq_list)
-			continue;
+			goto invalid_entry;
 
 		known_frequencies = known_frequencies_from_string(freq_list);
-		if (!known_frequencies)
-			goto next;
+		l_free(freq_list);
 
-		if (!l_uuid_from_string(groups[i], uuid))
-			goto next;
+		if (!known_frequencies)
+			goto invalid_entry;
+
+		if (!l_uuid_from_string(groups[i], uuid)) {
+			l_queue_destroy(known_frequencies, l_free);
+			goto invalid_entry;
+		}
 
 		network_info_set_uuid(info, uuid);
 		info->known_frequencies = known_frequencies;
 
-next:
-		l_free(freq_list);
+		continue;
+
+invalid_entry:
+		l_settings_remove_group(known_freqs, groups[i]);
 	}
 
 	l_strv_free(groups);
