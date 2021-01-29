@@ -787,6 +787,7 @@ static void ap_gtk_query_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct sta_state *sta = user_data;
 	const void *gtk_rsc;
+	uint8_t zero_gtk_rsc[6];
 
 	sta->gtk_query_cmd_id = 0;
 
@@ -795,11 +796,8 @@ static void ap_gtk_query_cb(struct l_genl_msg *msg, void *user_data)
 
 	gtk_rsc = nl80211_parse_get_key_seq(msg);
 	if (!gtk_rsc) {
-		/* Try allowing connection with no group traffic */
-		l_warn("Failed to get GTK. This may be a driver/FW issue, "
-			"disabling group traffic");
-		ap_start_rsna(sta, NULL);
-		return;
+		memset(zero_gtk_rsc, 0, 6);
+		gtk_rsc = zero_gtk_rsc;
 	}
 
 	ap_start_rsna(sta, gtk_rsc);
