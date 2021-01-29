@@ -5072,6 +5072,7 @@ static void netdev_exit(void)
 	l_genl_remove_unicast_watch(genl, unicast_watch);
 
 	watchlist_destroy(&netdev_watches);
+	l_queue_destroy(netdev_list, netdev_free);
 
 	l_genl_family_free(nl80211);
 	nl80211 = NULL;
