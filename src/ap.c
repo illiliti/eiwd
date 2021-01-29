@@ -2238,7 +2238,7 @@ parse_error:
 	return false;
 }
 
-static void ap_new_station(struct ap_state *ap, struct l_genl_msg *msg)
+static void ap_handle_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 {
 	struct sta_state *sta;
 	struct l_genl_attr attr;
@@ -2306,6 +2306,43 @@ static void ap_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 	}
 }
 
+static void ap_handle_del_station(struct ap_state *ap, struct l_genl_msg *msg)
+{
+	struct sta_state *sta;
+	struct l_genl_attr attr;
+	uint16_t type;
+	uint16_t len;
+	const void *data;
+	uint8_t mac[6];
+	uint16_t reason = MMPDU_REASON_CODE_UNSPECIFIED;
+
+	if (!l_genl_attr_init(&attr, msg))
+		return;
+
+	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+		switch (type) {
+		case NL80211_ATTR_MAC:
+			if (len != 6)
+				return;
+
+			memcpy(mac, data, 6);
+			break;
+		case NL80211_ATTR_REASON_CODE:
+			if (len != 2)
+				return;
+
+			reason = l_get_u16(data);
+		}
+	}
+
+	sta = l_queue_find(ap->sta_states, ap_sta_match_addr, mac);
+	if (!sta)
+		return;
+
+	ap_del_station(sta, reason, true);
+	ap_remove_sta(sta);
+}
+
 static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)
 {
 	struct ap_state *ap = user_data;
@@ -2335,7 +2372,10 @@ static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)
 		l_free(ap);
 		break;
 	case NL80211_CMD_NEW_STATION:
-		ap_new_station(ap, msg);
+		ap_handle_new_station(ap, msg);
+		break;
+	case NL80211_CMD_DEL_STATION:
+		ap_handle_del_station(ap, msg);
 		break;
 	}
 }
