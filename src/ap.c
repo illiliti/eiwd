@@ -2212,7 +2212,7 @@ static bool ap_parse_new_station_ies(const void *data, uint16_t len,
 				goto parse_error;
 
 			rsn = l_memdup(ie_tlv_iter_get_data(&iter) - 2,
-					ie_tlv_iter_get_length(&iter) + 1);
+					ie_tlv_iter_get_length(&iter) + 2);
 			break;
 		case IE_TYPE_EXTENDED_SUPPORTED_RATES:
 			if (ap_parse_supported_rates(&iter, &rates) < 0)
