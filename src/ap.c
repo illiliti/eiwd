@@ -2208,14 +2208,15 @@ static bool ap_parse_new_station_ies(const void *data, uint16_t len,
 	while (ie_tlv_iter_next(&iter)) {
 		switch (ie_tlv_iter_get_tag(&iter)) {
 		case IE_TYPE_RSN:
-			if (ie_parse_rsne(&iter, NULL) < 0)
+			if (rsn || ie_parse_rsne(&iter, NULL) < 0)
 				goto parse_error;
 
 			rsn = l_memdup(ie_tlv_iter_get_data(&iter) - 2,
 					ie_tlv_iter_get_length(&iter) + 2);
 			break;
 		case IE_TYPE_EXTENDED_SUPPORTED_RATES:
-			if (ap_parse_supported_rates(&iter, &rates) < 0)
+			if (rates || ap_parse_supported_rates(&iter, &rates) <
+					0)
 				goto parse_error;
 
 			break;
@@ -2254,13 +2255,16 @@ static void ap_handle_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 	while (l_genl_attr_next(&attr, &type, &len, &data)) {
 		switch (type) {
 		case NL80211_ATTR_IE:
+			if (assoc_rsne || rates)
+				goto cleanup;
+
 			if (!ap_parse_new_station_ies(data, len, &assoc_rsne,
 							&rates))
 				return;
 			break;
 		case NL80211_ATTR_MAC:
 			if (len != 6)
-				return;
+				goto cleanup;
 
 			memcpy(mac, data, 6);
 			break;
@@ -2268,18 +2272,15 @@ static void ap_handle_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 	}
 
 	if (!assoc_rsne || !rates)
-		return;
+		goto cleanup;
 
 	/*
 	 * Softmac's should already have a station created. The above check
 	 * may also fail for softmac cards.
 	 */
 	sta = l_queue_find(ap->sta_states, ap_sta_match_addr, mac);
-	if (sta) {
-		l_free(assoc_rsne);
-		l_uintset_free(rates);
-		return;
-	}
+	if (sta)
+		goto cleanup;
 
 	sta = l_new(struct sta_state, 1);
 	memcpy(sta->addr, mac, 6);
@@ -2304,6 +2305,12 @@ static void ap_handle_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 		l_error("Issuing SET_STATION failed");
 		ap_del_station(sta, MMPDU_REASON_CODE_UNSPECIFIED, true);
 	}
+
+	return;
+
+cleanup:
+	l_free(assoc_rsne);
+	l_uintset_free(rates);
 }
 
 static void ap_handle_del_station(struct ap_state *ap, struct l_genl_msg *msg)
