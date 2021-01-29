@@ -5082,12 +5082,19 @@ static void netdev_exit(void)
 
 void netdev_shutdown(void)
 {
+	struct netdev *netdev;
+
 	if (!rtnl)
 		return;
 
 	l_queue_foreach(netdev_list, netdev_shutdown_one, NULL);
 
-	l_queue_destroy(netdev_list, netdev_free);
+	while ((netdev = l_queue_peek_head(netdev_list))) {
+		netdev_free(netdev);
+		l_queue_pop_head(netdev_list);
+	}
+
+	l_queue_destroy(netdev_list, NULL);
 	netdev_list = NULL;
 }
 
