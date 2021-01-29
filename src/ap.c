@@ -2197,8 +2197,9 @@ error:
 	ap_start_failed(ap);
 }
 
-static bool ap_parse_ie(const void *data, uint16_t len, uint8_t **rsn_out,
-				struct l_uintset **rates_out)
+static bool ap_parse_new_station_ies(const void *data, uint16_t len,
+					uint8_t **rsn_out,
+					struct l_uintset **rates_out)
 {
 	struct ie_tlv_iter iter;
 	uint8_t *rsn = NULL;
@@ -2255,7 +2256,8 @@ static void ap_handle_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 	while (l_genl_attr_next(&attr, &type, &len, &data)) {
 		switch (type) {
 		case NL80211_ATTR_IE:
-			if (!ap_parse_ie(data, len, &assoc_rsne, &rates))
+			if (!ap_parse_new_station_ies(data, len, &assoc_rsne,
+							&rates))
 				return;
 			break;
 		case NL80211_ATTR_MAC:
