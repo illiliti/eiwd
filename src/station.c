@@ -2488,8 +2488,8 @@ static void station_disconnect_onconnect_cb(struct netdev *netdev, bool success,
 	station->connect_pending_bss = NULL;
 
 	if (err < 0) {
-		l_dbus_send(dbus_get_bus(),
-				dbus_error_from_errno(err,
+		dbus_pending_reply(&station->connect_pending,
+					dbus_error_from_errno(err,
 						station->connect_pending));
 		return;
 	}
