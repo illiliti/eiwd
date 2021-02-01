@@ -2589,10 +2589,10 @@ static bool station_hidden_network_scan_results(int err,
 	struct station *station = userdata;
 	struct network *network_psk;
 	struct network *network_open;
-	struct network *network;
 	const char *ssid;
 	uint8_t ssid_len;
 	struct l_dbus_message *msg;
+	struct l_dbus_message *error;
 	struct scan_bss *bss;
 
 	l_debug("");
@@ -2644,10 +2644,13 @@ next:
 		return true;
 	}
 
-	network = network_psk ? : network_open;
+	error = network_connect_new_hidden_network(network_psk ?: network_open,
+							msg);
 
-	network_connect_new_hidden_network(network, &msg);
-	l_dbus_message_unref(msg);
+	if (error)
+		dbus_pending_reply(&msg, error);
+	else
+		l_dbus_message_unref(msg);
 
 	return true;
 }
