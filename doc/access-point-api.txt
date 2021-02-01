@@ -40,3 +40,8 @@ Methods		void Start(string ssid, string psk)
 Properties	boolean Started [readonly]
 
 			Reflects whether an access point has been started.
+
+		string Name [readonly, optional]
+
+			The SSID being broadcast for a started AP (omitted if
+			AP has not been started)
