@@ -2966,6 +2966,11 @@ static void ap_if_event_func(enum ap_event_type type, const void *event_data,
 		if (L_WARN_ON(!ap_if->pending))
 			break;
 
+		l_dbus_object_add_interface(dbus_get_bus(),
+						netdev_get_path(ap_if->netdev),
+						IWD_AP_DIAGNOSTIC_INTERFACE,
+						ap_if);
+
 		reply = l_dbus_message_new_method_return(ap_if->pending);
 		dbus_pending_reply(&ap_if->pending, reply);
 		l_dbus_property_changed(dbus_get_bus(),
@@ -2977,6 +2982,10 @@ static void ap_if_event_func(enum ap_event_type type, const void *event_data,
 		break;
 
 	case AP_EVENT_STOPPING:
+		l_dbus_object_remove_interface(dbus_get_bus(),
+						netdev_get_path(ap_if->netdev),
+						IWD_AP_DIAGNOSTIC_INTERFACE);
+
 		l_dbus_property_changed(dbus_get_bus(),
 					netdev_get_path(ap_if->netdev),
 					IWD_AP_INTERFACE, "Started");
@@ -3265,16 +3274,12 @@ static void ap_add_interface(struct netdev *netdev)
 	/* setup ap dbus interface */
 	l_dbus_object_add_interface(dbus_get_bus(),
 			netdev_get_path(netdev), IWD_AP_INTERFACE, ap_if);
-	l_dbus_object_add_interface(dbus_get_bus(), netdev_get_path(netdev),
-			IWD_AP_DIAGNOSTIC_INTERFACE, ap_if);
 }
 
 static void ap_remove_interface(struct netdev *netdev)
 {
 	l_dbus_object_remove_interface(dbus_get_bus(),
 			netdev_get_path(netdev), IWD_AP_INTERFACE);
-	l_dbus_object_remove_interface(dbus_get_bus(), netdev_get_path(netdev),
-			IWD_AP_DIAGNOSTIC_INTERFACE);
 }
 
 static void ap_netdev_watch(struct netdev *netdev,
