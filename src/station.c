@@ -2674,6 +2674,7 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 		.randomize_mac_addr_hint = true,
 	};
 	const char *ssid;
+	struct network *network;
 
 	l_debug("");
 
@@ -2690,9 +2691,32 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 			known_networks_find(ssid, SECURITY_NONE))
 		return dbus_error_already_provisioned(message);
 
-	if (station_network_find(station, ssid, SECURITY_PSK) ||
-			station_network_find(station, ssid, SECURITY_NONE))
-		return dbus_error_not_hidden(message);
+	network = station_network_find(station, ssid, SECURITY_PSK);
+	if (!network)
+		network = station_network_find(station, ssid, SECURITY_NONE);
+
+	/*
+	 * This checks for a corner case where the hidden network was already
+	 * found and is in our scan results, but the initial connection failed.
+	 * For example, the password was given incorrectly.  In this case the
+	 * entry will also be found on the hidden bss list.
+	 */
+	if (network) {
+		const struct l_queue_entry *entry =
+			l_queue_get_entries(station->hidden_bss_list_sorted);
+		struct scan_bss *target = network_bss_select(network, true);
+
+		for (; entry; entry = entry->next) {
+			struct scan_bss *bss = entry->data;
+
+			if (!scan_bss_addr_eq(target, bss))
+				continue;
+
+			/* We can skip the scan and try to connect right away */
+			return network_connect_new_hidden_network(network,
+								message);
+		}
+	}
 
 	params.ssid = ssid;
 
