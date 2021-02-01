@@ -2971,12 +2971,18 @@ static void ap_if_event_func(enum ap_event_type type, const void *event_data,
 		l_dbus_property_changed(dbus_get_bus(),
 					netdev_get_path(ap_if->netdev),
 					IWD_AP_INTERFACE, "Started");
+		l_dbus_property_changed(dbus_get_bus(),
+					netdev_get_path(ap_if->netdev),
+					IWD_AP_INTERFACE, "Name");
 		break;
 
 	case AP_EVENT_STOPPING:
 		l_dbus_property_changed(dbus_get_bus(),
 					netdev_get_path(ap_if->netdev),
 					IWD_AP_INTERFACE, "Started");
+		l_dbus_property_changed(dbus_get_bus(),
+					netdev_get_path(ap_if->netdev),
+					IWD_AP_INTERFACE, "Name");
 
 		if (!ap_if->pending)
 			ap_if->ap = NULL;
@@ -3112,6 +3118,22 @@ static bool ap_dbus_property_get_started(struct l_dbus *dbus,
 	return true;
 }
 
+static bool ap_dbus_property_get_name(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct ap_if_data *ap_if = user_data;
+
+	if (!ap_if->ap || !ap_if->ap->config || !ap_if->ap->started)
+		return false;
+
+	l_dbus_message_builder_append_basic(builder, 's',
+						ap_if->ap->config->ssid);
+
+	return true;
+}
+
 static void ap_setup_interface(struct l_dbus_interface *interface)
 {
 	l_dbus_interface_method(interface, "Start", 0, ap_dbus_start, "",
@@ -3123,6 +3145,8 @@ static void ap_setup_interface(struct l_dbus_interface *interface)
 
 	l_dbus_interface_property(interface, "Started", 0, "b",
 					ap_dbus_property_get_started, NULL);
+	l_dbus_interface_property(interface, "Name", 0, "s",
+					ap_dbus_property_get_name, NULL);
 }
 
 static void ap_destroy_interface(void *user_data)
