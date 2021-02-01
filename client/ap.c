@@ -235,11 +235,40 @@ static enum cmd_status cmd_show(const char *device_name, char **argv, int argc)
 	return CMD_STATUS_TRIGGERED;
 }
 
+static enum cmd_status cmd_start_profile(const char *device_name,
+						char **argv, int argc)
+{
+	const struct proxy_interface *ap_i;
+
+	if (argc < 1)
+		return CMD_STATUS_INVALID_ARGS;
+
+	if (strlen(argv[0]) > 32) {
+		display("Network name cannot exceed 32 characters.\n");
+
+		return CMD_STATUS_INVALID_VALUE;
+	}
+
+	ap_i = device_proxy_find(device_name, IWD_ACCESS_POINT_INTERFACE);
+	if (!ap_i) {
+		display("No ap on device: '%s'\n", device_name);
+		return CMD_STATUS_INVALID_VALUE;
+	}
+
+	proxy_interface_method_call(ap_i, "StartProfile", "s",
+						check_errors_method_callback,
+						argv[0]);
+
+	return CMD_STATUS_TRIGGERED;
+}
+
 static const struct command ap_commands[] = {
 	{ NULL, "list", NULL, cmd_list, "List devices in AP mode", true },
 	{ "<wlan>", "start", "<\"network name\"> <passphrase>", cmd_start,
 		"Start an access point\n\t\t\t\t\t\t    called \"network "
 		"name\" with\n\t\t\t\t\t\t    a passphrase" },
+	{ "<wlan>", "start-profile", "<\"network name\">", cmd_start_profile,
+		"Start an access point based on a disk profile" },
 	{ "<wlan>", "stop", NULL,   cmd_stop, "Stop a started access\n"
 		"\t\t\t\t\t\t    point" },
 	{ "<wlan", "show", NULL, cmd_show, "Show AP info", false },
