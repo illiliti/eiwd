@@ -1292,6 +1292,11 @@ static void station_roam_state_clear(struct station *station)
 	if (station->roam_scan_id)
 		scan_cancel(netdev_get_wdev_id(station->netdev),
 						station->roam_scan_id);
+
+	if (station->roam_freqs) {
+		scan_freq_set_free(station->roam_freqs);
+		station->roam_freqs = NULL;
+	}
 }
 
 static void station_reset_connection_state(struct station *station)
@@ -1317,11 +1322,6 @@ static void station_reset_connection_state(struct station *station)
 
 	station->connected_bss = NULL;
 	station->connected_network = NULL;
-
-	if (station->roam_freqs) {
-		scan_freq_set_free(station->roam_freqs);
-		station->roam_freqs = NULL;
-	}
 
 	l_dbus_property_changed(dbus, netdev_get_path(station->netdev),
 				IWD_STATION_INTERFACE, "ConnectedNetwork");
