@@ -1307,8 +1307,8 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 	ek->key_rsc[7] = 0;
 
 	/*
-	 * Just one RSNE in Key Data as we only set one cipher in ap->ciphers
-	 * currently.
+	 * Just one RSNE in Key Data as we either accept the single pairwise
+	 * cipher in the supplicant IE or fail.
 	 */
 	memcpy(key_data_buf, sm->handshake->authenticator_ie, rsne_len);
 

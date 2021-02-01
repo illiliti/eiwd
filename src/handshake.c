@@ -133,14 +133,10 @@ void handshake_state_set_8021x_config(struct handshake_state *s,
 static bool handshake_state_setup_own_ciphers(struct handshake_state *s,
 						const struct ie_rsn_info *info)
 {
-	if (__builtin_popcount(info->pairwise_ciphers) != 1)
-		return false;
-
 	if (__builtin_popcount(info->akm_suites) != 1)
 		return false;
 
 	s->akm_suite = info->akm_suites;
-	s->pairwise_cipher = info->pairwise_ciphers;
 	s->group_cipher = info->group_cipher;
 	s->group_management_cipher = info->group_management_cipher;
 
@@ -191,9 +187,6 @@ bool handshake_state_set_supplicant_ie(struct handshake_state *s,
 	s->wpa_ie = is_ie_wpa_ie(ie + 2, ie[1]);
 	s->osen_ie = is_ie_wfa_ie(ie + 2, ie[1], IE_WFA_OI_OSEN);
 
-	if (s->authenticator)
-		return true;
-
 	if (s->wpa_ie) {
 		if (ie_parse_wpa_from_data(ie, ie[1] + 2, &info) < 0)
 			return false;
@@ -204,6 +197,14 @@ bool handshake_state_set_supplicant_ie(struct handshake_state *s,
 		if (ie_parse_rsne_from_data(ie, ie[1] + 2, &info) < 0)
 			return false;
 	}
+
+	if (__builtin_popcount(info.pairwise_ciphers) != 1)
+		return false;
+
+	s->pairwise_cipher = info.pairwise_ciphers;
+
+	if (s->authenticator)
+		return true;
 
 	return handshake_state_setup_own_ciphers(s, &info);
 }

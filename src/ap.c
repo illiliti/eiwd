@@ -709,7 +709,7 @@ static void ap_start_handshake(struct sta_state *sta, bool use_eapol_start,
 	struct ap_state *ap = sta->ap;
 	const uint8_t *own_addr = netdev_get_address(ap->netdev);
 	struct ie_rsn_info rsn;
-	uint8_t bss_rsne[24];
+	uint8_t bss_rsne[64];
 
 	handshake_state_set_ssid(sta->hs, (void *) ap->config->ssid,
 					strlen(ap->config->ssid));
@@ -1485,7 +1485,8 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 			goto unsupported;
 		}
 
-		if (!(rsn_info.pairwise_ciphers & ap->ciphers)) {
+		if (__builtin_popcount(rsn_info.pairwise_ciphers) != 1 ||
+				!(rsn_info.pairwise_ciphers & ap->ciphers)) {
 			err = MMPDU_REASON_CODE_INVALID_PAIRWISE_CIPHER;
 			goto unsupported;
 		}
@@ -2108,7 +2109,8 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 	uint32_t ifindex = netdev_get_ifindex(ap->netdev);
 	struct wiphy *wiphy = netdev_get_wiphy(ap->netdev);
 	uint32_t hidden_ssid = NL80211_HIDDEN_SSID_NOT_IN_USE;
-	uint32_t nl_ciphers = ie_rsn_cipher_suite_to_cipher(ap->ciphers);
+	unsigned int nl_ciphers_cnt = __builtin_popcount(ap->ciphers);
+	uint32_t nl_ciphers[nl_ciphers_cnt];
 	uint32_t group_nl_cipher =
 		ie_rsn_cipher_suite_to_cipher(ap->group_cipher);
 	uint32_t nl_akm = CRYPTO_AKM_PSK;
@@ -2117,10 +2119,16 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 	uint32_t ch_freq = scan_channel_to_freq(ap->config->channel,
 						SCAN_BAND_2_4_GHZ);
 	uint32_t ch_width = NL80211_CHAN_WIDTH_20;
+	unsigned int i;
 
 	static const uint8_t bcast_addr[6] = {
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff
 	};
+
+	for (i = 0, nl_ciphers_cnt = 0; i < 8; i++)
+		if (ap->ciphers & (1 << i))
+			nl_ciphers[nl_ciphers_cnt++] =
+				ie_rsn_cipher_suite_to_cipher(1 << i);
 
 	head_len = ap_build_beacon_pr_head(ap, MPDU_MANAGEMENT_SUBTYPE_BEACON,
 						bcast_addr, head, sizeof(head));
@@ -2148,8 +2156,8 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 				ap->config->ssid);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_HIDDEN_SSID, 4,
 				&hidden_ssid);
-	l_genl_msg_append_attr(cmd, NL80211_ATTR_CIPHER_SUITES_PAIRWISE, 4,
-				&nl_ciphers);
+	l_genl_msg_append_attr(cmd, NL80211_ATTR_CIPHER_SUITES_PAIRWISE,
+				nl_ciphers_cnt * 4, nl_ciphers);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_CIPHER_SUITE_GROUP, 4,
 				&group_nl_cipher);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_WPA_VERSIONS, 4, &wpa_version);
