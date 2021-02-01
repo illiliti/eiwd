@@ -2674,7 +2674,7 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 
 	l_debug("");
 
-	if (station->hidden_pending || station_is_busy(station))
+	if (station->hidden_pending)
 		return dbus_error_busy(message);
 
 	if (!l_dbus_message_get_arguments(message, "s", &ssid))
