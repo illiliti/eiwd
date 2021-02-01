@@ -34,6 +34,7 @@
 
 struct ap {
 	bool started;
+	char *name;
 };
 
 static void *ap_create(void)
@@ -44,6 +45,9 @@ static void *ap_create(void)
 static void ap_destroy(void *data)
 {
 	struct ap *ap = data;
+
+	if (ap->name)
+		l_free(ap->name);
 
 	l_free(ap);
 }
@@ -74,8 +78,35 @@ static void update_started(void *data, struct l_dbus_message_iter *variant)
 	ap->started = value;
 }
 
+static const char *get_name_tostr(const void *data)
+{
+	const struct ap *ap = data;
+
+	if (!ap->name)
+		return "";
+
+	return ap->name;
+}
+
+static void update_name(void *data, struct l_dbus_message_iter *variant)
+{
+	struct ap *ap = data;
+	const char *name;
+
+	if (ap->name)
+		l_free(ap->name);
+
+	if (!l_dbus_message_iter_get_variant(variant, "s", &name)) {
+		ap->name = NULL;
+		return;
+	}
+
+	ap->name = l_strdup(name);
+}
+
 static const struct proxy_interface_property ap_properties[] = {
 	{ "Started",  "b", update_started,  get_started_tostr },
+	{ "Name",     "s", update_name, get_name_tostr },
 	{ }
 };
 
@@ -212,9 +243,9 @@ static void ap_get_diagnostics_callback(struct l_dbus_message *message,
 
 	while (l_dbus_message_iter_next_entry(&array, &iter)) {
 		sprintf(client_num, "Client %u", idx++);
-		display_table_header(client_num, "%-*s%-*s",
+		display_table_header(client_num, "            %-*s%-*s",
 					20, "Property", 20, "Value");
-		diagnostic_display(&iter, "", 20, 20);
+		diagnostic_display(&iter, "            ", 20, 20);
 		display_table_footer();
 	}
 }
@@ -223,11 +254,19 @@ static enum cmd_status cmd_show(const char *device_name, char **argv, int argc)
 {
 	const struct proxy_interface *ap_diagnostic =
 		device_proxy_find(device_name, IWD_AP_DIAGNOSTIC_INTERFACE);
+	const struct proxy_interface *ap_i =
+		device_proxy_find(device_name, IWD_ACCESS_POINT_INTERFACE);
 
-	if (!ap_diagnostic) {
+	if (!ap_i) {
 		display("No ap on device: '%s'\n", device_name);
 		return CMD_STATUS_INVALID_VALUE;
 	}
+
+	proxy_properties_display(ap_i, "Access Point Interface", MARGIN, 20, 20);
+	display_table_footer();
+
+	if (!ap_diagnostic)
+		return CMD_STATUS_DONE;
 
 	proxy_interface_method_call(ap_diagnostic, "GetDiagnostics", "",
 					ap_get_diagnostics_callback);
