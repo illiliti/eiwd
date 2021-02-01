@@ -2109,6 +2109,8 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 	struct wiphy *wiphy = netdev_get_wiphy(ap->netdev);
 	uint32_t hidden_ssid = NL80211_HIDDEN_SSID_NOT_IN_USE;
 	uint32_t nl_ciphers = ie_rsn_cipher_suite_to_cipher(ap->ciphers);
+	uint32_t group_nl_cipher =
+		ie_rsn_cipher_suite_to_cipher(ap->group_cipher);
 	uint32_t nl_akm = CRYPTO_AKM_PSK;
 	uint32_t wpa_version = NL80211_WPA_VERSION_2;
 	uint32_t auth_type = NL80211_AUTHTYPE_OPEN_SYSTEM;
@@ -2148,6 +2150,8 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 				&hidden_ssid);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_CIPHER_SUITES_PAIRWISE, 4,
 				&nl_ciphers);
+	l_genl_msg_append_attr(cmd, NL80211_ATTR_CIPHER_SUITE_GROUP, 4,
+				&group_nl_cipher);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_WPA_VERSIONS, 4, &wpa_version);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_AKM_SUITES, 4, &nl_akm);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_AUTH_TYPE, 4, &auth_type);
