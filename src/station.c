@@ -2619,6 +2619,12 @@ static bool station_hidden_network_scan_results(int err,
 					memcmp(bss->ssid, ssid, ssid_len))
 			goto next;
 
+		/*
+		 * Override time_stamp so that this entry is removed on
+		 * the next scan
+		 */
+		bss->time_stamp = 0;
+
 		if (station_add_seen_bss(station, bss)) {
 			l_queue_push_tail(station->bss_list, bss);
 
