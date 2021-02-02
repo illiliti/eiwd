@@ -1,4 +1,4 @@
-Station diagnostic hierarchy [experimental]
+Station Diagnostic hierarchy [experimental]
 ============================
 
 Service		net.connman.iwd

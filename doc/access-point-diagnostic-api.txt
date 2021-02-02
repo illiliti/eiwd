@@ -1,5 +1,5 @@
-Access Point diagnostic hierarchy [experimental]
-============================
+Access Point Diagnostic hierarchy [experimental]
+=================================
 
 Service		net.connman.iwd
 Interface	net.connman.iwd.AccessPointDiagnostic
