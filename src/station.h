@@ -100,3 +100,5 @@ void station_network_foreach(struct station *station,
 				void *user_data);
 struct l_queue *station_get_bss_list(struct station *station);
 struct scan_bss *station_get_connected_bss(struct station *station);
+
+int station_hide_network(struct station *station, struct network *network);

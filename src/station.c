@@ -3317,6 +3317,34 @@ struct scan_bss *station_get_connected_bss(struct station *station)
 	return station->connected_bss;
 }
 
+int station_hide_network(struct station *station, struct network *network)
+{
+	const char *path = network_get_path(network);
+	struct scan_bss *bss;
+
+	l_debug("%s", path);
+
+	if (station->connected_network == network)
+		return -EBUSY;
+
+	if (!l_hashmap_lookup(station->networks, path))
+		return -ENOENT;
+
+	l_queue_remove(station->networks_sorted, network);
+	l_hashmap_remove(station->networks, path);
+
+	while ((bss = network_bss_list_pop(network))) {
+		l_queue_remove_if(station->hidden_bss_list_sorted,
+					bss_match_bssid, bss->addr);
+		l_queue_insert(station->hidden_bss_list_sorted, bss,
+					bss_signal_strength_compare, NULL);
+	}
+
+	network_remove(network, -ESRCH);
+
+	return 0;
+}
+
 static void station_add_one_freq(uint32_t freq, void *user_data)
 {
 	struct station *station = user_data;

@@ -681,6 +681,11 @@ void network_bss_list_clear(struct network *network)
 	network->bss_list = l_queue_new();
 }
 
+struct scan_bss *network_bss_list_pop(struct network *network)
+{
+	return l_queue_pop_head(network->bss_list);
+}
+
 struct scan_bss *network_bss_find_by_addr(struct network *network,
 						const uint8_t *addr)
 {
@@ -1440,8 +1445,9 @@ static void network_unset_hotspot(struct network *network, void *user_data)
 static void emit_known_network_removed(struct station *station, void *user_data)
 {
 	struct network_info *info = user_data;
+	bool was_hidden = info->is_hidden;
 	struct network *connected_network;
-	struct network *network;
+	struct network *network = NULL;
 
 	/* Clear network info, as this network is no longer known */
 	if (info->is_hotspot)
@@ -1457,6 +1463,9 @@ static void emit_known_network_removed(struct station *station, void *user_data)
 	connected_network = station_get_connected_network(station);
 	if (connected_network && connected_network->info == NULL)
 		station_disconnect(station);
+
+	if (network && was_hidden)
+		station_hide_network(station, network);
 }
 
 static void network_update_hotspot(struct network *network, void *user_data)
