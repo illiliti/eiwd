@@ -2677,7 +2677,7 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 	uint64_t id = netdev_get_wdev_id(station->netdev);
 	struct scan_parameters params = {
 		.flush = true,
-		.randomize_mac_addr_hint = true,
+		.randomize_mac_addr_hint = false,
 	};
 	const char *ssid;
 	struct network *network;
@@ -2725,6 +2725,10 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 	}
 
 	params.ssid = ssid;
+
+	/* HW cannot randomize our MAC if connected */
+	if (!station->connected_bss)
+		params.randomize_mac_addr_hint = true;
 
 	station->hidden_network_scan_id = scan_active_full(id, &params,
 				station_hidden_network_scan_triggered,
