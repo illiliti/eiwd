@@ -5975,6 +5975,10 @@ static const struct attr_entry attr_table[] = {
 			"Scan Start Time", ATTR_U64 },
 	{ NL80211_ATTR_SCAN_START_TIME_TSF_BSSID,
 			"Scan Start Time BSSID", ATTR_ADDRESS },
+	{ NL80211_ATTR_MEASUREMENT_DURATION,
+			"Scan Duration", ATTR_U16 },
+	{ NL80211_ATTR_MEASUREMENT_DURATION_MANDATORY,
+			"Scan Duration Mandatory", ATTR_FLAG },
 	{ }
 };
 
