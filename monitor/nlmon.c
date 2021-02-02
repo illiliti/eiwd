@@ -82,6 +82,8 @@
 #define BSS_CAPABILITY_APSD		(1<<11)
 #define BSS_CAPABILITY_DSSS_OFDM	(1<<13)
 
+struct nlmon *cur_nlmon;
+
 enum msg_type {
 	MSG_REQUEST,
 	MSG_RESPONSE,
@@ -99,6 +101,7 @@ struct nlmon {
 	bool nortnl;
 	bool nowiphy;
 	bool noscan;
+	bool noies;
 };
 
 struct nlmon_req {
@@ -2124,6 +2127,9 @@ static void print_ie(unsigned int level, const char *label,
 			}
 		}
 
+		if (cur_nlmon && cur_nlmon->noies && tag != IE_TYPE_SSID)
+			continue;
+
 		if (entry && entry->function)
 			entry->function(level + 1, entry->str,
 					iter.data, iter.len);
@@ -3965,6 +3971,9 @@ static void print_management_ies(unsigned int level, const char *label,
 	ssize_t wsc_len, p2p_len, wfd_len;
 
 	print_ie(level, label, data, size);
+
+	if (cur_nlmon && cur_nlmon->noies)
+		return;
 
 	wsc_data = ie_tlv_extract_wsc_payload(data, size, &wsc_len);
 	if (wsc_data) {
@@ -6325,6 +6334,8 @@ static void print_message(struct nlmon *nlmon, const struct timeval *tv,
 	case MSG_REQUEST:
 	case MSG_RESULT:
 	case MSG_EVENT:
+		cur_nlmon = nlmon;
+
 		switch (cmd) {
 		case NL80211_CMD_CONTROL_PORT_FRAME:
 			print_attributes(0, control_port_attr_table, data, len);
@@ -6332,6 +6343,8 @@ static void print_message(struct nlmon *nlmon, const struct timeval *tv,
 		default:
 			print_attributes(0, attr_table, data, len);
 		}
+
+		cur_nlmon = NULL;
 		break;
 	case MSG_RESPONSE:
 		print_field("Status: %s (%d)", strerror(status), status);
@@ -7692,6 +7705,7 @@ struct nlmon *nlmon_open(const char *ifname, uint16_t id, const char *pathname,
 	nlmon->nortnl = config->nortnl;
 	nlmon->nowiphy = config->nowiphy;
 	nlmon->noscan = config->noscan;
+	nlmon->noies = config->noies;
 
 	l_io_set_read_handler(nlmon->io, nlmon_receive, nlmon, NULL);
 	l_io_set_read_handler(nlmon->pae_io, pae_receive, nlmon, NULL);

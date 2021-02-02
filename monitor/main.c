@@ -671,6 +671,7 @@ static void usage(void)
 		"\t-n, --nortnl           Don't show RTNL output\n"
 		"\t-y, --nowiphy          Don't show 'New Wiphy' output\n"
 		"\t-s, --noscan           Don't show scan result output\n"
+		"\t-e, --noies            Don't show IEs except SSID\n"
 		"\t-h, --help             Show help options\n");
 }
 
@@ -683,6 +684,7 @@ static const struct option main_options[] = {
 	{ "nortnl",    no_argument,       NULL, 'n' },
 	{ "nowiphy",   no_argument,       NULL, 'y' },
 	{ "noscan",    no_argument,       NULL, 's' },
+	{ "noies",     no_argument,       NULL, 'e' },
 	{ "version",   no_argument,       NULL, 'v' },
 	{ "help",      no_argument,       NULL, 'h' },
 	{ }
@@ -745,6 +747,9 @@ int main(int argc, char *argv[])
 			break;
 		case 's':
 			config.noscan = true;
+			break;
+		case 'e':
+			config.noies = true;
 			break;
 		case 'v':
 			printf("%s\n", VERSION);

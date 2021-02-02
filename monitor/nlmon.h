@@ -29,6 +29,7 @@ struct nlmon_config {
 	bool nortnl;
 	bool nowiphy;
 	bool noscan;
+	bool noies;
 };
 
 struct nlmon *nlmon_open(const char *ifname, uint16_t id, const char *pathname,
