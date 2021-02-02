@@ -5426,6 +5426,43 @@ static const struct attr_entry control_port_attr_table[] = {
 			"Wiphy", ATTR_U32 },
 };
 
+static const struct attr_entry scan_flag_table[] = {
+	{ NL80211_SCAN_FLAG_LOW_PRIORITY,	"LowPriority",	ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_FLUSH,		"Flush",	ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_AP,			"AP",		ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_RANDOM_ADDR,	"RandomMAC",	ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_FILS_MAX_CHANNEL_TIME,
+						"FILSMaxTime",	ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_ACCEPT_BCAST_PROBE_RESP,
+						"BcastPrespOK", ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_OCE_PROBE_REQ_HIGH_TX_RATE,
+						"OCEHighTX",	ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_OCE_PROBE_REQ_DEFERRAL_SUPPRESSION,
+						"OCEDeferSupp",	ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_LOW_SPAN,		"LowSpan",	ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_LOW_POWER,		"LowPower",	ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_HIGH_ACCURACY,	"HighAccuracy", ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_RANDOM_SN,		"RandomSN",	ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_MIN_PREQ_CONTENT,	"MinPreqCont",	ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_FREQ_KHZ,		"FreqKHz",	ATTR_FLAG },
+	{ NL80211_SCAN_FLAG_COLOCATED_6GHZ,	"Colocated6G",	ATTR_FLAG },
+	{ }
+};
+
+static void print_scan_flags(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	const uint32_t *flags = data;
+	unsigned int i;
+
+	print_attr(level, "%s: Mask: 0x%08x len %u", label, *flags, size);
+
+	for (i = 0; scan_flag_table[i].str; i++) {
+		if (*flags & scan_flag_table[i].attr)
+			print_attr(level + 2, "%s", scan_flag_table[i].str);
+	}
+}
+
 static const struct attr_entry attr_table[] = {
 	{ NL80211_ATTR_WIPHY,
 			"Wiphy", ATTR_U32 },
@@ -5759,8 +5796,8 @@ static const struct attr_entry attr_table[] = {
 			"Auth Data" },
 	{ NL80211_ATTR_VHT_CAPABILITY,
 			"VHT Capability" },
-	{ NL80211_ATTR_SCAN_FLAGS,
-			"Scan Flags", ATTR_U32 },
+	{ NL80211_ATTR_SCAN_FLAGS, "Scan Flags", ATTR_CUSTOM,
+					{ .function = print_scan_flags } },
 	{ NL80211_ATTR_CHANNEL_WIDTH,
 			"Channel Width", ATTR_U32 },
 	{ NL80211_ATTR_CENTER_FREQ1,
