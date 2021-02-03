@@ -115,6 +115,7 @@ struct scan_context {
 struct scan_results {
 	struct scan_context *sc;
 	struct l_queue *bss_list;
+	struct scan_freq_set *freqs;
 	uint64_t time_stamp;
 	struct scan_request *sr;
 };
@@ -1200,6 +1201,28 @@ fail:
 	return NULL;
 }
 
+static struct scan_freq_set *scan_parse_attr_scan_frequencies(
+						struct l_genl_attr *attr)
+{
+	uint16_t type, len;
+	const void *data;
+	struct scan_freq_set *set;
+
+	set = scan_freq_set_new();
+
+	while (l_genl_attr_next(attr, &type, &len, &data)) {
+		uint32_t freq;
+
+		if (len != sizeof(uint32_t))
+			continue;
+
+		freq = *((uint32_t *) data);
+		scan_freq_set_add(set, freq);
+	}
+
+	return set;
+}
+
 static struct scan_bss *scan_parse_result(struct l_genl_msg *msg,
 						uint64_t *out_wdev)
 {
@@ -1519,6 +1542,9 @@ static void get_scan_done(void *user)
 		l_queue_destroy(results->bss_list,
 				(l_queue_destroy_func_t) scan_bss_free);
 
+	if (results->freqs)
+		scan_freq_set_free(results->freqs);
+
 	l_free(results);
 }
 
@@ -1536,6 +1562,31 @@ static bool scan_parse_flush_flag_from_msg(struct l_genl_msg *msg)
 			return true;
 
 	return false;
+}
+
+static void scan_parse_new_scan_results(struct l_genl_msg *msg,
+					struct scan_results *results)
+{
+	struct l_genl_attr attr, nested;
+	uint16_t type, len;
+	const void *data;
+
+	if (!l_genl_attr_init(&attr, msg))
+		return;
+
+	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+		switch (type) {
+		case NL80211_ATTR_SCAN_FREQUENCIES:
+			if (!l_genl_attr_recurse(&attr, &nested)) {
+				l_warn("Failed to parse ATTR_SCAN_FREQUENCIES");
+				break;
+			}
+
+			results->freqs =
+				scan_parse_attr_scan_frequencies(&nested);
+			break;
+		}
+	}
 }
 
 static void scan_notify(struct l_genl_msg *msg, void *user_data)
@@ -1655,6 +1706,8 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		results->time_stamp = l_time_now();
 		results->sr = sr;
 		results->bss_list = l_queue_new();
+
+		scan_parse_new_scan_results(msg, results);
 
 		scan_msg = l_genl_msg_new_sized(NL80211_CMD_GET_SCAN, 8);
 		l_genl_msg_append_attr(scan_msg, NL80211_ATTR_WDEV, 8,
