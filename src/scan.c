@@ -160,7 +160,7 @@ static void scan_request_failed(struct scan_context *sc,
 	if (sr->trigger)
 		sr->trigger(err, sr->userdata);
 	else if (sr->callback)
-		sr->callback(err, NULL, sr->userdata);
+		sr->callback(err, NULL, NULL, sr->userdata);
 
 	wiphy_radio_work_done(sc->wiphy, sr->work.id);
 }
@@ -683,6 +683,7 @@ static void scan_periodic_triggered(int err, void *user_data)
 }
 
 static bool scan_periodic_notify(int err, struct l_queue *bss_list,
+					const struct scan_freq_set *freqs,
 					void *user_data)
 {
 	struct scan_context *sc = user_data;
@@ -690,7 +691,7 @@ static bool scan_periodic_notify(int err, struct l_queue *bss_list,
 	scan_periodic_rearm(sc);
 
 	if (sc->sp.callback)
-		return sc->sp.callback(err, bss_list, sc->sp.userdata);
+		return sc->sp.callback(err, bss_list, freqs, sc->sp.userdata);
 
 	return false;
 }
@@ -1496,6 +1497,7 @@ static void discover_hidden_network_bsses(struct scan_context *sc,
 
 static void scan_finished(struct scan_context *sc,
 				int err, struct l_queue *bss_list,
+				const struct scan_freq_set *freqs,
 				struct scan_request *sr)
 {
 	bool new_owner = false;
@@ -1509,7 +1511,8 @@ static void scan_finished(struct scan_context *sc,
 		sc->work_started = false;
 
 		if (sr->callback)
-			new_owner = sr->callback(err, bss_list, sr->userdata);
+			new_owner = sr->callback(err, bss_list,
+							freqs, sr->userdata);
 
 		/*
 		 * Can start a new scan now that we've removed this one from
@@ -1520,7 +1523,8 @@ static void scan_finished(struct scan_context *sc,
 		 */
 		wiphy_radio_work_done(sc->wiphy, sr->work.id);
 	} else if (sc->sp.callback)
-		new_owner = sc->sp.callback(err, bss_list, sc->sp.userdata);
+		new_owner = sc->sp.callback(err, bss_list,
+						freqs, sc->sp.userdata);
 
 	if (bss_list && !new_owner)
 		l_queue_destroy(bss_list,
@@ -1537,7 +1541,8 @@ static void get_scan_done(void *user)
 	sc->get_scan_cmd_id = 0;
 
 	if (l_queue_peek_head(sc->requests) == results->sr)
-		scan_finished(sc, 0, results->bss_list, results->sr);
+		scan_finished(sc, 0, results->bss_list,
+						results->freqs, results->sr);
 	else
 		l_queue_destroy(results->bss_list,
 				(l_queue_destroy_func_t) scan_bss_free);
@@ -1652,7 +1657,7 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			sc->triggered = false;
 
 			if (!sr->callback) {
-				scan_finished(sc, -ECANCELED, NULL, sr);
+				scan_finished(sc, -ECANCELED, NULL, NULL, sr);
 				break;
 			}
 
@@ -1675,7 +1680,7 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 
 			/* An external scan may have flushed our results */
 			if (sc->started && scan_parse_flush_flag_from_msg(msg))
-				scan_finished(sc, -EAGAIN, NULL, sr);
+				scan_finished(sc, -EAGAIN, NULL, NULL, sr);
 			else
 				send_next = true;
 
@@ -1739,7 +1744,7 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		if (sc->triggered) {
 			sc->triggered = false;
 
-			scan_finished(sc, -ECANCELED, NULL, sr);
+			scan_finished(sc, -ECANCELED, NULL, NULL, sr);
 		} else {
 			/*
 			 * If this was an external scan that got aborted

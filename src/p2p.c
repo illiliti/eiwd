@@ -1283,6 +1283,7 @@ static void p2p_scan_destroy(void *user_data)
 static void p2p_provision_scan_start(struct p2p_device *dev);
 
 static bool p2p_provision_scan_notify(int err, struct l_queue *bss_list,
+					const struct scan_freq_set *freqs,
 					void *user_data)
 {
 	struct p2p_device *dev = user_data;
@@ -3312,6 +3313,7 @@ static bool p2p_peer_update_existing(struct scan_bss *bss,
 }
 
 static bool p2p_scan_notify(int err, struct l_queue *bss_list,
+				const struct scan_freq_set *freqs,
 				void *user_data)
 {
 	struct p2p_device *dev = user_data;

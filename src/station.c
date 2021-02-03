@@ -1016,7 +1016,9 @@ not_supported:
 	return NULL;
 }
 
-static bool new_scan_results(int err, struct l_queue *bss_list, void *userdata)
+static bool new_scan_results(int err, struct l_queue *bss_list,
+				const struct scan_freq_set *freqs,
+				void *userdata)
 {
 	struct station *station = userdata;
 	bool autoconnect;
@@ -1082,7 +1084,8 @@ static uint32_t station_scan_trigger(struct station *station,
 }
 
 static bool station_quick_scan_results(int err, struct l_queue *bss_list,
-								void *userdata)
+					const struct scan_freq_set *freqs,
+					void *userdata)
 {
 	struct station *station = userdata;
 	bool autoconnect;
@@ -1676,6 +1679,7 @@ static void station_roam_scan_triggered(int err, void *user_data)
 }
 
 static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
+					const struct scan_freq_set *freqs,
 					void *userdata)
 {
 	struct station *station = userdata;
@@ -2583,8 +2587,9 @@ static void station_hidden_network_scan_triggered(int err, void *user_data)
 }
 
 static bool station_hidden_network_scan_results(int err,
-						struct l_queue *bss_list,
-						void *userdata)
+					struct l_queue *bss_list,
+					const struct scan_freq_set *freqs,
+					void *userdata)
 {
 	struct station *station = userdata;
 	struct network *network_psk;
@@ -2992,7 +2997,9 @@ static void station_dbus_scan_triggered(int err, void *user_data)
 
 static bool station_dbus_scan_subset(struct station *station);
 
-static bool station_dbus_scan_results(int err, struct l_queue *bss_list, void *userdata)
+static bool station_dbus_scan_results(int err, struct l_queue *bss_list,
+					const struct scan_freq_set *freqs,
+					void *userdata)
 {
 	struct station *station = userdata;
 	unsigned int next_idx = station->dbus_scan_subset_idx + 1;

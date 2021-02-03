@@ -388,7 +388,9 @@ static void rrm_handle_beacon_table(struct rrm_state *rrm,
 		l_error("Error reporting beacon table results");
 }
 
-static bool rrm_scan_results(int err, struct l_queue *bss_list, void *userdata)
+static bool rrm_scan_results(int err, struct l_queue *bss_list,
+				const struct scan_freq_set *freqs,
+				void *userdata)
 {
 	struct rrm_state *rrm = userdata;
 	struct rrm_beacon_req_info *beacon = l_container_of(rrm->pending,

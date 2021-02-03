@@ -683,6 +683,7 @@ static void pin_timeout(struct l_timeout *timeout, void *user_data)
 }
 
 static bool push_button_scan_results(int err, struct l_queue *bss_list,
+					const struct scan_freq_set *freqs,
 					void *userdata)
 {
 	struct wsc_station_dbus *wsc = userdata;
@@ -837,7 +838,9 @@ static bool authorized_macs_contains(const uint8_t *authorized_macs,
 	return false;
 }
 
-static bool pin_scan_results(int err, struct l_queue *bss_list, void *userdata)
+static bool pin_scan_results(int err, struct l_queue *bss_list,
+				const struct scan_freq_set *freqs,
+				void *userdata)
 {
 	static const uint8_t wildcard_address[] =
 					{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };

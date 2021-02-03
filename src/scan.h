@@ -103,6 +103,7 @@ struct scan_parameters {
 typedef void (*scan_func_t)(struct l_genl_msg *msg, void *user_data);
 typedef void (*scan_trigger_func_t)(int, void *);
 typedef bool (*scan_notify_func_t)(int err, struct l_queue *bss_list,
+					const struct scan_freq_set *freqs,
 					void *userdata);
 typedef void (*scan_destroy_func_t)(void *userdata);
 typedef void (*scan_freq_set_func_t)(uint32_t freq, void *userdata);
