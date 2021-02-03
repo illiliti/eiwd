@@ -142,8 +142,7 @@ static void check_errors_method_callback(struct l_dbus_message *message,
 }
 
 static void display_station(const char *device_name,
-					const struct proxy_interface *proxy,
-					bool *connected)
+					const struct proxy_interface *proxy)
 {
 	const struct station *station = proxy_interface_get_data(proxy);
 	char *caption = l_strdup_printf("%s: %s", "Station", device_name);
@@ -155,11 +154,12 @@ static void display_station(const char *device_name,
 		display("%s%*s  %-*s%-*s\n", MARGIN, 8, "", 20,
 				"Connected network", 47,
 				network_get_name(station->connected_network));
-		*connected = true;
+		/*
+		 * If connected the diagnostic interface is presumably up so
+		 * don't add the table footer just yet.
+		 */
 		return;
 	}
-
-	*connected = false;
 
 	display_table_footer();
 }
@@ -623,20 +623,19 @@ static enum cmd_status cmd_show(const char *device_name,
 	const struct proxy_interface *diagnostic =
 					device_proxy_find(device_name,
 					IWD_STATION_DIAGNOSTIC_INTERFACE);
-	bool connected;
 
 	if (!station) {
 		display("No station on device: '%s'\n", device_name);
 		return CMD_STATUS_INVALID_VALUE;
 	}
 
-	display_station(device_name, station, &connected);
+	display_station(device_name, station);
 
 	/*
-	 * No need to query additional diagnostic information if not connected,
-	 * or IWD has no diagnostic interface.
+	 * No need to query additional diagnostic information if IWD has
+	 * no diagnostic interface.
 	 */
-	if (!connected || !diagnostic) {
+	if (!diagnostic) {
 		display_table_footer();
 		display_refresh_reset();
 		return CMD_STATUS_DONE;
