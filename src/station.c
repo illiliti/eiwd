@@ -375,7 +375,13 @@ static bool bss_match(const void *a, const void *b)
 	const struct scan_bss *bss_a = a;
 	const struct scan_bss *bss_b = b;
 
-	return !memcmp(bss_a->addr, bss_b->addr, sizeof(bss_a->addr));
+	if (memcmp(bss_a->addr, bss_b->addr, sizeof(bss_a->addr)))
+		return false;
+
+	if (bss_a->ssid_len != bss_b->ssid_len)
+		return false;
+
+	return !memcmp(bss_a->ssid, bss_b->ssid, bss_a->ssid_len);
 }
 
 struct bss_expiration_data {
