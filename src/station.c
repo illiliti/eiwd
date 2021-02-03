@@ -3371,6 +3371,7 @@ int station_hide_network(struct station *station, struct network *network)
 	l_hashmap_remove(station->networks, path);
 
 	while ((bss = network_bss_list_pop(network))) {
+		memset(bss->ssid, 0, bss->ssid_len);
 		l_queue_remove_if(station->hidden_bss_list_sorted,
 					bss_match_bssid, bss->addr);
 		l_queue_insert(station->hidden_bss_list_sorted, bss,
