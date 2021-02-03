@@ -21,6 +21,8 @@ Methods		dict GetDiagnostics()
 
 			ConnectedBss - MAC address of currently connected BSS.
 
+			Frequency - Frequency of currently connected BSS.
+
 			RSSI [optional] - The RSSI of the currently connected BSS.
 
 			RxMode [optional] -	The phy technology being used
