@@ -3557,6 +3557,8 @@ static void station_get_diagnostic_cb(
 
 	dbus_append_dict_basic(builder, "ConnectedBss", 's',
 					util_address_to_string(info->addr));
+	dbus_append_dict_basic(builder, "Frequency", 'u',
+				&station->connected_bss->frequency);
 
 	diagnostic_info_to_dict(info, builder);
 
