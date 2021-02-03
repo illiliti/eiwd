@@ -386,6 +386,7 @@ static bool bss_match(const void *a, const void *b)
 struct bss_expiration_data {
 	struct scan_bss *connected_bss;
 	uint64_t now;
+	const struct scan_freq_set *freqs;
 };
 
 #define SCAN_RESULT_BSS_RETENTION_TIME (30 * 1000000)
@@ -399,6 +400,10 @@ static bool bss_free_if_expired(void *data, void *user_data)
 		/* Do not expire the currently connected BSS. */
 		return false;
 
+	/* Keep any BSSes that are not on the frequency list */
+	if (!scan_freq_set_contains(expiration_data->freqs, bss->frequency))
+		return false;
+
 	if (l_time_before(expiration_data->now,
 			bss->time_stamp + SCAN_RESULT_BSS_RETENTION_TIME))
 		return false;
@@ -408,11 +413,13 @@ static bool bss_free_if_expired(void *data, void *user_data)
 	return true;
 }
 
-static void station_bss_list_remove_expired_bsses(struct station *station)
+static void station_bss_list_remove_expired_bsses(struct station *station,
+					const struct scan_freq_set *freqs)
 {
 	struct bss_expiration_data data = {
 		.now = l_time_now(),
 		.connected_bss = station->connected_bss,
+		.freqs = freqs,
 	};
 
 	l_queue_foreach_remove(station->bss_list, bss_free_if_expired, &data);
@@ -612,9 +619,9 @@ static bool station_start_anqp(struct station *station, struct network *network,
  * inside station module or scans running in other state machines, e.g. wsc
  */
 void station_set_scan_results(struct station *station,
-						struct l_queue *new_bss_list,
-						bool add_to_autoconnect,
-						bool expire)
+					struct l_queue *new_bss_list,
+					const struct scan_freq_set *freqs,
+					bool add_to_autoconnect)
 {
 	const struct l_queue_entry *bss_entry;
 	struct network *network;
@@ -628,8 +635,7 @@ void station_set_scan_results(struct station *station,
 	l_queue_destroy(station->autoconnect_list, l_free);
 	station->autoconnect_list = l_queue_new();
 
-	if (expire)
-		station_bss_list_remove_expired_bsses(station);
+	station_bss_list_remove_expired_bsses(station, freqs);
 
 	for (bss_entry = l_queue_get_entries(station->bss_list); bss_entry;
 						bss_entry = bss_entry->next) {
@@ -1029,7 +1035,7 @@ static bool new_scan_results(int err, struct l_queue *bss_list,
 		return false;
 
 	autoconnect = station_is_autoconnecting(station);
-	station_set_scan_results(station, bss_list, autoconnect, true);
+	station_set_scan_results(station, bss_list, freqs, autoconnect);
 
 	return true;
 }
@@ -1096,7 +1102,7 @@ static bool station_quick_scan_results(int err, struct l_queue *bss_list,
 		goto done;
 
 	autoconnect = station_is_autoconnecting(station);
-	station_set_scan_results(station, bss_list, autoconnect, true);
+	station_set_scan_results(station, bss_list, freqs, autoconnect);
 
 done:
 	if (station->state == STATION_STATE_AUTOCONNECT_QUICK)
@@ -3012,11 +3018,10 @@ static bool station_dbus_scan_results(int err, struct l_queue *bss_list,
 	}
 
 	autoconnect = station_is_autoconnecting(station);
+	station_set_scan_results(station, bss_list, freqs, autoconnect);
+
 	last_subset = next_idx >= L_ARRAY_SIZE(station->scan_freqs_order) ||
 		station->scan_freqs_order[next_idx] == NULL;
-
-	station_set_scan_results(station, bss_list, autoconnect, last_subset);
-
 	station->dbus_scan_subset_idx = next_idx;
 
 	if (last_subset || !station_dbus_scan_subset(station))

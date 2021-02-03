@@ -27,6 +27,7 @@ struct netdev;
 struct station;
 enum security;
 struct scan_bss;
+struct scan_freq_set;
 struct network;
 
 enum station_state {
@@ -65,7 +66,8 @@ struct network *station_network_find(struct station *station, const char *ssid,
 					enum security security);
 
 void station_set_scan_results(struct station *station, struct l_queue *bss_list,
-				bool add_to_autoconnect, bool expire);
+				const struct scan_freq_set *freqs,
+				bool add_to_autoconnect);
 
 enum station_state station_get_state(struct station *station);
 uint32_t station_add_state_watch(struct station *station,

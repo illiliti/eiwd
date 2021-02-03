@@ -788,7 +788,7 @@ static bool push_button_scan_results(int err, struct l_queue *bss_list,
 	}
 
 	wsc_cancel_scan(wsc);
-	station_set_scan_results(wsc->station, bss_list, false, true);
+	station_set_scan_results(wsc->station, bss_list, freqs, false);
 
 	l_debug("Found AP to connect to: %s",
 			util_address_to_string(target->addr));
@@ -934,7 +934,7 @@ static bool pin_scan_results(int err, struct l_queue *bss_list,
 	}
 
 	wsc_cancel_scan(wsc);
-	station_set_scan_results(wsc->station, bss_list, false, true);
+	station_set_scan_results(wsc->station, bss_list, freqs, false);
 
 	l_debug("Found AP to connect to: %s",
 			util_address_to_string(target->addr));
