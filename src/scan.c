@@ -1990,7 +1990,7 @@ bool scan_freq_set_add(struct scan_freq_set *freqs, uint32_t freq)
 	return false;
 }
 
-bool scan_freq_set_contains(struct scan_freq_set *freqs, uint32_t freq)
+bool scan_freq_set_contains(const struct scan_freq_set *freqs, uint32_t freq)
 {
 	enum scan_band band;
 	uint8_t channel;
