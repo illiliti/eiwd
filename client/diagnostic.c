@@ -87,6 +87,7 @@ static const struct diagnostic_dict_mapping diagnostic_mapping[] = {
 	{ "RSSI", 'n', "dBm" },
 	{ "RxMCS", 'y' },
 	{ "TxMCS", 'y' },
+	{ "Frequency", 'u' },
 	{ NULL }
 };
 
