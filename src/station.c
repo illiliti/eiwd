@@ -2989,21 +2989,9 @@ static struct l_dbus_message *station_dbus_get_hidden_access_points(
 	return reply;
 }
 
-static void station_dbus_scan_done(struct station *station, bool expired)
+static void station_dbus_scan_done(struct station *station)
 {
 	station->dbus_scan_id = 0;
-
-	if (!expired) {
-		/*
-		 * We haven't dropped old BSS records from bss_list during
-		 * this scan yet so do it now.  Call station_set_scan_results
-		 * with an empty new BSS list to do this.  Not the cheapest
-		 * but this should only happen when station_dbus_scan_done is
-		 * called early, i.e. due to an error.
-		 */
-		station_set_scan_results(station, l_queue_new(), false, true);
-	}
-
 	station_property_set_scanning(station, false);
 }
 
@@ -3021,7 +3009,7 @@ static void station_dbus_scan_triggered(int err, void *user_data)
 			dbus_pending_reply(&station->scan_pending, reply);
 		}
 
-		station_dbus_scan_done(station, false);
+		station_dbus_scan_done(station);
 		return;
 	}
 
@@ -3050,7 +3038,7 @@ static bool station_dbus_scan_results(int err, struct l_queue *bss_list,
 	bool last_subset;
 
 	if (err) {
-		station_dbus_scan_done(station, false);
+		station_dbus_scan_done(station);
 		return false;
 	}
 
@@ -3062,7 +3050,7 @@ static bool station_dbus_scan_results(int err, struct l_queue *bss_list,
 	station->dbus_scan_subset_idx = next_idx;
 
 	if (last_subset || !station_dbus_scan_subset(station))
-		station_dbus_scan_done(station, last_subset);
+		station_dbus_scan_done(station);
 
 	return true;
 }
