@@ -1121,7 +1121,8 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 	return have_ssid;
 }
 
-static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr)
+static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr,
+						uint32_t *out_seen_ms_ago)
 {
 	uint16_t type, len;
 	const void *data;
@@ -1178,6 +1179,18 @@ static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr)
 			beacon_ies = data;
 			beacon_ies_len = len;
 			break;
+		case NL80211_BSS_SEEN_MS_AGO:
+			if (L_WARN_ON(len != sizeof(uint32_t)))
+				break;
+
+			*out_seen_ms_ago = l_get_u32(data);
+			break;
+		case NL80211_BSS_LAST_SEEN_BOOTTIME:
+			if (L_WARN_ON(len != sizeof(uint64_t)))
+				break;
+
+			bss->time_stamp = l_get_u64(data);
+			break;
 		}
 	}
 
@@ -1225,7 +1238,8 @@ static struct scan_freq_set *scan_parse_attr_scan_frequencies(
 }
 
 static struct scan_bss *scan_parse_result(struct l_genl_msg *msg,
-						uint64_t *out_wdev)
+						uint64_t *out_wdev,
+						uint32_t *out_seen_ms_ago)
 {
 	struct l_genl_attr attr, nested;
 	uint16_t type, len;
@@ -1249,7 +1263,7 @@ static struct scan_bss *scan_parse_result(struct l_genl_msg *msg,
 			if (!l_genl_attr_recurse(&attr, &nested))
 				return NULL;
 
-			bss = scan_parse_attr_bss(&nested);
+			bss = scan_parse_attr_bss(&nested, out_seen_ms_ago);
 			break;
 		}
 	}
@@ -1460,10 +1474,11 @@ static void get_scan_callback(struct l_genl_msg *msg, void *user_data)
 	struct scan_context *sc = results->sc;
 	struct scan_bss *bss;
 	uint64_t wdev_id;
+	uint32_t seen_ms_ago = 0;
 
 	l_debug("get_scan_callback");
 
-	bss = scan_parse_result(msg, &wdev_id);
+	bss = scan_parse_result(msg, &wdev_id, &seen_ms_ago);
 	if (!bss)
 		return;
 
@@ -1473,7 +1488,9 @@ static void get_scan_callback(struct l_genl_msg *msg, void *user_data)
 		return;
 	}
 
-	bss->time_stamp = results->time_stamp;
+	if (!bss->time_stamp)
+		bss->time_stamp = results->time_stamp -
+					seen_ms_ago * L_USEC_PER_MSEC;
 
 	scan_bss_compute_rank(bss);
 	l_queue_insert(results->bss_list, bss, scan_bss_rank_compare, NULL);
