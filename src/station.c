@@ -330,11 +330,6 @@ static struct network *station_add_seen_bss(struct station *station,
 		return NULL;
 	}
 
-	if (!util_ssid_is_utf8(bss->ssid_len, bss->ssid)) {
-		l_debug("Ignoring BSS with non-UTF8 SSID");
-		return NULL;
-	}
-
 	memcpy(ssid, bss->ssid, bss->ssid_len);
 	ssid[bss->ssid_len] = '\0';
 
@@ -614,6 +609,22 @@ static bool station_start_anqp(struct station *station, struct network *network,
 	return true;
 }
 
+static bool bss_free_if_ssid_not_utf8(void *data, void *user_data)
+{
+	struct scan_bss *bss = data;
+
+	if (util_ssid_is_hidden(bss->ssid_len, bss->ssid))
+		return false;
+
+	if (util_ssid_is_utf8(bss->ssid_len, bss->ssid))
+		return false;
+
+	l_debug("Dropping scan_bss '%s', with non-utf8 SSID",
+			util_address_to_string(bss->addr));
+	bss_free(bss);
+	return true;
+}
+
 /*
  * Used when scan results were obtained; either from scan running
  * inside station module or scans running in other state machines, e.g. wsc
@@ -626,6 +637,8 @@ void station_set_scan_results(struct station *station,
 	const struct l_queue_entry *bss_entry;
 	struct network *network;
 	bool wait_for_anqp = false;
+
+	l_queue_foreach_remove(new_bss_list, bss_free_if_ssid_not_utf8, NULL);
 
 	while ((network = l_queue_pop_head(station->networks_sorted)))
 		network_bss_list_clear(network);
