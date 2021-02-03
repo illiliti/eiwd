@@ -1087,25 +1087,25 @@ static uint32_t station_scan_trigger(struct station *station,
 					scan_destroy_func_t destroy)
 {
 	uint64_t id = netdev_get_wdev_id(station->netdev);
+	struct scan_parameters params;
+
+	memset(&params, 0, sizeof(params));
+	params.flush = true;
+	params.freqs = freqs;
 
 	if (wiphy_can_randomize_mac_addr(station->wiphy) ||
 				station_needs_hidden_network_scan(station) ||
 						station->connected_bss) {
-		struct scan_parameters params;
-
-		memset(&params, 0, sizeof(params));
-
 		/* If we're connected, HW cannot randomize our MAC */
 		if (!station->connected_bss)
 			params.randomize_mac_addr_hint = true;
-
-		params.freqs = freqs;
 
 		return scan_active_full(id, &params, triggered, notify,
 					station, destroy);
 	}
 
-	return scan_passive(id, freqs, triggered, notify, station, destroy);
+	return scan_passive_full(id, &params, triggered, notify,
+					station, destroy);
 }
 
 static bool station_quick_scan_results(int err, struct l_queue *bss_list,
