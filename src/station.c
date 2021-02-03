@@ -1076,8 +1076,13 @@ static void periodic_scan_stop(struct station *station)
 
 static bool station_needs_hidden_network_scan(struct station *station)
 {
-	return !l_queue_isempty(station->hidden_bss_list_sorted) &&
-						known_networks_has_hidden();
+	if (!known_networks_has_hidden())
+		return false;
+
+	if (station_is_autoconnecting(station))
+		return true;
+
+	return !l_queue_isempty(station->hidden_bss_list_sorted);
 }
 
 static uint32_t station_scan_trigger(struct station *station,
@@ -1094,8 +1099,8 @@ static uint32_t station_scan_trigger(struct station *station,
 	params.freqs = freqs;
 
 	if (wiphy_can_randomize_mac_addr(station->wiphy) ||
-				station_needs_hidden_network_scan(station) ||
-						station->connected_bss) {
+			station->connected_bss ||
+				station_needs_hidden_network_scan(station)) {
 		/* If we're connected, HW cannot randomize our MAC */
 		if (!station->connected_bss)
 			params.randomize_mac_addr_hint = true;
@@ -1159,30 +1164,30 @@ static void station_quick_scan_destroy(void *userdata)
 	station->quick_scan_id = 0;
 }
 
-static void station_quick_scan_trigger(struct station *station)
+static int station_quick_scan_trigger(struct station *station)
 {
 	struct scan_freq_set *known_freq_set;
 
 	known_freq_set = known_networks_get_recent_frequencies(5);
 	if (!known_freq_set)
-		goto autoconnect_full;
+		return -ENODATA;
 
-	if (!wiphy_constrain_freq_set(station->wiphy, known_freq_set))
-		goto skip_scan;
+	if (!wiphy_constrain_freq_set(station->wiphy, known_freq_set)) {
+		scan_freq_set_free(known_freq_set);
+		return -ENOTSUP;
+	}
 
 	station->quick_scan_id = station_scan_trigger(station,
 						known_freq_set,
 						station_quick_scan_triggered,
 						station_quick_scan_results,
 						station_quick_scan_destroy);
-skip_scan:
 	scan_freq_set_free(known_freq_set);
 
-	if (station->quick_scan_id)
-		return;
+	if (!station->quick_scan_id)
+		return -EIO;
 
-autoconnect_full:
-	station_enter_state(station, STATION_STATE_AUTOCONNECT_FULL);
+	return 0;
 }
 
 static const char *station_state_to_string(enum station_state state)
@@ -1225,10 +1230,15 @@ static void station_enter_state(struct station *station,
 		l_dbus_property_changed(dbus, netdev_get_path(station->netdev),
 					IWD_STATION_INTERFACE, "State");
 
+	station->state = state;
+
 	switch (state) {
 	case STATION_STATE_AUTOCONNECT_QUICK:
-		station_quick_scan_trigger(station);
-		break;
+		if (!station_quick_scan_trigger(station))
+			break;
+
+		station->state = STATION_STATE_AUTOCONNECT_FULL;
+		/* Fall through */
 	case STATION_STATE_AUTOCONNECT_FULL:
 		scan_periodic_start(id, periodic_scan_trigger,
 					new_scan_results, station);
@@ -1256,10 +1266,8 @@ static void station_enter_state(struct station *station,
 		break;
 	}
 
-	station->state = state;
-
 	WATCHLIST_NOTIFY(&station->state_watches,
-					station_state_watch_func_t, state);
+				station_state_watch_func_t, station->state);
 }
 
 enum station_state station_get_state(struct station *station)
