@@ -4890,6 +4890,9 @@ static const struct attr_entry bss_table[] = {
 	{ NL80211_BSS_BEACON_TSF,	"Beacon TSF",	ATTR_U64	},
 	{ NL80211_BSS_PRESP_DATA,	"Probe Response", ATTR_FLAG	},
 	{ NL80211_BSS_PARENT_TSF,	"Parent TSF",	ATTR_U64	},
+	{ NL80211_BSS_PARENT_BSSID,	"Parent BSSID", ATTR_ADDRESS	},
+	{ NL80211_BSS_LAST_SEEN_BOOTTIME, "Timestamp",	ATTR_U64	},
+	{ NL80211_BSS_FREQUENCY_OFFSET,	"Freq Offset",	ATTR_U32	},
 	{ }
 };
 
