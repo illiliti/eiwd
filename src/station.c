@@ -1255,11 +1255,21 @@ static void station_enter_state(struct station *station,
 		l_dbus_property_changed(dbus,
 				network_get_path(station->connected_network),
 				IWD_NETWORK_INTERFACE, "Connected");
-		/* fall through */
-	case STATION_STATE_DISCONNECTED:
-	case STATION_STATE_CONNECTED:
-		periodic_scan_stop(station);
 
+		periodic_scan_stop(station);
+		break;
+	case STATION_STATE_DISCONNECTED:
+		l_dbus_object_remove_interface(dbus_get_bus(),
+					netdev_get_path(station->netdev),
+					IWD_STATION_DIAGNOSTIC_INTERFACE);
+		periodic_scan_stop(station);
+		break;
+	case STATION_STATE_CONNECTED:
+		l_dbus_object_add_interface(dbus,
+					netdev_get_path(station->netdev),
+					IWD_STATION_DIAGNOSTIC_INTERFACE,
+					station);
+		periodic_scan_stop(station);
 		break;
 	case STATION_STATE_DISCONNECTING:
 	case STATION_STATE_ROAMING:
@@ -3451,9 +3461,6 @@ static struct station *station_create(struct netdev *netdev)
 
 	l_dbus_object_add_interface(dbus, netdev_get_path(netdev),
 					IWD_STATION_INTERFACE, station);
-	l_dbus_object_add_interface(dbus, netdev_get_path(netdev),
-					IWD_STATION_DIAGNOSTIC_INTERFACE,
-					station);
 
 	if (netconfig_enabled)
 		station->netconfig = netconfig_new(netdev_get_ifindex(netdev));
@@ -3627,12 +3634,6 @@ static struct l_dbus_message *station_get_diagnostics(struct l_dbus *dbus,
 {
 	struct station *station = user_data;
 	int ret;
-
-	/*
-	 * At this time all values depend on a connected state.
-	 */
-	if (station->state != STATION_STATE_CONNECTED)
-		return dbus_error_not_connected(message);
 
 	ret = netdev_get_current_station(station->netdev,
 				station_get_diagnostic_cb, station,
