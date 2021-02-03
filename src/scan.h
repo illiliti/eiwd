@@ -20,6 +20,13 @@
  *
  */
 
+struct scan_freq_set;
+struct ie_rsn_info;
+struct p2p_probe_resp;
+struct p2p_probe_req;
+struct p2p_beacon;
+struct mmpdu_header;
+
 enum scan_band {
 	SCAN_BAND_2_4_GHZ =	0x1,
 	SCAN_BAND_5_GHZ =	0x2,
@@ -30,20 +37,6 @@ enum scan_state {
 	SCAN_STATE_PASSIVE,
 	SCAN_STATE_ACTIVE,
 };
-
-typedef void (*scan_func_t)(struct l_genl_msg *msg, void *user_data);
-typedef void (*scan_trigger_func_t)(int, void *);
-typedef bool (*scan_notify_func_t)(int err, struct l_queue *bss_list,
-					void *userdata);
-typedef void (*scan_destroy_func_t)(void *userdata);
-typedef void (*scan_freq_set_func_t)(uint32_t freq, void *userdata);
-
-struct scan_freq_set;
-struct ie_rsn_info;
-struct p2p_probe_resp;
-struct p2p_probe_req;
-struct p2p_beacon;
-struct mmpdu_header;
 
 enum scan_bss_frame_type {
 	SCAN_BSS_PROBE_RESP,
@@ -106,6 +99,13 @@ struct scan_parameters {
 	const char *ssid;	/* Used for direct probe request */
 	const uint8_t *source_mac;
 };
+
+typedef void (*scan_func_t)(struct l_genl_msg *msg, void *user_data);
+typedef void (*scan_trigger_func_t)(int, void *);
+typedef bool (*scan_notify_func_t)(int err, struct l_queue *bss_list,
+					void *userdata);
+typedef void (*scan_destroy_func_t)(void *userdata);
+typedef void (*scan_freq_set_func_t)(uint32_t freq, void *userdata);
 
 static inline int scan_bss_addr_cmp(const struct scan_bss *a1,
 					const struct scan_bss *a2)
