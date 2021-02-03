@@ -2722,6 +2722,8 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 			return network_connect_new_hidden_network(network,
 								message);
 		}
+
+		return dbus_error_not_hidden(message);
 	}
 
 	params.ssid = ssid;
