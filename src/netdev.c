@@ -1092,6 +1092,10 @@ static void netdev_deauthenticate_event(struct l_genl_msg *msg,
 	if (L_WARN_ON(!hdr))
 		return;
 
+	/* Ignore any locally generated frames */
+	if (!memcmp(hdr->address_2, netdev->addr, sizeof(netdev->addr)))
+		return;
+
 	reason_code = l_get_u8(mmpdu_body(hdr));
 
 	l_info("deauth event, src="MAC" dest="MAC" bssid="MAC" reason=%u",
