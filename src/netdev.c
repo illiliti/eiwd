@@ -143,6 +143,7 @@ struct netdev {
 	struct l_io *pae_io;  /* for drivers without EAPoL over NL80211 */
 
 	struct l_genl_msg *connect_cmd;
+	struct l_genl_msg *auth_cmd;
 	struct wiphy_radio_work_item work;
 
 	bool connected : 1;
@@ -157,6 +158,7 @@ struct netdev {
 	bool expect_connect_failure : 1;
 	bool aborting : 1;
 	bool events_ready : 1;
+	bool retry_auth : 1;
 };
 
 struct netdev_preauth_state {
@@ -2335,18 +2337,73 @@ static struct l_genl_msg *netdev_build_cmd_authenticate(struct netdev *netdev,
 	return msg;
 }
 
-static void netdev_auth_cb(struct l_genl_msg *msg, void *user_data)
+static void netdev_scan_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = user_data;
 
 	if (l_genl_msg_get_error(msg) < 0) {
-		l_error("Error sending CMD_AUTHENTICATE");
-
 		netdev_connect_failed(netdev,
 					NETDEV_RESULT_AUTHENTICATION_FAILED,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
 		return;
 	}
+
+	netdev->retry_auth = true;
+}
+
+static void netdev_auth_cb(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev = user_data;
+	struct handshake_state *hs = netdev->handshake;
+	int err = l_genl_msg_get_error(msg);
+	struct l_genl_msg *scan_msg;
+
+	if (!err) {
+		l_genl_msg_unref(netdev->auth_cmd);
+		netdev->auth_cmd = NULL;
+		return;
+	}
+
+	l_debug("Error during auth: %d", err);
+
+	if (!netdev->auth_cmd || err != -ENOENT) {
+		netdev_connect_failed(netdev,
+					NETDEV_RESULT_AUTHENTICATION_FAILED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
+		return;
+	}
+
+	/* Kernel can't find the BSS in its cache, scan and retry */
+	scan_msg = scan_build_trigger_scan_bss(netdev->index, netdev->wiphy,
+						netdev->frequency,
+						hs->ssid, hs->ssid_len);
+
+	if (!l_genl_family_send(nl80211, scan_msg,
+					netdev_scan_cb, netdev, NULL)) {
+		l_genl_msg_unref(scan_msg);
+		netdev_connect_failed(netdev,
+					NETDEV_RESULT_AUTHENTICATION_FAILED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
+	}
+}
+
+static void netdev_new_scan_results_event(struct l_genl_msg *msg,
+							struct netdev *netdev)
+{
+	if (!netdev->retry_auth)
+		return;
+
+	l_debug("");
+
+	if (!l_genl_family_send(nl80211, netdev->auth_cmd,
+					netdev_auth_cb, netdev, NULL)) {
+		netdev_connect_failed(netdev,
+					NETDEV_RESULT_AUTHENTICATION_FAILED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
+		return;
+	}
+
+	netdev->auth_cmd = NULL;
 }
 
 static void netdev_assoc_cb(struct l_genl_msg *msg, void *user_data)
@@ -2368,7 +2425,6 @@ static void netdev_sae_tx_authenticate(const uint8_t *body,
 	struct l_genl_msg *msg;
 
 	msg = netdev_build_cmd_authenticate(netdev, NL80211_AUTHTYPE_SAE);
-
 	l_genl_msg_append_attr(msg, NL80211_ATTR_AUTH_DATA, body_len, body);
 
 	if (!l_genl_family_send(nl80211, msg, netdev_auth_cb, netdev, NULL)) {
@@ -2376,7 +2432,10 @@ static void netdev_sae_tx_authenticate(const uint8_t *body,
 		netdev_connect_failed(netdev,
 					NETDEV_RESULT_AUTHENTICATION_FAILED,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
+		return;
 	}
+
+	netdev->auth_cmd = l_genl_msg_ref(msg);
 }
 
 static void netdev_sae_tx_associate(void *user_data)
@@ -2421,7 +2480,10 @@ static void netdev_owe_tx_authenticate(void *user_data)
 		netdev_connect_failed(netdev,
 					NETDEV_RESULT_AUTHENTICATION_FAILED,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
+		return;
 	}
+
+	netdev->auth_cmd = l_genl_msg_ref(msg);
 }
 
 static void netdev_owe_tx_associate(struct iovec *ie_iov, size_t iov_len,
@@ -2459,7 +2521,10 @@ static void netdev_fils_tx_authenticate(const uint8_t *body,
 		netdev_connect_failed(netdev,
 					NETDEV_RESULT_AUTHENTICATION_FAILED,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
+		return;
 	}
+
+	netdev->auth_cmd = l_genl_msg_ref(msg);
 }
 
 static void netdev_fils_tx_associate(struct iovec *iov, size_t iov_len,
@@ -2821,6 +2886,8 @@ static bool netdev_connection_work_ready(struct wiphy_radio_work_item *item)
 {
 	struct netdev *netdev = l_container_of(item, struct netdev, work);
 
+	netdev->retry_auth = false;
+
 	if (mac_per_ssid) {
 		int ret = netdev_start_powered_mac_change(netdev);
 
@@ -2842,8 +2909,21 @@ failed:
 	return true;
 }
 
+static void netdev_connection_work_destroy(struct wiphy_radio_work_item *item)
+{
+	struct netdev *netdev = l_container_of(item, struct netdev, work);
+
+	if (netdev->auth_cmd) {
+		l_genl_msg_unref(netdev->auth_cmd);
+		netdev->auth_cmd = NULL;
+	}
+
+	netdev->retry_auth = false;
+}
+
 static const struct wiphy_radio_work_item_ops connect_work_ops = {
 	.do_work = netdev_connection_work_ready,
+	.destroy = netdev_connection_work_destroy,
 };
 
 static int netdev_connect_common(struct netdev *netdev,
@@ -3803,6 +3883,26 @@ static void netdev_station_event(struct l_genl_msg *msg,
 
 	WATCHLIST_NOTIFY(&netdev->station_watches,
 			netdev_station_watch_func_t, netdev, mac, added);
+}
+
+static void netdev_scan_notify(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev = NULL;
+	uint32_t ifindex;
+
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFINDEX, &ifindex,
+					NL80211_ATTR_UNSPEC) < 0)
+		return;
+
+	netdev = netdev_find(ifindex);
+	if (!netdev)
+		return;
+
+	switch (l_genl_msg_get_command(msg)) {
+	case NL80211_CMD_NEW_SCAN_RESULTS:
+		netdev_new_scan_results_event(msg, netdev);
+		break;
+	}
 }
 
 static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
@@ -5105,6 +5205,10 @@ static int netdev_init(void)
 	if (!l_genl_family_register(nl80211, "mlme", netdev_mlme_notify,
 								NULL, NULL))
 		l_error("Registering for MLME notification failed");
+
+	if (!l_genl_family_register(nl80211, "scan", netdev_scan_notify,
+								NULL, NULL))
+		l_error("Registering for scan notifications failed");
 
 	return 0;
 

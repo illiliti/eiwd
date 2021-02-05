@@ -26,6 +26,7 @@ struct p2p_probe_resp;
 struct p2p_probe_req;
 struct p2p_beacon;
 struct mmpdu_header;
+struct wiphy;
 
 enum scan_band {
 	SCAN_BAND_2_4_GHZ =	0x1,
@@ -119,6 +120,12 @@ static inline bool scan_bss_addr_eq(const struct scan_bss *a1,
 {
 	return !memcmp(a1->addr, a2->addr, sizeof(a1->addr));
 }
+
+struct l_genl_msg *scan_build_trigger_scan_bss(uint32_t ifindex,
+						struct wiphy *wiphy,
+						uint32_t frequency,
+						const uint8_t *ssid,
+						uint32_t ssid_len);
 
 uint32_t scan_passive(uint64_t wdev_id, struct scan_freq_set *freqs,
 			scan_trigger_func_t trigger, scan_notify_func_t notify,

@@ -436,6 +436,35 @@ done:
 	return msg;
 }
 
+struct l_genl_msg *scan_build_trigger_scan_bss(uint32_t ifindex,
+						struct wiphy *wiphy,
+						uint32_t frequency,
+						const uint8_t *ssid,
+						uint32_t ssid_len)
+{
+	struct l_genl_msg *msg = l_genl_msg_new(NL80211_CMD_TRIGGER_SCAN);
+	uint32_t flags = 0;
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &ifindex);
+
+	l_genl_msg_enter_nested(msg, NL80211_ATTR_SCAN_FREQUENCIES);
+	l_genl_msg_append_attr(msg, 0, 4, &frequency);
+	l_genl_msg_leave_nested(msg);
+
+	if (wiphy_has_ext_feature(wiphy, NL80211_EXT_FEATURE_SCAN_RANDOM_SN))
+		flags |= NL80211_SCAN_FLAG_RANDOM_SN;
+
+	if (flags)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_SCAN_FLAGS, 4, &flags);
+
+	/* direct probe request scan */
+	l_genl_msg_enter_nested(msg, NL80211_ATTR_SCAN_SSIDS);
+	l_genl_msg_append_attr(msg, 0, ssid_len, ssid);
+	l_genl_msg_leave_nested(msg);
+
+	return msg;
+}
+
 struct scan_cmds_add_data {
 	struct scan_context *sc;
 	const struct scan_parameters *params;
