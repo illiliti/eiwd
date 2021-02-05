@@ -196,6 +196,13 @@ static void station_autoconnect_next(struct station *station)
 
 		if (!r) {
 			station_enter_state(station, STATION_STATE_CONNECTING);
+
+			if (station->quick_scan_id) {
+				scan_cancel(netdev_get_wdev_id(station->netdev),
+						station->quick_scan_id);
+				station->quick_scan_id = 0;
+			}
+
 			return;
 		}
 	}
