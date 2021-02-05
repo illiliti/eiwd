@@ -347,6 +347,8 @@ class VirtualRadio(Radio):
 		if self.disable_cipher:
 			ret += '\tDisabled ciphers: %s\n' % self.disable_cipher
 
+		ret += '\tPath: %s' % self._radio.path
+
 		ret += '\n'
 
 		return ret
