@@ -330,15 +330,19 @@ class Hwsim(iwd.AsyncOpAbstract):
             obj = objects[path]
             for interface in obj:
                 if interface == HWSIM_INTERFACE_INTERFACE:
-                    if obj[interface]['Address'] == radio.addresses[0]:
+                    if obj[interface]['Address'] == radio.addresses[0] or \
+                                    obj[interface]['Address'] == radio.addresses[1]:
                         radio_path = path
                         break
+
+        if not radio_path:
+            raise Exception("Could not find radio %s" % radio.path)
 
         iface = dbus.Interface(self._bus.get_object(HWSIM_SERVICE, radio_path),
                 HWSIM_INTERFACE_INTERFACE)
 
-        iface.SendFrame(bytearray.fromhex(station.replace(':', '')),
-                        freq, -30, bytearray.fromhex(frame))
+        iface.SendFrame(dbus.ByteArray.fromhex(station.replace(':', '')),
+                        freq, -30, dbus.ByteArray.fromhex(frame))
 
     def get_radio(self, name):
         for path in self.radios:
