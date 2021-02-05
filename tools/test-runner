@@ -497,6 +497,8 @@ class Namespace:
 			print("Killing process %s" % p.name)
 			self.stop_process(p)
 
+		os.remove(self.dbus_address.split('=')[1])
+
 	def __del__(self):
 		print("Removing namespace %s" % self.name)
 		self.reset()
@@ -1167,6 +1169,10 @@ def run_auto_tests(ctx, args):
 								errors=0, skipped=0, time=0)
 		finally:
 			post_test(ctx, copied)
+
+	shutil.rmtree('/tmp/certs')
+	shutil.rmtree('/tmp/secrets')
+	os.remove('/tmp/phonesim.conf')
 
 	# Write out kernel log
 	if ctx.args.log:
