@@ -87,11 +87,10 @@ class Test(unittest.TestCase):
 
         # Check that iwd is on BSS 1 once out of roaming state and doesn't
         # go through 'disconnected', 'autoconnect', 'connecting' in between
-        condition = 'obj.state != DeviceState.roaming'
-        wd.wait_for_object_condition(device, condition)
+        from_condition = 'obj.state == DeviceState.roaming'
+        to_condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_change(device, from_condition, to_condition)
 
-        condition = 'obj.state == DeviceState.connected'
-        wd.wait_for_object_condition(device, condition)
         self.assertTrue(self.bss_hostapd[1].list_sta())
 
         testutil.test_iface_operstate(device.name)
