@@ -32,12 +32,7 @@ class Test(unittest.TestCase):
         condition = 'not obj.scanning'
         wd.wait_for_object_condition(device, condition)
 
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        ordered_network = device.get_ordered_network('ssidCCMP')
+        ordered_network = device.get_ordered_network('ssidCCMP', scan_if_needed=True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
@@ -49,9 +44,12 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
 
-        # TODO: for some reason hostapd does not respond to SA query if done
-        #       too soon after connection.
-        sleep(1)
+        # Ensure IWD is not scanning. This causes problems with mac80211_hwsim
+        # where CMD_FRAME will fail during a scan. This is due to the frame not
+        # having the same frequency as the radio (since hwsim is off-channel)
+        if device.scanning:
+            condition = 'not obj.scanning'
+            wd.wait_for_object_condition(device, condition)
 
         # Spoof a disassociate frame. This will kick off SA Query procedure.
         hwsim.spoof_disassociate(radio, hostapd.get_freq(), device.address)
