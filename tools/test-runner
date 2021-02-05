@@ -1264,11 +1264,13 @@ class Main:
 		self.parser.add_argument('--qemu', '-q',
 				metavar='<QEMU binary>', type=str,
 				help='QEMU binary to use',
-				dest='qemu')
+				dest='qemu',
+				default=None)
 		self.parser.add_argument('--kernel', '-k', metavar='<kernel>',
 				type=str,
 				help='Path to kernel image',
-				dest='kernel')
+				dest='kernel',
+				default=None)
 		self.parser.add_argument('--verbose', '-v', metavar='<list>',
 				type=str,
 				help='Comma separated list of applications',
@@ -1350,6 +1352,9 @@ class Main:
 
 		if self.args.qemu is None:
 			qemu_binary = find_binary(qemu_table)
+			if not qemu_binary:
+				print("Could not find qemu binary")
+				quit()
 		else:
 			if path_exists(self.args.qemu):
 				qemu_binary = self.args.qemu
@@ -1360,6 +1365,9 @@ class Main:
 
 		if self.args.kernel is None:
 			kernel_binary = find_binary(kernel_table)
+			if not kernel_binary:
+				print("Could not find kernel image")
+				quit()
 		else:
 			if path_exists(self.args.kernel):
 				kernel_binary = self.args.kernel
