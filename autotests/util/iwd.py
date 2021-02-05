@@ -1034,6 +1034,48 @@ class IWD(AsyncOpAbstract):
     def wait_for_object_condition(self, *args, **kwargs):
         self._wait_for_object_condition(*args, **kwargs)
 
+    def wait_for_object_change(self, obj, from_str, to_str, max_wait = 50):
+        '''
+            Expects condition 'from_str' to evaluate true while waiting for 'to_str'. If
+            at any point during the wait 'from_str' evaluates false, an exception is
+            raised.
+
+            This allows an object to be checked for a state transition without any
+            intermediate state changes.
+        '''
+        self._wait_timed_out = False
+
+        def wait_timeout_cb():
+            self._wait_timed_out = True
+            return False
+
+        # Does initial condition pass?
+        if not eval(from_str):
+            raise Exception("initial condition [%s] not met" % from_str)
+
+        try:
+            timeout = GLib.timeout_add_seconds(max_wait, wait_timeout_cb)
+            context = ctx.mainloop.get_context()
+            while True:
+                context.iteration(may_block=True)
+
+                # If neither the initial or expected condition evaluate the
+                # object must be in another unexpected state.
+                if not eval(from_str) and not eval(to_str):
+                    raise Exception('unexpected condition between [%s] and [%s]' % from_str, to_str)
+
+                # Initial condition does not evaluate but expected does, pass
+                if not eval(from_str) and eval(to_str):
+                    break
+
+                if self._wait_timed_out and ctx.args.gdb == None:
+                    raise TimeoutError('[' + to_str + ']'\
+                                       ' condition was not met in '\
+                                       + str(max_wait) + ' sec')
+        finally:
+            if not self._wait_timed_out:
+                GLib.source_remove(timeout)
+
     def wait(self, time):
         self._wait_timed_out = False
         def wait_timeout_cb():
