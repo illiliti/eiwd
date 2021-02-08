@@ -2058,7 +2058,7 @@ static bool eap_wsc_r_load_settings(struct eap_state *eap,
 	str = l_settings_get_string(settings, "WSC", "WPA2-SSID");
 	if (str) {
 		if (strlen(str) > 32)
-			goto err;
+			goto bad_string;
 
 		wsc->m2->auth_type_flags |=
 			WSC_AUTHENTICATION_TYPE_WPA2_PERSONAL;
@@ -2077,12 +2077,13 @@ static bool eap_wsc_r_load_settings(struct eap_state *eap,
 
 			if (len < 8 || len > 63) {
 				explicit_bzero(str, len);
-				goto err;
+				goto bad_string;
 			}
 
 			memcpy(wsc->wpa2_cred.network_key, str, len);
 			wsc->wpa2_cred.network_key_len = len;
 			explicit_bzero(str, len);
+			l_free(str);
 		} else {
 			uint8_t buf[32];
 
@@ -2103,7 +2104,7 @@ static bool eap_wsc_r_load_settings(struct eap_state *eap,
 	str = l_settings_get_string(settings, "WSC", "Open-SSID");
 	if (str) {
 		if (strlen(str) > 32)
-			goto err;
+			goto bad_string;
 
 		wsc->m2->auth_type_flags |= WSC_AUTHENTICATION_TYPE_OPEN;
 		wsc->m2->encryption_type_flags |= WSC_ENCRYPTION_TYPE_NONE;
@@ -2137,6 +2138,8 @@ static bool eap_wsc_r_load_settings(struct eap_state *eap,
 
 	return true;
 
+bad_string:
+	l_free(str);
 err:
 	eap_wsc_state_free(wsc);
 	return false;
