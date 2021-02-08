@@ -366,7 +366,7 @@ static bool eap_tls_settings_load(struct eap_state *eap,
 		client_cert = eap_tls_load_client_cert(settings, value,
 							passphrase, NULL);
 		if (!client_cert)
-			goto load_error;
+			goto bad_client_cert;
 	}
 
 	l_free(value);
@@ -377,7 +377,7 @@ static bool eap_tls_settings_load(struct eap_state *eap,
 		client_key = eap_tls_load_priv_key(settings, value,
 							passphrase, NULL);
 		if (!client_key)
-			goto load_error;
+			goto bad_client_key;
 	}
 
 	l_free(value);
@@ -390,15 +390,17 @@ static bool eap_tls_settings_load(struct eap_state *eap,
 							&client_cert,
 							&client_key, NULL) ||
 			 !client_cert || !client_key)) {
-		l_certchain_free(client_cert);
-		l_key_free(client_key);
-		goto load_error;
+		goto bad_bundle;
 	}
 
 	eap_tls_common_set_keys(eap, client_cert, client_key);
 	return true;
 
-load_error:
+bad_bundle:
+	l_key_free(client_key);
+bad_client_key:
+	l_certchain_free(client_cert);
+bad_client_cert:
 	eap_tls_common_state_free(eap);
 	return false;
 }
