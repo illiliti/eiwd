@@ -3305,7 +3305,7 @@ static void ap_netdev_watch(struct netdev *netdev,
 static int ap_init(void)
 {
 	const struct l_settings *settings = iwd_get_config();
-	bool dhcp_enable = false;
+	bool dhcp_enable;
 
 	netdev_watch = netdev_watch_add(ap_netdev_watch, NULL, NULL);
 
@@ -3320,8 +3320,9 @@ static int ap_init(void)
 	 * DHCP server. If no value is found or it is false do not create a
 	 * DHCP server.
 	 */
-	l_settings_get_bool(settings, "General", "EnableNetworkConfiguration",
-				&dhcp_enable);
+	if (!l_settings_get_bool(settings, "General",
+				"EnableNetworkConfiguration", &dhcp_enable))
+		dhcp_enable = false;
 
 	if (dhcp_enable) {
 		L_AUTO_FREE_VAR(char *, ip_prefix);
