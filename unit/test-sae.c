@@ -202,6 +202,7 @@ static size_t setup_auth_frame(struct authenticate_frame *frame,
 				uint16_t trans, uint16_t status,
 				const uint8_t *data, size_t len)
 {
+	memset(frame, 0, sizeof(struct authenticate_frame));
 	memcpy(frame->hdr.address_2, addr, 6);
 
 	frame->hdr.fc.type = MPDU_TYPE_MANAGEMENT;
