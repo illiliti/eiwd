@@ -2783,7 +2783,7 @@ static void ap_stop_cb(struct l_genl_msg *msg, void *user_data)
 	ap->start_stop_cmd_id = 0;
 
 	if (error < 0)
-		l_error("STOP_AP failed: %s (%i)", strerror(error), error);
+		l_error("STOP_AP failed: %s (%i)", strerror(-error), -error);
 
 	if (ap->stopped_func)
 		ap->stopped_func(ap->user_data);
