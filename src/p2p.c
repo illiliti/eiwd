@@ -4077,6 +4077,8 @@ struct p2p_device *p2p_device_update_from_genl(struct l_genl_msg *msg,
 		}
 	}
 
+	l_free(str);
+
 	l_queue_push_tail(p2p_device_list, dev);
 
 	l_debug("Created P2P device %" PRIx64, dev->wdev_id);
