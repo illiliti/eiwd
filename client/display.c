@@ -419,7 +419,7 @@ static void display_completion_matches(char **matches, int num_matches,
 		}
 
 		entry = l_strdup_printf("%-*s ", max_length, matches[index]);
-		strcpy(&line[line_used], entry);
+		l_strlcpy(&line[line_used], entry, sizeof(line) - line_used);
 		l_free(entry);
 
 		line_used += max_length + 1;
