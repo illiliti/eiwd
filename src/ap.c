@@ -2568,6 +2568,7 @@ static int ap_load_profile_and_dhcp(struct ap_state *ap, bool *wait_dhcp)
 			if (strlen(passphrase) > 63) {
 				l_error("[Security].Passphrase must not exceed "
 						"63 characters");
+				l_free(passphrase);
 				return -EINVAL;
 			}
 
