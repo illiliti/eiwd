@@ -474,6 +474,7 @@ class Namespace:
 	dbus_address = None
 	processes = []
 	radios = []
+	dbus_pid = None
 
 	def __init__(self, args, name, radios):
 		self.name = name
@@ -484,7 +485,7 @@ class Namespace:
 		for r in radios:
 			Process(['iw', 'phy', r.name, 'set', 'netns', 'name', name], wait=True)
 
-		self.start_dbus(multi_test=False)
+		self.dbus_pid = self.start_dbus(multi_test=False)
 
 	def reset(self):
 		self.radios = []
@@ -497,7 +498,8 @@ class Namespace:
 			print("Killing process %s" % p.name)
 			self.stop_process(p)
 
-		os.remove(self.dbus_address.split('=')[1])
+		if self.dbus_pid and not self.dbus_pid.multi_test:
+			os.remove(self.dbus_address.split('=')[1])
 
 	def __del__(self):
 		print("Removing namespace %s" % self.name)
@@ -1119,7 +1121,7 @@ def print_results(results):
 def run_auto_tests(ctx, args):
 	tests = build_test_list(args)
 
-	ctx.start_dbus()
+	ctx.start_dbus(multi_test=True)
 	ctx.start_haveged()
 
 	# Copy autotests/misc/{certs,secrets,phonesim} so any test can refer to them
