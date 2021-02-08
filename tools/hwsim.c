@@ -1688,8 +1688,7 @@ static struct l_dbus_message *radio_manager_create(struct l_dbus *dbus,
 			goto invalid;
 	}
 
-	new_msg = l_genl_msg_new_sized(HWSIM_CMD_NEW_RADIO,
-					16 + name ? strlen(name) : 0);
+	new_msg = l_genl_msg_new(HWSIM_CMD_NEW_RADIO);
 	l_genl_msg_append_attr(new_msg, HWSIM_ATTR_DESTROY_RADIO_ON_CLOSE,
 				0, NULL);
 
