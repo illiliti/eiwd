@@ -399,6 +399,8 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 			return 0;
 		}
 
+		l_free(psk);
+
 		path = storage_get_network_file_path(security, ssid);
 		l_error("%s: invalid PreSharedKey format", path);
 		l_free(path);
