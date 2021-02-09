@@ -2319,11 +2319,8 @@ static void test_ap_sta_run(struct test_ap_sta_data *s)
 					s->to_sta_data, len, false);
 	}
 
-	if (s->ap_sm)
-		eapol_sm_free(s->ap_sm);
-
-	if (s->sta_sm)
-		eapol_sm_free(s->sta_sm);
+	eapol_sm_free(s->ap_sm);
+	eapol_sm_free(s->sta_sm);
 
 	eapol_exit();
 	eap_exit();
