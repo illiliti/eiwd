@@ -681,7 +681,6 @@ void display_init(void)
 {
 	const char *data_home;
 	char *data_path;
-	int ret;
 
 	display_refresh.redo_entries = l_queue_new();
 
@@ -702,15 +701,14 @@ void display_init(void)
 	}
 
 	if (data_path) {
-		ret = mkdir(data_path, 0700);
-		/* Not much can be done since display isn't even initialized */
-		if (L_WARN_ON(ret < 0)) {
-			l_free(data_path);
-			return;
+		/*
+		 * If mkdir succeeds that means its a new directory, no need
+		 * to read the history since it doesn't exist
+		 */
+		if (mkdir(data_path, 0700) != 0) {
+			history_path = l_strdup_printf("%s/history", data_path);
+			read_history(history_path);
 		}
-
-		history_path = l_strdup_printf("%s/history", data_path);
-		read_history(history_path);
 
 		l_free(data_path);
 	} else {
