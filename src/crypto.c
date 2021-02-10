@@ -167,12 +167,18 @@ bool aes_unwrap(const uint8_t *kek, size_t kek_len, const uint8_t *in, size_t le
 		for (i = n; i >= 1; i--, t--) {
 			b[0] ^= L_CPU_TO_BE64(t);
 			b[1] = L_GET_UNALIGNED(r);
-			l_cipher_decrypt(cipher, b, b, 16);
+
+			if (!l_cipher_decrypt(cipher, b, b, 16)) {
+				b[0] = 0;
+				goto done;
+			}
+
 			L_PUT_UNALIGNED(b[1], r);
 			r -= 1;
 		}
 	}
 
+done:
 	l_cipher_free(cipher);
 	explicit_bzero(&b[1], 8);
 
