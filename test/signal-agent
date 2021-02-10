@@ -1,0 +1,63 @@
+#!/usr/bin/python3
+
+from gi.repository import GLib
+
+import dbus
+import dbus.service
+import dbus.mainloop.glib
+import sys
+import time
+import signal
+
+def signal_handler(sig, frame):
+    exit(0)
+
+class SignalAgent(dbus.service.Object):
+    def __init__(self):
+        self._bus = dbus.SystemBus()
+        self._path = '/test/agent/' + str(int(round(time.time() * 1000)))
+
+        dbus.service.Object.__init__(self, self._bus, self._path)
+
+    @property
+    def path(self):
+        return self._path
+
+    @dbus.service.method('net.connman.iwd.SignalLevelAgent',
+                         in_signature='', out_signature='')
+    def Release(self):
+        print("SignalAgent released")
+
+    @dbus.service.method('net.connman.iwd.SignalLevelAgent',
+                         in_signature='oy', out_signature='')
+    def Changed(self, path, level):
+        self.handle_new_level(str(path), int(level))
+
+    def handle_new_level(self, path, level):
+        print("New signal level %d" % level)
+
+if __name__ == '__main__':
+    level_range = [-60, -67, -75]
+
+    if len(sys.argv) < 2 or len(sys.argv) > 3:
+        print("Usage: %s <device path> [dBm ranges]" % sys.argv[0])
+        print("Example: %s /net/connman/iwd/0/10 -65,-70,-75" % sys.argv[0])
+        quit()
+
+    if len(sys.argv) == 3:
+        level_range = [int(x) for x in sys.argv[2].split(',') if int(x) < 0]
+
+    signal.signal(signal.SIGINT, signal_handler)
+
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+
+    bus = dbus.SystemBus()
+    agent = SignalAgent()
+
+    station_if = dbus.Interface(bus.get_object('net.connman.iwd', sys.argv[1]),
+                                            'net.connman.iwd.Station')
+    station_if.RegisterSignalLevelAgent(agent.path,
+                                        dbus.Array(level_range, 'n'))
+
+    mainloop = GLib.MainLoop()
+    mainloop.run()
