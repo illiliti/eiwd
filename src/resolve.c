@@ -40,6 +40,7 @@
 struct resolve_ops {
 	void (*set_dns)(struct resolve *resolve, char **dns_list);
 	void (*set_domains)(struct resolve *resolve, char **domain_list);
+	void (*set_mdns)(struct resolve *resolve, const char *mdns);
 	void (*revert)(struct resolve *resolve);
 	void (*destroy)(struct resolve *resolve);
 };
@@ -78,6 +79,17 @@ void resolve_set_domains(struct resolve *resolve, char **domain_list)
 	resolve->ops->set_domains(resolve, domain_list);
 }
 
+void resolve_set_mdns(struct resolve *resolve, const char *mdns)
+{
+	if (!mdns)
+		return;
+
+	if (!resolve->ops->set_mdns)
+		return;
+
+	resolve->ops->set_mdns(resolve, mdns);
+}
+
 void resolve_revert(struct resolve *resolve)
 {
 	if (!resolve->ops->revert)
@@ -112,9 +124,10 @@ struct systemd {
 	struct resolve super;
 };
 
-static void systemd_link_dns_reply(struct l_dbus_message *message,
+static void systemd_link_generic_reply(struct l_dbus_message *message,
 								void *user_data)
 {
+	const char *type = user_data;
 	const char *name;
 	const char *text;
 
@@ -123,8 +136,8 @@ static void systemd_link_dns_reply(struct l_dbus_message *message,
 
 	l_dbus_message_get_error(message, &name, &text);
 
-	l_error("resolve-systemd: Failed to modify the DNS entries. %s: %s",
-								name, text);
+	l_error("resolve-systemd: Failed to modify the %s entries. %s: %s",
+							type, name, text);
 }
 
 static bool systemd_builder_add_dns(struct l_dbus_message_builder *builder,
@@ -205,23 +218,8 @@ static void resolve_systemd_set_dns(struct resolve *resolve, char **dns_list)
 	l_dbus_message_builder_finalize(builder);
 	l_dbus_message_builder_destroy(builder);
 
-	l_dbus_send_with_reply(dbus_get_bus(), message, systemd_link_dns_reply,
-								NULL, NULL);
-}
-
-static void systemd_set_link_domains_reply(struct l_dbus_message *message,
-								void *user_data)
-{
-	const char *name;
-	const char *text;
-
-	if (!l_dbus_message_is_error(message))
-		return;
-
-	l_dbus_message_get_error(message, &name, &text);
-
-	l_error("resolve-systemd: Failed to modify the domain entries. %s: %s",
-								name, text);
+	l_dbus_send_with_reply(dbus_get_bus(), message,
+				systemd_link_generic_reply, "DNS", NULL);
 }
 
 static void resolve_systemd_set_domains(struct resolve *resolve,
@@ -267,7 +265,31 @@ static void resolve_systemd_set_domains(struct resolve *resolve,
 	l_dbus_message_builder_destroy(builder);
 
 	l_dbus_send_with_reply(dbus_get_bus(), message,
-				systemd_set_link_domains_reply, NULL, NULL);
+				systemd_link_generic_reply, "domains", NULL);
+}
+
+static void resolve_systemd_set_mdns(struct resolve *resolve, const char *mdns)
+{
+	struct l_dbus_message *message;
+
+	l_debug("ifindex: %u", resolve->ifindex);
+
+	if (L_WARN_ON(!systemd_state.is_ready))
+		return;
+
+	message = l_dbus_message_new_method_call(dbus_get_bus(),
+					SYSTEMD_RESOLVED_SERVICE,
+					SYSTEMD_RESOLVED_MANAGER_PATH,
+					SYSTEMD_RESOLVED_MANAGER_INTERFACE,
+					"SetLinkMulticastDNS");
+
+	if (!message)
+		return;
+
+	l_dbus_message_set_arguments(message, "is", resolve->ifindex, mdns);
+	l_dbus_send_with_reply(dbus_get_bus(), message,
+				systemd_link_generic_reply,
+				"MulticastDNS", NULL);
 }
 
 static void resolve_systemd_revert(struct resolve *resolve)
@@ -288,8 +310,8 @@ static void resolve_systemd_revert(struct resolve *resolve)
 		return;
 
 	l_dbus_message_set_arguments(message, "i", resolve->ifindex);
-	l_dbus_send_with_reply(dbus_get_bus(), message, systemd_link_dns_reply,
-								NULL, NULL);
+	l_dbus_send_with_reply(dbus_get_bus(), message,
+				systemd_link_generic_reply, "DNS", NULL);
 }
 
 static void resolve_systemd_destroy(struct resolve *resolve)
@@ -302,6 +324,7 @@ static void resolve_systemd_destroy(struct resolve *resolve)
 static const struct resolve_ops systemd_ops = {
 	.set_dns = resolve_systemd_set_dns,
 	.set_domains = resolve_systemd_set_domains,
+	.set_mdns = resolve_systemd_set_mdns,
 	.revert = resolve_systemd_revert,
 	.destroy = resolve_systemd_destroy,
 };

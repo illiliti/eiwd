@@ -963,6 +963,8 @@ bool netconfig_configure(struct netconfig *netconfig,
 				const uint8_t *mac_address,
 				netconfig_notify_func_t notify, void *user_data)
 {
+	char *mdns;
+
 	netconfig->dns4_overrides = l_settings_get_string_list(active_settings,
 							"IPv4", "DNS", ' ');
 
@@ -1005,6 +1007,11 @@ bool netconfig_configure(struct netconfig *netconfig,
 	netconfig_ipv4_select_and_install(netconfig);
 
 	netconfig_ipv6_select_and_install(netconfig);
+
+	mdns = l_settings_get_string(active_settings,
+						"Network", "MulticastDNS");
+	resolve_set_mdns(netconfig->resolve, mdns);
+	l_free(mdns);
 
 	return true;
 }
