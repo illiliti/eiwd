@@ -47,15 +47,7 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(1)
         device = devices[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        ordered_network = device.get_ordered_network("TestBlacklist")
+        ordered_network = device.get_ordered_network("TestBlacklist", scan_if_needed=True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
@@ -73,6 +65,11 @@ class Test(unittest.TestCase):
         rule0.drop = False
         rule1.drop = False
         rule2.drop = False
+
+        # Wait for scanning (likely a quick-scan) to finish, otherwise we will
+        # may not have all BSS's in the list.
+        condition = 'not obj.scanning'
+        wd.wait_for_object_condition(device, condition)
 
         # This connect should work
         ordered_network.network_object.connect()

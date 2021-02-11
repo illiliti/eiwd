@@ -46,15 +46,7 @@ class Test(unittest.TestCase):
 
         dev1, dev2 = wd.list_devices(2)
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(dev1, condition)
-
-        dev1.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(dev1, condition)
-
-        ordered_network = dev1.get_ordered_network("TestBlacklist")
+        ordered_network = dev1.get_ordered_network("TestBlacklist", scan_if_needed=True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
