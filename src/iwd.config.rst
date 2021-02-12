@@ -293,6 +293,12 @@ No modification from defaults is normally required.
        **iwd** from issuing the periodic scans for the available networks while
        disconnected.  The behavior of the user-initiated scans isn't affected.
        The periodic scan is enabled by default.
+
+   * - MaximumPeriodicScanInterval
+     - Values: unsigned int value in seconds (default: **300**)
+
+       The maximum periodic scan interval.
+
    * - DisableRoamingScan
      - Values: true, **false**
 
