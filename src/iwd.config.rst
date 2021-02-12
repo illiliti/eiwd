@@ -294,6 +294,11 @@ No modification from defaults is normally required.
        disconnected.  The behavior of the user-initiated scans isn't affected.
        The periodic scan is enabled by default.
 
+   * - InitialPeriodicScanInterval
+     - Values: unsigned int value in seconds (default: **10**)
+
+       The initial periodic scan interval upon disconnect.
+
    * - MaximumPeriodicScanInterval
      - Values: unsigned int value in seconds (default: **300**)
 
