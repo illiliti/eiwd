@@ -50,8 +50,11 @@
 #include "src/mpdu.h"
 #include "src/scan.h"
 
-#define SCAN_MAX_INTERVAL 320
 #define SCAN_INIT_INTERVAL 10
+
+/* User configurable options */
+static double RANK_5G_FACTOR;
+static uint32_t SCAN_MAX_INTERVAL;
 
 static struct l_queue *scan_contexts;
 
@@ -1313,9 +1316,6 @@ static struct scan_bss *scan_parse_result(struct l_genl_msg *msg,
 	return bss;
 }
 
-/* User configurable options */
-static double RANK_5G_FACTOR;
-
 static void scan_bss_compute_rank(struct scan_bss *bss)
 {
 	static const double RANK_RSNE_FACTOR = 1.2;
@@ -2214,6 +2214,13 @@ static int scan_init(void)
 	if (!l_settings_get_double(config, "Rank", "BandModifier5Ghz",
 					&RANK_5G_FACTOR))
 		RANK_5G_FACTOR = 1.0;
+
+	if (!l_settings_get_uint(config, "Scan", "MaximumPeriodicScanInterval",
+					&SCAN_MAX_INTERVAL))
+		SCAN_MAX_INTERVAL = 300;
+
+	if (SCAN_MAX_INTERVAL > UINT16_MAX)
+		SCAN_MAX_INTERVAL = UINT16_MAX;
 
 	return 0;
 }
