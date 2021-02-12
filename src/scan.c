@@ -50,11 +50,10 @@
 #include "src/mpdu.h"
 #include "src/scan.h"
 
-#define SCAN_INIT_INTERVAL 10
-
 /* User configurable options */
 static double RANK_5G_FACTOR;
 static uint32_t SCAN_MAX_INTERVAL;
+static uint32_t SCAN_INIT_INTERVAL;
 
 static struct l_queue *scan_contexts;
 
@@ -2214,6 +2213,13 @@ static int scan_init(void)
 	if (!l_settings_get_double(config, "Rank", "BandModifier5Ghz",
 					&RANK_5G_FACTOR))
 		RANK_5G_FACTOR = 1.0;
+
+	if (!l_settings_get_uint(config, "Scan", "InitialPeriodicScanInterval",
+					&SCAN_INIT_INTERVAL))
+		SCAN_INIT_INTERVAL = 10;
+
+	if (SCAN_INIT_INTERVAL > UINT16_MAX)
+		SCAN_INIT_INTERVAL = UINT16_MAX;
 
 	if (!l_settings_get_uint(config, "Scan", "MaximumPeriodicScanInterval",
 					&SCAN_MAX_INTERVAL))
