@@ -543,7 +543,6 @@ endif
 CLEANFILES = src/iwd.service wired/ead.service
 
 DISTCHECK_CONFIGURE_FLAGS = --disable-dbus-policy --disable-systemd-service \
-				--enable-sim-hardcoded \
 				--enable-ofono \
 				--enable-wired \
 				--enable-hwsim \

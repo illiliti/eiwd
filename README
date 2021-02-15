@@ -193,12 +193,6 @@ that can be enabled if the functionality is required:
 
 		Note: With --disable-daemon this option is ignored
 
-	--enable-sim-hardcoded
-
-		Enable support for hard coded SIM keys
-
-		Note: With --disable-daemon this option is ignored
-
 
 Netlink monitoring
 ==================
