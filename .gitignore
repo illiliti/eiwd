@@ -20,6 +20,7 @@ autom4te.cache
 ell
 src/iwd
 src/iwd.8
+src/iwd.ap.5
 src/iwd.debug.7
 src/iwd.config.5
 src/iwd.network.5
