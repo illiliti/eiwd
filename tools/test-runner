@@ -167,54 +167,67 @@ class Process:
 		self.wait = wait
 		self.name = args[0]
 		self.multi_test = multi_test
-		self.stdout = subprocess.PIPE
-		self.stderr = subprocess.PIPE
 		self.ret = None
 		self.ctx = ctx
-		set_stdout = False
+		self.write_fds = []
+		self.io_watch = None
 
 		if namespace:
 			self.args = ['ip', 'netns', 'exec', namespace]
 			self.args.extend(args)
 
+		#
+		# For simplicity all processes will write to a temp file
+		# (/tmp/<name>-out). If any verbose options are required this file
+		# will get an IO watch and write out any bytes to the needed FDs.
+		#
+		self.stdout = open('/tmp/%s-out' % self.name, 'a+')
+		self.io_position = self.stdout.tell()
+
 		if ctx:
-			if ctx.is_verbose(args[0]):
-				print("Verbose on for %s" % args[0])
-				set_stdout = True
+			# Verbose requested, add stdout/stderr to write FD list
+			if self.name in ctx.args.verbose:
+				self.write_fds.append(sys.__stdout__)
+				self.write_fds.append(sys.__stderr__)
 
-			if os.path.basename(args[0]) == ctx.args.gdb:
-				self.args = ['gdb', '--args']
-				self.args.extend(args)
-				set_stdout = True
-
+			# Add output file to FD list
 			if outfile:
-				set_stdout = True
+				try:
+					f = open(outfile, 'w')
+				except Exception as e:
+					dbg(e)
+					exit(0)
 
-			# Anything labeled as multi_test isn't important to
-			# log. These are processes such as dbus-daemon and
-			# haveged.
-			if set_stdout:
-				if ctx.args.log:
-					test = os.path.basename(os.getcwd())
-					test_dir = '%s/%s' % (ctx.args.log, test)
+				if ctx.args.log_uid:
+					os.fchown(f.fileno(), int(ctx.args.log_uid), int(ctx.args.log_gid))
 
-					if not path_exists(test_dir):
-						os.mkdir(test_dir)
-						os.chown(test_dir, int(ctx.args.log_uid), \
+				self.write_fds.append(f)
+
+			# Add log file to FD list
+			if ctx.args.log:
+				test = os.path.basename(os.getcwd())
+				test_dir = '%s/%s' % (ctx.args.log, test)
+
+				if not path_exists(test_dir):
+					os.mkdir(test_dir)
+					os.chown(test_dir, int(ctx.args.log_uid),
 								int(ctx.args.log_gid))
 
-					self.stdout = open('%s/%s' % (test_dir, args[0]), 'w+')
-					self.stderr = open('%s/%s' % (test_dir, args[0]), 'w+')
-				elif outfile:
-					self.stdout = open(outfile, 'w')
-					self.stderr = open(outfile, 'w')
-				elif not need_out:
-					self.stdout = sys.__stdout__
-					self.stderr = sys.__stderr__
+				f = open('%s/%s' % (test_dir, args[0]), 'a+')
+				os.fchown(f.fileno(), int(ctx.args.log_uid), int(ctx.args.log_gid))
+				self.write_fds.append(f)
 
-		self.pid = subprocess.Popen(self.args, stdout=self.stdout, \
-							stderr=self.stderr, env=env, \
-							cwd=os.getcwd())
+			#
+			# Only add an IO watch for long running processes. If
+			# the process is being waited for, the log/outfile bits
+			# will be handled after the process exists.
+			#
+			if self.write_fds != [] and not wait and not check:
+				self.io_watch = GLib.io_add_watch(self.stdout, GLib.IO_IN,
+								self.io_callback)
+
+		self.pid = subprocess.Popen(self.args, stdout=self.stdout, stderr=subprocess.STDOUT,
+						env=env, cwd=os.getcwd())
 
 		print("Starting process {}".format(self.pid.args))
 
@@ -223,25 +236,54 @@ class Process:
 
 		self.pid.wait()
 
-		if ctx and ctx.args.log or outfile:
-			self.stdout.seek(0)
-			self.out = self.stdout.read()
-		else:
-			self.out, _ = self.pid.communicate()
-
-			if self.out:
-				self.out = self.out.decode('utf-8')
-
+		self.stdout.seek(self.io_position)
+		self.out = self.stdout.read()
+		self.stdout.seek(0, 2)
 		self.ret = self.pid.returncode
+
+		#
+		# No IO callback for wait/check=True processes so write out
+		# the data to any FD's now.
+		#
+		if len(self.write_fds) > 0:
+			for fd in self.write_fds:
+				fd.write(self.out)
 
 		print("%s returned %d" % (args[0], self.ret))
 		if check and self.ret != 0:
 			raise subprocess.CalledProcessError(returncode=self.ret, cmd=self.args)
 
+	def io_callback(self, source, cb_condition):
+		#
+		# The file will have already been written to, meaning the seek
+		# position points to EOF. This is why the position is saved so
+		# we can seek to where we were last time, read data, and seek
+		# back to EOF.
+		#
+		source.seek(self.io_position)
+		data = source.read()
+
+		self.io_position += len(data)
+		source.seek(self.io_position)
+
+		if len(data) == 0:
+			return True
+
+		for f in self.write_fds:
+			f.write(data)
+
+		return True
+
 	def __del__(self):
 		print("Del process %s" % self.args)
-		self.stdout = None
-		self.stderr = None
+		self.stdout.close()
+
+		if self.io_watch:
+			GLib.source_remove(self.io_watch)
+
+		if self.write_fds != []:
+			for f in self.write_fds:
+				f.close()
 
 	def kill(self, force=False):
 		print("Killing process %s" % self.args)
