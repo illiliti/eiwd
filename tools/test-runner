@@ -1178,7 +1178,7 @@ def run_auto_tests(ctx, args):
 
 	# Write out kernel log
 	if ctx.args.log:
-		Process(["dmesg"], ctx=ctx, wait=True)
+		ctx.start_process(["dmesg"], wait=True)
 
 def run_unit_tests(ctx, args):
 	os.chdir(args.testhome + '/unit')
