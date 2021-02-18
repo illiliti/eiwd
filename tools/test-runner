@@ -553,7 +553,7 @@ class Namespace:
 			self.stop_process(p)
 
 		if self.dbus_pid and not self.dbus_pid.multi_test:
-			os.remove(self.dbus_address.split('=')[1])
+			os.remove(self.dbus_cfg)
 
 	def __del__(self):
 		print("Removing namespace %s" % self.name)
@@ -598,20 +598,22 @@ class Namespace:
 		global dbus_count
 
 		self.dbus_address = 'unix:path=/tmp/dbus%d' % dbus_count
-		dbus_cfg = '/tmp/dbus%d.conf' % dbus_count
+		self.dbus_cfg = '/tmp/dbus%d.conf' % dbus_count
 		dbus_count += 1
 
-		with open(dbus_cfg, 'w+') as f:
+		with open(self.dbus_cfg, 'w+') as f:
 			f.write(dbus_config)
 			f.write('<listen>%s</listen>\n' % self.dbus_address)
 			f.write('</busconfig>\n')
 
-		p = self.start_process(['dbus-daemon', '--config-file=%s' % dbus_cfg],
+		p = self.start_process(['dbus-daemon', '--config-file=%s' % self.dbus_cfg],
 					wait=False, multi_test=multi_test)
 
 		p.wait_for_socket(self.dbus_address.split('=')[1], wait=5)
 
 		self._bus = dbus.bus.BusConnection(address_or_type=self.dbus_address)
+
+		return p
 
 	def start_iwd(self, config_dir = '/tmp', storage_dir = '/tmp/iwd'):
 		args = []
