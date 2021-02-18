@@ -310,6 +310,11 @@ class Process:
 			if waited > wait:
 				raise Exception("Timed out waiting for socket")
 
+	def __str__(self):
+		ret = str(self.args) + ' multi_test=%s' % str(self.multi_test)
+		ret += '\n'
+		return ret
+
 class Interface:
 	def __init__(self, name, config):
 		self.name = name
@@ -678,7 +683,7 @@ class Namespace:
 		ret = 'Namespace: %s\n' % self.name
 		ret += 'Processes:\n'
 		for p in self.processes:
-			ret += '\t%s\n' % str(p.args)
+			ret += '\t%s' % str(p)
 
 		ret += 'Radios:\n'
 		if len(self.radios) > 0:
