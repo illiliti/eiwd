@@ -1249,6 +1249,14 @@ def run_tests():
 
 	if args.log:
 		mount('logdir', args.log, '9p', 0, 'trans=virtio,version=9p2000.L')
+		# Clear out any log files from other test runs
+		for f in glob('%s/*' % args.log):
+			print("removing %s" % f)
+
+			if os.path.isdir(f):
+				shutil.rmtree(f)
+			else:
+				os.remove(f)
 	elif args.monitor:
 		parent = os.path.abspath(os.path.join(args.monitor, os.pardir))
 		mount('mondir', parent, '9p', 0, 'trans=virtio,version=9p2000.L')
