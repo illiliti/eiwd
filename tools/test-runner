@@ -1434,6 +1434,10 @@ class Main:
 			options += ' --log-uid %u' % uid
 
 		if self.args.monitor:
+			if os.environ.get('SUDO_GID', None) is None:
+				print("--monitor can only be used as root user")
+				quit()
+
 			self.args.monitor = os.path.abspath(self.args.monitor)
 			mon_parent_dir = os.path.abspath(os.path.join(self.args.monitor, os.pardir))
 
