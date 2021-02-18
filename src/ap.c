@@ -2079,11 +2079,6 @@ static void ap_start_cb(struct l_genl_msg *msg, void *user_data)
 		goto failed;
 	}
 
-	/*
-	 * TODO: Add support for provisioning files where user could configure
-	 * specific DHCP sever settings.
-	 */
-
 	if (ap->server && !l_dhcp_server_start(ap->server)) {
 		l_error("DHCP server failed to start");
 		goto failed;
