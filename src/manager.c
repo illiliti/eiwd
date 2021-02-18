@@ -581,11 +581,15 @@ static void manager_wiphy_dump_done(void *user_data)
 
 		if (!state->use_default) {
 			const char *driver = wiphy_get_driver(state->wiphy);
-			const char **e;
 
-			for (e = default_if_driver_list; *e; e++)
-				if (fnmatch(*e, driver, 0) == 0)
-					state->use_default = true;
+			if (driver) {
+				const char **e;
+
+				for (e = default_if_driver_list; *e; e++)
+					if (fnmatch(*e, driver, 0) == 0)
+						state->use_default = true;
+			} else
+				state->use_default = true;
 		}
 
 		if (state->use_default)
