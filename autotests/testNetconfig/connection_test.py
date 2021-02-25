@@ -70,8 +70,9 @@ class Test(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
-        cls.dhcpd_pid.kill()
-        os.system('rm -rf /tmp/dhcpd.leases')
+        ctx.stop_process(cls.dhcpd_pid)
+        cls.dhcpd_pid = None
+        os.remove('/tmp/dhcpd.leases')
 
 if __name__ == '__main__':
     unittest.main(exit=True)
