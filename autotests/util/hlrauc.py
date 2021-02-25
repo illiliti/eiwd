@@ -12,6 +12,7 @@ class AuthCenter:
         hostapd can communicate with to obtain SIM values.
     '''
     def __init__(self, sock_path, config_file):
+        self._sock_path = sock_path
         self._read_config(config_file)
         self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         if os.path.exists(sock_path):
@@ -24,6 +25,10 @@ class AuthCenter:
 
         # wait for rx thread to start
         self._rxhandle.ready.wait()
+
+    def __del__(self):
+        os.remove(self._sock_path)
+        self._socket.close()
 
     def _rx_thread(self):
         self._rxhandle.ready.set()
