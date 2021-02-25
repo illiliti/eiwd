@@ -615,7 +615,15 @@ class Namespace:
 				return True
 		return False
 
-	def start_dbus(self, multi_test=True):
+	def _cleanup_dbus(self):
+		try:
+			os.remove(self.dbus_address.split('=')[1])
+		except:
+			pass
+
+		os.remove(self.dbus_cfg)
+
+	def start_dbus(self):
 		global dbus_count
 
 		self.dbus_address = 'unix:path=/tmp/dbus%d' % dbus_count
@@ -628,7 +636,7 @@ class Namespace:
 			f.write('</busconfig>\n')
 
 		p = self.start_process(['dbus-daemon', '--config-file=%s' % self.dbus_cfg],
-					wait=False)
+					wait=False, cleanup=self._cleanup_dbus)
 
 		p.wait_for_socket(self.dbus_address.split('=')[1], wait=5)
 
