@@ -989,6 +989,8 @@ class IWD(AsyncOpAbstract):
             self.namespace.stop_process(self._iwd_proc)
             self._iwd_proc = None
 
+        self.namespace = None
+
     @property
     def _object_manager(self):
         if self._object_manager_if is None:
