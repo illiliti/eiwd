@@ -913,6 +913,9 @@ class TestContext(Namespace):
 		return None
 
 	def stop_test_processes(self):
+		for n in self.namespaces:
+			n.reset()
+
 		self.namespaces = []
 		self.hostapd = None
 		self.wpas_interfaces = None
