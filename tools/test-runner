@@ -449,6 +449,8 @@ class Hostapd:
 		process since hostapd can be started with multiple config files.
 	'''
 	def __init__(self, ctx, radios, configs, radius):
+		self.ctx = ctx
+
 		if len(configs) != len(radios):
 			raise Exception("Config (%d) and radio (%d) list length not equal" % \
 						(len(configs), len(radios)))
@@ -531,7 +533,17 @@ class Hostapd:
 			dbg("Failed to remove %s" % self.global_ctrl_iface)
 
 		self.instances = None
-		self.process.kill()
+
+		# Hostapd may have already been stopped
+		if self.process:
+			self.ctx.stop_process(self.process)
+
+		self.ctx = None
+
+		# Hostapd creates simdb sockets for EAP-SIM/AKA tests but does not
+		# clean them up.
+		for f in glob("/tmp/eap_sim_db*"):
+			os.remove(f)
 
 dbus_count = 0
 
