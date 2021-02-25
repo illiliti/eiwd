@@ -770,7 +770,7 @@ class TestContext(Namespace):
 		self.start_process(['dbus-monitor', '--address', self.dbus_address])
 
 	def start_haveged(self):
-		self.start_process(['haveged'])
+		self.start_process(['haveged', '-F'])
 
 	def create_radios(self):
 		setup = self.hw_config['SETUP']
