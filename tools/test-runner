@@ -160,7 +160,7 @@ class Process:
 		case.
 	'''
 	def __init__(self, args, wait=False, env=None, ctx=None, check=False,
-				outfile=None, namespace=None, need_out=False):
+				outfile=None, namespace=None, need_out=False, cleanup=None):
 		self.args = args
 		self.wait = wait
 		self.name = args[0]
@@ -168,6 +168,7 @@ class Process:
 		self.ctx = ctx
 		self.write_fds = []
 		self.io_watch = None
+		self.cleanup = cleanup
 
 		if not namespace:
 			self.output_name = '/tmp/%s-out' % self.name
@@ -250,6 +251,9 @@ class Process:
 		if len(self.write_fds) > 0:
 			for fd in self.write_fds:
 				fd.write(self.out)
+				fd.close()
+
+			self.write_fds = []
 
 		print("%s returned %d" % (args[0], self.ret))
 		if check and self.ret != 0:
@@ -283,11 +287,16 @@ class Process:
 		if self.io_watch:
 			GLib.source_remove(self.io_watch)
 
-		if self.write_fds != []:
-			for f in self.write_fds:
-				f.close()
+		for f in self.write_fds:
+			f.close()
 
-		os.remove(self.output_name)
+		try:
+			os.remove(self.output_name)
+		except:
+			pass
+
+		if self.cleanup:
+			self.cleanup()
 
 	def kill(self, force=False):
 		print("Killing process %s" % self.args)
@@ -298,6 +307,8 @@ class Process:
 			self.pid.kill()
 
 		self.pid.wait(timeout=15)
+		self.pid = None
+		self.write_fds = []
 
 	def wait_for_socket(self, socket, wait):
 		waited = 0
