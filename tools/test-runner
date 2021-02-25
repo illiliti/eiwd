@@ -565,11 +565,9 @@ class Hostapd:
 dbus_count = 0
 
 class Namespace:
-	dbus_address = None
-	processes = []
-	radios = []
-
 	def __init__(self, args, name, radios):
+		self.dbus_address = None
+		self.processes = []
 		self.name = name
 		self.radios = radios
 		self.args = args
@@ -581,8 +579,12 @@ class Namespace:
 		self.start_dbus()
 
 	def reset(self):
-		self.radios = []
 		self._bus = None
+
+		for r in self.radios:
+			r._radio = None
+
+		self.radios = []
 
 		if self.name == "root":
 			self._bus = dbus.bus.BusConnection(address_or_type=self.dbus_address)
@@ -595,7 +597,6 @@ class Namespace:
 
 	def __del__(self):
 		print("Removing namespace %s" % self.name)
-		self.reset()
 
 		Process(['ip', 'netns', 'del', self.name], wait=True)
 
