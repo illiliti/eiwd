@@ -157,16 +157,13 @@ class Process:
 	'''
 		Start a process. If 'wait' is True the constructor will start
 		the process and wait for it to exit. No PID is tracked in this
-		case. If 'multi_test' is True this indicates the process is
-		run over the entire test run and will not be killed after each
-		test exits.
+		case.
 	'''
-	def __init__(self, args, wait=False, multi_test=False, env=None, ctx=None, check=False,
+	def __init__(self, args, wait=False, env=None, ctx=None, check=False,
 				outfile=None, namespace=None, need_out=False):
 		self.args = args
 		self.wait = wait
 		self.name = args[0]
-		self.multi_test = multi_test
 		self.ret = None
 		self.ctx = ctx
 		self.write_fds = []
@@ -311,9 +308,7 @@ class Process:
 				raise Exception("Timed out waiting for socket")
 
 	def __str__(self):
-		ret = str(self.args) + ' multi_test=%s' % str(self.multi_test)
-		ret += '\n'
-		return ret
+		return str(self.args) + '\n'
 
 class Interface:
 	def __init__(self, name, config):
@@ -528,7 +523,6 @@ class Namespace:
 	dbus_address = None
 	processes = []
 	radios = []
-	dbus_pid = None
 
 	def __init__(self, args, name, radios):
 		self.name = name
@@ -539,7 +533,7 @@ class Namespace:
 		for r in radios:
 			Process(['iw', 'phy', r.name, 'set', 'netns', 'name', name], wait=True)
 
-		self.dbus_pid = self.start_dbus(multi_test=False)
+		self.start_dbus()
 
 	def reset(self):
 		self.radios = []
@@ -548,12 +542,11 @@ class Namespace:
 		if self.name == "root":
 			self._bus = dbus.bus.BusConnection(address_or_type=self.dbus_address)
 
-		for p in [p for p in self.processes if p.multi_test is False]:
+		for p in self.processes:
 			print("Killing process %s" % p.name)
-			self.stop_process(p)
+			p.kill()
 
-		if self.dbus_pid and not self.dbus_pid.multi_test:
-			os.remove(self.dbus_cfg)
+		self.processes = []
 
 	def __del__(self):
 		print("Removing namespace %s" % self.name)
@@ -607,13 +600,11 @@ class Namespace:
 			f.write('</busconfig>\n')
 
 		p = self.start_process(['dbus-daemon', '--config-file=%s' % self.dbus_cfg],
-					wait=False, multi_test=multi_test)
+					wait=False)
 
 		p.wait_for_socket(self.dbus_address.split('=')[1], wait=5)
 
 		self._bus = dbus.bus.BusConnection(address_or_type=self.dbus_address)
-
-		return p
 
 	def start_iwd(self, config_dir = '/tmp', storage_dir = '/tmp/iwd'):
 		args = []
@@ -726,7 +717,7 @@ class TestContext(Namespace):
 		self.start_process(['dbus-monitor', '--address', self.dbus_address])
 
 	def start_haveged(self):
-		self.start_process(['haveged'], multi_test=True)
+		self.start_process(['haveged'])
 
 	def create_radios(self):
 		setup = self.hw_config['SETUP']
@@ -1085,6 +1076,8 @@ def pre_test(ctx, test, copied):
 
 		subtests = pruned
 
+	ctx.start_dbus()
+	ctx.start_haveged()
 	ctx.start_dbus_monitor()
 	ctx.start_radios()
 	ctx.create_namespaces()
@@ -1176,9 +1169,6 @@ def print_results(results):
 
 def run_auto_tests(ctx, args):
 	tests = build_test_list(args)
-
-	ctx.start_dbus(multi_test=True)
-	ctx.start_haveged()
 
 	# Copy autotests/misc/{certs,secrets,phonesim} so any test can refer to them
 	shutil.copytree(args.testhome + '/autotests/misc/certs', '/tmp/certs')
