@@ -43,6 +43,7 @@ class Test(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
+        cls.hostapd = None
 
 if __name__ == '__main__':
     unittest.main(exit=True)
