@@ -395,7 +395,12 @@ class VirtualRadio(Radio):
 	def __del__(self):
 		super().__del__()
 
-		self._radio.remove()
+		# If the radio was moved into a namespace this will fail
+		try:
+			self._radio.remove()
+		except:
+			pass
+
 		self._radio = None
 
 	def __str__(self):
