@@ -56,6 +56,10 @@ def exit_vm():
 	if config:
 		for p in config.ctx.processes:
 			print("Process %s still running!" % p.name)
+			p.kill()
+			p = None
+
+		config.ctx.processes = []
 
 	if config.ctx and config.ctx.results:
 		print_results(config.ctx.results)
