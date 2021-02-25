@@ -3,6 +3,7 @@
 import unittest
 import sys
 import os
+import shutil
 
 sys.path.append('../util')
 from iwd import IWD
@@ -14,7 +15,7 @@ class Test(unittest.TestCase):
     def test_connection_success(self):
         env = os.environ.copy()
         env['STATE_DIRECTORY'] = '/tmp/ead'
-        ctx.start_process(['ead', '-i', 'eth1', '-d'], env=env)
+        p = ctx.start_process(['ead', '-i', 'eth1', '-d'], env=env)
 
         ead = EAD()
 
@@ -26,6 +27,7 @@ class Test(unittest.TestCase):
         condition = 'obj.authenticated == True'
         ead.wait_for_object_condition(adapter, condition)
 
+        ctx.stop_process(p)
     @classmethod
     def setUpClass(cls):
         os.mkdir('/tmp/ead')
@@ -35,6 +37,8 @@ class Test(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage(storage_dir='/tmp/ead')
+
+        shutil.rmtree('/tmp/ead')
 
 if __name__ == '__main__':
     unittest.main(exit=True)
