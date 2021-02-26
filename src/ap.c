@@ -2413,24 +2413,38 @@ static bool dhcp_load_settings(struct ap_state *ap, struct l_settings *settings)
 	if (!l_settings_get_uint(settings, "IPv4", "LeaseTime", &lease_time))
 		lease_time = 0;
 
-	if (ip_range && l_strv_length(ip_range) != 2)
-		goto parse_error;
+	if (gateway && !l_dhcp_server_set_gateway(server, gateway)) {
+		l_error("[IPv4].Gateway value error");
+		goto error;
+	}
 
-	if (netmask && !l_dhcp_server_set_netmask(server, netmask))
-		goto parse_error;
+	if (dns && !l_dhcp_server_set_dns(server, dns)) {
+		l_error("[IPv4].DNSList value error");
+		goto error;
+	}
 
-	if (gateway && !l_dhcp_server_set_gateway(server, gateway))
-		goto parse_error;
+	if (netmask && !l_dhcp_server_set_netmask(server, netmask)) {
+		l_error("[IPv4].Netmask value error");
+		goto error;
+	}
 
-	if (dns && !l_dhcp_server_set_dns(server, dns))
-		goto parse_error;
+	if (ip_range) {
+		if (l_strv_length(ip_range) != 2) {
+			l_error("Two addresses expected in [IPv4].IPRange");
+			goto error;
+		}
 
-	if (ip_range && !l_dhcp_server_set_ip_range(server, ip_range[0],
-							ip_range[1]))
-		goto parse_error;
+		if (!l_dhcp_server_set_ip_range(server, ip_range[0],
+							ip_range[1])) {
+			l_error("Error setting IP range from [IPv4].IPRange");
+			goto error;
+		}
+	}
 
-	if (lease_time && !l_dhcp_server_set_lease_time(server, lease_time))
-		goto parse_error;
+	if (lease_time && !l_dhcp_server_set_lease_time(server, lease_time)) {
+		l_error("[IPv4].LeaseTime value error");
+		goto error;
+	}
 
 	if (netmask && inet_pton(AF_INET, netmask, &ia) > 0)
 		ap->ip_prefix = __builtin_popcountl(ia.s_addr);
@@ -2439,7 +2453,7 @@ static bool dhcp_load_settings(struct ap_state *ap, struct l_settings *settings)
 
 	ret = true;
 
-parse_error:
+error:
 	l_strv_free(dns);
 	l_strv_free(ip_range);
 	return ret;
