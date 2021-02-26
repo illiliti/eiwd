@@ -2544,8 +2544,8 @@ static int ap_load_profile_and_dhcp(struct ap_state *ap, bool *wait_dhcp)
 {
 	uint32_t ifindex = netdev_get_ifindex(ap->netdev);
 	char *passphrase;
-	L_AUTO_FREE_VAR(struct l_settings *, settings) = NULL;
-	int err;
+	struct l_settings *settings = NULL;
+	int err = -EINVAL;
 
 	/* No profile or DHCP settings */
 	if (!ap->config->profile && !pool.used)
@@ -2555,7 +2555,7 @@ static int ap_load_profile_and_dhcp(struct ap_state *ap, bool *wait_dhcp)
 		settings = l_settings_new();
 
 		if (!l_settings_load_from_file(settings, ap->config->profile))
-			return -EINVAL;
+			goto cleanup;
 
 		passphrase = l_settings_get_string(settings, "Security",
 							"Passphrase");
@@ -2564,7 +2564,7 @@ static int ap_load_profile_and_dhcp(struct ap_state *ap, bool *wait_dhcp)
 				l_error("[Security].Passphrase must not exceed "
 						"63 characters");
 				l_free(passphrase);
-				return -EINVAL;
+				goto cleanup;
 			}
 
 			strcpy(ap->config->passphrase, passphrase);
@@ -2573,7 +2573,8 @@ static int ap_load_profile_and_dhcp(struct ap_state *ap, bool *wait_dhcp)
 
 		if (!l_settings_has_group(settings, "IPv4")) {
 			*wait_dhcp = false;
-			return 0;
+			err = 0;
+			goto cleanup;
 		}
 	}
 
@@ -2587,21 +2588,22 @@ static int ap_load_profile_and_dhcp(struct ap_state *ap, bool *wait_dhcp)
 
 		if (!ap->rtnl_add_cmd) {
 			l_error("Failed to add IPv4 address");
-			return -EIO;
+			err = -EIO;
+			goto cleanup;
 		}
 
 		ap->cleanup_ip = true;
 
 		*wait_dhcp = true;
-
-		return 0;
+		err = 0;
 	/* Selected address already set, continue normally */
 	} else if (err == -EALREADY) {
 		*wait_dhcp = false;
-
-		return 0;
+		err = 0;
 	}
 
+cleanup:
+	l_settings_free(settings);
 	return err;
 }
 
