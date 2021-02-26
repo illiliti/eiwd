@@ -110,4 +110,9 @@ static inline uint32_t util_secure_fill_with_msb(uint32_t val)
 bool util_ip_prefix_tohl(const char *ip, uint8_t *prefix, uint32_t *start_out,
 				uint32_t *end_out, uint32_t *mask_out);
 
+static inline uint32_t util_netmask_from_prefix(uint8_t prefix_len)
+{
+	return ~((1ull << (32 - prefix_len)) - 1);
+}
+
 #endif /* __UTIL_H */
