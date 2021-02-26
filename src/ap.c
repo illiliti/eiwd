@@ -213,7 +213,7 @@ static const char *broadcast_from_ip(const char *ip)
 	struct in_addr ia;
 	uint32_t bcast;
 
-	if (inet_aton(ip, &ia) < 0)
+	if (inet_aton(ip, &ia) != 1)
 		return NULL;
 
 	bcast = ntohl(ia.s_addr);
