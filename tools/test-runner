@@ -174,6 +174,7 @@ class Process:
 		self.write_fds = []
 		self.io_watch = None
 		self.cleanup = cleanup
+		self.verbose = False
 
 		if not namespace:
 			self.output_name = '/tmp/%s-out' % self.name
@@ -195,8 +196,7 @@ class Process:
 		if ctx:
 			# Verbose requested, add stdout/stderr to write FD list
 			if self.name in ctx.args.verbose:
-				self.write_fds.append(sys.__stdout__)
-				self.write_fds.append(sys.__stderr__)
+				self.verbose = True
 
 			# Add output file to FD list
 			if outfile:
@@ -230,11 +230,11 @@ class Process:
 			# the process is being waited for, the log/outfile bits
 			# will be handled after the process exists.
 			#
-			if self.write_fds != [] and not wait and not check:
+			if self.write_fds != [] and not wait and not check or self.verbose:
 				self.io_watch = GLib.io_add_watch(self.stdout, GLib.IO_IN,
 								self.io_callback)
 
-		self.pid = subprocess.Popen(self.args, stdout=self.stdout, stderr=subprocess.STDOUT,
+		self.pid = subprocess.Popen(self.args, stdout=self.stdout, stderr=self.stdout,
 						env=env, cwd=os.getcwd())
 
 		print("Starting process {}".format(self.pid.args))
@@ -261,6 +261,9 @@ class Process:
 
 			self.write_fds = []
 
+		if self.verbose:
+			sys.__stdout__.write(self.out)
+
 		print("%s returned %d" % (args[0], self.ret))
 		if check and self.ret != 0:
 			raise subprocess.CalledProcessError(returncode=self.ret, cmd=self.args)
@@ -283,6 +286,9 @@ class Process:
 
 		for f in self.write_fds:
 			f.write(data)
+
+		if self.verbose:
+			sys.__stdout__.write(data)
 
 		return True
 
