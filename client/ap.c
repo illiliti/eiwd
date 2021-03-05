@@ -310,7 +310,7 @@ static const struct command ap_commands[] = {
 		"Start an access point based on a disk profile" },
 	{ "<wlan>", "stop", NULL,   cmd_stop, "Stop a started access\n"
 		"\t\t\t\t\t\t    point" },
-	{ "<wlan", "show", NULL, cmd_show, "Show AP info", false },
+	{ "<wlan>", "show", NULL, cmd_show, "Show AP info", false },
 	{ }
 };
 
