@@ -3119,8 +3119,10 @@ static struct l_dbus_message *ap_dbus_start_profile(struct l_dbus *dbus,
 	config->profile = storage_get_path("ap/%s.ap", ssid);
 
 	ap_if->ap = ap_start(ap_if->netdev, config, &ap_dbus_ops, &err, ap_if);
-	if (!ap_if->ap)
+	if (!ap_if->ap) {
+		ap_config_free(config);
 		return dbus_error_from_errno(err, message);
+	}
 
 	ap_if->pending = l_dbus_message_ref(message);
 	return NULL;
