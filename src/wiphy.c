@@ -515,7 +515,7 @@ static void wiphy_address_constrain(struct wiphy *wiphy, uint8_t addr[static 6])
 	 * also not valid
 	 */
 	addr[5] &= 0xfe;
-	if (util_mem_is_zero(addr + 3, 3))
+	if (l_memeqzero(addr + 3, 3))
 		addr[5] = 0x01;
 }
 
@@ -1257,7 +1257,7 @@ void wiphy_create_complete(struct wiphy *wiphy)
 {
 	wiphy_register(wiphy);
 
-	if (util_mem_is_zero(wiphy->permanent_addr, 6)) {
+	if (l_memeqzero(wiphy->permanent_addr, 6)) {
 		int err = wiphy_get_permanent_addr_from_sysfs(wiphy);
 
 		if (err < 0)

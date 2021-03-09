@@ -2850,7 +2850,7 @@ static int netdev_start_powered_mac_change(struct netdev *netdev)
 	uint8_t new_addr[6];
 
 	/* No address set in handshake, use per-network MAC generation */
-	if (util_mem_is_zero(netdev->handshake->spa, ETH_ALEN))
+	if (l_memeqzero(netdev->handshake->spa, ETH_ALEN))
 		wiphy_generate_address_from_ssid(netdev->wiphy,
 					(const char *)netdev->handshake->ssid,
 					new_addr);
@@ -4843,7 +4843,7 @@ static void netdev_initial_up_cb(int error, uint16_t type, const void *data,
 
 static bool netdev_check_set_mac(struct netdev *netdev)
 {
-	if (util_mem_is_zero(netdev->set_mac_once, 6))
+	if (l_memeqzero(netdev->set_mac_once, 6))
 		return false;
 
 	l_debug("Setting initial address on ifindex: %d to: " MAC,

@@ -2100,7 +2100,7 @@ static void wfa_build_authorized_macs(struct wsc_attr_builder *builder,
 	int count;
 
 	for (count = 1; count < 5; count++)
-		if (util_mem_is_zero(authorized_macs + count * 6, 6))
+		if (l_memeqzero(authorized_macs + count * 6, 6))
 			break;
 
 	wsc_attr_builder_put_u8(builder, WSC_WFA_EXTENSION_AUTHORIZED_MACS);
@@ -2170,7 +2170,7 @@ uint8_t *wsc_build_beacon(const struct wsc_beacon *beacon, size_t *out_len)
 
 	START_WFA_VENDOR_EXTENSION();
 
-	if (!util_mem_is_zero(beacon->authorized_macs, 6))
+	if (!l_memeqzero(beacon->authorized_macs, 6))
 		wfa_build_authorized_macs(builder, beacon->authorized_macs);
 
 	if (beacon->reg_config_methods) {
@@ -2265,7 +2265,7 @@ uint8_t *wsc_build_probe_response(
 
 	START_WFA_VENDOR_EXTENSION();
 
-	if (!util_mem_is_zero(probe_response->authorized_macs, 6))
+	if (!l_memeqzero(probe_response->authorized_macs, 6))
 		wfa_build_authorized_macs(builder,
 					probe_response->authorized_macs);
 

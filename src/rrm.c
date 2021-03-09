@@ -478,7 +478,7 @@ static bool rrm_verify_beacon_request(const uint8_t *request, size_t len)
 		 * check for table requests since we just return whatever we
 		 * have cached.
 		 */
-		if (!util_mem_is_zero(request + 2, 2))
+		if (!l_memeqzero(request + 2, 2))
 			return false;
 	}
 

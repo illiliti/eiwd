@@ -157,7 +157,7 @@ static const char *hotspot_network_get_path(const struct network_info *info)
 	if (config->rc)
 		l_checksum_update(sha, config->rc, config->rc_len);
 
-	if (!util_mem_is_zero(config->hessid, 6))
+	if (!l_memeqzero(config->hessid, 6))
 		l_checksum_update(sha, config->hessid, 6);
 
 	digest = l_checksum_get_string(sha);
@@ -187,7 +187,7 @@ static bool hotspot_match_hessid(const struct network_info *info,
 	struct hs20_config *config = l_container_of(info, struct hs20_config,
 							super);
 
-	if (util_mem_is_zero(config->hessid, 6) || !hessid)
+	if (l_memeqzero(config->hessid, 6) || !hessid)
 		return false;
 
 	return !memcmp(config->hessid, hessid, 6);

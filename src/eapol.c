@@ -55,7 +55,7 @@ static void *tx_user_data;
 
 #define VERIFY_IS_ZERO(field)						\
 	do {								\
-		if (!util_mem_is_zero((field), sizeof((field))))	\
+		if (!l_memeqzero((field), sizeof((field))))	\
 			return false;					\
 	} while (false)							\
 
@@ -456,7 +456,7 @@ bool eapol_verify_ptk_1_of_4(const struct eapol_key *ek, size_t mic_len)
 	VERIFY_IS_ZERO(ek->key_rsc);
 	VERIFY_IS_ZERO(ek->reserved);
 
-	if (!util_mem_is_zero(EAPOL_KEY_MIC(ek), mic_len))
+	if (!l_memeqzero(EAPOL_KEY_MIC(ek), mic_len))
 		return false;
 
 	return true;

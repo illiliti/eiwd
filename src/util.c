@@ -101,7 +101,7 @@ bool util_ssid_is_hidden(size_t len, const uint8_t *ssid)
 	if (!len)
 		return true;
 
-	return util_mem_is_zero(ssid, len);
+	return l_memeqzero(ssid, len);
 }
 
 const char *util_address_to_string(const uint8_t *addr)

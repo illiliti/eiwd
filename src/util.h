@@ -55,17 +55,6 @@ static inline bool util_is_bit_set(const uint8_t oct, int bit)
 	return oct & mask ? true : false;
 }
 
-static inline bool util_mem_is_zero(const uint8_t *field, size_t size)
-{
-	size_t i;
-
-	for (i = 0; i < size; i++)
-		if (field[i] != 0)
-			return false;
-
-	return true;
-}
-
 static inline void util_set_bit(uint8_t *field, unsigned int bit)
 {
 	field[bit / 8] = 1 << (bit % 8);

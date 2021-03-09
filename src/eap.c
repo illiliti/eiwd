@@ -427,7 +427,7 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 
 		if ((type == EAP_TYPE_NAK && len == 1 && pkt[0] == 0) ||
 				(type != EAP_TYPE_NAK && len == 8 &&
-				 util_mem_is_zero(pkt, 8)))
+				 l_memeqzero(pkt, 8)))
 			l_debug("EAP peer proposed no alternative methods");
 		else if (type == EAP_TYPE_NAK)
 			while (len) {

@@ -813,7 +813,7 @@ static const char *authorized_macs_to_string(const uint8_t *authorized_macs)
 	for (i = 0; i < 5; i++) {
 		const uint8_t *addr = authorized_macs + i * 6;
 
-		if (util_mem_is_zero(addr, 6))
+		if (l_memeqzero(addr, 6))
 			continue;
 
 		offset += sprintf(buf + offset, "%s",

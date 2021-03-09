@@ -2651,7 +2651,7 @@ struct ap_state *ap_start(struct netdev *netdev, struct ap_config *config,
 		return NULL;
 
 	if (L_WARN_ON(!config->profile && !config->passphrase[0] &&
-			util_mem_is_zero(config->psk, sizeof(config->psk))))
+			l_memeqzero(config->psk, sizeof(config->psk))))
 		return NULL;
 
 	ap = l_new(struct ap_state, 1);

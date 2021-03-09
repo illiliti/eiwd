@@ -3849,7 +3849,7 @@ static void print_wfd_session_info(unsigned int level, const char *label,
 
 		print_address(level + 2, "Device address", bytes + 1);
 
-		if (util_mem_is_zero(bytes + 7, 6))
+		if (l_memeqzero(bytes + 7, 6))
 			print_attr(level+ + 2, "Not associated to an "
 					"infrastructure AP");
 		else

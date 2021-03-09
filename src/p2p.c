@@ -1323,7 +1323,7 @@ static bool p2p_provision_scan_notify(int err, struct l_queue *bss_list,
 		if (dev->go_group_id.ssid[bss->ssid_len] != '\0')
 			continue;
 
-		if (!util_mem_is_zero(dev->conn_peer_interface_addr, 6) &&
+		if (!l_memeqzero(dev->conn_peer_interface_addr, 6) &&
 				memcmp(bss->addr, dev->conn_peer_interface_addr,
 					6))
 			l_debug("SSID matched but BSSID didn't match the GO's "
@@ -1419,7 +1419,7 @@ static bool p2p_provision_scan_notify(int err, struct l_queue *bss_list,
 			continue;
 		}
 
-		if (!util_mem_is_zero(amacs, 30)) {
+		if (!l_memeqzero(amacs, 30)) {
 			bool amacs_match = false;
 			int i;
 
@@ -1945,7 +1945,7 @@ static void p2p_device_go_negotiation_req_cb(const struct mmpdu_header *mpdu,
 	if (memcmp(mpdu->address_1, dev->addr, 6) ||
 			(memcmp(mpdu->address_3, dev->addr, 6) &&
 			 memcmp(mpdu->address_3, mpdu->address_2, 6) &&
-			 !util_mem_is_zero(mpdu->address_3, 6)))
+			 !l_memeqzero(mpdu->address_3, 6)))
 		return;
 
 	peer = l_queue_find(dev->peer_list, p2p_peer_match, mpdu->address_2);
