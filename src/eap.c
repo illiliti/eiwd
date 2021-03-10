@@ -442,12 +442,13 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 			}
 		else
 			while (len >= 8) {
-				uint32_t v_id = (pkt[0] << 16) | (pkt[1] << 8) |
-					pkt[2];
+				uint32_t v_id = (pkt[1] << 16) |
+						(pkt[2] << 8) |
+						pkt[3];
 
 				l_debug("EAP peer proposed method: %s",
 					eap_type_to_str(pkt[0], v_id,
-							l_get_be32(pkt + 3)));
+							l_get_be32(pkt + 4)));
 				pkt += 8;
 				len -= 8;
 			}
