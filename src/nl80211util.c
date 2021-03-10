@@ -137,6 +137,8 @@ static attr_handler handler_for_type(enum nl80211_attrs type)
 		return extract_mac;
 	case NL80211_ATTR_ACK:
 		return extract_flag;
+	case NL80211_ATTR_WIPHY_FREQ:
+		return extract_uint32;
 	default:
 		break;
 	}
