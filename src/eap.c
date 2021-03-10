@@ -386,17 +386,28 @@ static const char *eap_type_to_str(enum eap_type type, uint32_t vendor_id,
 	return buf;
 }
 
+#define IS_EXPANDED_RESPONSE(id, t) \
+	(type == EAP_TYPE_EXPANDED && vendor_id == (id) && vendor_type == (t))
+
 static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 				size_t len)
 {
 	enum eap_type type;
 	uint32_t vendor_id;
-	uint32_t uninitialized_var(vendor_type);
+	uint32_t vendor_type;
 	enum eap_type our_type = eap->method->request_type;
 	uint32_t our_vendor_id = (eap->method->vendor_id[0] << 16) |
 				(eap->method->vendor_id[1] << 8) |
 				eap->method->vendor_id[2];
 	uint32_t our_vendor_type = eap->method->vendor_type;
+
+	bool response_is(enum eap_type wanted)
+	{
+		if (type == wanted)
+			return true;
+
+		return IS_EXPANDED_RESPONSE(0, wanted);
+	}
 
 	if (len < 1)
 		/* Invalid packets to be ignored */
@@ -423,9 +434,7 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 			return;
 	}
 
-	if (type == EAP_TYPE_NAK ||
-			(type == EAP_TYPE_EXPANDED &&
-			 vendor_id == 0 && vendor_type == EAP_TYPE_NAK)) {
+	if (response_is(EAP_TYPE_NAK)) {
 		l_debug("EAP peer not configured for method: %s",
 			eap_type_to_str(our_type, our_vendor_id,
 							our_vendor_type));
@@ -457,16 +466,6 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 	}
 
 	/*
-	 * RFC3748 5.7: "An implementation that supports the Expanded
-	 * attribute MUST treat EAP Types that are less than 256 equivalently,
-	 * whether they appear as a single octet or as the 32-bit Vendor-Type
-	 * within an Expanded Type where Vendor-Id is 0."
-	 * (with the exception of the Nak)
-	 */
-	if (type == EAP_TYPE_EXPANDED && vendor_id == 0)
-		type = vendor_type;
-
-	/*
 	 * If we don't have peer's identity yet it means we've only sent the
 	 * Identity Request so far so we expect an Identity Response and
 	 * nothing else.  Otherwise we only accept Response types matching
@@ -474,7 +473,7 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 	 */
 
 	if (!eap->identity) {
-		if (type != EAP_TYPE_IDENTITY)
+		if (!response_is(EAP_TYPE_IDENTITY))
 			goto unsupported_method;
 
 		/*
@@ -494,18 +493,26 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 		return;
 	}
 
-	if (type != our_type ||
-			(type == EAP_TYPE_EXPANDED &&
-			 (vendor_id != our_vendor_id ||
-			  vendor_type != our_vendor_type)))
-		goto unsupported_method;
-
-	eap->method->handle_response(eap, pkt, len);
-	return;
+	/*
+	 * RFC3748 5.7: "An implementation that supports the Expanded
+	 * attribute MUST treat EAP Types that are less than 256 equivalently,
+	 * whether they appear as a single octet or as the 32-bit Vendor-Type
+	 * within an Expanded Type where Vendor-Id is 0."
+	 * (with the exception of the Nak)
+	 */
+	if (our_type != EAP_TYPE_EXPANDED) {
+		if (response_is(our_type))
+			goto handle_response;
+	} else if (IS_EXPANDED_RESPONSE(our_vendor_id, our_vendor_type))
+		goto handle_response;
 
 error:
 unsupported_method:
 	eap_method_error(eap);
+	return;
+
+handle_response:
+	eap->method->handle_response(eap, pkt, len);
 }
 
 void eap_rx_packet(struct eap_state *eap, const uint8_t *pkt, size_t len)
