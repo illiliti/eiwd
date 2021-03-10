@@ -390,9 +390,13 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 				size_t len)
 {
 	enum eap_type type;
-	enum eap_type req_type = eap->method->request_type;
 	uint32_t vendor_id;
 	uint32_t uninitialized_var(vendor_type);
+	enum eap_type our_type = eap->method->request_type;
+	uint32_t our_vendor_id = (eap->method->vendor_id[0] << 16) |
+				(eap->method->vendor_id[1] << 8) |
+				eap->method->vendor_id[2];
+	uint32_t our_vendor_type = eap->method->vendor_type;
 
 	if (len < 1)
 		/* Invalid packets to be ignored */
@@ -411,7 +415,7 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 		len -= 7;
 
 		if (vendor_id == 0 && vendor_type == EAP_TYPE_NAK &&
-				req_type != EAP_TYPE_EXPANDED)
+				our_type != EAP_TYPE_EXPANDED)
 			/*
 			 * RFC3748 5.3.2: "[The Expanded Nak Type] MUST
 			 * be sent only in reply to a Request of Type 254.
@@ -423,7 +427,8 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 			(type == EAP_TYPE_EXPANDED &&
 			 vendor_id == 0 && vendor_type == EAP_TYPE_NAK)) {
 		l_debug("EAP peer not configured for method: %s",
-			eap_type_to_str(type, vendor_id, vendor_type));
+			eap_type_to_str(our_type, our_vendor_id,
+							our_vendor_type));
 
 		if ((type == EAP_TYPE_NAK && len == 1 && pkt[0] == 0) ||
 				(type != EAP_TYPE_NAK && len == 8 &&
@@ -488,13 +493,10 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 		return;
 	}
 
-	if (type != req_type ||
+	if (type != our_type ||
 			(type == EAP_TYPE_EXPANDED &&
-			 ((vendor_id != (uint32_t)
-			   ((eap->method->vendor_id[0] << 16) |
-			    (eap->method->vendor_id[1] << 8) |
-			    eap->method->vendor_id[2])) ||
-			  vendor_type != eap->method->vendor_type)))
+			 (vendor_id != our_vendor_id ||
+			  vendor_type != our_vendor_type)))
 		goto unsupported_method;
 
 	eap->method->handle_response(eap, pkt, len);
