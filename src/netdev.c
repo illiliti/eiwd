@@ -443,7 +443,7 @@ static bool netdev_parse_sta_info(struct l_genl_attr *attr,
 
 	while (l_genl_attr_next(attr, &type, &len, &data)) {
 		switch (type) {
-		case NL80211_STA_INFO_SIGNAL_AVG:
+		case NL80211_STA_INFO_SIGNAL:
 			if (len != 1)
 				return false;
 
