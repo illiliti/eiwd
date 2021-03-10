@@ -20,8 +20,6 @@
  *
  */
 
-#define uninitialized_var(x) x = x
-
 /*
  * Set a maximum to prevent sending too much data to the kernel when hashing
  * the password (or any other crypto operations involving the password).
