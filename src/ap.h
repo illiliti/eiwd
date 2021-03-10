@@ -87,3 +87,4 @@ bool ap_station_disconnect(struct ap_state *ap, const uint8_t *mac,
 				enum mmpdu_reason_code reason);
 
 bool ap_push_button(struct ap_state *ap);
+void ap_update_beacon(struct ap_state *ap);

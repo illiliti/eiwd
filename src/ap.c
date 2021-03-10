@@ -641,7 +641,7 @@ static void ap_set_beacon_cb(struct l_genl_msg *msg, void *user_data)
 		l_error("SET_BEACON failed: %s (%i)", strerror(-error), -error);
 }
 
-static void ap_update_beacon(struct ap_state *ap)
+void ap_update_beacon(struct ap_state *ap)
 {
 	struct l_genl_msg *cmd;
 	uint8_t head[256], tail[256];
@@ -650,6 +650,9 @@ static void ap_update_beacon(struct ap_state *ap)
 	static const uint8_t bcast_addr[6] = {
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff
 	};
+
+	if (L_WARN_ON(!ap->started))
+		return;
 
 	head_len = ap_build_beacon_pr_head(ap, MPDU_MANAGEMENT_SUBTYPE_BEACON,
 						bcast_addr, head, sizeof(head));
