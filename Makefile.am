@@ -65,6 +65,7 @@ ell_headers = ell/util.h \
 
 ell_sources = ell/private.h \
 			ell/missing.h \
+			ell/useful.h \
 			ell/util.c \
 			ell/test.c \
 			ell/strv.c \
