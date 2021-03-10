@@ -36,7 +36,8 @@ enum ap_event_type {
 
 struct ap_event_station_added_data {
 	const uint8_t *mac;
-	const uint8_t *rsn_ie;
+	const uint8_t *assoc_ies;
+	size_t assoc_ies_len;
 };
 
 struct ap_event_station_removed_data {
@@ -46,6 +47,8 @@ struct ap_event_station_removed_data {
 
 struct ap_event_registration_start_data {
 	const uint8_t *mac;
+	const uint8_t *assoc_ies;
+	size_t assoc_ies_len;
 };
 
 struct ap_event_registration_success_data {

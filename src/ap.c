@@ -99,6 +99,8 @@ struct sta_state {
 	struct l_uintset *rates;
 	uint32_t assoc_resp_cmd_id;
 	struct ap_state *ap;
+	uint8_t *assoc_ies;
+	size_t assoc_ies_len;
 	uint8_t *assoc_rsne;
 	struct eapol_sm *sm;
 	struct handshake_state *hs;
@@ -279,7 +281,7 @@ static void ap_sta_free(void *data)
 	struct ap_state *ap = sta->ap;
 
 	l_uintset_free(sta->rates);
-	l_free(sta->assoc_rsne);
+	l_free(sta->assoc_ies);
 
 	if (sta->assoc_resp_cmd_id)
 		l_genl_family_cancel(ap->nl80211, sta->assoc_resp_cmd_id);
@@ -411,7 +413,8 @@ static void ap_new_rsna(struct sta_state *sta)
 	if (ap->ops->handle_event) {
 		struct ap_event_station_added_data event_data = {};
 		event_data.mac = sta->addr;
-		event_data.rsn_ie = sta->assoc_rsne;
+		event_data.assoc_ies = sta->assoc_ies;
+		event_data.assoc_ies_len = sta->assoc_ies_len;
 		ap->ops->handle_event(AP_EVENT_STATION_ADDED, &event_data,
 					ap->user_data);
 	}
@@ -1474,6 +1477,8 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 		sta->wsc_v2 = wsc_req.version2;
 
 		event_data.mac = sta->addr;
+		event_data.assoc_ies = ies;
+		event_data.assoc_ies_len = ies_len;
 		ap->ops->handle_event(AP_EVENT_REGISTRATION_START, &event_data,
 					ap->user_data);
 
@@ -1524,13 +1529,16 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 
 	sta->rates = rates;
 
-	if (sta->assoc_rsne)
-		l_free(sta->assoc_rsne);
+	l_free(sta->assoc_ies);
 
-	if (rsn)
-		sta->assoc_rsne = l_memdup(rsn, rsn[1] + 2);
-	else
+	if (rsn) {
+		sta->assoc_ies = l_memdup(ies, ies_len);
+		sta->assoc_ies_len = ies_len;
+		sta->assoc_rsne = sta->assoc_ies + (rsn - ies);
+	} else {
+		sta->assoc_ies = NULL;
 		sta->assoc_rsne = NULL;
+	}
 
 	sta->assoc_resp_cmd_id = ap_assoc_resp(ap, sta, sta->addr, 0, reassoc,
 						ap_success_assoc_resp_cb);
