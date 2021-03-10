@@ -73,6 +73,7 @@ ell_sources = ell/private.h \
 			ell/hashmap.c \
 			ell/string.c \
 			ell/settings.c \
+			ell/main-private.h \
 			ell/main.c \
 			ell/idle.c \
 			ell/signal.c \
