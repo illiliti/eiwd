@@ -22,6 +22,7 @@
 
 struct ap_state;
 struct iovec;
+enum mpdu_management_subtype;
 
 enum ap_event_type {
 	AP_EVENT_START_FAILED,
@@ -75,6 +76,28 @@ struct ap_config {
 struct ap_ops {
 	void (*handle_event)(enum ap_event_type type, const void *event_data,
 				void *user_data);
+	/*
+	 * If .write_extra_ies is provided, this callback must return an upper
+	 * bound on the buffer space needed for the extra IEs to be sent in
+	 * the frame of given type and, if it's not a beacon frame, in
+	 * response to a given client frame.
+	 */
+	size_t (*get_extra_ies_len)(enum mpdu_management_subtype type,
+					const struct mmpdu_header *client_frame,
+					size_t client_frame_len,
+					void *user_data);
+	/*
+	 * If not null, writes extra IEs to be added to the outgoing frame of
+	 * given type and, if it's not a beacon frame, in reponse to a given
+	 * client frame.  May also react to the extra IEs in that frame.
+	 * Returns the number of bytes written which must be less than or
+	 * equal to the number returned by .get_extra_ies_len when called
+	 * with the same parameters.
+	 */
+	size_t (*write_extra_ies)(enum mpdu_management_subtype type,
+					const struct mmpdu_header *client_frame,
+					size_t client_frame_len,
+					uint8_t *out_buf, void *user_data);
 };
 
 void ap_config_free(struct ap_config *config);

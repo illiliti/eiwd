@@ -467,11 +467,48 @@ static void ap_set_rsn_info(struct ap_state *ap, struct ie_rsn_info *rsn)
 	rsn->group_cipher = ap->group_cipher;
 }
 
+static size_t ap_get_extra_ies_len(struct ap_state *ap,
+					enum mpdu_management_subtype type,
+					const struct mmpdu_header *client_frame,
+					size_t client_frame_len)
+{
+	size_t len = 0;
+
+	if (ap->ops->get_extra_ies_len)
+		len += ap->ops->get_extra_ies_len(type, client_frame,
+							client_frame_len,
+							ap->user_data);
+
+	return len;
+}
+
+static size_t ap_write_extra_ies(struct ap_state *ap,
+					enum mpdu_management_subtype type,
+					const struct mmpdu_header *client_frame,
+					size_t client_frame_len,
+					uint8_t *out_buf)
+{
+	size_t len = 0;
+
+	if (ap->ops->write_extra_ies)
+		len += ap->ops->write_extra_ies(type,
+						client_frame, client_frame_len,
+						out_buf + len, ap->user_data);
+
+	return len;
+}
+
 /*
  * Build a Beacon frame or a Probe Response frame's header and body until
  * the TIM IE.  Except for the optional TIM IE which is inserted by the
  * kernel when needed, our contents for both frames are the same.
  * See Beacon format in 8.3.3.2 and Probe Response format in 8.3.3.10.
+ *
+ * 802.11-2016, Section 9.4.2.1:
+ * "The frame body components specified for many management subtypes result
+ * in elements ordered by ascending values of the Element ID field and then
+ * the Element ID Extension field (when present), with the exception of the
+ * MIC Management element (9.4.2.55)."
  */
 static size_t ap_build_beacon_pr_head(struct ap_state *ap,
 					enum mpdu_management_subtype stype,
@@ -537,8 +574,10 @@ static size_t ap_build_beacon_pr_head(struct ap_state *ap,
 }
 
 /* Beacon / Probe Response frame portion after the TIM IE */
-static size_t ap_build_beacon_pr_tail(struct ap_state *ap, bool pr,
-					uint8_t *out_buf)
+static size_t ap_build_beacon_pr_tail(struct ap_state *ap,
+					enum mpdu_management_subtype stype,
+					const struct mmpdu_header *req,
+					size_t req_len, uint8_t *out_buf)
 {
 	size_t len;
 	struct ie_rsn_info rsn;
@@ -556,7 +595,7 @@ static size_t ap_build_beacon_pr_tail(struct ap_state *ap, bool pr,
 	len = 2 + out_buf[1];
 
 	/* WSC IE */
-	if (pr) {
+	if (stype == MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE) {
 		struct wsc_probe_response wsc_pr = {};
 
 		wsc_pr.version2 = true;
@@ -634,6 +673,7 @@ static size_t ap_build_beacon_pr_tail(struct ap_state *ap, bool pr,
 	len += wsc_ie_size;
 	l_free(wsc_ie);
 
+	len += ap_write_extra_ies(ap, stype, req, req_len, out_buf + len);
 	return len;
 }
 
@@ -648,7 +688,11 @@ static void ap_set_beacon_cb(struct l_genl_msg *msg, void *user_data)
 void ap_update_beacon(struct ap_state *ap)
 {
 	struct l_genl_msg *cmd;
-	uint8_t head[256], tail[256];
+	uint8_t head[256];
+	L_AUTO_FREE_VAR(uint8_t *, tail) =
+		l_malloc(256 + ap_get_extra_ies_len(ap,
+						MPDU_MANAGEMENT_SUBTYPE_BEACON,
+						NULL, 0));
 	size_t head_len, tail_len;
 	uint64_t wdev_id = netdev_get_wdev_id(ap->netdev);
 	static const uint8_t bcast_addr[6] = {
@@ -660,7 +704,8 @@ void ap_update_beacon(struct ap_state *ap)
 
 	head_len = ap_build_beacon_pr_head(ap, MPDU_MANAGEMENT_SUBTYPE_BEACON,
 						bcast_addr, head, sizeof(head));
-	tail_len = ap_build_beacon_pr_tail(ap, false, tail);
+	tail_len = ap_build_beacon_pr_tail(ap, MPDU_MANAGEMENT_SUBTYPE_BEACON,
+						NULL, 0, tail);
 	if (L_WARN_ON(!head_len || !tail_len))
 		return;
 
@@ -1198,10 +1243,15 @@ static void ap_fail_assoc_resp_cb(int err, void *user_data)
 static uint32_t ap_assoc_resp(struct ap_state *ap, struct sta_state *sta,
 				const uint8_t *dest,
 				enum mmpdu_reason_code status_code,
-				bool reassoc, frame_xchg_cb_t callback)
+				bool reassoc, const struct mmpdu_header *req,
+				size_t req_len, frame_xchg_cb_t callback)
 {
 	const uint8_t *addr = netdev_get_address(ap->netdev);
-	uint8_t mpdu_buf[128];
+	enum mpdu_management_subtype stype = reassoc ?
+		MPDU_MANAGEMENT_SUBTYPE_REASSOCIATION_RESPONSE :
+		MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_RESPONSE;
+	L_AUTO_FREE_VAR(uint8_t *, mpdu_buf) =
+		l_malloc(128 + ap_get_extra_ies_len(ap, stype, req, req_len));
 	struct mmpdu_header *mpdu = (void *) mpdu_buf;
 	struct mmpdu_association_response *resp;
 	size_t ies_len = 0;
@@ -1213,9 +1263,7 @@ static uint32_t ap_assoc_resp(struct ap_state *ap, struct sta_state *sta,
 	/* Header */
 	mpdu->fc.protocol_version = 0;
 	mpdu->fc.type = MPDU_TYPE_MANAGEMENT;
-	mpdu->fc.subtype = reassoc ?
-		MPDU_MANAGEMENT_SUBTYPE_REASSOCIATION_RESPONSE :
-		MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_RESPONSE;
+	mpdu->fc.subtype = stype;
 	memcpy(mpdu->address_1, dest, 6);	/* DA */
 	memcpy(mpdu->address_2, addr, 6);	/* SA */
 	memcpy(mpdu->address_3, addr, 6);	/* BSSID */
@@ -1276,6 +1324,9 @@ static uint32_t ap_assoc_resp(struct ap_state *ap, struct sta_state *sta,
 		ies_len += wsc_ie_len;
 		l_free(wsc_ie);
 	}
+
+	ies_len += ap_write_extra_ies(ap, stype, req, req_len,
+					resp->ies + ies_len);
 
 send_frame:
 	return ap_send_mgmt_frame(ap, mpdu, resp->ies + ies_len - mpdu_buf,
@@ -1352,8 +1403,9 @@ static int ap_parse_supported_rates(struct ie_tlv_iter *iter,
  */
 static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 				const struct mmpdu_field_capability *capability,
-				uint16_t listen_interval, const uint8_t *ies,
-				size_t ies_len)
+				uint16_t listen_interval,
+				const uint8_t *ies, size_t ies_len,
+				const struct mmpdu_header *req)
 {
 	struct ap_state *ap = sta->ap;
 	const char *ssid = NULL;
@@ -1542,6 +1594,8 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 	}
 
 	sta->assoc_resp_cmd_id = ap_assoc_resp(ap, sta, sta->addr, 0, reassoc,
+						req, (void *) ies + ies_len -
+						(void *) req,
 						ap_success_assoc_resp_cb);
 	if (!sta->assoc_resp_cmd_id)
 		l_error("Sending success (Re)Association Response failed");
@@ -1573,6 +1627,7 @@ bad_frame:
 	l_free(wsc_data);
 
 	if (!ap_assoc_resp(ap, sta, sta->addr, err, reassoc,
+				req, (void *) ies + ies_len - (void *) req,
 				ap_fail_assoc_resp_cb))
 		l_error("Sending error (Re)Association Response failed");
 }
@@ -1597,7 +1652,8 @@ static void ap_assoc_req_cb(const struct mmpdu_header *hdr, const void *body,
 	if (!sta) {
 		if (!ap_assoc_resp(ap, NULL, from,
 				MMPDU_REASON_CODE_STA_REQ_ASSOC_WITHOUT_AUTH,
-				false, ap_fail_assoc_resp_cb))
+				false, hdr, body + body_len - (void *) hdr,
+				ap_fail_assoc_resp_cb))
 			l_error("Sending error Association Response failed");
 
 		return;
@@ -1605,7 +1661,7 @@ static void ap_assoc_req_cb(const struct mmpdu_header *hdr, const void *body,
 
 	ap_assoc_reassoc(sta, false, &req->capability,
 				L_LE16_TO_CPU(req->listen_interval),
-				req->ies, body_len - sizeof(*req));
+				req->ies, body_len - sizeof(*req), hdr);
 }
 
 /* 802.11-2016 9.3.3.8 */
@@ -1639,11 +1695,13 @@ static void ap_reassoc_req_cb(const struct mmpdu_header *hdr, const void *body,
 
 	ap_assoc_reassoc(sta, true, &req->capability,
 				L_LE16_TO_CPU(req->listen_interval),
-				req->ies, body_len - sizeof(*req));
+				req->ies, body_len - sizeof(*req), hdr);
 	return;
 
 bad_frame:
-	if (!ap_assoc_resp(ap, NULL, from, err, true, ap_fail_assoc_resp_cb))
+	if (!ap_assoc_resp(ap, NULL, from, err, true,
+				hdr, body + body_len - (void *) hdr,
+				ap_fail_assoc_resp_cb))
 		l_error("Sending error Reassociation Response failed");
 }
 
@@ -1786,7 +1844,10 @@ static void ap_probe_req_cb(const struct mmpdu_header *hdr, const void *body,
 	struct ie_tlv_iter iter;
 	const uint8_t *bssid = netdev_get_address(ap->netdev);
 	bool match = false;
-	uint8_t resp[512];
+	L_AUTO_FREE_VAR(uint8_t *, resp) =
+		l_malloc(512 + ap_get_extra_ies_len(ap,
+				MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE, hdr,
+				body + body_len - (void *) hdr));
 	uint8_t *wsc_data;
 	ssize_t wsc_data_len;
 
@@ -1876,7 +1937,10 @@ static void ap_probe_req_cb(const struct mmpdu_header *hdr, const void *body,
 	len = ap_build_beacon_pr_head(ap,
 					MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE,
 					hdr->address_2, resp, sizeof(resp));
-	len += ap_build_beacon_pr_tail(ap, true, resp + len);
+	len += ap_build_beacon_pr_tail(ap,
+					MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE,
+					hdr, body + body_len - (void *) hdr,
+					resp + len);
 
 	ap_send_mgmt_frame(ap, (struct mmpdu_header *) resp, len,
 				ap_probe_resp_cb, NULL);
@@ -2109,7 +2173,11 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 {
 	struct l_genl_msg *cmd;
 
-	uint8_t head[256], tail[256];
+	uint8_t head[256];
+	L_AUTO_FREE_VAR(uint8_t *, tail) =
+		l_malloc(256 + ap_get_extra_ies_len(ap,
+						MPDU_MANAGEMENT_SUBTYPE_BEACON,
+						NULL, 0));
 	size_t head_len, tail_len;
 
 	uint32_t dtim_period = 3;
@@ -2139,7 +2207,8 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 
 	head_len = ap_build_beacon_pr_head(ap, MPDU_MANAGEMENT_SUBTYPE_BEACON,
 						bcast_addr, head, sizeof(head));
-	tail_len = ap_build_beacon_pr_tail(ap, false, tail);
+	tail_len = ap_build_beacon_pr_tail(ap, MPDU_MANAGEMENT_SUBTYPE_BEACON,
+						NULL, 0, tail);
 
 	if (!head_len || !tail_len)
 		return NULL;
