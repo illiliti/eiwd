@@ -27,6 +27,7 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "src/ie.h"
 #include "src/fils.h"
 #include "src/handshake.h"
@@ -507,7 +508,7 @@ static int fils_rx_associate(struct auth_proto *driver, const uint8_t *frame,
 			if (!gtk)
 				goto invalid_ies;
 
-			gtk_key_index = util_bit_field(gtk[0], 0, 2);
+			gtk_key_index = bit_field(gtk[0], 0, 2);
 			gtk += 2;
 			gtk_len -= 2;
 
