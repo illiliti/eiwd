@@ -26,6 +26,7 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "src/anqputil.h"
 #include "src/ie.h"
 #include "src/util.h"
@@ -178,7 +179,7 @@ char **anqp_parse_nai_realms(const unsigned char *anqp, unsigned int len)
 		 * action frames it could have been spoofed, but ultimately if
 		 * its bogus the AP won't allow us to connect.
 		 */
-		if (!util_is_bit_set(encoding, 0))
+		if (!test_bit(&encoding, 0))
 			l_warn("Not verifying NAI encoding");
 		else if (!l_utf8_validate(nai_realm, nai_len, NULL)) {
 			l_warn("NAI is not UTF-8");

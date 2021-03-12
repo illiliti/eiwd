@@ -43,12 +43,6 @@ bool util_is_valid_sta_address(const uint8_t *addr);
 const char *util_get_domain(const char *identity);
 const char *util_get_username(const char *identity);
 
-static inline bool util_is_bit_set(const uint8_t oct, int bit)
-{
-	int mask = 1 << bit;
-	return oct & mask ? true : false;
-}
-
 /*
  * Returns either true_value or false_value (depending if mask is 0xFF or 0x00
  * respectively).

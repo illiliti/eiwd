@@ -300,7 +300,7 @@ static void scan_build_attr_ie(struct l_genl_msg *msg,
 	iov[iov_elems].iov_len = ext_capa[1] + 2;
 	iov_elems++;
 
-	if (util_is_bit_set(ext_capa[2 + 3], 7)) {
+	if (test_bit(&ext_capa[2 + 3], 7)) {
 		/* Order 12 - Interworking */
 		interworking[0] = IE_TYPE_INTERWORKING;
 		interworking[1] = 1;

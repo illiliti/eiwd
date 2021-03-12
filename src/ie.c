@@ -727,17 +727,17 @@ static int parse_ciphers(const uint8_t *data, size_t len,
 	if (len < 2)
 		return -EBADMSG;
 
-	out_info->preauthentication = util_is_bit_set(data[0], 0);
-	out_info->no_pairwise = util_is_bit_set(data[0], 1);
+	out_info->preauthentication = test_bit(data, 0);
+	out_info->no_pairwise = test_bit(data, 1);
 	out_info->ptksa_replay_counter = bit_field(data[0], 2, 2);
 	out_info->gtksa_replay_counter = bit_field(data[0], 4, 2);
-	out_info->mfpr = util_is_bit_set(data[0], 6);
-	out_info->mfpc = util_is_bit_set(data[0], 7);
-	out_info->peerkey_enabled = util_is_bit_set(data[1], 1);
-	out_info->spp_a_msdu_capable = util_is_bit_set(data[1], 2);
-	out_info->spp_a_msdu_required = util_is_bit_set(data[1], 3);
-	out_info->pbac = util_is_bit_set(data[1], 4);
-	out_info->extended_key_id = util_is_bit_set(data[1], 5);
+	out_info->mfpr = test_bit(data, 6);
+	out_info->mfpc = test_bit(data, 7);
+	out_info->peerkey_enabled = test_bit(data + 1, 1);
+	out_info->spp_a_msdu_capable = test_bit(data + 1, 2);
+	out_info->spp_a_msdu_required = test_bit(data + 1, 3);
+	out_info->pbac = test_bit(data + 1, 4);
+	out_info->extended_key_id = test_bit(data + 1, 5);
 
 	/*
 	 * BIP—default group management cipher suite in an RSNA with
@@ -1450,8 +1450,8 @@ int ie_parse_wpa(struct ie_tlv_iter *iter, struct ie_rsn_info *out_info)
 	if (len < 2)
 		return -EBADMSG;
 
-	out_info->preauthentication = util_is_bit_set(data[0], 0);
-	out_info->no_pairwise = util_is_bit_set(data[0], 1);
+	out_info->preauthentication = test_bit(data, 0);
+	out_info->no_pairwise = test_bit(data, 1);
 	out_info->ptksa_replay_counter = bit_field(data[0], 2, 2);
 	out_info->gtksa_replay_counter = bit_field(data[0], 4, 2);
 
@@ -1851,9 +1851,9 @@ static int ie_parse_ht_capability(struct ie_tlv_iter *iter, int32_t rssi,
 	/* Parse out channel width set and short GI */
 	ht_cap = l_get_u8(data++);
 
-	support_40mhz = util_is_bit_set(ht_cap, 1);
-	short_gi_20mhz = util_is_bit_set(ht_cap, 5);
-	short_gi_40mhz = util_is_bit_set(ht_cap, 6);
+	support_40mhz = test_bit(&ht_cap, 1);
+	short_gi_20mhz = test_bit(&ht_cap, 5);
+	short_gi_40mhz = test_bit(&ht_cap, 6);
 
 	data += 2;
 
@@ -1868,10 +1868,8 @@ static int ie_parse_ht_capability(struct ie_tlv_iter *iter, int32_t rssi,
 	 */
 	for (i = 31; i >= 0; i--) {
 		uint64_t drate;
-		uint8_t byte = i / 8;
-		uint8_t bit = i % 8;
 
-		if (!util_is_bit_set(data[byte], bit))
+		if (!test_bit(data, i))
 			continue;
 
 		if (!support_40mhz)
@@ -1979,8 +1977,8 @@ static int ie_parse_vht_capability(struct ie_tlv_iter *vht_iter,
 
 	ht_cap = l_get_u8(data);
 
-	short_gi_20mhz = util_is_bit_set(ht_cap, 5);
-	short_gi_40mhz = util_is_bit_set(ht_cap, 6);
+	short_gi_20mhz = test_bit(&ht_cap, 5);
+	short_gi_40mhz = test_bit(&ht_cap, 6);
 
 	/* now move onto VHT */
 	len = ie_tlv_iter_get_length(vht_iter);
@@ -2418,16 +2416,16 @@ int ie_parse_neighbor_report(struct ie_tlv_iter *iter,
 
 	memcpy(info->addr, data + 0, 6);
 
-	info->ht = util_is_bit_set(data[8], 3);
-	info->md = util_is_bit_set(data[8], 2);
-	info->immediate_block_ack = util_is_bit_set(data[8], 1);
-	info->delayed_block_ack = util_is_bit_set(data[8], 0);
-	info->rm = util_is_bit_set(data[9], 7);
-	info->apsd = util_is_bit_set(data[9], 6);
-	info->qos = util_is_bit_set(data[9], 5);
-	info->spectrum_mgmt = util_is_bit_set(data[9], 4);
-	info->key_scope = util_is_bit_set(data[9], 3);
-	info->security = util_is_bit_set(data[9], 2);
+	info->ht = test_bit(data + 8, 3);
+	info->md = test_bit(data + 8, 2);
+	info->immediate_block_ack = test_bit(data + 8, 1);
+	info->delayed_block_ack = test_bit(data + 8, 0);
+	info->rm = test_bit(data + 9, 7);
+	info->apsd = test_bit(data + 9, 6);
+	info->qos = test_bit(data + 9, 5);
+	info->spectrum_mgmt = test_bit(data + 9, 4);
+	info->key_scope = test_bit(data + 9, 3);
+	info->security = test_bit(data + 9, 2);
 	info->reachable = bit_field(data[9], 0, 2);
 
 	info->oper_class = data[10];
@@ -2561,8 +2559,8 @@ int ie_parse_hs20_indication(struct ie_tlv_iter *iter, uint8_t *version_out,
 
 	hs20_config = l_get_u8(data + 4);
 
-	pps_mo_present = util_is_bit_set(hs20_config, 1);
-	domain_id_present = util_is_bit_set(hs20_config, 2);
+	pps_mo_present = test_bit(&hs20_config, 1);
+	domain_id_present = test_bit(&hs20_config, 2);
 
 	/*
 	 * Hotspot 2.0 Spec - Section 3.1.1

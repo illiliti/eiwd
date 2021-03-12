@@ -29,6 +29,7 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "src/module.h"
 #include "src/mpdu.h"
 #include "src/netdev.h"
@@ -432,7 +433,7 @@ static void rrm_handle_beacon_scan(struct rrm_state *rrm,
 		.freqs = freqs,
 		.flush = true,
 		.duration = beacon->duration,
-		.duration_mandatory = util_is_bit_set(beacon->info.mode, 4),
+		.duration_mandatory = test_bit(&beacon->info.mode, 4),
 	};
 	enum scan_band band = scan_oper_class_to_band(NULL, beacon->oper_class);
 	uint32_t freq;
@@ -522,7 +523,7 @@ static void rrm_handle_beacon_request(struct rrm_state *rrm,
 	 * At least for the time being, we will not support autonomous
 	 * reporting, so decline any request to do so.
 	 */
-	if (util_is_bit_set(beacon->info.mode, 1))
+	if (test_bit(&beacon->info.mode, 1))
 		goto reject_refused;
 
 	/*
@@ -532,7 +533,7 @@ static void rrm_handle_beacon_request(struct rrm_state *rrm,
 	 * must reject this request.
 	 */
 	if (!wiphy_has_ext_feature(wiphy, NL80211_EXT_FEATURE_SET_SCAN_DWELL)
-			&& util_is_bit_set(beacon->info.mode, 4))
+			&& test_bit(&beacon->info.mode, 4))
 		goto reject_incapable;
 
 	/* advance to beacon request */

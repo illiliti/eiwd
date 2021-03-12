@@ -33,6 +33,7 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "src/util.h"
 
 const char *util_ssid_to_utf8(size_t len, const uint8_t *ssid)
@@ -155,7 +156,7 @@ bool util_string_to_address(const char *str, uint8_t *out_addr)
 bool util_is_group_address(const uint8_t *addr)
 {
 	/* 802.11-2016 section 9.2.2 */
-	return util_is_bit_set(addr[0], 0);
+	return test_bit(addr, 0);
 }
 
 bool util_is_broadcast_address(const uint8_t *addr)
