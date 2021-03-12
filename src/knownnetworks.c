@@ -34,6 +34,7 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "src/iwd.h"
 #include "src/module.h"
 #include "src/storage.h"

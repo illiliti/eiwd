@@ -35,6 +35,7 @@
 #include <linux/if_ether.h>
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "linux/nl80211.h"
 #include "src/iwd.h"
 #include "src/module.h"

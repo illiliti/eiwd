@@ -33,6 +33,7 @@
 
 #include "linux/nl80211.h"
 
+#include "ell/useful.h"
 #include "src/iwd.h"
 #include "src/module.h"
 #include "src/mpdu.h"
