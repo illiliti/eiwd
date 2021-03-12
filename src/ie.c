@@ -729,8 +729,8 @@ static int parse_ciphers(const uint8_t *data, size_t len,
 
 	out_info->preauthentication = util_is_bit_set(data[0], 0);
 	out_info->no_pairwise = util_is_bit_set(data[0], 1);
-	out_info->ptksa_replay_counter = util_bit_field(data[0], 2, 2);
-	out_info->gtksa_replay_counter = util_bit_field(data[0], 4, 2);
+	out_info->ptksa_replay_counter = bit_field(data[0], 2, 2);
+	out_info->gtksa_replay_counter = bit_field(data[0], 4, 2);
 	out_info->mfpr = util_is_bit_set(data[0], 6);
 	out_info->mfpc = util_is_bit_set(data[0], 7);
 	out_info->peerkey_enabled = util_is_bit_set(data[1], 1);
@@ -1452,8 +1452,8 @@ int ie_parse_wpa(struct ie_tlv_iter *iter, struct ie_rsn_info *out_info)
 
 	out_info->preauthentication = util_is_bit_set(data[0], 0);
 	out_info->no_pairwise = util_is_bit_set(data[0], 1);
-	out_info->ptksa_replay_counter = util_bit_field(data[0], 2, 2);
-	out_info->gtksa_replay_counter = util_bit_field(data[0], 4, 2);
+	out_info->ptksa_replay_counter = bit_field(data[0], 2, 2);
+	out_info->gtksa_replay_counter = bit_field(data[0], 4, 2);
 
 	RSNE_ADVANCE(data, len, 2);
 
@@ -1990,9 +1990,9 @@ static int ie_parse_vht_capability(struct ie_tlv_iter *vht_iter,
 
 	data = ie_tlv_iter_get_data(vht_iter);
 
-	channel_width_set = util_bit_field(*data, 2, 2);
-	short_gi_80mhz = util_bit_field(*data, 5, 1);
-	short_gi_160mhz = util_bit_field(*data, 6, 1);
+	channel_width_set = bit_field(*data, 2, 2);
+	short_gi_80mhz = bit_field(*data, 5, 1);
+	short_gi_160mhz = bit_field(*data, 6, 1);
 
 	data += 4;
 
@@ -2006,9 +2006,9 @@ static int ie_parse_vht_capability(struct ie_tlv_iter *vht_iter,
 
 	/* NSS->MCS map values are grouped in 2-bit values */
 	for (mcs = 15; mcs >= 0; mcs -= 2) {
-		uint8_t rx_val = util_bit_field(rx_mcs_map[mcs / 8],
+		uint8_t rx_val = bit_field(rx_mcs_map[mcs / 8],
 							mcs % 8, 2);
-		uint8_t tx_val = util_bit_field(tx_mcs_map[mcs / 8],
+		uint8_t tx_val = bit_field(tx_mcs_map[mcs / 8],
 							mcs % 8, 2);
 
 		/*
@@ -2283,7 +2283,7 @@ int ie_parse_fast_bss_transition(struct ie_tlv_iter *iter, uint32_t mic_len,
 			if (subelem_len < 35 || subelem_len > 51)
 				return -EINVAL;
 
-			info->gtk_key_id = util_bit_field(data[0], 0, 2);
+			info->gtk_key_id = bit_field(data[0], 0, 2);
 			info->gtk_len = data[2];
 
 			/*
@@ -2428,7 +2428,7 @@ int ie_parse_neighbor_report(struct ie_tlv_iter *iter,
 	info->spectrum_mgmt = util_is_bit_set(data[9], 4);
 	info->key_scope = util_is_bit_set(data[9], 3);
 	info->security = util_is_bit_set(data[9], 2);
-	info->reachable = util_bit_field(data[9], 0, 2);
+	info->reachable = bit_field(data[9], 0, 2);
 
 	info->oper_class = data[10];
 
@@ -2469,8 +2469,8 @@ int ie_parse_roaming_consortium(struct ie_tlv_iter *iter, size_t *num_anqp_out,
 		return -EINVAL;
 
 	num_anqp = l_get_u8(data);
-	oi1_len = util_bit_field(l_get_u8(data + 1), 0, 4);
-	oi2_len = util_bit_field(l_get_u8(data + 1), 4, 4);
+	oi1_len = bit_field(l_get_u8(data + 1), 0, 4);
+	oi2_len = bit_field(l_get_u8(data + 1), 4, 4);
 	oi3_len = len - (2 + oi1_len + oi2_len);
 
 	if (!oi1_len)
@@ -2575,7 +2575,7 @@ int ie_parse_hs20_indication(struct ie_tlv_iter *iter, uint8_t *version_out,
 		return -EPROTOTYPE;
 
 	if (version_out)
-		*version_out = util_bit_field(hs20_config, 4, 4);
+		*version_out = bit_field(hs20_config, 4, 4);
 
 	if (pps_mo_id_out)
 		*pps_mo_id_out = 0;
