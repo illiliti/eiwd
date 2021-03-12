@@ -28,6 +28,7 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "src/util.h"
 #include "src/crypto.h"
 #include "src/ie.h"

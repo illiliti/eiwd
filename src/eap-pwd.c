@@ -28,6 +28,7 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "src/missing.h"
 #include "src/eap.h"
 #include "src/eap-private.h"
