@@ -1159,18 +1159,18 @@ static void wiphy_set_station_capability_bits(struct wiphy *wiphy)
 		anqp_disabled = true;
 
 	/* Set BSS Transition Management */
-	util_set_bit(ext_capa + 2, 19);
+	set_bit(ext_capa + 2, 19);
 
 	/* Set Interworking */
 	if (!anqp_disabled)
-		util_set_bit(ext_capa + 2, 31);
+		set_bit(ext_capa + 2, 31);
 
 	/* Set QoS Map */
 	if (wiphy->support_qos_set_map)
-		util_set_bit(ext_capa + 2, 32);
+		set_bit(ext_capa + 2, 32);
 
 	/* Set FILS */
-	util_set_bit(ext_capa + 2, 72);
+	set_bit(ext_capa + 2, 72);
 }
 
 static void wiphy_setup_rm_enabled_capabilities(struct wiphy *wiphy)
