@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "src/missing.h"
 #include "src/module.h"
 #include "src/crypto.h"
@@ -1707,7 +1708,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 
 		/* TODO: Handle tx bit */
 
-		gtk_key_index = util_bit_field(gtk[0], 0, 2);
+		gtk_key_index = bit_field(gtk[0], 0, 2);
 		gtk += 2;
 		gtk_len -= 2;
 	} else
@@ -1898,7 +1899,7 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 		if (!gtk)
 			return;
 
-		gtk_key_index = util_bit_field(gtk[0], 0, 2);
+		gtk_key_index = bit_field(gtk[0], 0, 2);
 		gtk += 2;
 		gtk_len -= 2;
 	} else {
