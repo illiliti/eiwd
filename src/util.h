@@ -43,12 +43,6 @@ bool util_is_valid_sta_address(const uint8_t *addr);
 const char *util_get_domain(const char *identity);
 const char *util_get_username(const char *identity);
 
-static inline uint8_t util_bit_field(const uint8_t oct, int start, int num)
-{
-	unsigned char mask = (1 << num) - 1;
-	return (oct >> start) & mask;
-}
-
 static inline bool util_is_bit_set(const uint8_t oct, int bit)
 {
 	int mask = 1 << bit;
