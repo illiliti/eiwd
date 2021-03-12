@@ -55,11 +55,6 @@ static inline bool util_is_bit_set(const uint8_t oct, int bit)
 	return oct & mask ? true : false;
 }
 
-static inline void util_set_bit(uint8_t *field, unsigned int bit)
-{
-	field[bit / 8] = 1 << (bit % 8);
-}
-
 /*
  * Returns either true_value or false_value (depending if mask is 0xFF or 0x00
  * respectively).
