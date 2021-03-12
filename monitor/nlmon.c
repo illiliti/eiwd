@@ -712,8 +712,9 @@ static void print_ie_bitfield(unsigned int level, const char *label,
 	for (i = 0; i < len * 8; i++) {
 		uint8_t byte = i / 8;
 		uint8_t bit = i % 8;
+		uint8_t masked = bytes[byte] & mask[byte];
 
-		if (!util_is_bit_set(bytes[byte] & mask[byte], bit))
+		if (!test_bit(&masked, bit))
 			continue;
 
 		print_attr(level, "%s: bit %2d: %s", label, i,
@@ -934,11 +935,11 @@ static void print_ie_wfa_hs20(unsigned int level, const char *label,
 	if (size < 1)
 		return;
 
-	pps_mo_id_present = util_is_bit_set(ptr[0], 1);
-	anpq_domain_id_present = util_is_bit_set(ptr[0], 2);
+	pps_mo_id_present = test_bit(ptr, 1);
+	anpq_domain_id_present = test_bit(ptr, 2);
 
 	print_attr(level + 1, "HS2.0 Indication Element:");
-	print_attr(level + 2, "DGAF Disabled: %u", util_is_bit_set(ptr[0], 0));
+	print_attr(level + 2, "DGAF Disabled: %u", test_bit(ptr, 0));
 	print_attr(level + 2, "PPS MO ID Present: %u", pps_mo_id_present);
 	print_attr(level + 2, "ANQP Domain ID Present: %u",
 				anpq_domain_id_present);
@@ -1161,10 +1162,7 @@ static void print_ie_mcs(unsigned int level, const char *label,
 		return print_ie_error(level, label, size, -EINVAL);
 
 	for (i = 0; i < 77; i++) {
-		uint8_t byte = i / 8;
-		uint8_t bit = i % 8;
-
-		if (util_is_bit_set(bytes[byte], bit))
+		if (test_bit(bytes, i))
 			print_attr(level, "%s: MCS %d", label, i);
 	}
 
@@ -1405,7 +1403,7 @@ static void print_ie_extended_capabilities(unsigned int level,
 	if (size == 0)
 		return;
 
-	spsmp = util_is_bit_set(*((uint8_t *) data), 6);
+	spsmp = test_bit(data, 6);
 
 	bytes = size < sizeof(bytemask1) ? size : sizeof(bytemask1);
 
@@ -1519,7 +1517,7 @@ static void print_ie_ht_capabilities(unsigned int level,
 
 	print_ie_mcs(level + 1, "Supported MCS", htc + 3, 16);
 
-	pco = util_is_bit_set(htc[18], 0);
+	pco = test_bit(htc + 18, 0);
 	print_attr(level + 1, "HT Extended Capabilities: PCO: %s",
 			bits ? "supported" : "not supported");
 
@@ -1534,11 +1532,11 @@ static void print_ie_ht_capabilities(unsigned int level,
 	print_attr(level + 1, "HT Extended Capabilities: "
 			"MCS Feedback: %s", ht_capabilities_mcs_feedback[bits]);
 
-	plus_htc = util_is_bit_set(htc[19], 2);
+	plus_htc = test_bit(htc + 19, 2);
 	print_attr(level + 1, "HT Extended Capabilities: "
 			"+HTC: %s", plus_htc ? "supported" : "not supported");
 
-	rd_responder = util_is_bit_set(htc[19], 3);
+	rd_responder = test_bit(htc + 19, 3);
 	print_attr(level + 1, "HT Extended Capabilities: "
 			"RD Responder: %s",
 			rd_responder ? "supported" : "not supported");
@@ -1652,10 +1650,10 @@ static void print_ie_interworking(unsigned int level,
 	}
 
 	print_attr(level + 1, "Network Type: %s", msg);
-	print_attr(level + 1, "Internet: %u", util_is_bit_set(ptr[0], 4));
-	print_attr(level + 1, "ASRA: %u", util_is_bit_set(ptr[0], 5));
-	print_attr(level + 1, "ESR: %u", util_is_bit_set(ptr[0], 6));
-	print_attr(level + 1, "UESA: %u", util_is_bit_set(ptr[0], 7));
+	print_attr(level + 1, "Internet: %u", test_bit(ptr, 4));
+	print_attr(level + 1, "ASRA: %u", test_bit(ptr, 5));
+	print_attr(level + 1, "ESR: %u", test_bit(ptr, 6));
+	print_attr(level + 1, "UESA: %u", test_bit(ptr, 7));
 
 	size--;
 	ptr++;
@@ -1806,18 +1804,18 @@ static void print_fils_indication(unsigned int level,
 				bit_field(*bytes, 0, 3));
 	print_attr(level + 1, "Num Realm Identifiers: %u",
 				bit_field(*bytes, 3, 3));
-	print_attr(level + 1, "IP configuration: %u", util_is_bit_set(*bytes, 6));
+	print_attr(level + 1, "IP configuration: %u", test_bit(bytes, 6));
 	print_attr(level + 1, "Cache Identifier Included: %u",
-				util_is_bit_set(*bytes, 7));
+				test_bit(bytes, 7));
 
 	bytes++;
 
-	print_attr(level + 1, "HES-SID Included: %u", util_is_bit_set(*bytes, 0));
+	print_attr(level + 1, "HES-SID Included: %u", test_bit(bytes, 0));
 	print_attr(level + 1, "SK Auth without PFS supported: %u",
-				util_is_bit_set(*bytes, 1));
+				test_bit(bytes, 1));
 	print_attr(level + 1, "SK Auth with PFS supported: %u",
-				util_is_bit_set(*bytes, 2));
-	print_attr(level + 1, "PK Auth supported: %u", util_is_bit_set(*bytes, 3));
+				test_bit(bytes, 2));
+	print_attr(level + 1, "PK Auth supported: %u", test_bit(bytes, 3));
 
 	bytes++;
 
@@ -1949,22 +1947,21 @@ static void print_measurement_request(unsigned int level, const char *label,
 	print_attr(level + 1, "Token: %u", l_get_u8(data));
 
 	mode = l_get_u8(data + 1);
-
 	print_attr(level + 1, "Request Mode: %u", mode);
 
-	if (util_is_bit_set(mode, 0))
+	if (test_bit(&mode, 0))
 		print_attr(level + 2, "Parallel bit set");
 
-	if (util_is_bit_set(mode, 1))
+	if (test_bit(&mode, 1))
 		print_attr(level + 2, "Enable bit set");
 
-	if (util_is_bit_set(mode, 2))
+	if (test_bit(&mode, 2))
 		print_attr(level + 2, "Request bit set");
 
-	if (util_is_bit_set(mode, 3))
+	if (test_bit(&mode, 3))
 		print_attr(level + 2, "Report bit set");
 
-	if (util_is_bit_set(mode, 4))
+	if (test_bit(&mode, 4))
 		print_attr(level + 2, "Duration Mandatory set");
 
 	type = l_get_u8(data + 2);
@@ -2000,7 +1997,7 @@ static void print_measurement_report_beacon(unsigned int level,
 	frame_info = l_get_u8(data + 12);
 
 	print_attr(level, "PHY Type: %u", bit_field(frame_info, 0, 7));
-	print_attr(level, "Frame Type: %u", util_is_bit_set(frame_info, 7));
+	print_attr(level, "Frame Type: %u", test_bit(&frame_info, 7));
 	print_attr(level, "RCPI: %u", l_get_u8(data + 13));
 	print_attr(level, "RSNI: %u", l_get_u8(data + 14));
 	print_attr(level, "BSSID: "MAC, MAC_STR(((const uint8_t *)data + 15)));
@@ -2023,16 +2020,15 @@ static void print_measurement_report(unsigned int level, const char *label,
 	print_attr(level + 1, "Token: %u", l_get_u8(data));
 
 	mode = l_get_u8(data + 1);
-
 	print_attr(level + 1, "Report Mode: %u", mode);
 
-	if (util_is_bit_set(mode, 0))
+	if (test_bit(&mode, 0))
 		print_attr(level + 2, "Late bit set");
 
-	if (util_is_bit_set(mode, 1))
+	if (test_bit(&mode, 1))
 		print_attr(level + 2, "Incapable bit set");
 
-	if (util_is_bit_set(mode, 2))
+	if (test_bit(&mode, 2))
 		print_attr(level + 2, "Refused bit set");
 
 	type = l_get_u8(data + 2);
