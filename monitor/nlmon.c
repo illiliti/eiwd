@@ -48,6 +48,8 @@
 #endif
 
 #include "linux/nl80211.h"
+
+#include "ell/useful.h"
 #include "src/ie.h"
 #include "src/mpdu.h"
 #include "src/eapol.h"
@@ -941,7 +943,7 @@ static void print_ie_wfa_hs20(unsigned int level, const char *label,
 	print_attr(level + 2, "ANQP Domain ID Present: %u",
 				anpq_domain_id_present);
 
-	switch (util_bit_field(ptr[0], 4, 7)) {
+	switch (bit_field(ptr[0], 4, 7)) {
 	case 0:
 		print_attr(level + 2, "Version Number: 1.x");
 		break;
@@ -1416,7 +1418,7 @@ static void print_ie_extended_capabilities(unsigned int level,
 
 	/* Print Service Interval Granularity */
 	if (spsmp) {
-		interval = util_bit_field(*((uint8_t *) data + 5), 1, 3);
+		interval = bit_field(*((uint8_t *) data + 5), 1, 3);
 		print_attr(level + 1,
 			"Shortest Service Interval Granularity: %d ms",
 			interval * 5 + 5);
@@ -1488,7 +1490,7 @@ static void print_ie_ht_capabilities(unsigned int level,
 				1, ht_capabilities_info_bitfield);
 
 	/* Print SM Power Save */
-	sm_power_save = util_bit_field(htc[0], 2, 2);
+	sm_power_save = bit_field(htc[0], 2, 2);
 	print_attr(level + 1, "HT Capabilities Info: bits 2-3: %s",
 			ht_capabilities_sm_power_save[sm_power_save]);
 
@@ -1497,7 +1499,7 @@ static void print_ie_ht_capabilities(unsigned int level,
 	print_ie_bitfield(level + 1, "HT Capabilities Info", data, info_mask,
 				1, ht_capabilities_info_bitfield);
 
-	rx_stbc = util_bit_field(htc[1], 0, 2);
+	rx_stbc = bit_field(htc[1], 0, 2);
 	print_attr(level + 1, "HT Capabilities Info: bits 8-9: %s",
 			ht_capabilities_rx_stbc[rx_stbc]);
 
@@ -1506,11 +1508,11 @@ static void print_ie_ht_capabilities(unsigned int level,
 	print_ie_bitfield(level + 1, "HT Capabilities Info", data, info_mask,
 				2, ht_capabilities_info_bitfield);
 
-	ampdu_exponent = util_bit_field(htc[2], 0, 2);
+	ampdu_exponent = bit_field(htc[2], 0, 2);
 	print_attr(level + 1, "A-MPDU Parameters: "
 			"Maximum A-MPDU Length Exponent: %d", ampdu_exponent);
 
-	bits = util_bit_field(htc[2], 2, 3);
+	bits = bit_field(htc[2], 2, 3);
 	print_attr(level + 1, "A-MPDU Parameters: "
 			"Minimum MPDU Start Spacing: %s",
 			ht_capabilities_min_mpdu_start_spacing[bits]);
@@ -1522,13 +1524,13 @@ static void print_ie_ht_capabilities(unsigned int level,
 			bits ? "supported" : "not supported");
 
 	if (pco) {
-		bits = util_bit_field(htc[18], 1, 2);
+		bits = bit_field(htc[18], 1, 2);
 		print_attr(level + 1, "HT Extended Capabilities: "
 				"PCO Transition Time: %s",
 				ht_capabilities_pco_transition_time[bits]);
 	}
 
-	bits = util_bit_field(htc[19], 0, 2);
+	bits = bit_field(htc[19], 0, 2);
 	print_attr(level + 1, "HT Extended Capabilities: "
 			"MCS Feedback: %s", ht_capabilities_mcs_feedback[bits]);
 
@@ -1591,15 +1593,15 @@ static void print_ie_rm_enabled_caps(unsigned int level,
 	print_ie_bitfield(level + 1, "Enabled", bytes,
 				bytemask1, sizeof(bytemask1), capabilities);
 
-	byte = util_bit_field(bytes[2], 2, 3);
+	byte = bit_field(bytes[2], 2, 3);
 	print_attr(level + 1, "Operating Channel Max Measurement Duration: %u",
 			byte);
 
-	byte = util_bit_field(bytes[2], 5, 3);
+	byte = bit_field(bytes[2], 5, 3);
 	print_attr(level + 1, "Non-Operating Channel Max Measurement "
 			"Duration: %u", byte);
 
-	byte = util_bit_field(bytes[3], 0, 3);
+	byte = bit_field(bytes[3], 0, 3);
 	print_attr(level + 1, "Measurement Pilot Capability: %u", byte);
 
 	print_ie_bitfield(level + 1, "Enabled", bytes + sizeof(bytemask1),
@@ -1618,7 +1620,7 @@ static void print_ie_interworking(unsigned int level,
 
 	print_attr(level, "%s: len %u", label, size);
 
-	type = util_bit_field(ptr[0], 0, 3);
+	type = bit_field(ptr[0], 0, 3);
 
 	switch (type) {
 	case 0:
@@ -1738,7 +1740,7 @@ static void print_ie_advertisement(unsigned int level,
 	print_attr(level, "%s: len %u", label, size);
 
 	while (size) {
-		uint8_t qr_len = util_bit_field(ptr[0], 0, 7);
+		uint8_t qr_len = bit_field(ptr[0], 0, 7);
 		uint8_t id = ptr[1];
 
 		switch (id) {
@@ -1801,9 +1803,9 @@ static void print_fils_indication(unsigned int level,
 	print_attr(level, "FILS Indication: len %u", size);
 
 	print_attr(level + 1, "Num Public Key Identifiers: %u",
-				util_bit_field(*bytes, 0, 3));
+				bit_field(*bytes, 0, 3));
 	print_attr(level + 1, "Num Realm Identifiers: %u",
-				util_bit_field(*bytes, 3, 3));
+				bit_field(*bytes, 3, 3));
 	print_attr(level + 1, "IP configuration: %u", util_is_bit_set(*bytes, 6));
 	print_attr(level + 1, "Cache Identifier Included: %u",
 				util_is_bit_set(*bytes, 7));
@@ -1997,7 +1999,7 @@ static void print_measurement_report_beacon(unsigned int level,
 
 	frame_info = l_get_u8(data + 12);
 
-	print_attr(level, "PHY Type: %u", util_bit_field(frame_info, 0, 7));
+	print_attr(level, "PHY Type: %u", bit_field(frame_info, 0, 7));
 	print_attr(level, "Frame Type: %u", util_is_bit_set(frame_info, 7));
 	print_attr(level, "RCPI: %u", l_get_u8(data + 13));
 	print_attr(level, "RSNI: %u", l_get_u8(data + 14));
