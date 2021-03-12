@@ -569,7 +569,7 @@ error:
 static void eap_pwd_process(struct eap_state *eap,
 				const uint8_t *pkt, size_t len)
 {
-	uint8_t pwd_exch = util_bit_field(pkt[0], 0, 6);
+	uint8_t pwd_exch = bit_field(pkt[0], 0, 6);
 
 	if (len < 1)
 		return;
