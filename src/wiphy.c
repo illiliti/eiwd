@@ -96,6 +96,7 @@ struct wiphy {
 	bool support_adhoc_rsn:1;
 	bool support_qos_set_map:1;
 	bool support_cmds_auth_assoc:1;
+	bool support_fw_roam:1;
 	bool soft_rfkill : 1;
 	bool hard_rfkill : 1;
 	bool offchannel_tx_ok : 1;
@@ -460,6 +461,11 @@ bool wiphy_can_offchannel_tx(struct wiphy *wiphy)
 bool wiphy_supports_qos_set_map(struct wiphy *wiphy)
 {
 	return wiphy->support_qos_set_map;
+}
+
+bool wiphy_supports_firmware_roam(struct wiphy *wiphy)
+{
+	return wiphy->support_fw_roam;
 }
 
 const char *wiphy_get_driver(struct wiphy *wiphy)
@@ -989,6 +995,9 @@ static void wiphy_parse_attributes(struct wiphy *wiphy,
 				l_warn("Invalid MAX_ROC_DURATION attribute");
 			else
 				wiphy->max_roc_duration = *((uint32_t *) data);
+			break;
+		case NL80211_ATTR_ROAM_SUPPORT:
+			wiphy->support_fw_roam = true;
 			break;
 		}
 	}
