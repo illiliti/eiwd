@@ -2303,6 +2303,8 @@ static void station_event_roamed(struct station *station, struct scan_bss *new)
 {
 	struct scan_bss *stale;
 
+	network_bss_update(station->connected_network, new);
+
 	/* Remove new BSS if it exists in past scan results */
 	stale = l_queue_remove_if(station->bss_list, bss_match_bssid,
 					new->addr);
