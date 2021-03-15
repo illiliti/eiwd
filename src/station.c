@@ -2291,6 +2291,23 @@ static void station_ok_rssi(struct station *station)
 	station->roam_min_time.tv_sec = 0;
 }
 
+static void station_event_roamed(struct station *station, struct scan_bss *new)
+{
+	struct scan_bss *stale;
+
+	/* Remove new BSS if it exists in past scan results */
+	stale = l_queue_remove_if(station->bss_list, bss_match_bssid,
+					new->addr);
+	if (stale)
+		scan_bss_free(stale);
+
+	station->connected_bss = new;
+
+	l_queue_insert(station->bss_list, new, scan_bss_rank_compare, NULL);
+
+	station_enter_state(station, STATION_STATE_CONNECTED);
+}
+
 static void station_rssi_level_changed(struct station *station,
 					uint8_t level_idx);
 
@@ -2318,6 +2335,12 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 		break;
 	case NETDEV_EVENT_RSSI_LEVEL_NOTIFY:
 		station_rssi_level_changed(station, l_get_u8(event_data));
+		break;
+	case NETDEV_EVENT_ROAMING:
+		station_enter_state(station, STATION_STATE_ROAMING);
+		break;
+	case NETDEV_EVENT_ROAMED:
+		station_event_roamed(station, (struct scan_bss *) event_data);
 		break;
 	}
 }

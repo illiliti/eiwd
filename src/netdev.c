@@ -128,6 +128,8 @@ struct netdev {
 	uint32_t rssi_poll_cmd_id;
 	uint8_t set_mac_once[6];
 
+	struct scan_bss *fw_roam_bss;
+
 	uint32_t set_powered_cmd_id;
 	netdev_command_cb_t set_powered_cb;
 	void *set_powered_user_data;
@@ -770,6 +772,9 @@ static void netdev_free(void *data)
 		netdev->get_station_cmd_id = 0;
 	}
 
+	if (netdev->fw_roam_bss)
+		scan_bss_free(netdev->fw_roam_bss);
+
 	if (netdev->events_ready)
 		WATCHLIST_NOTIFY(&netdev_watches, netdev_watch_func_t,
 					netdev, NETDEV_WATCH_EVENT_DEL);
@@ -1187,6 +1192,17 @@ static void netdev_connect_ok(struct netdev *netdev)
 					L_UINT_TO_PTR(netdev->index), NULL);
 
 	netdev->operational = true;
+
+	if (netdev->fw_roam_bss) {
+		if (netdev->event_filter)
+			netdev->event_filter(netdev, NETDEV_EVENT_ROAMED,
+						netdev->fw_roam_bss,
+						netdev->user_data);
+		else
+			scan_bss_free(netdev->fw_roam_bss);
+
+		netdev->fw_roam_bss = NULL;
+	}
 
 	if (netdev->connect_cb) {
 		netdev->connect_cb(netdev, NETDEV_RESULT_OK, NULL,
@@ -1807,6 +1823,7 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 	struct ie_tlv_iter iter;
 	const uint8_t *resp_ies = NULL;
 	size_t resp_ies_len;
+	uint8_t cmd = l_genl_msg_get_command(msg);
 
 	l_debug("");
 
@@ -1860,9 +1877,16 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 			goto error;
 	}
 
-	/* AP Rejected the authenticate / associate */
-	if (!status_code || *status_code != 0)
-		goto error;
+	/*
+	 * A CMD_ROAM event will not have a status code, since it indicates
+	 * the hardware has already roamed. A failed roam on fullmac should
+	 * result in an explicit disconnect event.
+	 */
+	if (cmd == NL80211_CMD_CONNECT) {
+		/* AP Rejected the authenticate / associate */
+		if (!status_code || *status_code != 0)
+			goto error;
+	}
 
 	if (!ies)
 		goto process_resp_ies;
@@ -1948,6 +1972,18 @@ process_resp_ies:
 	}
 
 	if (netdev->sm) {
+		/*
+		 * Let station know about the roam so a state change can occur.
+		 */
+		if (cmd == NL80211_CMD_ROAM) {
+			if (netdev->event_filter)
+				netdev->event_filter(netdev,
+						NETDEV_EVENT_ROAMING,
+						NULL, netdev->user_data);
+			/* EAPoL started after GET_SCAN */
+			return;
+		}
+
 		/*
 		 * Start processing EAPoL frames now that the state machine
 		 * has all the input data even in FT mode.
@@ -3905,6 +3941,111 @@ static void netdev_scan_notify(struct l_genl_msg *msg, void *user_data)
 	}
 }
 
+static bool match_addr(const void *a, const void *b)
+{
+	const struct scan_bss *bss = a;
+
+	return memcmp(bss->addr, b, 6) == 0;
+}
+
+static bool netdev_get_fw_scan_cb(int err, struct l_queue *bss_list,
+					const struct scan_freq_set *freqs,
+					void *user_data)
+{
+	struct netdev *netdev = user_data;
+	struct scan_bss *bss = NULL;
+
+	/*
+	 * If there was a failure in netdev_connect_event this would reset
+	 * the connect state (netdev_connect_free) causing the sm to be freed.
+	 * In this case we should just ignore this and allow the disconnect
+	 * logic to continue.
+	 */
+	if (!netdev->sm)
+		return false;
+
+	if (err < 0) {
+		l_error("Failed to get scan after roam (%d)", err);
+		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
+					MMPDU_REASON_CODE_UNSPECIFIED);
+		return false;
+	}
+
+	/*
+	 * We don't actually need the entire list since we only provide
+	 * station with the roamed BSS. We can remove the BSS we want and by
+	 * returning false scan will keep ownership of the list.
+	 */
+	bss = l_queue_remove_if(bss_list, match_addr, netdev->handshake->aa);
+
+	if (!bss) {
+		l_error("Roam target BSS not found in scan results");
+		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
+					MMPDU_REASON_CODE_UNSPECIFIED);
+		return false;
+	}
+
+	netdev->fw_roam_bss = bss;
+
+	handshake_state_set_authenticator_ie(netdev->handshake, bss->rsne);
+
+	eapol_start(netdev->sm);
+
+	return false;
+}
+
+/*
+ * CMD_ROAM indicates that the driver has already roamed/associated with a new
+ * AP. This event is nearly identical to the CMD_CONNECT event which is why
+ * netdev_connect_event will handle all the parsing of IE's just as it does
+ * normally.
+ *
+ * Using GET_SCAN we can grab all the required scan_bss data, create that object
+ * and provide it to station.
+ *
+ * The current handshake/netdev_handshake objects are reused after being
+ * reset to allow eapol to happen again without it thinking this is a re-key.
+ */
+static bool netdev_roam_event(struct l_genl_msg *msg, struct netdev *netdev)
+{
+	struct netdev_handshake_state *nhs =
+			l_container_of(netdev->handshake,
+					struct netdev_handshake_state,
+					super);
+	const uint8_t *mac;
+
+	l_debug("");
+
+	netdev->operational = false;
+
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_MAC, &mac,
+					NL80211_ATTR_UNSPEC) < 0) {
+		l_error("Failed to parse ATTR_MAC from CMD_ROAM");
+		goto failed;
+	}
+
+	/* Reset handshake state */
+	nhs->complete = false;
+	nhs->ptk_installed = false;
+	nhs->gtk_installed = true;
+	nhs->igtk_installed = true;
+	handshake_state_set_authenticator_address(netdev->handshake, mac);
+	netdev->handshake->ptk_complete = false;
+
+	if (!scan_get_firmware_scan(netdev->wdev_id, netdev_get_fw_scan_cb,
+					netdev, NULL))
+		goto failed;
+
+	return true;
+
+failed:
+	l_error("Failed to roam to new BSS");
+	netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
+					MMPDU_REASON_CODE_UNSPECIFIED);
+
+	return false;
+}
+
 static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = NULL;
@@ -3946,6 +4087,10 @@ static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
 	case NL80211_CMD_ASSOCIATE:
 		netdev_associate_event(msg, netdev);
 		break;
+	case NL80211_CMD_ROAM:
+		if (!netdev_roam_event(msg, netdev))
+			return;
+		/* fall through */
 	case NL80211_CMD_CONNECT:
 		netdev_connect_event(msg, netdev);
 		break;
