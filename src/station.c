@@ -2170,6 +2170,14 @@ static bool station_cannot_roam(struct station *station)
 	const struct l_settings *config = iwd_get_config();
 	bool disabled;
 
+	/*
+	 * Disable roaming with hardware that can roam automatically. Note this
+	 * is now required for recent kernels which have CQM event support on
+	 * this type of hardware (e.g. brcmfmac).
+	 */
+	if (wiphy_supports_firmware_roam(station->wiphy))
+		return true;
+
 	if (!l_settings_get_bool(config, "Scan", "DisableRoamingScan",
 								&disabled))
 		disabled = false;
