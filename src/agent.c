@@ -69,6 +69,7 @@ static struct l_queue *agents;
  * This should probably be configurable by user via
  * config file/command line option/env variable.
  */
+#ifdef HAVE_DBUS
 static unsigned int agent_timeout_input_request(void)
 {
 	return 120;
@@ -128,11 +129,13 @@ static void send_cancel_request(void *user_data, int reason)
 
 	l_dbus_send(dbus_get_bus(), message);
 }
+#endif
 
 static void agent_request_free(void *user_data)
 {
 	struct agent_request *request = user_data;
 
+#ifdef HAVE_DBUS
 	l_dbus_message_unref(request->message);
 
 	if (request->trigger)
@@ -141,10 +144,12 @@ static void agent_request_free(void *user_data)
 
 	if (request->destroy)
 		request->destroy(request->user_data);
+#endif
 
 	l_free(request);
 }
 
+#ifdef HAVE_DBUS
 static void passphrase_reply(struct l_dbus_message *reply,
 					struct agent_request *request)
 {
@@ -187,6 +192,7 @@ done:
 	user_callback(result, username, passwd,
 			request->trigger, request->user_data);
 }
+#endif
 
 static void agent_finalize_pending(struct agent *agent,
 						struct l_dbus_message *reply)
@@ -198,6 +204,7 @@ static void agent_finalize_pending(struct agent *agent,
 		agent->timeout = NULL;
 	}
 
+#ifdef HAVE_DBUS
 	pending = l_queue_pop_head(agent->requests);
 
 	switch (pending->type) {
@@ -215,6 +222,7 @@ static void agent_finalize_pending(struct agent *agent,
 	}
 
 	agent_request_free(pending);
+#endif
 }
 
 static void agent_free(void *data)
@@ -226,13 +234,17 @@ static void agent_free(void *data)
 	if (agent->timeout)
 		l_timeout_remove(agent->timeout);
 
+#ifdef HAVE_DBUS
 	if (agent->pending_id)
 		l_dbus_cancel(dbus_get_bus(), agent->pending_id);
 
 	l_queue_destroy(agent->requests, agent_request_free);
+#endif
 
+#ifdef HAVE_DBUS
 	if (agent->disconnect_watch)
 		l_dbus_remove_watch(dbus_get_bus(), agent->disconnect_watch);
+#endif
 
 	l_free(agent->owner);
 	l_free(agent->path);
@@ -245,15 +257,18 @@ static void request_timeout(struct l_timeout *timeout, void *user_data)
 {
 	struct agent *agent = user_data;
 
+#ifdef HAVE_DBUS
 	l_dbus_cancel(dbus_get_bus(), agent->pending_id);
 
 	send_cancel_request(agent, -ETIMEDOUT);
+#endif
 
 	agent_finalize_pending(agent, NULL);
 
 	agent_send_next_request(agent);
 }
 
+#ifdef HAVE_DBUS
 static void agent_receive_reply(struct l_dbus_message *message,
 							void *user_data)
 {
@@ -268,6 +283,7 @@ static void agent_receive_reply(struct l_dbus_message *message,
 	if (!agent->pending_id)
 		agent_send_next_request(agent);
 }
+#endif
 
 static void agent_send_next_request(struct agent *agent)
 {
@@ -283,16 +299,19 @@ static void agent_send_next_request(struct agent *agent)
 
 	l_debug("send request to %s %s", agent->owner, agent->path);
 
+#ifdef HAVE_DBUS
 	agent->pending_id = l_dbus_send_with_reply(dbus_get_bus(),
 							pending->message,
 							agent_receive_reply,
 							agent, NULL);
+#endif
 
 	pending->message = NULL;
 
 	return;
 }
 
+#ifdef HAVE_DBUS
 static unsigned int agent_queue_request(struct agent *agent,
 					enum agent_request_type type,
 					struct l_dbus_message *message,
@@ -351,6 +370,7 @@ static struct agent *get_agent(const char *owner)
 
 	return l_queue_peek_head(agents);
 }
+#endif
 
 /**
  * agent_request_passphrase:
@@ -375,6 +395,7 @@ unsigned int agent_request_passphrase(const char *path,
 				void *user_data,
 				agent_request_destroy_func_t destroy)
 {
+#ifdef HAVE_DBUS
 	struct agent *agent = get_agent(l_dbus_message_get_sender(trigger));
 	struct l_dbus_message *message;
 
@@ -394,6 +415,9 @@ unsigned int agent_request_passphrase(const char *path,
 	return agent_queue_request(agent, AGENT_REQUEST_TYPE_PASSPHRASE,
 					message, agent_timeout_input_request(),
 					callback, trigger, user_data, destroy);
+#else
+    return 0;
+#endif
 }
 
 unsigned int agent_request_pkey_passphrase(const char *path,
@@ -402,6 +426,7 @@ unsigned int agent_request_pkey_passphrase(const char *path,
 				void *user_data,
 				agent_request_destroy_func_t destroy)
 {
+#ifdef HAVE_DBUS
 	struct agent *agent = get_agent(l_dbus_message_get_sender(trigger));
 	struct l_dbus_message *message;
 
@@ -420,6 +445,9 @@ unsigned int agent_request_pkey_passphrase(const char *path,
 	return agent_queue_request(agent, AGENT_REQUEST_TYPE_PASSPHRASE,
 					message, agent_timeout_input_request(),
 					callback, trigger, user_data, destroy);
+#else
+    return 0;
+#endif
 }
 
 unsigned int agent_request_user_name_password(const char *path,
@@ -428,6 +456,7 @@ unsigned int agent_request_user_name_password(const char *path,
 				void *user_data,
 				agent_request_destroy_func_t destroy)
 {
+#ifdef HAVE_DBUS
 	struct agent *agent = get_agent(l_dbus_message_get_sender(trigger));
 	struct l_dbus_message *message;
 
@@ -446,6 +475,9 @@ unsigned int agent_request_user_name_password(const char *path,
 	return agent_queue_request(agent, AGENT_REQUEST_TYPE_USER_NAME_PASSWD,
 					message, agent_timeout_input_request(),
 					callback, trigger, user_data, destroy);
+#else
+    return 0;
+#endif
 }
 
 unsigned int agent_request_user_password(const char *path, const char *user,
@@ -453,6 +485,7 @@ unsigned int agent_request_user_password(const char *path, const char *user,
 				struct l_dbus_message *trigger, void *user_data,
 				agent_request_destroy_func_t destroy)
 {
+#ifdef HAVE_DBUS
 	struct agent *agent = get_agent(l_dbus_message_get_sender(trigger));
 	struct l_dbus_message *message;
 
@@ -471,6 +504,9 @@ unsigned int agent_request_user_password(const char *path, const char *user,
 	return agent_queue_request(agent, AGENT_REQUEST_TYPE_PASSPHRASE,
 					message, agent_timeout_input_request(),
 					callback, trigger, user_data, destroy);
+#else
+    return 0;
+#endif
 }
 
 static bool find_request(const void *a, const void *b)
@@ -500,9 +536,11 @@ bool agent_request_cancel(unsigned int req_id, int reason)
 		return false;
 
 	if (!request->message) {
+#ifdef HAVE_DBUS
 		send_cancel_request(agent, reason);
 
 		l_dbus_cancel(dbus_get_bus(), agent->pending_id);
+#endif
 
 		agent->pending_id = 0;
 
@@ -519,6 +557,7 @@ bool agent_request_cancel(unsigned int req_id, int reason)
 	return true;
 }
 
+#ifdef HAVE_DBUS
 static void agent_disconnect(struct l_dbus *dbus, void *user_data)
 {
 	struct agent *agent = user_data;
@@ -609,12 +648,15 @@ static void setup_agent_interface(struct l_dbus_interface *interface)
 				agent_unregister,
 				"", "o", "path");
 }
+#endif
 
 static bool release_agent(void *data, void *user_data)
 {
 	struct agent *agent = data;
 
+#ifdef HAVE_DBUS
 	send_request(agent, "Release");
+#endif
 
 	agent_free(agent);
 
@@ -623,10 +665,13 @@ static bool release_agent(void *data, void *user_data)
 
 static int agent_init(void)
 {
+#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
+#endif
 
 	agents = l_queue_new();
 
+#ifdef HAVE_DBUS
 	if (!l_dbus_register_interface(dbus, IWD_AGENT_MANAGER_INTERFACE,
 						setup_agent_interface,
 						NULL, false)) {
@@ -643,15 +688,18 @@ static int agent_init(void)
 		l_dbus_unregister_interface(dbus, IWD_AGENT_MANAGER_INTERFACE);
 		return -EIO;
 	}
+#endif
 
 	return 0;
 }
 
 static void agent_exit(void)
 {
+#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
 
 	l_dbus_unregister_interface(dbus, IWD_AGENT_MANAGER_INTERFACE);
+#endif
 
 	l_queue_destroy(agents, agent_free);
 	agents = NULL;

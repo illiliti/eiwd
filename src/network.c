@@ -495,8 +495,10 @@ void network_set_info(struct network *network, struct network_info *info)
 		network->info = NULL;
 	}
 
+#ifdef HAVE_DBUS
 	l_dbus_property_changed(dbus_get_bus(), network_get_path(network),
 					IWD_NETWORK_INTERFACE, "KnownNetwork");
+#endif
 }
 
 static inline bool __bss_is_sae(const struct scan_bss *bss,
@@ -1094,6 +1096,7 @@ static struct l_dbus_message *network_connect_8021x(struct network *network,
 	r = eap_check_settings(network->settings, network->secrets, "EAP-",
 				true, &missing_secrets);
 	if (r) {
+#ifdef HAVE_DBUS
 		if (r == -EUNATCH)
 			reply = dbus_error_not_available(message);
 		else if (r == -ENOTSUP)
@@ -1102,6 +1105,7 @@ static struct l_dbus_message *network_connect_8021x(struct network *network,
 			reply = dbus_error_failed(message);
 		else
 			reply = dbus_error_not_configured(message);
+#endif
 
 		goto error;
 	}
@@ -1112,7 +1116,9 @@ static struct l_dbus_message *network_connect_8021x(struct network *network,
 
 	if (l_queue_isempty(missing_secrets)) {
 		if (!network_set_8021x_secrets(network)) {
+#ifdef HAVE_DBUS
 			reply = dbus_error_failed(message);
+#endif
 
 			goto error;
 		}
@@ -1126,7 +1132,9 @@ static struct l_dbus_message *network_connect_8021x(struct network *network,
 				eap_secret_done))
 		return NULL;
 
+#ifdef HAVE_DBUS
 	reply = dbus_error_no_agent(message);
+#endif
 
 error:
 	network_settings_close(network);
@@ -1330,6 +1338,7 @@ static bool network_property_get_known_network(struct l_dbus *dbus,
 
 bool network_register(struct network *network, const char *path)
 {
+#ifdef HAVE_DBUS
 	if (!l_dbus_object_add_interface(dbus_get_bus(), path,
 					IWD_NETWORK_INTERFACE, network)) {
 		l_info("Unable to register %s interface",
@@ -1341,6 +1350,7 @@ bool network_register(struct network *network, const char *path)
 					L_DBUS_INTERFACE_PROPERTIES, network))
 		l_info("Unable to register %s interface",
 						L_DBUS_INTERFACE_PROPERTIES);
+#endif
 
 	network->object_path = l_strdup(path);
 
@@ -1349,12 +1359,16 @@ bool network_register(struct network *network, const char *path)
 
 static void network_unregister(struct network *network, int reason)
 {
+#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
+#endif
 
 	agent_request_cancel(network->agent_request, reason);
 	network_settings_close(network);
 
+#ifdef HAVE_DBUS
 	l_dbus_unregister_object(dbus, network->object_path);
+#endif
 
 	l_free(network->object_path);
 	network->object_path = NULL;
@@ -1523,9 +1537,11 @@ static void anqp_watch_changed(enum station_anqp_state state,
 		l_debug("ANQP complete, resuming connect to %s", network->ssid);
 
 		if (!network_settings_load(network)) {
+#ifdef HAVE_DBUS
 			reply = dbus_error_not_configured(
 						network->connect_after_anqp);
 			dbus_pending_reply(&network->connect_after_anqp, reply);
+#endif
 			return;
 		}
 
@@ -1533,10 +1549,12 @@ static void anqp_watch_changed(enum station_anqp_state state,
 					network_bss_select(network, true),
 					network->connect_after_anqp);
 
+#ifdef HAVE_DBUS
 		if (reply)
 			l_dbus_send(dbus_get_bus(), reply);
 
 		l_dbus_message_unref(network->connect_after_anqp);
+#endif
 		network->connect_after_anqp = NULL;
 	}
 }
@@ -1566,10 +1584,12 @@ static void setup_network_interface(struct l_dbus_interface *interface)
 
 static int network_init(void)
 {
+#ifdef HAVE_DBUS
 	if (!l_dbus_register_interface(dbus_get_bus(), IWD_NETWORK_INTERFACE,
 					setup_network_interface, NULL, false))
 		l_error("Unable to register %s interface",
 						IWD_NETWORK_INTERFACE);
+#endif
 
 	known_networks_watch =
 		known_networks_watch_add(known_networks_changed, NULL, NULL);
@@ -1587,7 +1607,9 @@ static void network_exit(void)
 	station_remove_anqp_watch(anqp_watch);
 	anqp_watch = 0;
 
+#ifdef HAVE_DBUS
 	l_dbus_unregister_interface(dbus_get_bus(), IWD_NETWORK_INTERFACE);
+#endif
 }
 
 IWD_MODULE(network, network_init, network_exit)

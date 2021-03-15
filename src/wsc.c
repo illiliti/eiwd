@@ -1196,6 +1196,7 @@ static void setup_wsc_interface(struct l_dbus_interface *interface)
 
 bool wsc_dbus_add_interface(struct wsc_dbus *wsc)
 {
+#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
 
 	if (!l_dbus_object_add_interface(dbus, wsc->get_path(wsc),
@@ -1203,16 +1204,19 @@ bool wsc_dbus_add_interface(struct wsc_dbus *wsc)
 		l_info("Unable to register %s interface", IWD_WSC_INTERFACE);
 		return false;
 	}
+#endif
 
 	return true;
 }
 
 void wsc_dbus_remove_interface(struct wsc_dbus *wsc)
 {
+#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
 
 	l_dbus_object_remove_interface(dbus, wsc->get_path(wsc),
 					IWD_WSC_INTERFACE);
+#endif
 }
 
 static void wsc_dbus_free(void *user_data)
@@ -1265,6 +1269,7 @@ static void wsc_netdev_watch(struct netdev *netdev,
 {
 	switch (event) {
 	case NETDEV_WATCH_EVENT_UP:
+#ifdef HAVE_DBUS
 	case NETDEV_WATCH_EVENT_NEW:
 		if (netdev_get_iftype(netdev) == NETDEV_IFTYPE_STATION &&
 				netdev_get_is_up(netdev))
@@ -1274,6 +1279,7 @@ static void wsc_netdev_watch(struct netdev *netdev,
 	case NETDEV_WATCH_EVENT_DEL:
 		wsc_remove_station(netdev);
 		break;
+#endif
 	default:
 		break;
 	}
@@ -1283,16 +1289,20 @@ static int wsc_init(void)
 {
 	l_debug("");
 	netdev_watch = netdev_watch_add(wsc_netdev_watch, NULL, NULL);
+#ifdef HAVE_DBUS
 	l_dbus_register_interface(dbus_get_bus(), IWD_WSC_INTERFACE,
 					setup_wsc_interface,
 					wsc_dbus_free, false);
+#endif
 	return 0;
 }
 
 static void wsc_exit(void)
 {
 	l_debug("");
+#ifdef HAVE_DBUS
 	l_dbus_unregister_interface(dbus_get_bus(), IWD_WSC_INTERFACE);
+#endif
 	netdev_watch_remove(netdev_watch);
 }
 

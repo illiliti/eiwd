@@ -153,14 +153,15 @@ noinst_PROGRAMS =
 if DBUS_POLICY
 dbus_datadir = @DBUS_DATADIR@/dbus-1/system.d
 dist_dbus_data_DATA =
+
+
+dbus_busdir = @DBUS_BUSDIR@
+dbus_bus_DATA =
 endif
 
 if SYSTEMD_SERVICE
 systemd_unitdir = @SYSTEMD_UNITDIR@
 systemd_unit_DATA =
-
-dbus_busdir = @DBUS_BUSDIR@
-dbus_bus_DATA =
 
 systemd_networkdir = @SYSTEMD_NETWORKDIR@
 systemd_network_DATA =
@@ -256,13 +257,13 @@ endif
 
 if DBUS_POLICY
 dist_dbus_data_DATA += src/iwd-dbus.conf
+dbus_bus_DATA += src/net.connman.iwd.service
 endif
 
 if SYSTEMD_SERVICE
 src_iwd_DEPENDENCIES += src/iwd.service
 
 systemd_unit_DATA += src/iwd.service
-dbus_bus_DATA += src/net.connman.iwd.service
 
 systemd_network_DATA += src/80-iwd.link
 endif
@@ -336,13 +337,13 @@ wired_ead_DEPENDENCIES = $(ell_dependencies)
 
 if DBUS_POLICY
 dist_dbus_data_DATA += wired/ead-dbus.conf
+dbus_bus_DATA += wired/net.connman.ead.service
 endif
 
 if SYSTEMD_SERVICE
 wired_ead_DEPENDENCIES += wired/ead.service
 
 systemd_unit_DATA += wired/ead.service
-dbus_bus_DATA += wired/net.connman.ead.service
 endif
 
 if MANUAL_PAGES
@@ -350,6 +351,7 @@ man_MANS += wired/ead.8
 endif
 endif
 
+if TOOLS
 noinst_PROGRAMS += tools/probe-req
 
 tools_probe_req_SOURCES = tools/probe-req.c src/mpdu.h src/mpdu.c \
@@ -358,6 +360,7 @@ tools_probe_req_SOURCES = tools/probe-req.c src/mpdu.h src/mpdu.c \
 					src/util.h src/util.c \
 					src/common.h src/common.c
 tools_probe_req_LDADD = $(ell_ldadd)
+endif
 
 if HWSIM
 bin_PROGRAMS += tools/hwsim
@@ -538,6 +541,10 @@ EXTRA_DIST = src/genbuiltin src/iwd.service.in src/net.connman.iwd.service \
 AM_CFLAGS = $(ell_cflags) -fvisibility=hidden \
 				-DUNITDIR=\""$(top_srcdir)/unit/"\" \
 				-DCERTDIR=\""$(top_builddir)/unit/"\"
+
+if DBUS
+AM_CFLAGS += -DHAVE_DBUS
+endif
 
 if MAINTAINER_MODE
 AM_CFLAGS += -DHAVE_PKCS8_SUPPORT

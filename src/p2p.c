@@ -222,8 +222,10 @@ static void p2p_discovery_user_free(void *data)
 {
 	struct p2p_discovery_user *user = data;
 
+#ifdef HAVE_DBUS
 	if (user->disconnect_watch)
 		l_dbus_remove_watch(dbus_get_bus(), user->disconnect_watch);
+#endif
 
 	l_free(user->client);
 	l_free(user);
@@ -275,7 +277,9 @@ static void p2p_peer_put(void *user_data)
 	 * Removes all interfaces with one call, no need to call
 	 * wsc_dbus_remove_interface.
 	 */
+#ifdef HAVE_DBUS
 	l_dbus_unregister_object(dbus_get_bus(), p2p_peer_get_path(peer));
+#endif
 	p2p_peer_free(peer);
 }
 
@@ -4405,11 +4409,13 @@ struct p2p_device *p2p_device_update_from_genl(struct l_genl_msg *msg,
 					p2p_mlme_notify, dev, NULL))
 		l_error("Registering for MLME notifications failed");
 
+#ifdef HAVE_DBUS
 	if (!l_dbus_object_add_interface(dbus_get_bus(),
 						p2p_device_get_path(dev),
 						IWD_P2P_INTERFACE, dev))
 		l_info("Unable to add the %s interface to %s",
 			IWD_P2P_INTERFACE, p2p_device_get_path(dev));
+#endif
 
 	return dev;
 }
@@ -4418,6 +4424,7 @@ static void p2p_device_free(void *user_data)
 {
 	struct p2p_device *dev = user_data;
 
+#ifdef HAVE_DBUS
 	if (dev->pending_message) {
 		struct l_dbus_message *reply =
 			dbus_error_aborted(dev->pending_message);
@@ -4427,10 +4434,13 @@ static void p2p_device_free(void *user_data)
 		dev->pending_message = NULL;
 		dev->pending_complete = NULL;
 	}
+#endif
 
 	p2p_device_discovery_stop(dev);
 	p2p_connection_reset(dev);
+#ifdef HAVE_DBUS
 	l_dbus_unregister_object(dbus_get_bus(), p2p_device_get_path(dev));
+#endif
 	l_queue_destroy(dev->peer_list, p2p_peer_put);
 	l_queue_destroy(dev->discovery_users, p2p_discovery_user_free);
 	l_genl_family_free(dev->nl80211); /* Cancels dev->start_stop_cmd_id */
@@ -5102,6 +5112,7 @@ static void p2p_service_manager_destroy_cb(void *user_data)
 
 static int p2p_init(void)
 {
+#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
 
 	if (!l_dbus_register_interface(dbus, IWD_P2P_INTERFACE,
@@ -5115,10 +5126,12 @@ static int p2p_init(void)
 					NULL, false))
 		l_error("Unable to register the %s interface",
 			IWD_P2P_PEER_INTERFACE);
+#endif
 
 	p2p_dhcp_settings = l_settings_new();
 	p2p_device_list = l_queue_new();
 
+#ifdef HAVE_DBUS
 	if (!l_dbus_register_interface(dbus, IWD_P2P_WFD_INTERFACE,
 					p2p_wfd_interface_setup,
 					NULL, false))
@@ -5135,18 +5148,21 @@ static int p2p_init(void)
 					IWD_P2P_SERVICE_MANAGER_INTERFACE,
 					NULL))
 		l_error("Unable to register the P2P Service Manager object");
+#endif
 
 	return 0;
 }
 
 static void p2p_exit(void)
 {
+#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
 
 	l_dbus_unregister_interface(dbus, IWD_P2P_INTERFACE);
 	l_dbus_unregister_interface(dbus, IWD_P2P_PEER_INTERFACE);
 	l_dbus_unregister_interface(dbus, IWD_P2P_WFD_INTERFACE);
 	l_dbus_unregister_interface(dbus, IWD_P2P_SERVICE_MANAGER_INTERFACE);
+#endif
 	l_queue_destroy(p2p_device_list, p2p_device_free);
 	p2p_device_list = NULL;
 	l_settings_free(p2p_dhcp_settings);

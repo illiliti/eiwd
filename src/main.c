@@ -74,7 +74,9 @@ static void iwd_shutdown(void)
 		return;
 	}
 
+#ifdef HAVE_DBUS
 	dbus_shutdown();
+#endif
 	netdev_shutdown();
 
 	timeout = l_timeout_create(1, main_loop_quit, NULL, NULL);
@@ -174,6 +176,7 @@ static void nl80211_appeared(const struct l_genl_family_info *info,
 	}
 }
 
+#ifdef HAVE_DBUS
 static void request_name_callback(struct l_dbus *dbus, bool success,
 					bool queued, void *user_data)
 {
@@ -207,6 +210,7 @@ static void dbus_disconnected(void *user_data)
 	l_info("D-Bus disconnected, quitting...");
 	iwd_shutdown();
 }
+#endif
 
 static void print_koption(const void *key, void *value, void *user_data)
 {
@@ -474,6 +478,7 @@ int main(int argc, char *argv[])
 	if (getenv("IWD_RTNL_DEBUG"))
 		l_netlink_set_debug(rtnl, do_debug, "[RTNL] ", NULL);
 
+#ifdef HAVE_DBUS
 	dbus = l_dbus_new_default(L_DBUS_SYSTEM_BUS);
 	if (!dbus) {
 		l_error("Failed to initialize D-Bus");
@@ -486,12 +491,18 @@ int main(int argc, char *argv[])
 	l_dbus_set_ready_handler(dbus, dbus_ready, dbus, NULL);
 	l_dbus_set_disconnect_handler(dbus, dbus_disconnected, NULL, NULL);
 	dbus_init(dbus);
+#else
+	l_genl_request_family(genl, NL80211_GENL_NAME, nl80211_appeared,
+				NULL, NULL);
+#endif
 
 	exit_status = l_main_run_with_signal(signal_handler, NULL);
 
 	iwd_modules_exit();
+#ifdef HAVE_DBUS
 	dbus_exit();
 	l_dbus_destroy(dbus);
+#endif
 
 failed_dbus:
 	l_netlink_destroy(rtnl);

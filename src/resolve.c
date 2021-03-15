@@ -527,7 +527,8 @@ static int resolve_resolvconf_init(void)
 
 	if (!resolvconf_path) {
 		l_error("No usable resolvconf found on system");
-		return -ENOENT;
+		/* return -ENOENT; */
+		return 0;
 	}
 
 	l_debug("resolvconf found as: %s", resolvconf_path);
@@ -573,7 +574,9 @@ static const struct {
 	const char *name;
 	const struct resolve_method_ops *method_ops;
 } resolve_method_ops_list[] = {
+#ifdef HAVE_DBUS
 	{ "systemd", &resolve_method_systemd_ops },
+#endif
 	{ "resolvconf", &resolve_method_resolvconf_ops },
 	{ }
 };
@@ -604,7 +607,11 @@ static int resolve_init(void)
 			l_warn("[General].dns_resolve_method is deprecated, "
 				"use [Network].NameResolvingService");
 		else /* Default to systemd-resolved service. */
+#ifdef HAVE_DBUS
 			method_name = "systemd";
+#else
+			method_name = "resolvconf";
+#endif
 	}
 
 	for (i = 0; resolve_method_ops_list[i].name; i++) {
