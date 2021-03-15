@@ -712,17 +712,7 @@ struct scan_bss *network_bss_list_pop(struct network *network)
 struct scan_bss *network_bss_find_by_addr(struct network *network,
 						const uint8_t *addr)
 {
-	const struct l_queue_entry *bss_entry;
-
-	for (bss_entry = l_queue_get_entries(network->bss_list); bss_entry;
-						bss_entry = bss_entry->next) {
-		struct scan_bss *bss = bss_entry->data;
-
-		if (!memcmp(bss->addr, addr, sizeof(bss->addr)))
-			return bss;
-	}
-
-	return NULL;
+	return l_queue_find(network->bss_list, match_addr, addr);
 }
 
 static bool match_bss(const void *a, const void *b)
