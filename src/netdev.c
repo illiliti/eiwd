@@ -453,6 +453,14 @@ static bool netdev_parse_sta_info(struct l_genl_attr *attr,
 			info->have_cur_rssi = true;
 
 			break;
+		case NL80211_STA_INFO_SIGNAL_AVG:
+			if (len != 1)
+				return false;
+
+			info->avg_rssi = *(const int8_t *) data;
+			info->have_avg_rssi = true;
+
+			break;
 		case NL80211_STA_INFO_RX_BITRATE:
 			if (!l_genl_attr_recurse(attr, &nested))
 				return false;
