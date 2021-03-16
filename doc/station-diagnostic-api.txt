@@ -25,6 +25,8 @@ Methods		dict GetDiagnostics()
 
 			RSSI [optional] - The RSSI of the currently connected BSS.
 
+			AverageRSSI [optional] - Average RSSI of currently connected BSS.
+
 			RxMode [optional] -	The phy technology being used
 						(802.11n, 802.11ac or 802.11ax).
 
