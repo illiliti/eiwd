@@ -50,6 +50,7 @@ const struct eapol_key *eapol_key_validate(const uint8_t *frame, size_t len,
 	switch (ek->header.protocol_version) {
 	case EAPOL_PROTOCOL_VERSION_2001:
 	case EAPOL_PROTOCOL_VERSION_2004:
+	case EAPOL_PROTOCOL_VERSION_2010:
 		break;
 	default:
 		return NULL;
