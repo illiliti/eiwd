@@ -411,15 +411,7 @@ bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss)
 		switch (rsn_info.akm_suites) {
 		case IE_RSN_AKM_SUITE_SAE_SHA256:
 		case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
-			/*
-			 * if the AP ONLY supports SAE/WPA3, then we can only
-			 * connect if the wiphy feature is supported. Otherwise
-			 * the AP may list SAE as one of the AKM's but also
-			 * support PSK (hybrid). In this case we still want to
-			 * allow a connection even if SAE is not supported.
-			 */
-			if (!wiphy_has_feature(wiphy, NL80211_FEATURE_SAE) ||
-						!wiphy->support_cmds_auth_assoc)
+			if (!wiphy_can_connect_sae(wiphy))
 				return false;
 
 			break;
