@@ -1213,7 +1213,7 @@ static void netdev_connect_ok(struct netdev *netdev)
 	}
 
 	/* Allow station to sync the PSK to disk */
-	if (netdev->handshake->offload)
+	if (netdev->handshake && netdev->handshake->offload)
 		handshake_event(netdev->handshake,
 				HANDSHAKE_EVENT_SETTING_KEYS);
 
