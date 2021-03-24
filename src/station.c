@@ -736,6 +736,7 @@ static void station_handshake_event(struct handshake_state *hs,
 		netdev_handshake_failed(hs, va_arg(args, int));
 		break;
 	case HANDSHAKE_EVENT_REKEY_FAILED:
+		l_warn("Unable to securely rekey on this hw/kernel...");
 		station_reconnect(station);
 		break;
 	case HANDSHAKE_EVENT_COMPLETE:
