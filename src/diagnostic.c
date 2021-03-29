@@ -28,6 +28,7 @@
 
 #include "src/diagnostic.h"
 #include "src/dbus.h"
+#include "src/ie.h"
 
 /*
  * Appends values from diagnostic_station_info into a DBus dictionary. This
@@ -110,4 +111,42 @@ bool diagnostic_info_to_dict(const struct diagnostic_station_info *info,
 					&info->expected_throughput);
 
 	return true;
+}
+
+const char *diagnostic_akm_suite_to_security(enum ie_rsn_akm_suite akm,
+						bool wpa)
+{
+	switch (akm) {
+	case IE_RSN_AKM_SUITE_8021X:
+	case IE_RSN_AKM_SUITE_8021X_SHA256:
+		return "WPA2-Enterprise";
+	case IE_RSN_AKM_SUITE_PSK:
+		if (wpa)
+			return "WPA1-Personal";
+
+		/* Fall through */
+	case IE_RSN_AKM_SUITE_PSK_SHA256:
+		return "WPA2-Personal";
+	case IE_RSN_AKM_SUITE_FT_OVER_8021X:
+	case IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384:
+		return "WPA2-Enterprise + FT";
+	case IE_RSN_AKM_SUITE_FT_USING_PSK:
+		return "WPA2-Personal + FT";
+	case IE_RSN_AKM_SUITE_SAE_SHA256:
+		return "WPA3-Personal";
+	case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
+		return "WPA3-Personal + FT";
+	case IE_RSN_AKM_SUITE_OWE:
+		return "OWE";
+	case IE_RSN_AKM_SUITE_FILS_SHA256:
+	case IE_RSN_AKM_SUITE_FILS_SHA384:
+		return "FILS";
+	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
+	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
+		return "FILS + FT";
+	case IE_RSN_AKM_SUITE_OSEN:
+		return "OSEN";
+	default:
+		return NULL;
+	}
 }
