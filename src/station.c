@@ -2332,7 +2332,7 @@ static void station_event_roamed(struct station *station, struct scan_bss *new)
 
 	l_queue_insert(station->bss_list, new, scan_bss_rank_compare, NULL);
 
-	station_enter_state(station, STATION_STATE_CONNECTED);
+	station_roamed(station);
 }
 
 static void station_rssi_level_changed(struct station *station,
