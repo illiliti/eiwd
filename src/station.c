@@ -201,6 +201,7 @@ static void station_autoconnect_next(struct station *station)
 				scan_cancel(netdev_get_wdev_id(station->netdev),
 						station->quick_scan_id);
 				station->quick_scan_id = 0;
+				station_property_set_scanning(station, false);
 			}
 
 			return;
@@ -2644,6 +2645,7 @@ void station_connect_network(struct station *station, struct network *network,
 		scan_cancel(netdev_get_wdev_id(station->netdev),
 				station->quick_scan_id);
 		station->quick_scan_id = 0;
+		station_property_set_scanning(station, false);
 	}
 
 	if (station_is_busy(station)) {
