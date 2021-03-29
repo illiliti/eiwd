@@ -1442,6 +1442,11 @@ static void station_roamed(struct station *station)
 	if (station->netconfig)
 		netconfig_reconfigure(station->netconfig);
 
+	if (station->roam_freqs) {
+		scan_freq_set_free(station->roam_freqs);
+		station->roam_freqs = NULL;
+	}
+
 	station_enter_state(station, STATION_STATE_CONNECTED);
 }
 
