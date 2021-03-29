@@ -1,3 +1,10 @@
+ver 1.13:
+	Fix issue with EAPoL protocol version 2010 handling.
+	Fix issue with authenticator method logic handling.
+	Fix issue with getting scan results from firmware.
+	Add support for handling SAE offload connections.
+	Add support for roaming with FullMAC devices.
+
 ver 1.12:
 	Fix issue with handling retry roaming without higher RSSI.
 	Fix issue with WPA3, OWE and FILS authentication handling.
