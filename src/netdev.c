@@ -2234,12 +2234,7 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 			return;
 		else if (ret > 0)
 			status_code = (uint16_t)ret;
-
-		goto auth_error;
-	} else
-		goto auth_error;
-
-	return;
+	}
 
 auth_error:
 	netdev_connect_failed(netdev, NETDEV_RESULT_AUTHENTICATION_FAILED,
