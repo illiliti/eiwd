@@ -612,7 +612,6 @@ static void get_diagnostics_callback(struct l_dbus_message *message,
 done:
 	/* Finish the table started by cmd_show */
 	display_table_footer();
-	display_refresh_reset();
 }
 
 static enum cmd_status cmd_show(const char *device_name,
@@ -637,7 +636,6 @@ static enum cmd_status cmd_show(const char *device_name,
 	 */
 	if (!diagnostic) {
 		display_table_footer();
-		display_refresh_reset();
 		return CMD_STATUS_DONE;
 	}
 
