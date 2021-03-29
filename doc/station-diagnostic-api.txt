@@ -23,6 +23,8 @@ Methods		dict GetDiagnostics()
 
 			Frequency - Frequency of currently connected BSS.
 
+			Security - The chosen security for the connection.
+
 			RSSI [optional] - The RSSI of the currently connected BSS.
 
 			AverageRSSI [optional] - Average RSSI of currently connected BSS.
