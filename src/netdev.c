@@ -2280,7 +2280,15 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 			if (auth_proto_assoc_timeout(netdev->ap))
 				return;
 
-			goto assoc_failed;
+			/*
+			 * There will be no connect event when Associate times
+			 * out. The failed connection must be explicitly
+			 * initiated here.
+			 */
+			netdev_connect_failed(netdev,
+					NETDEV_RESULT_ASSOCIATION_FAILED,
+					status_code);
+			return;
 
 		case NL80211_ATTR_FRAME:
 			frame = data;
