@@ -39,9 +39,13 @@ bool diagnostic_info_to_dict(const struct diagnostic_station_info *info,
 				struct l_dbus_message_builder *builder)
 {
 	int16_t rssi = (int16_t)info->cur_rssi;
+	int16_t avg_rssi = (int16_t)info->avg_rssi;
 
 	if (info->have_cur_rssi)
 		dbus_append_dict_basic(builder, "RSSI", 'n', &rssi);
+
+	if (info->have_avg_rssi)
+		dbus_append_dict_basic(builder, "AverageRSSI", 'n', &avg_rssi);
 
 	if (info->have_rx_mcs) {
 		switch (info->rx_mcs_type) {

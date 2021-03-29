@@ -738,6 +738,7 @@ static void station_handshake_event(struct handshake_state *hs,
 		netdev_handshake_failed(hs, va_arg(args, int));
 		break;
 	case HANDSHAKE_EVENT_REKEY_FAILED:
+		l_warn("Unable to securely rekey on this hw/kernel...");
 		station_reconnect(station);
 		break;
 	case HANDSHAKE_EVENT_COMPLETE:
@@ -981,6 +982,16 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 				goto no_psk;
 
 			handshake_state_set_passphrase(hs, passphrase);
+
+			/*
+			 * TODO: This check isn't strictly correct since
+			 * some drivers may support EXTERNAL_AUTH but since
+			 * wiphy_can_connect takes this into account IWD should
+			 * have already rejected the connection if this was the
+			 * case.
+			 */
+			if (!wiphy_supports_cmds_auth_assoc(wiphy))
+				hs->offload = true;
 		} else {
 			const uint8_t *psk = network_get_psk(network);
 
@@ -2186,6 +2197,14 @@ static bool station_cannot_roam(struct station *station)
 	const struct l_settings *config = iwd_get_config();
 	bool disabled;
 
+	/*
+	 * Disable roaming with hardware that can roam automatically. Note this
+	 * is now required for recent kernels which have CQM event support on
+	 * this type of hardware (e.g. brcmfmac).
+	 */
+	if (wiphy_supports_firmware_roam(station->wiphy))
+		return true;
+
 	if (!l_settings_get_bool(config, "Scan", "DisableRoamingScan",
 								&disabled))
 		disabled = false;
@@ -2307,6 +2326,25 @@ static void station_ok_rssi(struct station *station)
 	station->roam_min_time.tv_sec = 0;
 }
 
+static void station_event_roamed(struct station *station, struct scan_bss *new)
+{
+	struct scan_bss *stale;
+
+	network_bss_update(station->connected_network, new);
+
+	/* Remove new BSS if it exists in past scan results */
+	stale = l_queue_remove_if(station->bss_list, bss_match_bssid,
+					new->addr);
+	if (stale)
+		scan_bss_free(stale);
+
+	station->connected_bss = new;
+
+	l_queue_insert(station->bss_list, new, scan_bss_rank_compare, NULL);
+
+	station_enter_state(station, STATION_STATE_CONNECTED);
+}
+
 static void station_rssi_level_changed(struct station *station,
 					uint8_t level_idx);
 
@@ -2334,6 +2372,12 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 		break;
 	case NETDEV_EVENT_RSSI_LEVEL_NOTIFY:
 		station_rssi_level_changed(station, l_get_u8(event_data));
+		break;
+	case NETDEV_EVENT_ROAMING:
+		station_enter_state(station, STATION_STATE_ROAMING);
+		break;
+	case NETDEV_EVENT_ROAMED:
+		station_event_roamed(station, (struct scan_bss *) event_data);
 		break;
 	}
 }

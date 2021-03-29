@@ -2796,6 +2796,7 @@ void __eapol_rx_packet(uint32_t ifindex, const uint8_t *src, uint16_t proto,
 	switch (eh->protocol_version) {
 	case EAPOL_PROTOCOL_VERSION_2001:
 	case EAPOL_PROTOCOL_VERSION_2004:
+	case EAPOL_PROTOCOL_VERSION_2010:
 		break;
 	default:
 		return;

@@ -674,6 +674,27 @@ bool network_bss_add(struct network *network, struct scan_bss *bss)
 	return true;
 }
 
+static bool match_addr(const void *a, const void *b)
+{
+	const struct scan_bss *bss = a;
+
+	return memcmp(bss->addr, b, 6) == 0;
+}
+
+/*
+ * Replaces an old scan_bss (if exists) in the bss list with a new bss object.
+ * Note this BSS is *not* freed and must be by the caller. scan_bss objects are
+ * shared between network/station but station technically owns them.
+ */
+bool network_bss_update(struct network *network, struct scan_bss *bss)
+{
+	l_queue_remove_if(network->bss_list, match_addr, bss->addr);
+
+	l_queue_insert(network->bss_list, bss, scan_bss_rank_compare, NULL);
+
+	return true;
+}
+
 bool network_bss_list_isempty(struct network *network)
 {
 	return l_queue_isempty(network->bss_list);
@@ -693,17 +714,7 @@ struct scan_bss *network_bss_list_pop(struct network *network)
 struct scan_bss *network_bss_find_by_addr(struct network *network,
 						const uint8_t *addr)
 {
-	const struct l_queue_entry *bss_entry;
-
-	for (bss_entry = l_queue_get_entries(network->bss_list); bss_entry;
-						bss_entry = bss_entry->next) {
-		struct scan_bss *bss = bss_entry->data;
-
-		if (!memcmp(bss->addr, addr, sizeof(bss->addr)))
-			return bss;
-	}
-
-	return NULL;
+	return l_queue_find(network->bss_list, match_addr, addr);
 }
 
 static bool match_bss(const void *a, const void *b)

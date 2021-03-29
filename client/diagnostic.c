@@ -88,6 +88,7 @@ static const struct diagnostic_dict_mapping diagnostic_mapping[] = {
 	{ "TxBitrate", 0, NULL, display_bitrate_100kbps },
 	{ "ExpectedThroughput", 'u', "Kbit/s" },
 	{ "RSSI", 'n', "dBm" },
+	{ "AverageRSSI", 'n', "dBm" },
 	{ "RxMCS", 'y' },
 	{ "TxMCS", 'y' },
 	{ "Frequency", 'u' },

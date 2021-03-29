@@ -30,6 +30,7 @@ enum diagnostic_mcs_type {
 struct diagnostic_station_info {
 	uint8_t addr[6];
 	int8_t cur_rssi;
+	int8_t avg_rssi;
 
 	enum diagnostic_mcs_type rx_mcs_type;
 	uint32_t rx_bitrate;
@@ -41,6 +42,7 @@ struct diagnostic_station_info {
 	uint32_t expected_throughput;
 
 	bool have_cur_rssi : 1;
+	bool have_avg_rssi : 1;
 	bool have_rx_mcs : 1;
 	bool have_tx_mcs : 1;
 	bool have_rx_bitrate : 1;

@@ -151,6 +151,9 @@ bool scan_periodic_stop(uint64_t wdev_id);
 
 uint64_t scan_get_triggered_time(uint64_t wdev_id, uint32_t id);
 
+bool scan_get_firmware_scan(uint64_t wdev_id, scan_notify_func_t notify,
+				void *userdata, scan_destroy_func_t destroy);
+
 void scan_bss_free(struct scan_bss *bss);
 int scan_bss_rank_compare(const void *a, const void *b, void *user);
 

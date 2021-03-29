@@ -101,6 +101,11 @@ struct scan_context {
 	/* Non-zero if GET_SCAN is still running */
 	unsigned int get_scan_cmd_id;
 	/*
+	 * Special request used for getting scan results after the firmware
+	 * roamed automatically.
+	 */
+	unsigned int get_fw_scan_cmd_id;
+	/*
 	 * Whether the top request in the queue has triggered the current
 	 * scan.  May be set and cleared multiple times during a single
 	 * request.  May be false when the current request is waiting due
@@ -207,6 +212,9 @@ static void scan_context_free(struct scan_context *sc)
 
 	if (sc->get_scan_cmd_id && nl80211)
 		l_genl_family_cancel(nl80211, sc->get_scan_cmd_id);
+
+	if (sc->get_fw_scan_cmd_id && nl80211)
+		l_genl_family_cancel(nl80211, sc->get_fw_scan_cmd_id);
 
 	l_free(sc);
 }
@@ -1807,6 +1815,72 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 
 		break;
 	}
+}
+
+static void get_fw_scan_done(void *userdata)
+{
+	struct scan_results *results = userdata;
+	struct scan_request *sr = results->sr;
+	struct scan_context *sc = results->sc;
+	int err = l_queue_length(results->bss_list) == 0 ? -ENOENT : 0;
+	bool new_owner = false;
+
+	sc->get_fw_scan_cmd_id = 0;
+
+	if (sr->callback)
+		new_owner = sr->callback(err, results->bss_list, NULL,
+						sr->userdata);
+
+	if (!new_owner)
+		l_queue_destroy(results->bss_list,
+				(l_queue_destroy_func_t) scan_bss_free);
+
+	if (sr->destroy)
+		sr->destroy(sr->userdata);
+
+	l_free(sr);
+	l_free(results);
+}
+
+bool scan_get_firmware_scan(uint64_t wdev_id, scan_notify_func_t notify,
+				void *userdata, scan_destroy_func_t destroy)
+{
+	struct l_genl_msg *scan_msg;
+	struct scan_results *results;
+	struct scan_request *sr;
+	struct scan_context *sc = l_queue_find(scan_contexts,
+						scan_context_match, &wdev_id);
+
+	if (!sc)
+		return false;
+
+	sr = l_new(struct scan_request, 1);
+	sr->callback = notify;
+	sr->destroy = destroy;
+	sr->userdata = userdata;
+
+	results = l_new(struct scan_results, 1);
+	results->sc = sc;
+	results->time_stamp = l_time_now();
+	results->bss_list = l_queue_new();
+	results->sr = sr;
+
+	scan_msg = l_genl_msg_new_sized(NL80211_CMD_GET_SCAN, 8);
+	l_genl_msg_append_attr(scan_msg, NL80211_ATTR_WDEV, 8, &sc->wdev_id);
+
+	sc->get_fw_scan_cmd_id = l_genl_family_dump(nl80211, scan_msg,
+							get_scan_callback,
+							results,
+							get_fw_scan_done);
+	if (!sc->get_fw_scan_cmd_id) {
+		l_queue_destroy(results->bss_list,
+				(l_queue_destroy_func_t) scan_bss_free);
+		l_free(results);
+		l_free(sr);
+		return false;
+	}
+
+	return true;
 }
 
 uint8_t scan_freq_to_channel(uint32_t freq, enum scan_band *out_band)
