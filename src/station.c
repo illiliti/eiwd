@@ -3631,6 +3631,7 @@ static void station_get_diagnostic_cb(
 	struct station *station = user_data;
 	struct l_dbus_message *reply;
 	struct l_dbus_message_builder *builder;
+	struct handshake_state *hs = netdev_get_handshake(station->netdev);
 
 	if (!info) {
 		reply = dbus_error_aborted(station->get_station_pending);
@@ -3647,6 +3648,9 @@ static void station_get_diagnostic_cb(
 					util_address_to_string(info->addr));
 	dbus_append_dict_basic(builder, "Frequency", 'u',
 				&station->connected_bss->frequency);
+	dbus_append_dict_basic(builder, "Security", 's',
+				diagnostic_akm_suite_to_security(hs->akm_suite,
+								hs->wpa_ie));
 
 	diagnostic_info_to_dict(info, builder);
 
