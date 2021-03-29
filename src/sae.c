@@ -37,6 +37,7 @@
 
 #define SAE_RETRANSMIT_TIMEOUT	2
 #define SAE_SYNC_MAX		3
+#define SAE_MAX_ASSOC_RETRY	3
 
 enum sae_state {
 	SAE_STATE_NOTHING = 0,
@@ -73,6 +74,7 @@ struct sae_sm {
 	uint16_t rc;
 	/* remote peer */
 	uint8_t peer[6];
+	uint8_t assoc_retry;
 
 	sae_tx_authenticate_func_t tx_auth;
 	sae_tx_associate_func_t tx_assoc;
@@ -670,7 +672,7 @@ static bool sae_send_commit(struct sae_sm *sm, bool retry)
 	return true;
 }
 
-static bool sae_timeout(struct auth_proto *ap)
+static bool sae_auth_timeout(struct auth_proto *ap)
 {
 	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
 
@@ -695,6 +697,20 @@ static bool sae_timeout(struct auth_proto *ap)
 		l_error("SAE timeout in bad state %u", sm->state);
 		return false;
 	}
+
+	return true;
+}
+
+static bool sae_assoc_timeout(struct auth_proto *ap)
+{
+	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
+
+	if (sm->assoc_retry >= SAE_MAX_ASSOC_RETRY)
+		return false;
+
+	sm->assoc_retry++;
+
+	sm->tx_assoc(sm->user_data);
 
 	return true;
 }
@@ -1178,7 +1194,8 @@ struct auth_proto *sae_sm_new(struct handshake_state *hs,
 	sm->ap.free = sae_free;
 	sm->ap.rx_authenticate = sae_rx_authenticate;
 	sm->ap.rx_associate = sae_rx_associate;
-	sm->ap.auth_timeout = sae_timeout;
+	sm->ap.auth_timeout = sae_auth_timeout;
+	sm->ap.assoc_timeout = sae_assoc_timeout;
 
 	return &sm->ap;
 }
