@@ -407,24 +407,7 @@ bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss)
 					rsn_info.group_management_cipher))
 			return false;
 
-
-		switch (rsn_info.akm_suites) {
-		case IE_RSN_AKM_SUITE_SAE_SHA256:
-		case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
-			if (!wiphy_can_connect_sae(wiphy))
-				return false;
-
-			break;
-		case IE_RSN_AKM_SUITE_OWE:
-		case IE_RSN_AKM_SUITE_FILS_SHA256:
-		case IE_RSN_AKM_SUITE_FILS_SHA384:
-		case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
-		case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
-			if (!wiphy->support_cmds_auth_assoc)
-				return false;
-
-			break;
-		}
+		return wiphy_select_akm(wiphy, bss, false);
 	} else if (r != -ENOENT)
 		return false;
 
