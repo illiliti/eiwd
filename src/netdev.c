@@ -67,6 +67,12 @@
 #define ENOTSUPP 524
 #endif
 
+enum connection_type {
+	CONNECTION_TYPE_SOFTMAC,
+	CONNECTION_TYPE_FULLMAC,
+	CONNECTION_TYPE_SAE_OFFLOAD,
+};
+
 static uint32_t unicast_watch;
 
 struct netdev_handshake_state {
@@ -80,6 +86,7 @@ struct netdev_handshake_state {
 	bool igtk_installed;
 	bool complete;
 	struct netdev *netdev;
+	enum connection_type type;
 };
 
 struct netdev {
@@ -181,6 +188,25 @@ static struct l_queue *netdev_list;
 static struct watchlist netdev_watches;
 static bool pae_over_nl80211;
 static bool mac_per_ssid;
+
+static inline bool is_offload(struct handshake_state *hs)
+{
+	struct netdev_handshake_state *nhs =
+		l_container_of(hs, struct netdev_handshake_state, super);
+
+	if (!nhs)
+		return false;
+
+	switch (nhs->type) {
+	case CONNECTION_TYPE_SOFTMAC:
+	case CONNECTION_TYPE_FULLMAC:
+		return false;
+	case CONNECTION_TYPE_SAE_OFFLOAD:
+		return true;
+	}
+
+	return false;
+}
 
 /* Cancels ongoing GTK/IGTK related commands (if any) */
 static void netdev_handshake_state_cancel_rekey(
@@ -1213,7 +1239,7 @@ static void netdev_connect_ok(struct netdev *netdev)
 	}
 
 	/* Allow station to sync the PSK to disk */
-	if (netdev->handshake && netdev->handshake->offload)
+	if (is_offload(netdev->handshake))
 		handshake_event(netdev->handshake,
 				HANDSHAKE_EVENT_SETTING_KEYS);
 
@@ -1989,7 +2015,7 @@ process_resp_ies:
 	 * is 'done'. In the case of 8021x offload EAP still needs to take
 	 * place, so this must be updated accordingly when that is implemented.
 	 */
-	if (netdev->handshake->offload)
+	if (is_offload(netdev->handshake))
 		goto done;
 
 	if (netdev->sm) {
@@ -2618,6 +2644,8 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 						const struct iovec *vendor_ies,
 						size_t num_vendor_ies)
 {
+	struct netdev_handshake_state *nhs =
+		l_container_of(hs, struct netdev_handshake_state, super);
 	uint32_t auth_type = IE_AKM_IS_SAE(hs->akm_suite) ?
 					NL80211_AUTHTYPE_SAE :
 					NL80211_AUTHTYPE_OPEN_SYSTEM;
@@ -2637,10 +2665,14 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 						bss->ssid_len, bss->ssid);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_AUTH_TYPE, 4, &auth_type);
 
-	if (hs->offload) {
-		if (IE_AKM_IS_SAE(hs->akm_suite))
-			l_genl_msg_append_attr(msg, NL80211_ATTR_SAE_PASSWORD,
+	switch (nhs->type) {
+	case CONNECTION_TYPE_SOFTMAC:
+	case CONNECTION_TYPE_FULLMAC:
+		break;
+	case CONNECTION_TYPE_SAE_OFFLOAD:
+		l_genl_msg_append_attr(msg, NL80211_ATTR_SAE_PASSWORD,
 					strlen(hs->passphrase), hs->passphrase);
+		break;
 	}
 
 	if (prev_bssid)
@@ -2997,6 +3029,75 @@ static const struct wiphy_radio_work_item_ops connect_work_ops = {
 	.destroy = netdev_connection_work_destroy,
 };
 
+static int netdev_handshake_state_setup_connection_type(
+						struct handshake_state *hs)
+{
+	struct netdev_handshake_state *nhs = l_container_of(hs,
+				struct netdev_handshake_state, super);
+	struct wiphy *wiphy = nhs->netdev->wiphy;
+	bool softmac = wiphy_supports_cmds_auth_assoc(wiphy);
+	bool canroam = wiphy_supports_firmware_roam(wiphy);
+
+	/*
+	 * Sanity check that any FT AKMs are set only on softmac or on
+	 * devices that support firmware roam
+	 */
+	if (L_WARN_ON(IE_AKM_IS_FT(hs->akm_suite) && !softmac && !canroam))
+		return -ENOTSUP;
+
+	switch (hs->akm_suite) {
+	case IE_RSN_AKM_SUITE_8021X:
+	case IE_RSN_AKM_SUITE_FT_OVER_8021X:
+	case IE_RSN_AKM_SUITE_8021X_SHA256:
+	case IE_RSN_AKM_SUITE_8021X_SUITE_B_SHA256:
+	case IE_RSN_AKM_SUITE_8021X_SUITE_B_SHA384:
+	case IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384:
+	case IE_RSN_AKM_SUITE_PSK:
+	case IE_RSN_AKM_SUITE_FT_USING_PSK:
+	case IE_RSN_AKM_SUITE_PSK_SHA256:
+		if (softmac)
+			goto softmac;
+
+		goto fullmac;
+	case IE_RSN_AKM_SUITE_SAE_SHA256:
+	case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
+		if (wiphy_has_ext_feature(wiphy,
+					NL80211_EXT_FEATURE_SAE_OFFLOAD))
+			goto sae_offload;
+
+		if (softmac && wiphy_has_feature(wiphy, NL80211_FEATURE_SAE))
+			goto softmac;
+
+		return -EINVAL;
+	case IE_RSN_AKM_SUITE_OWE:
+	case IE_RSN_AKM_SUITE_FILS_SHA256:
+	case IE_RSN_AKM_SUITE_FILS_SHA384:
+	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
+	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
+		/* FILS and OWE have no offload in any upstream driver */
+		if (softmac)
+			goto softmac;
+
+		return -ENOTSUP;
+	case IE_RSN_AKM_SUITE_TDLS:
+	case IE_RSN_AKM_SUITE_AP_PEER_KEY_SHA256:
+	case IE_RSN_AKM_SUITE_OSEN:
+		return -ENOTSUP;
+	}
+
+	return -ENOTSUP;
+
+softmac:
+	nhs->type = CONNECTION_TYPE_SOFTMAC;
+	return 0;
+fullmac:
+	nhs->type = CONNECTION_TYPE_FULLMAC;
+	return 0;
+sae_offload:
+	nhs->type = CONNECTION_TYPE_SAE_OFFLOAD;
+	return 0;
+}
+
 static int netdev_connect_common(struct netdev *netdev,
 					struct l_genl_msg *cmd_connect,
 					struct scan_bss *bss,
@@ -3033,6 +3134,8 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 				netdev_event_func_t event_filter,
 				netdev_connect_cb_t cb, void *user_data)
 {
+	struct netdev_handshake_state *nhs = l_container_of(hs,
+				struct netdev_handshake_state, super);
 	struct l_genl_msg *cmd_connect = NULL;
 	struct eapol_sm *sm = NULL;
 	bool is_rsn = hs->supplicant_ie != NULL;
@@ -3044,12 +3147,15 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 	if (netdev->connected || netdev->connect_cmd_id || netdev->work.id)
 		return -EISCONN;
 
+	if (netdev_handshake_state_setup_connection_type(hs) < 0)
+		return -ENOTSUP;
+
+	if (nhs->type != CONNECTION_TYPE_SOFTMAC)
+		goto build_cmd_connect;
+
 	switch (hs->akm_suite) {
 	case IE_RSN_AKM_SUITE_SAE_SHA256:
 	case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
-		if (hs->offload)
-			goto build_cmd_connect;
-
 		netdev->ap = sae_sm_new(hs, netdev_sae_tx_authenticate,
 						netdev_sae_tx_associate,
 						netdev);
@@ -3075,7 +3181,7 @@ build_cmd_connect:
 		if (!cmd_connect)
 			return -EINVAL;
 
-		if (!hs->offload && (is_rsn || hs->settings_8021x))
+		if (!is_offload(hs) && (is_rsn || hs->settings_8021x))
 			sm = eapol_sm_new(hs);
 	}
 
@@ -3156,6 +3262,14 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 	struct eapol_sm *sm = NULL, *old_sm;
 	bool is_rsn = hs->supplicant_ie != NULL;
 	int err;
+
+	if (netdev_handshake_state_setup_connection_type(hs) < 0)
+		return -ENOTSUP;
+
+	/* TODO: SoftMac SAE/FILS Re-Associations are not suppored yet */
+	if (L_WARN_ON(IE_AKM_IS_SAE(hs->akm_suite) ||
+				IE_AKM_IS_FILS(hs->akm_suite)))
+		return -ENOTSUP;
 
 	cmd_connect = netdev_build_cmd_connect(netdev, target_bss, hs,
 						orig_bss->addr, NULL, 0);
