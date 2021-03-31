@@ -981,16 +981,6 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 				goto no_psk;
 
 			handshake_state_set_passphrase(hs, passphrase);
-
-			/*
-			 * TODO: This check isn't strictly correct since
-			 * some drivers may support EXTERNAL_AUTH but since
-			 * wiphy_can_connect takes this into account IWD should
-			 * have already rejected the connection if this was the
-			 * case.
-			 */
-			if (!wiphy_supports_cmds_auth_assoc(wiphy))
-				hs->offload = true;
 		} else {
 			const uint8_t *psk = network_get_psk(network);
 
