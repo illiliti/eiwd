@@ -4099,12 +4099,10 @@ static bool netdev_get_fw_scan_cb(int err, struct l_queue *bss_list,
 	struct scan_bss *bss = NULL;
 
 	/*
-	 * If there was a failure in netdev_connect_event this would reset
-	 * the connect state (netdev_connect_free) causing the sm to be freed.
-	 * In this case we should just ignore this and allow the disconnect
-	 * logic to continue.
+	 * If we happened to be disconnected prior to  GET_SCAN coming back
+	 * just bail out now. This disconnect should already have been handled.
 	 */
-	if (!netdev->sm)
+	if (!netdev->connected)
 		return false;
 
 	if (err < 0) {
