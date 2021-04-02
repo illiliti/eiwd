@@ -4107,9 +4107,7 @@ static bool netdev_get_fw_scan_cb(int err, struct l_queue *bss_list,
 
 	if (err < 0) {
 		l_error("Failed to get scan after roam (%d)", err);
-		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
-					MMPDU_REASON_CODE_UNSPECIFIED);
-		return false;
+		goto failed;
 	}
 
 	/*
@@ -4121,17 +4119,23 @@ static bool netdev_get_fw_scan_cb(int err, struct l_queue *bss_list,
 
 	if (!bss) {
 		l_error("Roam target BSS not found in scan results");
-		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
-					MMPDU_REASON_CODE_UNSPECIFIED);
-		return false;
+		goto failed;
 	}
 
 	netdev->fw_roam_bss = bss;
 
 	handshake_state_set_authenticator_ie(netdev->handshake, bss->rsne);
 
-	eapol_start(netdev->sm);
+	if (netdev->sm) {
+		if (!eapol_start(netdev->sm))
+			goto failed;
+	}
 
+	return false;
+
+failed:
+	netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
+					MMPDU_REASON_CODE_UNSPECIFIED);
 	return false;
 }
 
