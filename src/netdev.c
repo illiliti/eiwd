@@ -1897,7 +1897,6 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 	struct ie_tlv_iter iter;
 	const uint8_t *resp_ies = NULL;
 	size_t resp_ies_len;
-	uint8_t cmd = l_genl_msg_get_command(msg);
 
 	l_debug("");
 
@@ -1951,16 +1950,9 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 			goto error;
 	}
 
-	/*
-	 * A CMD_ROAM event will not have a status code, since it indicates
-	 * the hardware has already roamed. A failed roam on fullmac should
-	 * result in an explicit disconnect event.
-	 */
-	if (cmd == NL80211_CMD_CONNECT) {
-		/* AP Rejected the authenticate / associate */
-		if (!status_code || *status_code != 0)
-			goto error;
-	}
+	/* AP Rejected the authenticate / associate */
+	if (!status_code || *status_code != 0)
+		goto error;
 
 	if (!ies)
 		goto process_resp_ies;
@@ -2029,18 +2021,6 @@ process_resp_ies:
 		goto done;
 
 	if (netdev->sm) {
-		/*
-		 * Let station know about the roam so a state change can occur.
-		 */
-		if (cmd == NL80211_CMD_ROAM) {
-			if (netdev->event_filter)
-				netdev->event_filter(netdev,
-						NETDEV_EVENT_ROAMING,
-						NULL, netdev->user_data);
-			/* EAPoL started after GET_SCAN */
-			return;
-		}
-
 		/*
 		 * Start processing EAPoL frames now that the state machine
 		 * has all the input data even in FT mode.
@@ -4169,20 +4149,35 @@ static bool netdev_get_fw_scan_cb(int err, struct l_queue *bss_list,
  * The current handshake/netdev_handshake objects are reused after being
  * reset to allow eapol to happen again without it thinking this is a re-key.
  */
-static bool netdev_roam_event(struct l_genl_msg *msg, struct netdev *netdev)
+static void netdev_roam_event(struct l_genl_msg *msg, struct netdev *netdev)
 {
 	struct netdev_handshake_state *nhs =
 			l_container_of(netdev->handshake,
 					struct netdev_handshake_state,
 					super);
-	const uint8_t *mac;
+	struct l_genl_attr attr;
+	uint16_t type, len;
+	const void *data;
+	const uint8_t *mac = NULL;
 
 	l_debug("");
 
 	netdev->operational = false;
 
-	if (nl80211_parse_attrs(msg, NL80211_ATTR_MAC, &mac,
-					NL80211_ATTR_UNSPEC) < 0) {
+	l_genl_attr_init(&attr, msg);
+
+	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+		switch (type) {
+		case NL80211_ATTR_MAC:
+			mac = data;
+			break;
+		case NL80211_ATTR_REQ_IE:
+			parse_request_ies(netdev, data, len);
+			break;
+		}
+	}
+
+	if (!mac) {
 		l_error("Failed to parse ATTR_MAC from CMD_ROAM");
 		goto failed;
 	}
@@ -4199,14 +4194,16 @@ static bool netdev_roam_event(struct l_genl_msg *msg, struct netdev *netdev)
 					netdev, NULL))
 		goto failed;
 
-	return true;
+	if (netdev->event_filter)
+		netdev->event_filter(netdev, NETDEV_EVENT_ROAMING,
+					NULL, netdev->user_data);
 
+	return;
 failed:
 	l_error("Failed to roam to new BSS");
 	netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
 					MMPDU_REASON_CODE_UNSPECIFIED);
 
-	return false;
 }
 
 static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
@@ -4251,9 +4248,8 @@ static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
 		netdev_associate_event(msg, netdev);
 		break;
 	case NL80211_CMD_ROAM:
-		if (!netdev_roam_event(msg, netdev))
-			return;
-		/* fall through */
+		netdev_roam_event(msg, netdev);
+		break;
 	case NL80211_CMD_CONNECT:
 		netdev_connect_event(msg, netdev);
 		break;
