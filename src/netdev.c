@@ -1851,6 +1851,41 @@ static void netdev_send_qos_map_set(struct netdev *netdev,
 						netdev, NULL);
 }
 
+static void parse_request_ies(struct netdev *netdev, const uint8_t *ies,
+				size_t ies_len)
+{
+	struct ie_tlv_iter iter;
+	const void *data;
+
+	/*
+	 * The driver may have modified the IEs we passed to CMD_CONNECT
+	 * before sending them out, the actual IE sent is reflected in the
+	 * ATTR_REQ_IE sequence.  These are the values EAPoL will need to use.
+	 */
+	ie_tlv_iter_init(&iter, ies, ies_len);
+
+	while (ie_tlv_iter_next(&iter)) {
+		data = ie_tlv_iter_get_data(&iter);
+
+		switch (ie_tlv_iter_get_tag(&iter)) {
+		case IE_TYPE_RSN:
+			handshake_state_set_supplicant_ie(netdev->handshake,
+								data - 2);
+			break;
+		case IE_TYPE_VENDOR_SPECIFIC:
+			if (!is_ie_wpa_ie(data, ie_tlv_iter_get_length(&iter)))
+				break;
+
+			handshake_state_set_supplicant_ie(netdev->handshake,
+								data - 2);
+			break;
+		case IE_TYPE_MOBILITY_DOMAIN:
+			handshake_state_set_mde(netdev->handshake, data - 2);
+			break;
+		}
+	}
+}
+
 static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 {
 	struct l_genl_attr attr;
@@ -1929,33 +1964,8 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 
 	if (!ies)
 		goto process_resp_ies;
-	/*
-	 * The driver may have modified the IEs we passed to CMD_CONNECT
-	 * before sending them out, the actual IE sent is reflected in the
-	 * ATTR_REQ_IE sequence.  These are the values EAPoL will need to use.
-	 */
-	ie_tlv_iter_init(&iter, ies, ies_len);
 
-	while (ie_tlv_iter_next(&iter)) {
-		data = ie_tlv_iter_get_data(&iter);
-
-		switch (ie_tlv_iter_get_tag(&iter)) {
-		case IE_TYPE_RSN:
-			handshake_state_set_supplicant_ie(netdev->handshake,
-								data - 2);
-			break;
-		case IE_TYPE_VENDOR_SPECIFIC:
-			if (!is_ie_wpa_ie(data, ie_tlv_iter_get_length(&iter)))
-				break;
-
-			handshake_state_set_supplicant_ie(netdev->handshake,
-								data - 2);
-			break;
-		case IE_TYPE_MOBILITY_DOMAIN:
-			handshake_state_set_mde(netdev->handshake, data - 2);
-			break;
-		}
-	}
+	parse_request_ies(netdev, ies, ies_len);
 
 process_resp_ies:
 	if (resp_ies) {
