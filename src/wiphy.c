@@ -178,6 +178,8 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 {
 	struct ie_rsn_info info;
 	enum security security;
+	bool psk_offload = wiphy_has_ext_feature(wiphy,
+				NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK);
 
 	memset(&info, 0, sizeof(info));
 	scan_bss_get_rsn_info(bss, &info);
@@ -246,10 +248,17 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 		}
 
 wpa2_personal:
+		/*
+		 * Allow FT if either Auth/Assoc is supported OR if the card
+		 * supports PSK offload. Without Auth/Assoc, PSK offload is the
+		 * only mechanism to allow FT on these cards.
+		 */
 		if ((info.akm_suites & IE_RSN_AKM_SUITE_FT_USING_PSK) &&
-				bss->rsne && bss->mde_present &&
-				wiphy->support_cmds_auth_assoc)
-			return IE_RSN_AKM_SUITE_FT_USING_PSK;
+					bss->rsne && bss->mde_present) {
+			if (wiphy->support_cmds_auth_assoc ||
+					(psk_offload && wiphy->support_fw_roam))
+				return IE_RSN_AKM_SUITE_FT_USING_PSK;
+		}
 
 		if (info.akm_suites & IE_RSN_AKM_SUITE_PSK_SHA256)
 			return IE_RSN_AKM_SUITE_PSK_SHA256;
