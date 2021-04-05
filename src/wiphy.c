@@ -1615,6 +1615,16 @@ void wiphy_radio_work_done(struct wiphy *wiphy, uint32_t id)
 		wiphy_radio_work_next(wiphy);
 }
 
+bool wiphy_radio_work_is_running(struct wiphy *wiphy, uint32_t id)
+{
+	struct wiphy_radio_work_item *item = l_queue_peek_head(wiphy->work);
+
+	if (!item)
+		return false;
+
+	return item->id == id;
+}
+
 static int wiphy_init(void)
 {
 	struct l_genl *genl = iwd_get_genl();
