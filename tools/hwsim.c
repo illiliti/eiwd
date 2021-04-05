@@ -114,6 +114,7 @@ enum hwsim_tx_control_flags {
 
 #define IEEE80211_TX_RATE_TABLE_SIZE	4
 #define HWSIM_DELAY_MIN_MS		1
+#define HWSIM_MAX_PREFIX_LEN		128
 
 struct hwsim_rule {
 	unsigned int id;
@@ -127,6 +128,8 @@ struct hwsim_rule {
 	int priority;
 	int signal;
 	int delay;
+	uint8_t *prefix;
+	size_t prefix_len;
 };
 
 struct hwsim_support {
@@ -1203,6 +1206,12 @@ static void process_rules(const struct radio_info_rec *src_radio,
 		if (rule->frequency && rule->frequency != frame->frequency)
 			continue;
 
+		if (rule->prefix && frame->payload_len >= rule->prefix_len) {
+			if (memcmp(rule->prefix, frame->payload,
+					rule->prefix_len) != 0)
+				continue;
+		}
+
 		/* Rule deemed to match frame, apply any changes */
 
 		if (rule->signal)
@@ -2025,6 +2034,10 @@ static struct l_dbus_message *rule_remove(struct l_dbus *dbus,
 
 	path = rule_get_path(rule);
 	l_queue_remove(rules, rule);
+
+	if (rule->prefix)
+		l_free(rule->prefix);
+
 	l_free(rule);
 	l_dbus_unregister_object(dbus, path);
 
@@ -2303,6 +2316,59 @@ static struct l_dbus_message *rule_property_set_delay(
 	return l_dbus_message_new_method_return(message);
 }
 
+static bool rule_property_get_prefix(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct hwsim_rule *rule = user_data;
+	size_t i;
+
+	l_dbus_message_builder_enter_array(builder, "y");
+
+	for (i = 0; i < rule->prefix_len; i++)
+		l_dbus_message_builder_append_basic(builder, 'y',
+							rule->prefix + i);
+
+	l_dbus_message_builder_leave_array(builder);
+
+	return true;
+}
+
+static struct l_dbus_message *rule_property_set_prefix(
+					struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_iter *new_value,
+					l_dbus_property_complete_cb_t complete,
+					void *user_data)
+{
+	struct hwsim_rule *rule = user_data;
+	struct l_dbus_message_iter iter;
+	const uint8_t *prefix;
+	uint32_t len;
+
+	if (!l_dbus_message_iter_get_variant(new_value, "ay", &iter))
+		goto invalid_args;
+
+	if (!l_dbus_message_iter_get_fixed_array(&iter,
+						(const void **)&prefix, &len))
+		goto invalid_args;
+
+	if (len > HWSIM_MAX_PREFIX_LEN)
+		goto invalid_args;
+
+	if (rule->prefix)
+		l_free(rule->prefix);
+
+	rule->prefix = l_memdup(prefix, len);
+	rule->prefix_len = len;
+
+	return l_dbus_message_new_method_return(message);
+
+invalid_args:
+	return dbus_error_invalid_args(message);
+}
+
 static void setup_rule_interface(struct l_dbus_interface *interface)
 {
 	l_dbus_interface_method(interface, "Remove", 0, rule_remove, "", "");
@@ -2339,6 +2405,10 @@ static void setup_rule_interface(struct l_dbus_interface *interface)
 					L_DBUS_PROPERTY_FLAG_AUTO_EMIT, "u",
 					rule_property_get_delay,
 					rule_property_set_delay);
+	l_dbus_interface_property(interface, "Prefix",
+					L_DBUS_PROPERTY_FLAG_AUTO_EMIT, "ay",
+					rule_property_get_prefix,
+					rule_property_set_prefix);
 }
 
 static void request_name_callback(struct l_dbus *dbus, bool success,
