@@ -3214,7 +3214,8 @@ int netdev_disconnect(struct netdev *netdev,
 		if (netdev->connect_cmd_id) {
 			l_genl_family_cancel(nl80211, netdev->connect_cmd_id);
 			netdev->connect_cmd_id = 0;
-		} else
+		} else if (!wiphy_radio_work_is_running(netdev->wiphy,
+							netdev->work.id))
 			send_disconnect = false;
 
 		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
