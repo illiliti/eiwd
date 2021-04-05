@@ -672,35 +672,6 @@ static bool sae_send_commit(struct sae_sm *sm, bool retry)
 	return true;
 }
 
-static bool sae_auth_timeout(struct auth_proto *ap)
-{
-	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
-
-	/* regardless of state, reject if sync exceeds max */
-	if (sm->sync > SAE_SYNC_MAX) {
-		sae_reject_authentication(sm, MMPDU_REASON_CODE_UNSPECIFIED);
-		return false;
-	}
-
-	sm->sync++;
-
-	switch (sm->state) {
-	case SAE_STATE_COMMITTED:
-		sae_send_commit(sm, true);
-		break;
-	case SAE_STATE_CONFIRMED:
-		sm->sc++;
-		sae_send_confirm(sm);
-		break;
-	default:
-		/* should never happen */
-		l_error("SAE timeout in bad state %u", sm->state);
-		return false;
-	}
-
-	return true;
-}
-
 static bool sae_assoc_timeout(struct auth_proto *ap)
 {
 	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
@@ -1194,7 +1165,6 @@ struct auth_proto *sae_sm_new(struct handshake_state *hs,
 	sm->ap.free = sae_free;
 	sm->ap.rx_authenticate = sae_rx_authenticate;
 	sm->ap.rx_associate = sae_rx_associate;
-	sm->ap.auth_timeout = sae_auth_timeout;
 	sm->ap.assoc_timeout = sae_assoc_timeout;
 
 	return &sm->ap;
