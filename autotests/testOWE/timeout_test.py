@@ -45,6 +45,14 @@ class Test(unittest.TestCase):
         rule0.source = bss_radio.addresses[0]
         rule0.bidirectional = True
         rule0.drop = True
+        rule0.prefix = 'b0'
+
+        # Test Authenticate (b0) and Association (00) timeouts
+
+        with self.assertRaises(iwd.FailedEx):
+            ordered_network.network_object.connect()
+
+        rule0.prefix = '00'
 
         with self.assertRaises(iwd.FailedEx):
             ordered_network.network_object.connect()
