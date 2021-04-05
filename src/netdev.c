@@ -2338,7 +2338,7 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 		} else if (ret == -EAGAIN) {
 			/*
 			 * Here to support OWE retries. OWE will retry
-			 * internally, but a connect even will still be emitted.
+			 * internally, but a connect event will still be emitted
 			 */
 			netdev->ignore_connect_event = true;
 			return;
