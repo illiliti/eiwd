@@ -132,6 +132,16 @@ class Rule(HwsimDBusAbstract):
                             reply_handler=self._success, error_handler=self._failure)
         self._wait_for_async_op()
 
+    @property
+    def prefix(self):
+        return self._properties['Prefix']
+
+    @prefix.setter
+    def prefix(self, value):
+        self._prop_proxy.Set(self._iface_name, 'Prefix', dbus.ByteArray.fromhex(value),
+                            reply_handler=self._success, error_handler=self._failure)
+        self._wait_for_async_op()
+
     def remove(self):
         self._iface.Remove(reply_handler=self._success,
                 error_handler=self._failure)
@@ -150,7 +160,8 @@ class Rule(HwsimDBusAbstract):
                prefix + '\tPriority:\t' + str(self.priority) + '\n' +\
                prefix + '\tFrequency:\t' + str(self.frequency) + '\n' + \
                prefix + '\tApply rssi:\t' + str(self.signal) + '\n' + \
-               prefix + '\tApply drop:\t' + str(self.drop) + '\n'
+               prefix + '\tApply drop:\t' + str(self.drop) + '\n' + \
+               prefix + '\tPrefix:\t' + str([hex(b) for b in self.prefix]) + '\n'
 
 class RuleSet(collections.Mapping):
     def __init__(self, hwsim, objects):
