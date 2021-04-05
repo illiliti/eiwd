@@ -3182,6 +3182,13 @@ build_cmd_connect:
 						event_filter, cb, user_data);
 }
 
+static void disconnect_idle(void *user_data)
+{
+	struct netdev *netdev = user_data;
+
+	netdev->disconnect_cb(netdev, true, netdev->user_data);
+}
+
 int netdev_disconnect(struct netdev *netdev,
 				netdev_disconnect_cb_t cb, void *user_data)
 {
@@ -3239,8 +3246,12 @@ int netdev_disconnect(struct netdev *netdev,
 		netdev->disconnect_cb = cb;
 		netdev->user_data = user_data;
 		netdev->aborting = true;
-	} else if (cb)
-		cb(netdev, true, user_data);
+	} else if (cb) {
+		netdev->disconnect_cb = cb;
+		netdev->user_data = user_data;
+
+		l_idle_oneshot(disconnect_idle, netdev, NULL);
+	}
 
 	return 0;
 }
