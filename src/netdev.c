@@ -148,6 +148,8 @@ struct netdev {
 	void *get_station_data;
 	netdev_destroy_func_t get_station_destroy;
 
+	struct l_idle *disconnect_idle;
+
 	struct watchlist station_watches;
 
 	struct l_io *pae_io;  /* for drivers without EAPoL over NL80211 */
@@ -810,6 +812,11 @@ static void netdev_free(void *data)
 
 	if (netdev->fw_roam_bss)
 		scan_bss_free(netdev->fw_roam_bss);
+
+	if (netdev->disconnect_idle) {
+		l_idle_remove(netdev->disconnect_idle);
+		netdev->disconnect_idle = NULL;
+	}
 
 	if (netdev->events_ready)
 		WATCHLIST_NOTIFY(&netdev_watches, netdev_watch_func_t,
@@ -3182,9 +3189,12 @@ build_cmd_connect:
 						event_filter, cb, user_data);
 }
 
-static void disconnect_idle(void *user_data)
+static void disconnect_idle(struct l_idle *idle, void *user_data)
 {
 	struct netdev *netdev = user_data;
+
+	l_idle_remove(idle);
+	netdev->disconnect_idle = NULL;
 
 	netdev->disconnect_cb(netdev, true, netdev->user_data);
 }
@@ -3249,8 +3259,8 @@ int netdev_disconnect(struct netdev *netdev,
 	} else if (cb) {
 		netdev->disconnect_cb = cb;
 		netdev->user_data = user_data;
-
-		l_idle_oneshot(disconnect_idle, netdev, NULL);
+		netdev->disconnect_idle = l_idle_create(disconnect_idle,
+							netdev, NULL);
 	}
 
 	return 0;
