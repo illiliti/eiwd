@@ -1025,6 +1025,17 @@ static void eapol_set_key_timeout(struct eapol_sm *sm,
 	}
 }
 
+/*
+ * GCC version 8.3 seems to have trouble correctly calculating
+ * ek->header.packet_len when optimization is enabled.  This results in iwd
+ * sending invalid 1_of_4 packets (with the KDE payload missing).  Work
+ * around this by dropping to O0 for this function when old GCC versions
+ * are used
+ */
+#if __GNUC__ < 9
+#pragma GCC optimize ("O0")
+#endif
+
 /* 802.11-2016 Section 12.7.6.2 */
 static void eapol_send_ptk_1_of_4(struct eapol_sm *sm)
 {
@@ -1067,6 +1078,10 @@ static void eapol_send_ptk_1_of_4(struct eapol_sm *sm)
 
 	eapol_sm_write(sm, (struct eapol_frame *) ek, false);
 }
+
+#if __GNUC__ < 9
+#pragma GCC reset_options
+#endif
 
 static void eapol_ptk_1_of_4_retry(struct l_timeout *timeout, void *user_data)
 {
