@@ -52,6 +52,7 @@ static uint32_t eapol_4way_handshake_time = 2;
 static eapol_rekey_offload_func_t rekey_offload = NULL;
 
 static eapol_tx_packet_func_t tx_packet = NULL;
+static eapol_install_pmk_func_t install_pmk = NULL;
 static void *tx_user_data;
 
 #define VERIFY_IS_ZERO(field)						\
@@ -2177,6 +2178,10 @@ static void eapol_eap_complete_cb(enum eap_result result, void *user_data)
 		sm->eap = NULL;
 		handshake_failed(sm, MMPDU_REASON_CODE_IEEE8021X_FAILED);
 		return;
+	} else {
+		if (install_pmk)
+			install_pmk(sm->handshake, sm->handshake->pmk,
+					sm->handshake->pmk_len);
 	}
 
 	eap_reset(sm->eap);
@@ -2483,6 +2488,11 @@ void __eapol_set_tx_user_data(void *user_data)
 void __eapol_set_rekey_offload_func(eapol_rekey_offload_func_t func)
 {
 	rekey_offload = func;
+}
+
+void __eapol_set_install_pmk_func(eapol_install_pmk_func_t func)
+{
+	install_pmk = func;
 }
 
 void eapol_register(struct eapol_sm *sm)

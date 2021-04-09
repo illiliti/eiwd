@@ -51,6 +51,9 @@ typedef void (*eapol_frame_watch_func_t)(uint16_t proto, const uint8_t *from,
 						const struct eapol_frame *frame,
 						bool noencrypt,
 						void *user_data);
+typedef void (*eapol_install_pmk_func_t)(struct handshake_state *hs,
+						const uint8_t *pmk,
+						size_t pmk_len);
 
 bool eapol_calculate_mic(enum ie_rsn_akm_suite akm, const uint8_t *kck,
 				const struct eapol_key *frame, uint8_t *mic,
@@ -101,6 +104,8 @@ void __eapol_tx_packet(uint32_t ifindex, const uint8_t *dst, uint16_t proto,
 			const struct eapol_frame *frame, bool noencrypt);
 void __eapol_set_tx_packet_func(eapol_tx_packet_func_t func);
 void __eapol_set_tx_user_data(void *user_data);
+
+void __eapol_set_install_pmk_func(eapol_install_pmk_func_t func);
 
 void __eapol_set_rekey_offload_func(eapol_rekey_offload_func_t func);
 void __eapol_update_replay_counter(uint32_t ifindex, const uint8_t *spa,
