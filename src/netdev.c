@@ -72,6 +72,7 @@ enum connection_type {
 	CONNECTION_TYPE_FULLMAC,
 	CONNECTION_TYPE_SAE_OFFLOAD,
 	CONNECTION_TYPE_PSK_OFFLOAD,
+	CONNECTION_TYPE_8021X_OFFLOAD,
 };
 
 static uint32_t unicast_watch;
@@ -203,6 +204,15 @@ static inline bool is_offload(struct handshake_state *hs)
 	switch (nhs->type) {
 	case CONNECTION_TYPE_SOFTMAC:
 	case CONNECTION_TYPE_FULLMAC:
+	/*
+	 * 8021x offload does not quite fit into the same category of PSK
+	 * offload. First the netdev_connect_event comes prior to EAP meaning
+	 * the handshake is not done at this point. In addition it still
+	 * requires EAP take place in userspace meaning IWD needs an eapol_sm.
+	 * Because of this, and our prior use of 'is_offload', it does not fit
+	 * into the same category and will need to be handled specially.
+	 */
+	case CONNECTION_TYPE_8021X_OFFLOAD:
 		return false;
 	case CONNECTION_TYPE_SAE_OFFLOAD:
 	case CONNECTION_TYPE_PSK_OFFLOAD:
@@ -2666,6 +2676,9 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 	case CONNECTION_TYPE_PSK_OFFLOAD:
 		l_genl_msg_append_attr(msg, NL80211_ATTR_PMK, 32, hs->pmk);
 		break;
+	case CONNECTION_TYPE_8021X_OFFLOAD:
+		l_genl_msg_append_attr(msg, NL80211_ATTR_WANT_1X_4WAY_HS,
+					0, NULL);
 	}
 
 	if (prev_bssid)
@@ -3045,13 +3058,21 @@ static int netdev_handshake_state_setup_connection_type(
 		if (wiphy_has_ext_feature(wiphy,
 				NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK))
 			goto psk_offload;
-		/* fall through */
+
+		if (softmac)
+			goto softmac;
+
+		goto fullmac;
 	case IE_RSN_AKM_SUITE_8021X:
 	case IE_RSN_AKM_SUITE_FT_OVER_8021X:
 	case IE_RSN_AKM_SUITE_8021X_SHA256:
 	case IE_RSN_AKM_SUITE_8021X_SUITE_B_SHA256:
 	case IE_RSN_AKM_SUITE_8021X_SUITE_B_SHA384:
 	case IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384:
+		if (wiphy_has_ext_feature(wiphy,
+				NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_1X))
+			goto offload_1x;
+
 		if (softmac)
 			goto softmac;
 
@@ -3095,6 +3116,9 @@ sae_offload:
 	return 0;
 psk_offload:
 	nhs->type = CONNECTION_TYPE_PSK_OFFLOAD;
+	return 0;
+offload_1x:
+	nhs->type = CONNECTION_TYPE_8021X_OFFLOAD;
 	return 0;
 }
 
@@ -3181,8 +3205,12 @@ build_cmd_connect:
 		if (!cmd_connect)
 			return -EINVAL;
 
-		if (!is_offload(hs) && (is_rsn || hs->settings_8021x))
+		if (!is_offload(hs) && (is_rsn || hs->settings_8021x)) {
 			sm = eapol_sm_new(hs);
+
+			if (nhs->type == CONNECTION_TYPE_8021X_OFFLOAD)
+				eapol_sm_set_require_handshake(sm, false);
+		}
 	}
 
 	return netdev_connect_common(netdev, cmd_connect, bss, hs, sm,
