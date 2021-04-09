@@ -525,6 +525,9 @@ static void agent_disconnect(struct l_dbus *dbus, void *user_data)
 
 	l_debug("agent %s disconnected", agent->owner);
 
+	if (agent->pending_id)
+		agent_finalize_pending(agent, NULL);
+
 	l_queue_remove(agents, agent);
 
 	l_idle_oneshot(agent_free, agent, NULL);
