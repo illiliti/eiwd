@@ -281,7 +281,9 @@ static void ap_sta_free(void *data)
 	struct sta_state *sta = data;
 	struct ap_state *ap = sta->ap;
 
-	l_uintset_free(sta->rates);
+	if (sta->rates)
+		l_uintset_free(sta->rates);
+
 	l_free(sta->assoc_ies);
 
 	if (sta->assoc_resp_cmd_id)
@@ -2329,7 +2331,9 @@ static bool ap_parse_new_station_ies(const void *data, uint16_t len,
 	}
 
 	*rsn_out = rsn;
-	*rates_out = rates;
+
+	if (rates_out)
+		*rates_out = rates;
 
 	return true;
 
@@ -2352,7 +2356,6 @@ static void ap_handle_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 	const void *data;
 	uint8_t mac[6];
 	uint8_t *assoc_rsne = NULL;
-	struct l_uintset *rates = NULL;
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
@@ -2360,11 +2363,11 @@ static void ap_handle_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 	while (l_genl_attr_next(&attr, &type, &len, &data)) {
 		switch (type) {
 		case NL80211_ATTR_IE:
-			if (assoc_rsne || rates)
+			if (assoc_rsne)
 				goto cleanup;
 
 			if (!ap_parse_new_station_ies(data, len, &assoc_rsne,
-							&rates))
+							NULL))
 				return;
 			break;
 		case NL80211_ATTR_MAC:
@@ -2376,7 +2379,7 @@ static void ap_handle_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 		}
 	}
 
-	if (!assoc_rsne || !rates)
+	if (!assoc_rsne)
 		goto cleanup;
 
 	/*
@@ -2391,7 +2394,6 @@ static void ap_handle_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 	memcpy(sta->addr, mac, 6);
 	sta->ap = ap;
 	sta->assoc_rsne = assoc_rsne;
-	sta->rates = rates;
 	sta->aid = ++ap->last_aid;
 
 	sta->associated = true;
@@ -2415,7 +2417,6 @@ static void ap_handle_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 
 cleanup:
 	l_free(assoc_rsne);
-	l_uintset_free(rates);
 }
 
 static void ap_handle_del_station(struct ap_state *ap, struct l_genl_msg *msg)
