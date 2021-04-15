@@ -3611,6 +3611,56 @@ static void netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
 	}
 }
 
+static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)
+{
+	struct netdev_handshake_state *nhs;
+
+	memcpy(netdev->prev_bssid, netdev->handshake->aa, 6);
+	netdev->prev_frequency = netdev->frequency;
+	netdev->frequency = target_bss->frequency;
+
+	netdev->associated = false;
+	netdev->operational = false;
+	netdev->in_ft = true;
+
+	/*
+	 * Cancel commands that could be running because of EAPoL activity
+	 * like re-keying, this way the callbacks for those commands don't
+	 * have to check if failures resulted from the transition.
+	 */
+	nhs = l_container_of(netdev->handshake,
+				struct netdev_handshake_state, super);
+
+	/* reset key states just as we do in initialization */
+	nhs->complete = false;
+	nhs->ptk_installed = false;
+	nhs->gtk_installed = true;
+	nhs->igtk_installed = true;
+
+	if (nhs->group_new_key_cmd_id) {
+		l_genl_family_cancel(nl80211, nhs->group_new_key_cmd_id);
+		nhs->group_new_key_cmd_id = 0;
+	}
+
+	if (nhs->group_management_new_key_cmd_id) {
+		l_genl_family_cancel(nl80211,
+			nhs->group_management_new_key_cmd_id);
+		nhs->group_management_new_key_cmd_id = 0;
+	}
+
+	if (netdev->rekey_offload_cmd_id) {
+		l_genl_family_cancel(nl80211, netdev->rekey_offload_cmd_id);
+		netdev->rekey_offload_cmd_id = 0;
+	}
+
+	netdev_rssi_polling_update(netdev);
+
+	if (netdev->sm) {
+		eapol_sm_free(netdev->sm);
+		netdev->sm = NULL;
+	}
+}
+
 static void netdev_ft_request_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = user_data;
@@ -3718,8 +3768,6 @@ static int fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 				bool over_air,
 				netdev_connect_cb_t cb)
 {
-	struct netdev_handshake_state *nhs;
-
 	if (!netdev->operational)
 		return -ENOTCONN;
 
@@ -3733,13 +3781,8 @@ static int fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 	 * Could also create a new object and copy most of the state but
 	 * we would end up doing more work.
 	 */
-	memcpy(netdev->prev_bssid, netdev->handshake->aa, ETH_ALEN);
 	memcpy(netdev->prev_snonce, netdev->handshake->snonce, 32);
-
 	handshake_state_new_snonce(netdev->handshake);
-
-	netdev->prev_frequency = netdev->frequency;
-	netdev->frequency = target_bss->frequency;
 
 	handshake_state_set_authenticator_address(netdev->handshake,
 							target_bss->addr);
@@ -3749,47 +3792,9 @@ static int fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 							target_bss->rsne);
 	memcpy(netdev->handshake->mde + 2, target_bss->mde, 3);
 
-	netdev->associated = false;
-	netdev->operational = false;
-	netdev->in_ft = true;
+	prepare_ft(netdev, target_bss);
+
 	netdev->connect_cb = cb;
-
-	/*
-	 * Cancel commands that could be running because of EAPoL activity
-	 * like re-keying, this way the callbacks for those commands don't
-	 * have to check if failures resulted from the transition.
-	 */
-	nhs = l_container_of(netdev->handshake,
-				struct netdev_handshake_state, super);
-
-	/* reset key states just as we do in initialization */
-	nhs->complete = false;
-	nhs->ptk_installed = false;
-	nhs->gtk_installed = true;
-	nhs->igtk_installed = true;
-
-	if (nhs->group_new_key_cmd_id) {
-		l_genl_family_cancel(nl80211, nhs->group_new_key_cmd_id);
-		nhs->group_new_key_cmd_id = 0;
-	}
-
-	if (nhs->group_management_new_key_cmd_id) {
-		l_genl_family_cancel(nl80211,
-			nhs->group_management_new_key_cmd_id);
-		nhs->group_management_new_key_cmd_id = 0;
-	}
-
-	if (netdev->rekey_offload_cmd_id) {
-		l_genl_family_cancel(nl80211, netdev->rekey_offload_cmd_id);
-		netdev->rekey_offload_cmd_id = 0;
-	}
-
-	netdev_rssi_polling_update(netdev);
-
-	if (netdev->sm) {
-		eapol_sm_free(netdev->sm);
-		netdev->sm = NULL;
-	}
 
 	if (over_air)
 		netdev->ap = ft_over_air_sm_new(netdev->handshake,
