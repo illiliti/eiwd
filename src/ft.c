@@ -329,13 +329,13 @@ error:
 	return -EINVAL;
 }
 
-static int ft_process_ies(struct ft_sm *ft, const uint8_t *ies, size_t ies_len)
+static int ft_process_ies(struct handshake_state *hs, const uint8_t *ies,
+			size_t ies_len)
 {
 	struct ie_tlv_iter iter;
 	const uint8_t *rsne = NULL;
 	const uint8_t *mde = NULL;
 	const uint8_t *fte = NULL;
-	struct handshake_state *hs = ft->hs;
 	uint32_t kck_len = handshake_state_get_kck_len(hs);
 	bool is_rsn;
 
@@ -469,7 +469,7 @@ static int ft_process_ies(struct ft_sm *ft, const uint8_t *ies, size_t ies_len)
 	} else if (fte)
 		goto ft_error;
 
-	return ft_tx_reassociate(ft);
+	return 0;
 
 ft_error:
 	return -EBADMSG;
@@ -482,6 +482,7 @@ static int ft_rx_action(struct auth_proto *ap, const uint8_t *frame,
 	uint16_t status_code = MMPDU_STATUS_CODE_UNSPECIFIED;
 	const uint8_t *ies = NULL;
 	size_t ies_len;
+	int ret;
 
 	if (!ft_parse_action_resp_frame(frame, frame_len, ft->hs->spa,
 						ft->hs->aa, &status_code,
@@ -492,7 +493,11 @@ static int ft_rx_action(struct auth_proto *ap, const uint8_t *frame,
 	if (status_code != 0)
 		goto auth_error;
 
-	return ft_process_ies(ft, ies, ies_len);
+	ret = ft_process_ies(ft->hs, ies, ies_len);
+	if (ret < 0)
+		goto auth_error;
+
+	return ft_tx_reassociate(ft);
 
 auth_error:
 	return (int)status_code;
@@ -505,6 +510,7 @@ static int ft_rx_authenticate(struct auth_proto *ap, const uint8_t *frame,
 	uint16_t status_code = MMPDU_STATUS_CODE_UNSPECIFIED;
 	const uint8_t *ies = NULL;
 	size_t ies_len;
+	int ret;
 
 	/*
 	 * Parse the Authentication Response and validate the contents
@@ -520,7 +526,11 @@ static int ft_rx_authenticate(struct auth_proto *ap, const uint8_t *frame,
 	if (status_code != 0)
 		goto auth_error;
 
-	return ft_process_ies(ft, ies, ies_len);
+	ret = ft_process_ies(ft->hs, ies, ies_len);
+	if (ret < 0)
+		goto auth_error;
+
+	return ft_tx_reassociate(ft);
 
 auth_error:
 	return (int)status_code;
