@@ -4873,6 +4873,51 @@ static int netdev_cqm_rssi_update(struct netdev *netdev)
 	return 0;
 }
 
+static void netdev_add_station_frame_watches(struct netdev *netdev)
+{
+	static const uint8_t action_neighbor_report_prefix[2] = { 0x05, 0x05 };
+	static const uint8_t action_sa_query_resp_prefix[2] = { 0x08, 0x01 };
+	static const uint8_t action_sa_query_req_prefix[2] = { 0x08, 0x00 };
+	static const uint8_t action_ft_response_prefix[] =  { 0x06, 0x02 };
+	static const uint8_t action_qos_map_prefix[] = { 0x01, 0x04 };
+	uint64_t wdev = netdev->wdev_id;
+
+	/* Subscribe to Management -> Action -> RM -> Neighbor Report frames */
+	frame_watch_add(wdev, 0, 0x00d0, action_neighbor_report_prefix,
+			sizeof(action_neighbor_report_prefix),
+			netdev_neighbor_report_frame_event, netdev, NULL);
+
+	frame_watch_add(wdev, 0, 0x00d0, action_sa_query_resp_prefix,
+			sizeof(action_sa_query_resp_prefix),
+			netdev_sa_query_resp_frame_event, netdev, NULL);
+
+	frame_watch_add(wdev, 0, 0x00d0, action_sa_query_req_prefix,
+			sizeof(action_sa_query_req_prefix),
+			netdev_sa_query_req_frame_event, netdev, NULL);
+
+	frame_watch_add(wdev, 0, 0x00d0, action_ft_response_prefix,
+			sizeof(action_ft_response_prefix),
+			netdev_ft_response_frame_event, netdev, NULL);
+
+	if (wiphy_supports_qos_set_map(netdev->wiphy))
+		frame_watch_add(wdev, 0, 0x00d0, action_qos_map_prefix,
+				sizeof(action_qos_map_prefix),
+				netdev_qos_map_frame_event, netdev, NULL);
+}
+
+static void netdev_setup_interface(struct netdev *netdev)
+{
+	switch (netdev->type) {
+	case NL80211_IFTYPE_STATION:
+		/* Set RSSI threshold for CQM notifications */
+		netdev_cqm_rssi_update(netdev);
+		netdev_add_station_frame_watches(netdev);
+		break;
+	default:
+		break;
+	}
+}
+
 static void netdev_set_interface_event(struct l_genl_msg *msg,
 							struct netdev *netdev)
 {
@@ -4893,9 +4938,7 @@ static void netdev_set_interface_event(struct l_genl_msg *msg,
 	netdev->type = iftype;
 	frame_watch_wdev_remove(wdev_id);
 
-	/* Set RSSI threshold for CQM notifications */
-	if (netdev->type == NL80211_IFTYPE_STATION)
-		netdev_cqm_rssi_update(netdev);
+	netdev_setup_interface(netdev);
 }
 
 static void netdev_config_notify(struct l_genl_msg *msg, void *user_data)
@@ -5453,11 +5496,6 @@ struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 	struct wiphy *wiphy = NULL;
 	struct ifinfomsg *rtmmsg;
 	size_t bufsize;
-	const uint8_t action_neighbor_report_prefix[2] = { 0x05, 0x05 };
-	const uint8_t action_sa_query_resp_prefix[2] = { 0x08, 0x01 };
-	const uint8_t action_sa_query_req_prefix[2] = { 0x08, 0x00 };
-	const uint8_t action_ft_response_prefix[] =  { 0x06, 0x02 };
-	const uint8_t action_qos_map_prefix[] = { 0x01, 0x04 };
 	struct l_io *pae_io = NULL;
 
 	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFINDEX, &ifindex,
@@ -5531,31 +5569,7 @@ struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 
 	l_free(rtmmsg);
 
-	/* Subscribe to Management -> Action -> RM -> Neighbor Report frames */
-	frame_watch_add(wdev, 0, 0x00d0, action_neighbor_report_prefix,
-			sizeof(action_neighbor_report_prefix),
-			netdev_neighbor_report_frame_event, netdev, NULL);
-
-	frame_watch_add(wdev, 0, 0x00d0, action_sa_query_resp_prefix,
-			sizeof(action_sa_query_resp_prefix),
-			netdev_sa_query_resp_frame_event, netdev, NULL);
-
-	frame_watch_add(wdev, 0, 0x00d0, action_sa_query_req_prefix,
-			sizeof(action_sa_query_req_prefix),
-			netdev_sa_query_req_frame_event, netdev, NULL);
-
-	frame_watch_add(wdev, 0, 0x00d0, action_ft_response_prefix,
-			sizeof(action_ft_response_prefix),
-			netdev_ft_response_frame_event, netdev, NULL);
-
-	if (wiphy_supports_qos_set_map(netdev->wiphy))
-		frame_watch_add(wdev, 0, 0x00d0, action_qos_map_prefix,
-				sizeof(action_qos_map_prefix),
-				netdev_qos_map_frame_event, netdev, NULL);
-
-	/* Set RSSI threshold for CQM notifications */
-	if (netdev->type == NL80211_IFTYPE_STATION)
-		netdev_cqm_rssi_update(netdev);
+	netdev_setup_interface(netdev);
 
 	return netdev;
 }
