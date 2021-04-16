@@ -4873,6 +4873,43 @@ static int netdev_cqm_rssi_update(struct netdev *netdev)
 	return 0;
 }
 
+static void netdev_set_interface_event(struct l_genl_msg *msg,
+							struct netdev *netdev)
+{
+	uint32_t iftype;
+
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFTYPE, &iftype,
+					NL80211_ATTR_UNSPEC) < 0)
+		return;
+
+	if (iftype == netdev->type)
+		return;
+
+	l_debug("Interface type changed from %s to %s",
+			netdev_iftype_to_string(netdev->type),
+			netdev_iftype_to_string(iftype));
+	netdev->type = iftype;
+
+	/* Set RSSI threshold for CQM notifications */
+	if (netdev->type == NL80211_IFTYPE_STATION)
+		netdev_cqm_rssi_update(netdev);
+}
+
+static void netdev_config_notify(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev;
+
+	netdev = netdev_from_message(msg);
+	if (!netdev)
+		return;
+
+	switch (l_genl_msg_get_command(msg)) {
+	case NL80211_CMD_SET_INTERFACE:
+		netdev_set_interface_event(msg, netdev);
+		break;
+	}
+}
+
 static struct l_genl_msg *netdev_build_cmd_set_interface(struct netdev *netdev,
 							uint32_t iftype)
 {
@@ -4932,12 +4969,6 @@ static void netdev_set_iftype_cb(struct l_genl_msg *msg, void *user_data)
 
 	if (error != 0)
 		goto done;
-
-	netdev->type = req->pending_type;
-
-	/* Set RSSI threshold for CQM notifications */
-	if (netdev->type == NL80211_IFTYPE_STATION)
-		netdev_cqm_rssi_update(netdev);
 
 	/* If the netdev was down originally, we're done */
 	if (!req->bring_up)
@@ -5640,6 +5671,10 @@ static int netdev_init(void)
 	if (!l_genl_family_register(nl80211, "scan", netdev_scan_notify,
 								NULL, NULL))
 		l_error("Registering for scan notifications failed");
+
+	if (!l_genl_family_register(nl80211, "config", netdev_config_notify,
+								NULL, NULL))
+		l_error("Registering for config notifications failed");
 
 	return 0;
 
