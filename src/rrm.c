@@ -835,7 +835,15 @@ static void rrm_netdev_watch(struct netdev *netdev,
 			l_free(rrm);
 		}
 
-		return;
+		break;
+	case NETDEV_WATCH_EVENT_IFTYPE_CHANGE:
+		rrm = l_queue_find(states, match_ifindex,
+						L_UINT_TO_PTR(ifindex));
+
+		if (rrm && netdev_get_iftype(netdev) == NETDEV_IFTYPE_STATION)
+			rrm_add_frame_watches(rrm);
+
+		break;
 	default:
 		break;
 	}
