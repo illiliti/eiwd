@@ -770,14 +770,20 @@ static void rrm_state_destroy(void *data)
 	l_free(rrm);
 }
 
-static void rrm_new_state(struct netdev *netdev)
+static void rrm_add_frame_watches(struct rrm_state *rrm)
+{
+	static const uint16_t frame_type = 0x00d0;
+	static const uint8_t prefix[] = { 0x05, 0x00 };
+
+	l_debug("");
+
+	frame_watch_add(rrm->wdev_id, 0, frame_type, prefix, sizeof(prefix),
+					rrm_frame_watch_cb, rrm, NULL);
+}
+
+static struct rrm_state *rrm_new_state(struct netdev *netdev)
 {
 	struct rrm_state *rrm;
-	uint16_t frame_type = 0x00d0;
-	uint8_t prefix[] = { 0x05, 0x00 };
-
-	if (netdev_get_iftype(netdev) != NETDEV_IFTYPE_STATION)
-		return;
 
 	rrm = l_new(struct rrm_state, 1);
 
@@ -785,10 +791,9 @@ static void rrm_new_state(struct netdev *netdev)
 	rrm->ifindex = netdev_get_ifindex(netdev);
 	rrm->wdev_id = netdev_get_wdev_id(netdev);
 
-	frame_watch_add(rrm->wdev_id, 0, frame_type, prefix, sizeof(prefix),
-					rrm_frame_watch_cb, rrm, NULL);
-
 	l_queue_push_head(states, rrm);
+
+	return rrm;
 }
 
 static bool match_ifindex(const void *a, const void *b)
@@ -807,8 +812,12 @@ static void rrm_netdev_watch(struct netdev *netdev,
 
 	switch (event) {
 	case NETDEV_WATCH_EVENT_NEW:
-		rrm_new_state(netdev);
-		return;
+		rrm = rrm_new_state(netdev);
+
+		if (netdev_get_iftype(netdev) == NETDEV_IFTYPE_STATION)
+			rrm_add_frame_watches(rrm);
+
+		break;
 	case NETDEV_WATCH_EVENT_DEL:
 		/*
 		 * This event is triggered by the netdev being removed, which
