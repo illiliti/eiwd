@@ -4176,16 +4176,22 @@ static void netdev_station_event(struct l_genl_msg *msg,
 			netdev_station_watch_func_t, netdev, mac, added);
 }
 
-static void netdev_scan_notify(struct l_genl_msg *msg, void *user_data)
+static struct netdev *netdev_from_message(struct l_genl_msg *msg)
 {
-	struct netdev *netdev = NULL;
 	uint32_t ifindex;
 
 	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFINDEX, &ifindex,
 					NL80211_ATTR_UNSPEC) < 0)
-		return;
+		return NULL;
 
-	netdev = netdev_find(ifindex);
+	return netdev_find(ifindex);
+}
+
+static void netdev_scan_notify(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev;
+
+	netdev = netdev_from_message(msg);
 	if (!netdev)
 		return;
 
@@ -4334,31 +4340,12 @@ failed:
 static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = NULL;
-	struct l_genl_attr attr;
-	uint16_t type, len;
-	const void *data;
 	uint8_t cmd;
 
 	cmd = l_genl_msg_get_command(msg);
-
 	l_debug("MLME notification %s(%u)", nl80211cmd_to_string(cmd), cmd);
 
-	if (!l_genl_attr_init(&attr, msg))
-		return;
-
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
-		switch (type) {
-		case NL80211_ATTR_IFINDEX:
-			if (len != sizeof(uint32_t)) {
-				l_warn("Invalid interface index attribute");
-				return;
-			}
-
-			netdev = netdev_find(*((uint32_t *) data));
-			break;
-		}
-	}
-
+	netdev = netdev_from_message(msg);
 	if (!netdev)
 		return;
 
