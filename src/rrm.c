@@ -117,6 +117,7 @@ struct rrm_beacon_req_info {
 /* Per-netdev state */
 struct rrm_state {
 	struct station *station;
+	uint32_t watch_id;
 	uint32_t ifindex;
 	uint64_t wdev_id;
 	struct rrm_request_info *pending;
@@ -662,6 +663,17 @@ static void rrm_station_watch_cb(enum station_state state, void *userdata)
 	}
 }
 
+static void rrm_station_watch_destroy(void *user_data)
+{
+	struct rrm_state *rrm = user_data;
+
+	l_debug("");
+
+	rrm_cancel_pending(rrm);
+	rrm->watch_id = 0;
+	rrm->station = NULL;
+}
+
 static void rrm_frame_watch_cb(const struct mmpdu_header *mpdu,
 				const void *body, size_t body_len,
 				int rssi, void *user_data)
@@ -684,8 +696,9 @@ static void rrm_frame_watch_cb(const struct mmpdu_header *mpdu,
 			return;
 		}
 
-		station_add_state_watch(rrm->station, rrm_station_watch_cb,
-						rrm, NULL);
+		rrm->watch_id = station_add_state_watch(rrm->station,
+						rrm_station_watch_cb, rrm,
+						rrm_station_watch_destroy);
 	}
 
 	/*
@@ -806,7 +819,10 @@ static void rrm_netdev_watch(struct netdev *netdev,
 		rrm = l_queue_remove_if(states, match_ifindex,
 						L_UINT_TO_PTR(ifindex));
 		if (rrm) {
-			rrm_cancel_pending(rrm);
+			if (rrm->station && rrm->watch_id)
+				station_remove_state_watch(rrm->station,
+								rrm->watch_id);
+
 			l_free(rrm);
 		}
 
