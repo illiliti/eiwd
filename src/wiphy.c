@@ -604,7 +604,7 @@ static char **wiphy_get_supported_iftypes(struct wiphy *wiphy, uint16_t mask)
 		if (!(supported_mask & (1 << i)))
 			continue;
 
-		str = dbus_iftype_to_string(i + 1);
+		str = netdev_iftype_to_string(i + 1);
 		if (str)
 			ret[j++] = l_strdup(str);
 	}

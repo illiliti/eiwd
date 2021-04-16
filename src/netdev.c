@@ -194,6 +194,28 @@ static struct watchlist netdev_watches;
 static bool pae_over_nl80211;
 static bool mac_per_ssid;
 
+const char *netdev_iftype_to_string(uint32_t iftype)
+{
+	switch (iftype) {
+	case NL80211_IFTYPE_ADHOC:
+		return "ad-hoc";
+	case NL80211_IFTYPE_STATION:
+		return "station";
+	case NL80211_IFTYPE_AP:
+		return "ap";
+	case NL80211_IFTYPE_P2P_CLIENT:
+		return "p2p-client";
+	case NL80211_IFTYPE_P2P_GO:
+		return "p2p-go";
+	case NL80211_IFTYPE_P2P_DEVICE:
+		return "p2p-device";
+	default:
+		break;
+	}
+
+	return NULL;
+}
+
 static inline bool is_offload(struct handshake_state *hs)
 {
 	struct netdev_handshake_state *nhs =

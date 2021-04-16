@@ -56,8 +56,6 @@ bool dbus_append_dict_basic(struct l_dbus_message_builder *builder,
 				const char *name, char type,
 				const void *data);
 
-const char *dbus_iftype_to_string(unsigned int iftype);
-
 struct l_dbus_message *dbus_error_busy(struct l_dbus_message *msg);
 struct l_dbus_message *dbus_error_failed(struct l_dbus_message *msg);
 struct l_dbus_message *dbus_error_aborted(struct l_dbus_message *msg);

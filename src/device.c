@@ -194,7 +194,7 @@ static bool device_property_get_mode(struct l_dbus *dbus,
 {
 	struct device *device = user_data;
 	uint32_t iftype = netdev_get_iftype(device->netdev);
-	const char *modestr = dbus_iftype_to_string(iftype);
+	const char *modestr = netdev_iftype_to_string(iftype);
 
 	if (modestr == NULL)
 		modestr = "unknown";

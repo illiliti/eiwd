@@ -122,6 +122,8 @@ typedef void (*netdev_get_station_cb_t)(
 				const struct diagnostic_station_info *info,
 				void *user_data);
 
+const char *netdev_iftype_to_string(uint32_t iftype);
+
 struct wiphy *netdev_get_wiphy(struct netdev *netdev);
 const uint8_t *netdev_get_address(struct netdev *netdev);
 uint32_t netdev_get_ifindex(struct netdev *netdev);
