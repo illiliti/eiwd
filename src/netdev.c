@@ -315,22 +315,7 @@ uint64_t netdev_get_wdev_id(struct netdev *netdev)
 
 enum netdev_iftype netdev_get_iftype(struct netdev *netdev)
 {
-	switch (netdev->type) {
-	case NL80211_IFTYPE_STATION:
-		return NETDEV_IFTYPE_STATION;
-	case NL80211_IFTYPE_AP:
-		return NETDEV_IFTYPE_AP;
-	case NL80211_IFTYPE_ADHOC:
-		return NETDEV_IFTYPE_ADHOC;
-	case NL80211_IFTYPE_P2P_CLIENT:
-		return NETDEV_IFTYPE_P2P_CLIENT;
-	case NL80211_IFTYPE_P2P_GO:
-		return NETDEV_IFTYPE_P2P_GO;
-	default:
-		/* can't really do much here */
-		l_error("unknown iftype %u", netdev->type);
-		return NETDEV_IFTYPE_STATION;
-	}
+	return netdev->type;
 }
 
 const char *netdev_get_name(struct netdev *netdev)

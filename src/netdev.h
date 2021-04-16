@@ -59,12 +59,13 @@ enum netdev_watch_event {
 	NETDEV_WATCH_EVENT_ADDRESS_CHANGE,
 };
 
+/* Mirror definitions from nl80211.h to make conversions simpler */
 enum netdev_iftype {
 	NETDEV_IFTYPE_ADHOC = 1,
 	NETDEV_IFTYPE_STATION = 2,
 	NETDEV_IFTYPE_AP = 3,
-	NETDEV_IFTYPE_P2P_CLIENT,
-	NETDEV_IFTYPE_P2P_GO,
+	NETDEV_IFTYPE_P2P_CLIENT = 8,
+	NETDEV_IFTYPE_P2P_GO = 9,
 };
 
 typedef void (*netdev_command_cb_t)(struct netdev *netdev, int result,
