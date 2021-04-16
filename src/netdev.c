@@ -4939,6 +4939,9 @@ static void netdev_set_interface_event(struct l_genl_msg *msg,
 	frame_watch_wdev_remove(wdev_id);
 
 	netdev_setup_interface(netdev);
+
+	WATCHLIST_NOTIFY(&netdev_watches, netdev_watch_func_t,
+				netdev, NETDEV_WATCH_EVENT_IFTYPE_CHANGE);
 }
 
 static void netdev_config_notify(struct l_genl_msg *msg, void *user_data)

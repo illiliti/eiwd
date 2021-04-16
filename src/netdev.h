@@ -57,6 +57,7 @@ enum netdev_watch_event {
 	NETDEV_WATCH_EVENT_DOWN,
 	NETDEV_WATCH_EVENT_NAME_CHANGE,
 	NETDEV_WATCH_EVENT_ADDRESS_CHANGE,
+	NETDEV_WATCH_EVENT_IFTYPE_CHANGE,
 };
 
 /* Mirror definitions from nl80211.h to make conversions simpler */
