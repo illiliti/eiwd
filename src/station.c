@@ -55,6 +55,7 @@
 #include "src/anqp.h"
 #include "src/anqputil.h"
 #include "src/diagnostic.h"
+#include "src/frame-xchg.h"
 
 static struct l_queue *station_list;
 static uint32_t netdev_watch;
@@ -2221,9 +2222,9 @@ static bool station_cannot_roam(struct station *station)
 #define WNM_REQUEST_MODE_TERMINATION_IMMINENT		(1 << 3)
 #define WNM_REQUEST_MODE_ESS_DISASSOCIATION_IMMINENT	(1 << 4)
 
-void station_ap_directed_roam(struct station *station,
-				const struct mmpdu_header *hdr,
-				const void *body, size_t body_len)
+static void station_ap_directed_roam(struct station *station,
+					const struct mmpdu_header *hdr,
+					const void *body, size_t body_len)
 {
 	uint32_t pos = 0;
 	uint8_t req_mode;
@@ -3704,21 +3705,59 @@ static void station_destroy_diagnostic_interface(void *user_data)
 {
 }
 
+static void ap_roam_frame_event(const struct mmpdu_header *hdr,
+					const void *body, size_t body_len,
+					int rssi, void *user_data)
+{
+	uint32_t ifindex = L_PTR_TO_UINT(user_data);
+	struct station *station = station_find(ifindex);
+
+	if (!station)
+		return;
+
+	station_ap_directed_roam(station, hdr, body, body_len);
+}
+
+static void add_frame_watches(struct netdev *netdev)
+{
+	static const uint8_t action_ap_roam_prefix[2] = { 0x0a, 0x07 };
+
+	/*
+	 * register for AP roam transition watch
+	 */
+	frame_watch_add(netdev_get_wdev_id(netdev), 0, 0x00d0,
+			action_ap_roam_prefix, sizeof(action_ap_roam_prefix),
+			ap_roam_frame_event,
+			L_UINT_TO_PTR(netdev_get_ifindex(netdev)), NULL);
+}
+
 static void station_netdev_watch(struct netdev *netdev,
 				enum netdev_watch_event event, void *userdata)
 {
 	switch (event) {
-	case NETDEV_WATCH_EVENT_UP:
 	case NETDEV_WATCH_EVENT_NEW:
-		if (netdev_get_iftype(netdev) == NETDEV_IFTYPE_STATION &&
-				netdev_get_is_up(netdev))
+		if (netdev_get_iftype(netdev) == NETDEV_IFTYPE_STATION) {
+			add_frame_watches(netdev);
+
+			if (netdev_get_is_up(netdev))
+				station_create(netdev);
+		}
+		break;
+	case NETDEV_WATCH_EVENT_UP:
+		if (netdev_get_iftype(netdev) == NETDEV_IFTYPE_STATION)
 			station_create(netdev);
+
 		break;
 	case NETDEV_WATCH_EVENT_DOWN:
 	case NETDEV_WATCH_EVENT_DEL:
 		l_dbus_object_remove_interface(dbus_get_bus(),
 						netdev_get_path(netdev),
 						IWD_STATION_INTERFACE);
+		break;
+	case NETDEV_WATCH_EVENT_IFTYPE_CHANGE:
+		if (netdev_get_iftype(netdev) == NETDEV_IFTYPE_STATION)
+			add_frame_watches(netdev);
+
 		break;
 	default:
 		break;
