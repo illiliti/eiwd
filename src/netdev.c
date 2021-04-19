@@ -4877,8 +4877,10 @@ static void netdev_set_interface_event(struct l_genl_msg *msg,
 							struct netdev *netdev)
 {
 	uint32_t iftype;
+	uint64_t wdev_id;
 
 	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFTYPE, &iftype,
+					NL80211_ATTR_WDEV, &wdev_id,
 					NL80211_ATTR_UNSPEC) < 0)
 		return;
 
@@ -4889,6 +4891,7 @@ static void netdev_set_interface_event(struct l_genl_msg *msg,
 			netdev_iftype_to_string(netdev->type),
 			netdev_iftype_to_string(iftype));
 	netdev->type = iftype;
+	frame_watch_wdev_remove(wdev_id);
 
 	/* Set RSSI threshold for CQM notifications */
 	if (netdev->type == NL80211_IFTYPE_STATION)

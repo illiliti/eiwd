@@ -1313,7 +1313,6 @@ static void frame_xchg_config_notify(struct l_genl_msg *msg, void *user_data)
 		if (!wdev) {
 			wdev = l_new(struct wdev_info, 1);
 			wdev->id = wdev_id;
-			wdev->iftype = iftype;
 
 			if (!wdevs)
 				wdevs = l_queue_new();
@@ -1322,11 +1321,7 @@ static void frame_xchg_config_notify(struct l_genl_msg *msg, void *user_data)
 			break;
 		}
 
-		if (wdev->iftype != iftype) {
-			wdev->iftype = iftype;
-			frame_watch_wdev_remove(wdev_id);
-		}
-
+		wdev->iftype = iftype;
 		break;
 
 	case NL80211_CMD_DEL_INTERFACE:
