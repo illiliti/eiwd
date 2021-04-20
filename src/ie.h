@@ -299,8 +299,8 @@ enum ie_rsn_akm_suite {
 #define IE_AKM_IS_FILS(akm) \
 	((akm == IE_RSN_AKM_SUITE_FILS_SHA256) || \
 	 (akm == IE_RSN_AKM_SUITE_FILS_SHA384) || \
-	 (IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256) || \
-	 (IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
+	 (akm == IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256) || \
+	 (akm == IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
 
 #define IE_LEN(ie) \
 	(ie) ? (ie)[1] + 2 : 0
