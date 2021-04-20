@@ -3232,6 +3232,11 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 	if (netdev->connected || netdev->connect_cmd_id || netdev->work.id)
 		return -EISCONN;
 
+	if (!is_rsn) {
+		nhs->type = CONNECTION_TYPE_SOFTMAC;
+		goto build_cmd_connect;
+	}
+
 	if (netdev_handshake_state_setup_connection_type(hs) < 0)
 		return -ENOTSUP;
 
