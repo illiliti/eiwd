@@ -244,31 +244,22 @@ class Process:
 
 		self.pid.wait(timeout=5)
 		self.killed = True
+		self.ret = self.pid.returncode
 
 		self.stdout.seek(self.io_position)
 		self.out = self.stdout.read()
 		self.stdout.seek(0, 2)
-		self.ret = self.pid.returncode
 
-		#
-		# No IO callback for wait/check=True processes so write out
-		# the data to any FD's now.
-		#
 		if len(self.write_fds) > 0:
-			for fd in self.write_fds:
-				fd.write(self.out)
-				fd.close()
+			self.process_io(self.stdout)
 
-			self.write_fds = []
-
-		if self.verbose:
-			sys.__stdout__.write(self.out)
+		self.write_fds = []
 
 		print("%s returned %d" % (args[0], self.ret))
 		if check and self.ret != 0:
 			raise subprocess.CalledProcessError(returncode=self.ret, cmd=self.args)
 
-	def io_callback(self, source, cb_condition):
+	def process_io(self, source):
 		#
 		# The file will have already been written to, meaning the seek
 		# position points to EOF. This is why the position is saved so
@@ -286,19 +277,26 @@ class Process:
 
 		for f in self.write_fds:
 			f.write(data)
+			f.flush()
 
 		if self.verbose:
 			sys.__stdout__.write(data)
+			sys.__stdout__.flush()
 
 		return True
+
+	def io_callback(self, source, cb_condition):
+		return self.process_io(source)
 
 	def __del__(self):
 		print("Del process %s" % self.args)
 
+		os.remove(self.output_name)
+
+		self.stdout.close()
+
 		if not self.killed:
 			self.kill()
-
-		os.remove(self.output_name)
 
 	def kill(self, force=False):
 		print("Killing process %s" % self.args)
@@ -319,8 +317,10 @@ class Process:
 
 		self.ctx = None
 
-		for f in self.write_fds:
-			f.close()
+		self.process_io(self.stdout)
+
+		if self.cleanup:
+			self.cleanup()
 
 		self.write_fds = []
 
@@ -328,13 +328,7 @@ class Process:
 			GLib.source_remove(self.io_watch)
 			self.io_watch = None
 
-		if self.cleanup:
-			self.cleanup()
-
 		self.cleanup = None
-
-		self.stdout.close()
-
 		self.killed = True
 
 	def wait_for_socket(self, socket, wait):
