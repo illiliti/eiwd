@@ -242,7 +242,7 @@ class Process:
 		if not wait and not check:
 			return
 
-		self.pid.wait()
+		self.pid.wait(timeout=5)
 		self.killed = True
 
 		self.stdout.seek(self.io_position)
