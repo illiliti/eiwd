@@ -60,6 +60,7 @@ class Test(unittest.TestCase):
     def tearDownClass(cls):
         IWD.clear_storage()
         cls.auth.stop()
+        cls.auth = None
 
 if __name__ == '__main__':
     unittest.main(exit=True)

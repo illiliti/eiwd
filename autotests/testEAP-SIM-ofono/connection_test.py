@@ -62,6 +62,7 @@ class Test(unittest.TestCase):
         IWD.clear_storage()
 
         cls.auth.stop()
+        cls.auth = None
 
 if __name__ == '__main__':
     unittest.main(exit=True)

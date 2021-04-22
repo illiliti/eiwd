@@ -44,26 +44,26 @@ class Test(unittest.TestCase):
 
 
     def test_connection_success(self):
-        auth = AuthCenter('/tmp/hlrauc.sock', '/tmp/sim.db')
-
         ofono = Ofono()
         ofono.enable_modem('/phonesim')
         ofono.wait_for_sim_auth()
 
         wd = IWD(True)
 
-        try:
-            self.validate_connection(wd)
-        finally:
-            auth.stop()
+        self.validate_connection(wd)
 
     @classmethod
     def setUpClass(cls):
+        cls.auth = AuthCenter('/tmp/hlrauc.sock', '/tmp/sim.db')
+
         IWD.copy_to_storage('ssidEAP-PEAP-SIM.8021x')
 
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
+
+        cls.auth.stop()
+        cls.auth = None
 
 if __name__ == '__main__':
     unittest.main(exit=True)
