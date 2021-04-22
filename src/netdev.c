@@ -3676,9 +3676,10 @@ static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)
 static void netdev_ft_request_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = user_data;
+	int err = l_genl_msg_get_error(msg);
 
-	if (l_genl_msg_get_error(msg) < 0) {
-		l_error("Could not send CMD_FRAME");
+	if (err < 0) {
+		l_error("Could not send CMD_FRAME (%d)", err);
 		netdev_connect_failed(netdev,
 					NETDEV_RESULT_AUTHENTICATION_FAILED,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
