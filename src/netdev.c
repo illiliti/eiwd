@@ -3789,6 +3789,8 @@ static int fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 			l_get_le16(target_bss->mde))
 		return -EINVAL;
 
+	prepare_ft(netdev, target_bss);
+
 	/*
 	 * We reuse the handshake_state object and reset what's needed.
 	 * Could also create a new object and copy most of the state but
@@ -3804,8 +3806,6 @@ static int fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 		handshake_state_set_authenticator_ie(netdev->handshake,
 							target_bss->rsne);
 	memcpy(netdev->handshake->mde + 2, target_bss->mde, 3);
-
-	prepare_ft(netdev, target_bss);
 
 	netdev->connect_cb = cb;
 
