@@ -1064,7 +1064,8 @@ class IWD(AsyncOpAbstract):
                 # If neither the initial or expected condition evaluate the
                 # object must be in another unexpected state.
                 if not eval(from_str) and not eval(to_str):
-                    raise Exception('unexpected condition between [%s] and [%s]' % from_str, to_str)
+                    raise Exception('unexpected condition between [%s] and [%s]' %
+                                        (from_str, to_str))
 
                 # Initial condition does not evaluate but expected does, pass
                 if not eval(from_str) and eval(to_str):
