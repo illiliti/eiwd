@@ -599,7 +599,7 @@ class Namespace:
 		if self.name == "root":
 			self._bus = dbus.bus.BusConnection(address_or_type=self.dbus_address)
 
-		for p in self.processes:
+		for p in list(self.processes):
 			print("Killing process %s" % p.name)
 			p.kill()
 
