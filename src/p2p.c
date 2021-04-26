@@ -4355,43 +4355,12 @@ struct p2p_device *p2p_device_update_from_genl(struct l_genl_msg *msg,
 
 	str = l_settings_get_string(iwd_get_config(), "P2P", "DeviceType");
 
-	/*
-	 * Standard WSC subcategories are unique and more specific than
-	 * categories so there's no point for the user to specify the
-	 * category if they choose to use the string format.
-	 *
-	 * As an example our default value (Computer - PC) can be
-	 * encoded as either of:
-	 *
-	 * DeviceType=pc
-	 * DeviceType=0x00010050f2040001
-	 */
-	if (str && !wsc_device_type_from_subcategory_str(
-					&dev->device_info.primary_device_type,
-					str)) {
-		unsigned long long u;
-		char *endp;
-
-		u = strtoull(str, &endp, 0);
-
-		/*
-		 * Accept any custom category, OUI and subcategory values but
-		 * require non-zero category as a sanity check.
-		 */
-		if (*endp != '\0' || (u & 0xffff000000000000ll) == 0)
-			l_error("[P2P].DeviceType must be a subcategory string "
-				"or a 64-bit integer encoding the full Primary"
-				" Device Type attribute: "
-				"<Category>|<OUI>|<OUI Type>|<Subcategory>");
-		else {
-			dev->device_info.primary_device_type.category = u >> 48;
-			dev->device_info.primary_device_type.oui[0] = u >> 40;
-			dev->device_info.primary_device_type.oui[1] = u >> 32;
-			dev->device_info.primary_device_type.oui[2] = u >> 24;
-			dev->device_info.primary_device_type.oui_type = u >> 16;
-			dev->device_info.primary_device_type.subcategory = u;
-		}
-	}
+	if (str && !wsc_device_type_from_setting_str(str,
+					&dev->device_info.primary_device_type))
+		l_error("[P2P].DeviceType must be a subcategory string "
+			"or a 64-bit integer encoding the full Primary"
+			" Device Type attribute: "
+			"<Category>|<OUI>|<OUI Type>|<Subcategory>");
 
 	l_free(str);
 
