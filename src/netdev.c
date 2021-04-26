@@ -4818,6 +4818,9 @@ int netdev_get_current_station(struct netdev *netdev,
 			netdev_get_station_cb_t cb, void *user_data,
 			netdev_destroy_func_t destroy)
 {
+	if (!netdev->handshake)
+		return -ENOTCONN;
+
 	return netdev_get_station(netdev, netdev->handshake->aa, cb,
 					user_data, destroy);
 }
