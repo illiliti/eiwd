@@ -1187,13 +1187,32 @@ static const struct ap_ops p2p_go_ops = {
 
 static void p2p_group_start(struct p2p_device *dev)
 {
-	struct ap_config *config = l_new(struct ap_config, 1);
+	struct l_settings *config = l_settings_new();
+	uint8_t psk[32];
+	char *macs[2] = {};
+	const struct wsc_primary_device_type *pdt =
+		&dev->device_info.primary_device_type;
+	uint64_t pdt_uint =
+		((uint64_t) pdt->category << 48) |
+		((uint64_t) pdt->oui[0] << 40) |
+		((uint64_t) pdt->oui[1] << 32) |
+		((uint64_t) pdt->oui[2] << 24) |
+		((uint64_t) pdt->oui_type << 16) |
+		pdt->subcategory;
 
-	config->ssid = l_strdup(dev->go_group_id.ssid);
-	config->channel = dev->listen_channel;
-	config->wsc_name = l_strdup(dev->device_info.device_name);
-	config->wsc_primary_device_type = dev->device_info.primary_device_type;
-	config->no_cck_rates = true;
+	l_settings_set_string(config, "General", "SSID", dev->go_group_id.ssid);
+	l_settings_set_uint(config, "General", "Channel", dev->listen_channel);
+	l_settings_set_bool(config, "General", "NoCCKRates", true);
+	l_settings_set_string(config, "WSC", "DeviceName",
+				dev->device_info.device_name);
+	l_settings_set_uint64(config, "WSC", "PrimaryDeviceType", pdt_uint);
+	/*
+	 * Section 3.1.4.4: "It shall only allow association by the
+	 * P2P Device that it is currently in Group Formation with."
+	 */
+	macs[0] = (char *) util_address_to_string(
+						dev->conn_peer_interface_addr);
+	l_settings_set_string_list(config, "WSC", "AuthorizedMACs", macs, ',');
 
 	/*
 	 * Section 3.2.1: "The Credentials for a P2P Group issued to a
@@ -1207,29 +1226,25 @@ static void p2p_group_start(struct p2p_device *dev)
 	 * it's a little costlier to generate for the same cryptographic
 	 * strength as the PSK.
 	 */
-	if (!l_getrandom(config->psk, 32)) {
+	if (!l_getrandom(psk, 32)) {
 		l_error("l_getrandom() failed");
-		ap_config_free(config);
+		l_settings_free(config);
 		p2p_connect_failed(dev);
 		return;
 	}
 
-	/*
-	 * Section 3.1.4.4: "It shall only allow association by the
-	 * P2P Device that it is currently in Group Formation with."
-	 */
-	config->authorized_macs = l_memdup(dev->conn_peer_interface_addr, 6);
-	config->authorized_macs_num = 1;
+	l_settings_set_bytes(config, "Security", "PreSharedKey", psk, 32);
+
+	l_settings_add_group(config, "IPv4");
 
 	dev->capability.group_caps |= P2P_GROUP_CAP_GO;
 	dev->capability.group_caps |= P2P_GROUP_CAP_GROUP_FORMATION;
 
 	dev->group = ap_start(dev->conn_netdev, config, &p2p_go_ops, NULL, dev);
-	if (!dev->group) {
-		ap_config_free(config);
+	l_settings_free(config);
+
+	if (!dev->group)
 		p2p_connect_failed(dev);
-		return;
-	}
 }
 
 static void p2p_netconfig_event_handler(enum netconfig_event event,
