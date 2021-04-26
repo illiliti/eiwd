@@ -80,7 +80,7 @@ typedef void (*netdev_command_cb_t)(struct netdev *netdev, int result,
  * NETDEV_RESULT_AUTHENTICATION_FAILED - MMPDU_STATUS_CODE
  * NETDEV_RESULT_ASSOCIATION_FAILED - MMPDU_STATUS_CODE
  * NETDEV_RESULT_HANDSHAKE_FAILED - MMPDU_REASON_CODE
- * NETDEV_RESULT_KEY_SETTINGS_FAILED - unused
+ * NETDEV_RESULT_KEY_SETTING_FAILED - unused
  * NETDEV_RESULT_ABORTED - unused.
  */
 typedef void (*netdev_connect_cb_t)(struct netdev *netdev,

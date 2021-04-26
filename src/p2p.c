@@ -1321,7 +1321,7 @@ static void p2p_netdev_connect_cb(struct netdev *netdev,
 		/*
 		 * In the AUTHENTICATION_FAILED and ASSOCIATION_FAILED
 		 * cases there's nothing to disconnect.  In the
-		 * HANDSHAKE_FAILED and KEY_SETTINGS failed cases
+		 * HANDSHAKE_FAILED and KEY_SETTING failed cases
 		 * netdev disconnects from the GO automatically and we are
 		 * called already from within the disconnect callback,
 		 * so we can directly free the netdev.
