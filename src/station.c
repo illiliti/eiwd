@@ -755,46 +755,6 @@ static void station_handshake_event(struct handshake_state *hs,
 	va_end(args);
 }
 
-static bool station_has_erp_identity(struct network *network)
-{
-	struct erp_cache_entry *cache;
-	struct l_settings *settings;
-	char *check_id;
-	const char *identity;
-	bool ret;
-
-	settings = network_get_settings(network);
-	if (!settings)
-		return false;
-
-	check_id = l_settings_get_string(settings, "Security", "EAP-Identity");
-	if (!check_id)
-		return false;
-
-	cache = erp_cache_get(network_get_ssid(network));
-	if (!cache) {
-		l_free(check_id);
-		return false;
-	}
-
-	identity = erp_cache_entry_get_identity(cache);
-
-	ret = strcmp(check_id, identity) == 0;
-
-	l_free(check_id);
-	erp_cache_put(cache);
-
-	/*
-	 * The settings file must have change out from under us. In this
-	 * case we want to remove the ERP entry because it is no longer
-	 * valid.
-	 */
-	if (!ret)
-		erp_cache_remove(identity);
-
-	return ret;
-}
-
 static int station_build_handshake_rsn(struct handshake_state *hs,
 					struct wiphy *wiphy,
 					struct network *network,
@@ -823,7 +783,7 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 	 * wiphy may select FILS if supported by the AP.
 	 */
 	if (security == SECURITY_8021X && hs->support_fils)
-		fils_hint = station_has_erp_identity(network);
+		fils_hint = network_has_erp_identity(network);
 
 	info.akm_suites = wiphy_select_akm(wiphy, bss, fils_hint);
 
