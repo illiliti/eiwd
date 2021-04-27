@@ -3553,7 +3553,8 @@ static uint32_t netdev_send_action_framev(struct netdev *netdev,
 					const uint8_t *to,
 					struct iovec *iov, size_t iov_len,
 					uint32_t freq,
-					l_genl_msg_func_t callback)
+					l_genl_msg_func_t callback,
+					void *user_data)
 {
 	uint32_t id;
 	struct l_genl_msg *msg = nl80211_build_cmd_frame(netdev->index,
@@ -3561,7 +3562,7 @@ static uint32_t netdev_send_action_framev(struct netdev *netdev,
 								to, freq,
 								iov, iov_len);
 
-	id = l_genl_family_send(nl80211, msg, callback, netdev, NULL);
+	id = l_genl_family_send(nl80211, msg, callback, user_data, NULL);
 
 	if (!id)
 		l_genl_msg_unref(msg);
@@ -3573,14 +3574,16 @@ static uint32_t netdev_send_action_frame(struct netdev *netdev,
 					const uint8_t *to,
 					const uint8_t *body, size_t body_len,
 					uint32_t freq,
-					l_genl_msg_func_t callback)
+					l_genl_msg_func_t callback,
+					void *user_data)
 {
 	struct iovec iov[1];
 
 	iov[0].iov_base = (void *)body;
 	iov[0].iov_len = body_len;
 
-	return netdev_send_action_framev(netdev, to, iov, 1, freq, callback);
+	return netdev_send_action_framev(netdev, to, iov, 1, freq, callback,
+						user_data);
 }
 
 static void netdev_cmd_authenticate_ft_cb(struct l_genl_msg *msg,
@@ -3783,7 +3786,8 @@ static void netdev_ft_over_ds_tx_authenticate(struct iovec *iov,
 
 	netdev_send_action_framev(netdev, netdev->prev_bssid, iovs, iov_len + 1,
 					netdev->prev_frequency,
-					netdev_ft_request_cb);
+					netdev_ft_request_cb,
+					netdev);
 }
 
 static bool netdev_ft_work_ready(struct wiphy_radio_work_item *item)
@@ -3949,7 +3953,8 @@ int netdev_neighbor_report_req(struct netdev *netdev,
 	if (!netdev_send_action_frame(netdev, netdev->handshake->aa,
 					action_frame, sizeof(action_frame),
 					netdev->frequency,
-					netdev_neighbor_report_req_cb))
+					netdev_neighbor_report_req_cb,
+					netdev))
 		return -EIO;
 
 	netdev->neighbor_report_cb = cb;
@@ -4036,7 +4041,7 @@ static void netdev_sa_query_req_frame_event(const struct mmpdu_header *hdr,
 	if (!netdev_send_action_frame(netdev, netdev->handshake->aa,
 			sa_resp, sizeof(sa_resp),
 			netdev->frequency,
-			netdev_sa_query_resp_cb)) {
+			netdev_sa_query_resp_cb, netdev)) {
 		l_error("error sending SA Query response");
 		return;
 	}
@@ -4175,7 +4180,7 @@ static void netdev_unprot_disconnect_event(struct l_genl_msg *msg,
 	if (!netdev_send_action_frame(netdev, netdev->handshake->aa,
 			action_frame, sizeof(action_frame),
 			netdev->frequency,
-			netdev_sa_query_req_cb)) {
+			netdev_sa_query_req_cb, netdev)) {
 		l_error("error sending SA Query action frame");
 		return;
 	}
