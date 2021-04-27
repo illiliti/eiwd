@@ -752,8 +752,6 @@ static void netdev_connect_failed(struct netdev *netdev,
 	netdev_event_func_t event_filter = netdev->event_filter;
 	void *connect_data = netdev->user_data;
 
-	netdev->disconnect_cmd_id = 0;
-
 	/* Done this way to allow re-entrant netdev_connect calls */
 	netdev_connect_free(netdev);
 
@@ -769,6 +767,7 @@ static void netdev_disconnect_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = user_data;
 
+	netdev->disconnect_cmd_id = 0;
 	netdev_connect_failed(netdev, netdev->result, netdev->last_code);
 }
 
