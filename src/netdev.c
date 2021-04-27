@@ -1352,7 +1352,9 @@ static void try_handshake_complete(struct netdev_handshake_state *nhs)
 		nhs->complete = true;
 		handshake_event(&nhs->super, HANDSHAKE_EVENT_COMPLETE);
 
-		netdev_connect_ok(nhs->netdev);
+		if (nhs->netdev->type == NL80211_IFTYPE_STATION ||
+				nhs->netdev->type == NL80211_IFTYPE_P2P_CLIENT)
+			netdev_connect_ok(nhs->netdev);
 	}
 }
 
