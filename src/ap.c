@@ -28,6 +28,7 @@
 #include <linux/if_ether.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <linux/if.h>
 
 #include <ell/ell.h>
 
@@ -3174,6 +3175,11 @@ static void ap_if_event_func(enum ap_event_type type, const void *event_data,
 		l_dbus_property_changed(dbus_get_bus(),
 					netdev_get_path(ap_if->netdev),
 					IWD_AP_INTERFACE, "Name");
+
+		l_rtnl_set_linkmode_and_operstate(rtnl,
+					netdev_get_ifindex(ap_if->netdev),
+					IF_LINK_MODE_DEFAULT, IF_OPER_UP,
+					NULL, NULL, NULL);
 		break;
 
 	case AP_EVENT_STOPPING:
@@ -3187,6 +3193,11 @@ static void ap_if_event_func(enum ap_event_type type, const void *event_data,
 		l_dbus_property_changed(dbus_get_bus(),
 					netdev_get_path(ap_if->netdev),
 					IWD_AP_INTERFACE, "Name");
+
+		l_rtnl_set_linkmode_and_operstate(rtnl,
+					netdev_get_ifindex(ap_if->netdev),
+					IF_LINK_MODE_DORMANT, IF_OPER_DOWN,
+					NULL, NULL, NULL);
 
 		if (!ap_if->pending)
 			ap_if->ap = NULL;
