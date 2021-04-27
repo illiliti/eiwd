@@ -1961,6 +1961,25 @@ static void parse_request_ies(struct netdev *netdev, const uint8_t *ies,
 	}
 }
 
+static void netdev_driver_connected(struct netdev *netdev)
+{
+	netdev->connected = true;
+
+	if (netdev->event_filter)
+		netdev->event_filter(netdev, NETDEV_EVENT_ASSOCIATING, NULL,
+					netdev->user_data);
+
+	/*
+	 * We register the eapol state machine here, in case the PAE
+	 * socket receives EAPoL packets before the nl80211 socket
+	 * receives the connected event.  The logical sequence of
+	 * events can be reversed (e.g. connect_event, then PAE data)
+	 * due to scheduling
+	 */
+	if (netdev->sm)
+		eapol_register(netdev->sm);
+}
+
 static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 {
 	struct l_genl_attr attr;
@@ -1980,6 +1999,10 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 
 	if (netdev->ignore_connect_event)
 		return;
+
+	/* Work around mwifiex which sends a Connect Event prior to the Ack */
+	if (netdev->connect_cmd_id)
+		netdev_driver_connected(netdev);
 
 	if (!netdev->connected) {
 		l_warn("Unexpected connection related event -- "
@@ -2440,25 +2463,14 @@ static void netdev_cmd_connect_cb(struct l_genl_msg *msg, void *user_data)
 
 	netdev->connect_cmd_id = 0;
 
-	/* Wait for connect event */
 	if (l_genl_msg_get_error(msg) >= 0) {
-		netdev->connected = true;
-
-		if (netdev->event_filter)
-			netdev->event_filter(netdev,
-						NETDEV_EVENT_ASSOCIATING,
-						NULL,
-						netdev->user_data);
-
 		/*
-		 * We register the eapol state machine here, in case the PAE
-		 * socket receives EAPoL packets before the nl80211 socket
-		 * receives the connected event.  The logical sequence of
-		 * events can be reversed (e.g. connect_event, then PAE data)
-		 * due to scheduling
+		 * connected should be false if the connect event hasn't come
+		 * in yet.  i.e. the CMD_CONNECT ack arrived first (typical).
+		 * Mark the connection as 'connected'
 		 */
-		if (netdev->sm)
-			eapol_register(netdev->sm);
+		if (!netdev->connected)
+			netdev_driver_connected(netdev);
 
 		return;
 	}
