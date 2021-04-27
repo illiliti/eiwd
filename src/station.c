@@ -1890,6 +1890,7 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 	uint16_t mdid;
 	enum security orig_security, security;
 	bool seen = false;
+	bool fils_hint = network_has_erp_identity(network);
 
 	if (err) {
 		station_roam_failed(station);
@@ -1946,7 +1947,7 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 
 		seen = true;
 
-		if (!wiphy_can_connect(station->wiphy, bss))
+		if (!wiphy_can_connect(station->wiphy, bss, fils_hint))
 			goto next;
 
 		if (blacklist_contains_bss(bss->addr))

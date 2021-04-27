@@ -768,6 +768,7 @@ struct scan_bss *network_bss_select(struct network *network,
 	struct wiphy *wiphy = station_get_wiphy(network->station);
 	const struct l_queue_entry *bss_entry;
 	struct scan_bss *candidate = NULL;
+	bool fils_hint = network_has_erp_identity(network);
 
 	for (bss_entry = l_queue_get_entries(bss_list); bss_entry;
 			bss_entry = bss_entry->next) {
@@ -776,7 +777,7 @@ struct scan_bss *network_bss_select(struct network *network,
 		switch (network_get_security(network)) {
 		case SECURITY_PSK:
 		case SECURITY_8021X:
-			if (!wiphy_can_connect(wiphy, bss))
+			if (!wiphy_can_connect(wiphy, bss, fils_hint))
 				continue;
 			/* fall through */
 		case SECURITY_NONE:

@@ -397,7 +397,8 @@ const struct scan_freq_set *wiphy_get_supported_freqs(
 	return wiphy->supported_freqs;
 }
 
-bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss)
+bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss,
+			bool fils_hint)
 {
 	struct ie_rsn_info rsn_info;
 	int r;
@@ -416,7 +417,7 @@ bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss)
 					rsn_info.group_management_cipher))
 			return false;
 
-		return wiphy_select_akm(wiphy, bss, false);
+		return wiphy_select_akm(wiphy, bss, fils_hint);
 	} else if (r != -ENOENT)
 		return false;
 
