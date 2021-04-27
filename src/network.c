@@ -52,6 +52,7 @@
 #include "src/network.h"
 #include "src/blacklist.h"
 #include "src/util.h"
+#include "src/erp.h"
 
 static uint32_t known_networks_watch;
 static uint32_t anqp_watch;
@@ -718,6 +719,46 @@ struct scan_bss *network_bss_find_by_addr(struct network *network,
 static bool match_bss(const void *a, const void *b)
 {
 	return a == b;
+}
+
+bool network_has_erp_identity(struct network *network)
+{
+	struct erp_cache_entry *cache;
+	struct l_settings *settings;
+	char *check_id;
+	const char *identity;
+	bool ret;
+
+	settings = network_get_settings(network);
+	if (!settings)
+		return false;
+
+	check_id = l_settings_get_string(settings, "Security", "EAP-Identity");
+	if (!check_id)
+		return false;
+
+	cache = erp_cache_get(network_get_ssid(network));
+	if (!cache) {
+		l_free(check_id);
+		return false;
+	}
+
+	identity = erp_cache_entry_get_identity(cache);
+
+	ret = strcmp(check_id, identity) == 0;
+
+	l_free(check_id);
+	erp_cache_put(cache);
+
+	/*
+	 * The settings file must have change out from under us. In this
+	 * case we want to remove the ERP entry because it is no longer
+	 * valid.
+	 */
+	if (!ret)
+		erp_cache_remove(identity);
+
+	return ret;
 }
 
 struct scan_bss *network_bss_select(struct network *network,

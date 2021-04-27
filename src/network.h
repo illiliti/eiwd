@@ -79,3 +79,5 @@ void network_blacklist_add(struct network *network, struct scan_bss *bss);
 
 const struct iovec *network_get_extra_ies(struct network *network,
 						size_t *num_elems);
+
+bool network_has_erp_identity(struct network *network);
