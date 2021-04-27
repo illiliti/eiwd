@@ -329,19 +329,14 @@ error:
 	return -EINVAL;
 }
 
-static int ft_process_ies(struct handshake_state *hs, const uint8_t *ies,
-			size_t ies_len)
+static int ft_parse_ies(const uint8_t *ies, size_t ies_len,
+			const uint8_t **rsne_out, const uint8_t **mde_out,
+			const uint8_t **fte_out)
 {
 	struct ie_tlv_iter iter;
 	const uint8_t *rsne = NULL;
 	const uint8_t *mde = NULL;
 	const uint8_t *fte = NULL;
-	uint32_t kck_len = handshake_state_get_kck_len(hs);
-	bool is_rsn;
-
-	/* Check 802.11r IEs */
-	if (!ies)
-		goto ft_error;
 
 	ie_tlv_iter_init(&iter, ies, ies_len);
 
@@ -370,8 +365,24 @@ static int ft_process_ies(struct handshake_state *hs, const uint8_t *ies,
 		}
 	}
 
-	is_rsn = hs->supplicant_ie != NULL;
+	if (rsne_out)
+		*rsne_out = rsne;
 
+	if (mde_out)
+		*mde_out = mde;
+
+	if (fte_out)
+		*fte_out = fte;
+
+	return 0;
+
+ft_error:
+	return -EINVAL;
+}
+
+static bool ft_verify_rsne(const uint8_t *rsne, const uint8_t *pmk_r0_name,
+				const uint8_t *authenticator_ie)
+{
 	/*
 	 * In an RSN, check for an RSNE containing the PMK-R0-Name and
 	 * the remaining fields same as in the advertised RSNE.
@@ -385,36 +396,31 @@ static int ft_process_ies(struct handshake_state *hs, const uint8_t *ies,
 	 * — All other fields shall be identical to the contents of the
 	 *   RSNE advertised by the AP in Beacon and Probe Response frames."
 	 */
-	if (is_rsn) {
-		struct ie_rsn_info msg2_rsne;
 
-		if (!rsne)
-			goto ft_error;
+	struct ie_rsn_info msg2_rsne;
 
-		if (ie_parse_rsne_from_data(rsne, rsne[1] + 2,
+	if (!rsne)
+		return false;
+
+	if (ie_parse_rsne_from_data(rsne, rsne[1] + 2,
 						&msg2_rsne) < 0)
-			goto ft_error;
+		return false;
 
-		if (msg2_rsne.num_pmkids != 1 ||
-				memcmp(msg2_rsne.pmkids, hs->pmk_r0_name, 16))
-			goto ft_error;
+	if (msg2_rsne.num_pmkids != 1 ||
+				memcmp(msg2_rsne.pmkids, pmk_r0_name, 16))
+		return false;
 
-		if (!handshake_util_ap_ie_matches(rsne, hs->authenticator_ie,
-							false))
-			goto ft_error;
-	} else if (rsne)
-		goto ft_error;
+	if (!handshake_util_ap_ie_matches(rsne, authenticator_ie, false))
+		return false;
 
-	/*
-	 * Check for an MD IE identical to the one we sent in message 1
-	 *
-	 * 12.8.3: "The MDE shall contain the MDID and FT Capability and
-	 * Policy fields. This element shall be the same as the MDE
-	 * advertised by the target AP in Beacon and Probe Response frames."
-	 */
-	if (!mde || memcmp(hs->mde, mde, hs->mde[1] + 2))
-		goto ft_error;
+	return true;
+}
 
+static bool ft_parse_fte(struct handshake_state *hs,
+				const uint8_t *snonce,
+				const uint8_t *fte,
+				struct ie_ft_info *ft_info)
+{
 	/*
 	 * In an RSN, check for an FT IE with the same R0KH-ID and the same
 	 * SNonce that we sent, and check that the R1KH-ID and the ANonce
@@ -433,28 +439,70 @@ static int ft_process_ies(struct handshake_state *hs, const uint8_t *ies,
 	 *   of this sequence.
 	 * — All other fields shall be set to 0."
 	 */
+	uint8_t zeros[24] = {};
+	uint32_t kck_len = handshake_state_get_kck_len(hs);
+
+	if (!fte)
+		return false;
+
+	if (ie_parse_fast_bss_transition_from_data(fte, fte[1] + 2,
+					kck_len, ft_info) < 0)
+		return false;
+
+	if (ft_info->mic_element_count != 0 ||
+			memcmp(ft_info->mic, zeros, kck_len))
+		return false;
+
+	if (hs->r0khid_len != ft_info->r0khid_len ||
+			memcmp(hs->r0khid, ft_info->r0khid,
+				hs->r0khid_len) ||
+			!ft_info->r1khid_present)
+		return false;
+
+	if (memcmp(ft_info->snonce, snonce, 32))
+		return false;
+
+	return true;
+}
+
+static int ft_process_ies(struct handshake_state *hs, const uint8_t *ies,
+			size_t ies_len)
+{
+	const uint8_t *rsne = NULL;
+	const uint8_t *mde = NULL;
+	const uint8_t *fte = NULL;
+	bool is_rsn;
+
+	/* Check 802.11r IEs */
+	if (!ies)
+		goto ft_error;
+
+	if (ft_parse_ies(ies, ies_len, &rsne, &mde, &fte) < 0)
+		goto ft_error;
+
+	is_rsn = hs->supplicant_ie != NULL;
+
+	if (is_rsn) {
+		if (!ft_verify_rsne(rsne, hs->pmk_r0_name,
+					hs->authenticator_ie))
+			goto ft_error;
+	} else if (rsne)
+		goto ft_error;
+
+	/*
+	 * Check for an MD IE identical to the one we sent in message 1
+	 *
+	 * 12.8.3: "The MDE shall contain the MDID and FT Capability and
+	 * Policy fields. This element shall be the same as the MDE
+	 * advertised by the target AP in Beacon and Probe Response frames."
+	 */
+	if (!mde || memcmp(hs->mde, mde, hs->mde[1] + 2))
+		goto ft_error;
+
 	if (is_rsn) {
 		struct ie_ft_info ft_info;
-		uint8_t zeros[24] = {};
 
-		if (!fte)
-			goto ft_error;
-
-		if (ie_parse_fast_bss_transition_from_data(fte, fte[1] + 2,
-						kck_len, &ft_info) < 0)
-			goto ft_error;
-
-		if (ft_info.mic_element_count != 0 ||
-				memcmp(ft_info.mic, zeros, kck_len))
-			goto ft_error;
-
-		if (hs->r0khid_len != ft_info.r0khid_len ||
-				memcmp(hs->r0khid, ft_info.r0khid,
-					hs->r0khid_len) ||
-				!ft_info.r1khid_present)
-			goto ft_error;
-
-		if (memcmp(ft_info.snonce, hs->snonce, 32))
+		if (!ft_parse_fte(hs, hs->snonce, fte, &ft_info))
 			goto ft_error;
 
 		handshake_state_set_fte(hs, fte);
