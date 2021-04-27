@@ -1309,12 +1309,20 @@ static void netdev_setting_keys_failed(struct netdev_handshake_state *nhs,
 		netdev->group_handshake_timeout = NULL;
 	}
 
-	netdev->result = NETDEV_RESULT_KEY_SETTING_FAILED;
-	handshake_event(&nhs->super, HANDSHAKE_EVENT_SETTING_KEYS_FAILED, &err);
-
 	switch (netdev->type) {
 	case NL80211_IFTYPE_STATION:
 	case NL80211_IFTYPE_P2P_CLIENT:
+		/*
+		 * If we failed due to the netdev being brought down,
+		 * just abort the connection and do not try to send a
+		 * CMD_DISCONNECT
+		 */
+		if (err == -ENETDOWN) {
+			netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
+			return;
+		}
+
 		msg = netdev_build_cmd_disconnect(netdev,
 						MMPDU_REASON_CODE_UNSPECIFIED);
 		netdev->disconnect_cmd_id = l_genl_family_send(nl80211, msg,
@@ -1322,11 +1330,19 @@ static void netdev_setting_keys_failed(struct netdev_handshake_state *nhs,
 							netdev, NULL);
 		break;
 	case NL80211_IFTYPE_AP:
+		if (err == -ENETDOWN)
+			return;
+
 		msg = netdev_build_cmd_del_station(netdev, nhs->super.spa,
 				MMPDU_REASON_CODE_UNSPECIFIED, false);
 		if (!l_genl_family_send(nl80211, msg, NULL, NULL, NULL))
 			l_error("error sending DEL_STATION");
+
+		break;
 	}
+
+	netdev->result = NETDEV_RESULT_KEY_SETTING_FAILED;
+	handshake_event(&nhs->super, HANDSHAKE_EVENT_SETTING_KEYS_FAILED, &err);
 }
 
 static void try_handshake_complete(struct netdev_handshake_state *nhs)
