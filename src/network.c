@@ -32,6 +32,8 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
+
 #include "src/missing.h"
 #include "src/module.h"
 #include "src/ie.h"
@@ -377,56 +379,54 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 	size_t psk_len;
 	uint8_t *psk = l_settings_get_bytes(network->settings, "Security",
 						"PreSharedKey", &psk_len);
-	char *passphrase = l_settings_get_string(network->settings,
+	_auto_(l_free) char *passphrase =
+			l_settings_get_string(network->settings,
 						"Security", "Passphrase");
+	_auto_(l_free) char *path =
+		storage_get_network_file_path(security, ssid);
 	int r;
 
-	/* PSK can be generated from the passphrase but not the other way */
-	if ((!psk || need_passphrase) && !passphrase) {
+	if (psk && psk_len != 32) {
+		l_error("%s: invalid PreSharedKey format", path);
 		l_free(psk);
-		return -ENOKEY;
+		psk = NULL;
+		psk_len = 0;
+	}
+
+	/* PSK can be generated from the passphrase but not the other way */
+	if (!psk || need_passphrase) {
+		if (!passphrase)
+			return -ENOKEY;
+
+		if (!crypto_passphrase_is_valid(passphrase)) {
+			l_error("%s: invalid Passphrase format", path);
+			return -ENOKEY;
+		}
 	}
 
 	network_reset_passphrase(network);
 	network_reset_psk(network);
-	network->passphrase = passphrase;
+	network->passphrase = l_steal_ptr(passphrase);
 
 	if (psk) {
-		char *path;
-
-		if (psk_len == 32) {
-			network->psk = psk;
-			return 0;
-		}
-
-		l_free(psk);
-
-		path = storage_get_network_file_path(security, ssid);
-		l_error("%s: invalid PreSharedKey format", path);
-		l_free(path);
-
-		if (!passphrase)
-			return -EINVAL;
+		network->psk = psk;
+		return 0;
 	}
 
 	network->psk = l_malloc(32);
-	r = crypto_psk_from_passphrase(passphrase, (uint8_t *) ssid,
+	r = crypto_psk_from_passphrase(network->passphrase, (uint8_t *) ssid,
 					strlen(ssid), network->psk);
 	if (!r) {
 		network->update_psk = true;
 		return 0;
 	}
 
-	if (r == -ERANGE || r == -EINVAL)
-		l_error("PSK generation failed: invalid passphrase format");
-	else
-		l_error("PSK generation failed: %s.  "
-			"Ensure Crypto Engine is properly configured",
-			strerror(-r));
+	l_error("PSK generation failed: %s", strerror(-r));
 
 	network_reset_passphrase(network);
 	network_reset_psk(network);
-	return -EINVAL;
+
+	return r;
 }
 
 void network_sync_psk(struct network *network)
