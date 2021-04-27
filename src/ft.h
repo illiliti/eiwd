@@ -25,6 +25,10 @@ typedef void (*ft_tx_authenticate_func_t)(struct iovec *iov, size_t iov_len,
 typedef void (*ft_tx_associate_func_t)(struct iovec *ie_iov, size_t iov_len,
 					void *user_data);
 
+bool ft_build_authenticate_ies(struct handshake_state *hs,
+				const uint8_t *new_snonce, uint8_t *buf,
+				size_t *len);
+
 struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
 				ft_tx_authenticate_func_t tx_auth,
 				ft_tx_associate_func_t tx_assoc,

@@ -727,19 +727,16 @@ static void ft_sm_free(struct auth_proto *ap)
 	l_free(ft);
 }
 
-static bool ft_start(struct auth_proto *ap)
+bool ft_build_authenticate_ies(struct handshake_state *hs,
+				const uint8_t *new_snonce, uint8_t *buf,
+				size_t *len)
 {
-	struct ft_sm *ft = l_container_of(ap, struct ft_sm, ap);
-	struct handshake_state *hs = ft->hs;
 	uint32_t kck_len = handshake_state_get_kck_len(hs);
 	bool is_rsn = hs->supplicant_ie != NULL;
-	uint8_t mde[5];
-	struct iovec iov[3];
-	size_t iov_elems = 0;
+	uint8_t *ptr = buf;
 
 	if (is_rsn) {
 		struct ie_rsn_info rsn_info;
-		uint8_t *rsne;
 
 		/*
 		 * Rebuild the RSNE to include the PMKR0Name and append
@@ -760,26 +757,18 @@ static bool ft_start(struct auth_proto *ap)
 		rsn_info.num_pmkids = 1;
 		rsn_info.pmkids = hs->pmk_r0_name;
 
-		rsne = alloca(256);
-		ie_build_rsne(&rsn_info, rsne);
-
-		iov[iov_elems].iov_base = rsne;
-		iov[iov_elems].iov_len = rsne[1] + 2;
-		iov_elems += 1;
+		ie_build_rsne(&rsn_info, ptr);
+		ptr += ptr[1] + 2;
 	}
 
 	/* The MDE advertised by the BSS must be passed verbatim */
-	mde[0] = IE_TYPE_MOBILITY_DOMAIN;
-	mde[1] = 3;
-	memcpy(mde + 2, hs->mde + 2, 3);
-
-	iov[iov_elems].iov_base = mde;
-	iov[iov_elems].iov_len = 5;
-	iov_elems += 1;
+	ptr[0] = IE_TYPE_MOBILITY_DOMAIN;
+	ptr[1] = 3;
+	memcpy(ptr + 2, hs->mde + 2, 3);
+	ptr += 5;
 
 	if (is_rsn) {
 		struct ie_ft_info ft_info;
-		uint8_t *fte;
 
 		/*
 		 * 12.8.2: "If present, the FTE shall be set as follows:
@@ -796,17 +785,34 @@ static bool ft_start(struct auth_proto *ap)
 		memcpy(ft_info.r0khid, hs->r0khid, hs->r0khid_len);
 		ft_info.r0khid_len = hs->r0khid_len;
 
-		memcpy(ft_info.snonce, hs->snonce, 32);
+		memcpy(ft_info.snonce, new_snonce, 32);
 
-		fte = alloca(256);
-		ie_build_fast_bss_transition(&ft_info, kck_len, fte);
+		ie_build_fast_bss_transition(&ft_info, kck_len, ptr);
 
-		iov[iov_elems].iov_base = fte;
-		iov[iov_elems].iov_len = fte[1] + 2;
-		iov_elems += 1;
+		ptr += ptr[1] + 2;
 	}
 
-	ft->tx_auth(iov, iov_elems, ft->user_data);
+	if (len)
+		*len = ptr - buf;
+
+	return true;
+}
+
+static bool ft_start(struct auth_proto *ap)
+{
+	struct ft_sm *ft = l_container_of(ap, struct ft_sm, ap);
+	struct handshake_state *hs = ft->hs;
+	struct iovec iov;
+	uint8_t buf[512];
+	size_t len;
+
+	if (!ft_build_authenticate_ies(hs, hs->snonce, buf, &len))
+		return false;
+
+	iov.iov_base = buf;
+	iov.iov_len = len;
+
+	ft->tx_auth(&iov, 1, ft->user_data);
 
 	return true;
 }
