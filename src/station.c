@@ -3496,6 +3496,10 @@ static void station_free(struct station *station)
 	if (station->connected_bss)
 		netdev_disconnect(station->netdev, NULL, NULL);
 
+	l_dbus_object_remove_interface(dbus_get_bus(),
+					netdev_get_path(station->netdev),
+					IWD_STATION_DIAGNOSTIC_INTERFACE);
+
 	if (station->netconfig) {
 		netconfig_destroy(station->netconfig);
 		station->netconfig = NULL;
