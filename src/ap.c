@@ -606,6 +606,20 @@ static void ap_process_wsc_probe_req(struct ap_state *ap, const uint8_t *from,
 	}
 }
 
+static void ap_write_authorized_macs(struct ap_state *ap,
+					size_t out_len, uint8_t *out)
+{
+	size_t len = ap->authorized_macs_num * 6;
+
+	if (!len)
+		return;
+
+	if (len > out_len)
+		len = out_len;
+
+	memcpy(out, ap->authorized_macs, len);
+}
+
 static size_t ap_get_wsc_ie_len(struct ap_state *ap,
 				enum mpdu_management_subtype type,
 				const struct mmpdu_header *client_frame,
@@ -670,16 +684,8 @@ static size_t ap_write_wsc_ie(struct ap_state *ap,
 		wsc_pr.config_methods =
 			WSC_CONFIGURATION_METHOD_PUSH_BUTTON;
 
-		if (ap->authorized_macs_num) {
-			size_t len = ap->authorized_macs_num * 6;
-
-			if (len > sizeof(wsc_pr.authorized_macs))
-				len = sizeof(wsc_pr.authorized_macs);
-
-			memcpy(wsc_pr.authorized_macs,
-				ap->authorized_macs, len);
-		}
-
+		ap_write_authorized_macs(ap, sizeof(wsc_pr.authorized_macs),
+						wsc_pr.authorized_macs);
 		wsc_data = wsc_build_probe_response(&wsc_pr, &wsc_data_size);
 	} else if (type == MPDU_MANAGEMENT_SUBTYPE_BEACON) {
 		struct wsc_beacon wsc_beacon = {};
@@ -694,16 +700,8 @@ static size_t ap_write_wsc_ie(struct ap_state *ap,
 				WSC_CONFIGURATION_METHOD_PUSH_BUTTON;
 		}
 
-		if (ap->authorized_macs_num) {
-			size_t len = ap->authorized_macs_num * 6;
-
-			if (len > sizeof(wsc_beacon.authorized_macs))
-				len = sizeof(wsc_beacon.authorized_macs);
-
-			memcpy(wsc_beacon.authorized_macs,
-				ap->authorized_macs, len);
-		}
-
+		ap_write_authorized_macs(ap, sizeof(wsc_beacon.authorized_macs),
+						wsc_beacon.authorized_macs);
 		wsc_data = wsc_build_beacon(&wsc_beacon, &wsc_data_size);
 	} else if (L_IN_SET(type, MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_RESPONSE,
 			MPDU_MANAGEMENT_SUBTYPE_REASSOCIATION_RESPONSE)) {
