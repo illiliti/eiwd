@@ -254,10 +254,10 @@ static int ft_tx_reassociate(struct ft_sm *ft)
 		 * MDE + FTE.
 		 *
 		 * 12.8.4: "If present, the RSNE shall be set as follows:
-		 * — Version field shall be set to 1.
-		 * — PMKID Count field shall be set to 1.
-		 * — PMKID field shall contain the PMKR1Name.
-		 * — All other fields shall be as specified in 8.4.2.27
+		 * - Version field shall be set to 1.
+		 * - PMKID Count field shall be set to 1.
+		 * - PMKID field shall contain the PMKR1Name.
+		 * - All other fields shall be as specified in 8.4.2.27
 		 *   and 11.5.3."
 		 */
 		if (ie_parse_rsne_from_data(hs->supplicant_ie,
@@ -287,14 +287,14 @@ static int ft_tx_reassociate(struct ft_sm *ft)
 
 		/*
 		 * 12.8.4: "If present, the FTE shall be set as follows:
-		 * — ANonce, SNonce, R0KH-ID, and R1KH-ID shall be set to
+		 * - ANonce, SNonce, R0KH-ID, and R1KH-ID shall be set to
 		 *   the values contained in the second message of this
 		 *   sequence.
-		 * — The Element Count field of the MIC Control field shall
+		 * - The Element Count field of the MIC Control field shall
 		 *   be set to the number of elements protected in this
 		 *   frame (variable).
 		 * [...]
-		 * — All other fields shall be set to 0."
+		 * - All other fields shall be set to 0."
 		 */
 
 		memset(&ft_info, 0, sizeof(ft_info));
@@ -389,11 +389,11 @@ static bool ft_verify_rsne(const uint8_t *rsne, const uint8_t *pmk_r0_name,
 	 *
 	 * 12.8.3: "The RSNE shall be present only if dot11RSNAActivated
 	 * is true. If present, the RSNE shall be set as follows:
-	 * — Version field shall be set to 1.
-	 * — PMKID Count field shall be set to 1.
-	 * — PMKID List field shall be set to the value contained in the
+	 * - Version field shall be set to 1.
+	 * - PMKID Count field shall be set to 1.
+	 * - PMKID List field shall be set to the value contained in the
 	 *   first message of this sequence.
-	 * — All other fields shall be identical to the contents of the
+	 * - All other fields shall be identical to the contents of the
 	 *   RSNE advertised by the AP in Beacon and Probe Response frames."
 	 */
 
@@ -429,15 +429,15 @@ static bool ft_parse_fte(struct handshake_state *hs,
 	 *
 	 * 12.8.3: "The FTE shall be present only if dot11RSNAActivated is
 	 * true. If present, the FTE shall be set as follows:
-	 * — R0KH-ID shall be identical to the R0KH-ID provided by the FTO
+	 * - R0KH-ID shall be identical to the R0KH-ID provided by the FTO
 	 *   in the first message.
-	 * — R1KH-ID shall be set to the R1KH-ID of the target AP, from
+	 * - R1KH-ID shall be set to the R1KH-ID of the target AP, from
 	 *   dot11FTR1KeyHolderID.
-	 * — ANonce shall be set to a value chosen randomly by the target AP,
+	 * - ANonce shall be set to a value chosen randomly by the target AP,
 	 *   following the recommendations of 11.6.5.
-	 * — SNonce shall be set to the value contained in the first message
+	 * - SNonce shall be set to the value contained in the first message
 	 *   of this sequence.
-	 * — All other fields shall be set to 0."
+	 * - All other fields shall be set to 0."
 	 */
 	uint8_t zeros[24] = {};
 	uint32_t kck_len = handshake_state_get_kck_len(hs);
@@ -608,10 +608,10 @@ static int ft_rx_associate(struct auth_proto *ap, const uint8_t *frame,
 	 *
 	 * 12.8.5: "The RSNE shall be present only if dot11RSNAActivated is
 	 * true. If present, the RSNE shall be set as follows:
-	 * — Version field shall be set to 1.
-	 * — PMKID Count field shall be set to 1.
-	 * — PMKID field shall contain the PMKR1Name
-	 * — All other fields shall be identical to the contents of the RSNE
+	 * - Version field shall be set to 1.
+	 * - PMKID Count field shall be set to 1.
+	 * - PMKID field shall contain the PMKR1Name
+	 * - All other fields shall be identical to the contents of the RSNE
 	 *   advertised by the target AP in Beacon and Probe Response frames."
 	 */
 	if (is_rsn) {
@@ -743,10 +743,10 @@ bool ft_build_authenticate_ies(struct handshake_state *hs,
 		 * MDE + FTE.
 		 *
 		 * 12.8.2: "If present, the RSNE shall be set as follows:
-		 * — Version field shall be set to 1.
-		 * — PMKID Count field shall be set to 1.
-		 * — PMKID List field shall contain the PMKR0Name.
-		 * — All other fields shall be as specified in 8.4.2.27
+		 * - Version field shall be set to 1.
+		 * - PMKID Count field shall be set to 1.
+		 * - PMKID List field shall contain the PMKR0Name.
+		 * - All other fields shall be as specified in 8.4.2.27
 		 *   and 11.5.3."
 		 */
 		if (ie_parse_rsne_from_data(hs->supplicant_ie,
@@ -772,12 +772,12 @@ bool ft_build_authenticate_ies(struct handshake_state *hs,
 
 		/*
 		 * 12.8.2: "If present, the FTE shall be set as follows:
-		 * — R0KH-ID shall be the value of R0KH-ID obtained by the
+		 * - R0KH-ID shall be the value of R0KH-ID obtained by the
 		 *   FTO during its FT initial mobility domain association
 		 *   exchange.
-		 * — SNonce shall be set to a value chosen randomly by the
+		 * - SNonce shall be set to a value chosen randomly by the
 		 *   FTO, following the recommendations of 11.6.5.
-		 * — All other fields shall be set to 0."
+		 * - All other fields shall be set to 0."
 		 */
 
 		memset(&ft_info, 0, sizeof(ft_info));

@@ -552,7 +552,7 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	/*
 	 * IEEE 802.11-2016 - Section 12.4.4.2.1 ECC group definition
 	 * ECC groups make use of a mapping function, F, that maps a
-	 * point (x, y) that satisfies the curve equation to its x-coordinate—
+	 * point (x, y) that satisfies the curve equation to its x-coordinate-
 	 * i.e., if P = (x, y) then F(P) = x.
 	 */
 	klen = l_ecc_point_get_x(k_point, k, sizeof(k));
