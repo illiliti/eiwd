@@ -4772,6 +4772,8 @@ static void netdev_get_station_cb(struct l_genl_msg *msg, void *user_data)
 	if (!l_genl_attr_init(&attr, msg))
 		goto parse_error;
 
+	memset(&info, 0, sizeof(info));
+
 	while (l_genl_attr_next(&attr, &type, &len, &data)) {
 		switch (type) {
 		case NL80211_ATTR_STA_INFO:
