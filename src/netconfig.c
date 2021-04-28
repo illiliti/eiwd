@@ -67,6 +67,8 @@ struct netconfig {
 	struct resolve *resolve;
 
 	struct l_acd *acd;
+
+	uint32_t route4_add_gateway_cmd_id;
 };
 
 static struct l_netlink *rtnl;
@@ -585,11 +587,24 @@ static void netconfig_ifaddr_ipv6_cmd_cb(int error, uint16_t type,
 	netconfig_ifaddr_ipv6_notify(type, data, len, user_data);
 }
 
+static void netconfig_route_generic_cb(int error, uint16_t type,
+					const void *data, uint32_t len,
+					void *user_data)
+{
+	if (error) {
+		l_error("netconfig: Failed to add route. Error %d: %s",
+						error, strerror(-error));
+		return;
+	}
+}
+
 static void netconfig_route_add_cmd_cb(int error, uint16_t type,
 						const void *data, uint32_t len,
 						void *user_data)
 {
 	struct netconfig *netconfig = user_data;
+
+	netconfig->route4_add_gateway_cmd_id = 0;
 
 	if (error) {
 		l_error("netconfig: Failed to add route. Error %d: %s",
@@ -627,7 +642,7 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 	if (!l_rtnl_route4_add_connected(rtnl, netconfig->ifindex,
 						prefix_len, network, ip,
 						netconfig->rtm_protocol,
-						netconfig_route_add_cmd_cb,
+						netconfig_route_generic_cb,
 						netconfig, NULL)) {
 		l_error("netconfig: Failed to add subnet route.");
 
@@ -643,11 +658,13 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 		return false;
 	}
 
-	if (!l_rtnl_route4_add_gateway(rtnl, netconfig->ifindex, gateway, ip,
+	netconfig->route4_add_gateway_cmd_id =
+		l_rtnl_route4_add_gateway(rtnl, netconfig->ifindex, gateway, ip,
 						ROUTE_PRIORITY_OFFSET,
 						netconfig->rtm_protocol,
 						netconfig_route_add_cmd_cb,
-						netconfig, NULL)) {
+						netconfig, NULL);
+	if (!netconfig->route4_add_gateway_cmd_id) {
 		l_error("netconfig: Failed to add route for: %s gateway.",
 								gateway);
 
@@ -695,7 +712,7 @@ static void netconfig_ipv6_ifaddr_add_cmd_cb(int error, uint16_t type,
 	if (gateway) {
 		L_WARN_ON(!l_rtnl_route_add(rtnl, netconfig->ifindex,
 						gateway,
-						netconfig_route_add_cmd_cb,
+						netconfig_route_generic_cb,
 						netconfig, NULL));
 		l_rtnl_route_free(gateway);
 	}
@@ -1033,6 +1050,11 @@ bool netconfig_reconfigure(struct netconfig *netconfig)
 bool netconfig_reset(struct netconfig *netconfig)
 {
 	struct netdev *netdev = netdev_find(netconfig->ifindex);
+
+	if (netconfig->route4_add_gateway_cmd_id) {
+		l_netlink_cancel(rtnl, netconfig->route4_add_gateway_cmd_id);
+		netconfig->route4_add_gateway_cmd_id = 0;
+	}
 
 	if (netconfig->rtm_protocol || netconfig->rtm_v6_protocol)
 		resolve_revert(netconfig->resolve);
