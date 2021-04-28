@@ -116,6 +116,9 @@ bool diagnostic_info_to_dict(const struct diagnostic_station_info *info,
 const char *diagnostic_akm_suite_to_security(enum ie_rsn_akm_suite akm,
 						bool wpa)
 {
+	if (akm == 0)
+		return "Open";
+
 	switch (akm) {
 	case IE_RSN_AKM_SUITE_8021X:
 	case IE_RSN_AKM_SUITE_8021X_SHA256:
@@ -147,6 +150,6 @@ const char *diagnostic_akm_suite_to_security(enum ie_rsn_akm_suite akm,
 	case IE_RSN_AKM_SUITE_OSEN:
 		return "OSEN";
 	default:
-		return NULL;
+		return "Unknown";
 	}
 }
