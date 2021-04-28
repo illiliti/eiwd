@@ -1605,9 +1605,18 @@ static void station_roam_failed(struct station *station)
 	 * If we tried a limited scan, failed and the signal is still low,
 	 * repeat with a full scan right away
 	 */
-	if (station->signal_low && !station->roam_scan_full &&
-					!station_roam_scan(station, NULL))
-		return;
+	if (station->signal_low && !station->roam_scan_full) {
+		/*
+		 * Since we're re-using roam_scan_id, explicitly cancel
+		 * the scan here, so that the destroy callback is not called
+		 * after the return of this function
+		 */
+		scan_cancel(netdev_get_wdev_id(station->netdev),
+						station->roam_scan_id);
+
+		if (!station_roam_scan(station, NULL))
+			return;
+	}
 
 delayed_retry:
 	/*
