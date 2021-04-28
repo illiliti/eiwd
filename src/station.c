@@ -1229,9 +1229,6 @@ static void station_enter_state(struct station *station,
 		periodic_scan_stop(station);
 		break;
 	case STATION_STATE_DISCONNECTED:
-		l_dbus_object_remove_interface(dbus_get_bus(),
-					netdev_get_path(station->netdev),
-					IWD_STATION_DIAGNOSTIC_INTERFACE);
 		periodic_scan_stop(station);
 		break;
 	case STATION_STATE_CONNECTED:
@@ -1242,6 +1239,10 @@ static void station_enter_state(struct station *station,
 		periodic_scan_stop(station);
 		break;
 	case STATION_STATE_DISCONNECTING:
+		l_dbus_object_remove_interface(dbus_get_bus(),
+					netdev_get_path(station->netdev),
+					IWD_STATION_DIAGNOSTIC_INTERFACE);
+		break;
 	case STATION_STATE_ROAMING:
 		break;
 	}
