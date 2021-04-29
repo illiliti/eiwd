@@ -329,57 +329,6 @@ error:
 	return -EINVAL;
 }
 
-static int ft_parse_ies(const uint8_t *ies, size_t ies_len,
-			const uint8_t **rsne_out, const uint8_t **mde_out,
-			const uint8_t **fte_out)
-{
-	struct ie_tlv_iter iter;
-	const uint8_t *rsne = NULL;
-	const uint8_t *mde = NULL;
-	const uint8_t *fte = NULL;
-
-	ie_tlv_iter_init(&iter, ies, ies_len);
-
-	while (ie_tlv_iter_next(&iter)) {
-		switch (ie_tlv_iter_get_tag(&iter)) {
-		case IE_TYPE_RSN:
-			if (rsne)
-				goto ft_error;
-
-			rsne = ie_tlv_iter_get_data(&iter) - 2;
-			break;
-
-		case IE_TYPE_MOBILITY_DOMAIN:
-			if (mde)
-				goto ft_error;
-
-			mde = ie_tlv_iter_get_data(&iter) - 2;
-			break;
-
-		case IE_TYPE_FAST_BSS_TRANSITION:
-			if (fte)
-				goto ft_error;
-
-			fte = ie_tlv_iter_get_data(&iter) - 2;
-			break;
-		}
-	}
-
-	if (rsne_out)
-		*rsne_out = rsne;
-
-	if (mde_out)
-		*mde_out = mde;
-
-	if (fte_out)
-		*fte_out = fte;
-
-	return 0;
-
-ft_error:
-	return -EINVAL;
-}
-
 static bool ft_verify_rsne(const uint8_t *rsne, const uint8_t *pmk_r0_name,
 				const uint8_t *authenticator_ie)
 {
@@ -414,6 +363,65 @@ static bool ft_verify_rsne(const uint8_t *rsne, const uint8_t *pmk_r0_name,
 		return false;
 
 	return true;
+}
+
+static int ft_parse_ies(struct handshake_state *hs,
+			const uint8_t *ies, size_t ies_len,
+			const uint8_t **mde_out,
+			const uint8_t **fte_out)
+{
+	struct ie_tlv_iter iter;
+	const uint8_t *rsne = NULL;
+	const uint8_t *mde = NULL;
+	const uint8_t *fte = NULL;
+	bool is_rsn;
+
+	ie_tlv_iter_init(&iter, ies, ies_len);
+
+	while (ie_tlv_iter_next(&iter)) {
+		switch (ie_tlv_iter_get_tag(&iter)) {
+		case IE_TYPE_RSN:
+			if (rsne)
+				goto ft_error;
+
+			rsne = ie_tlv_iter_get_data(&iter) - 2;
+			break;
+
+		case IE_TYPE_MOBILITY_DOMAIN:
+			if (mde)
+				goto ft_error;
+
+			mde = ie_tlv_iter_get_data(&iter) - 2;
+			break;
+
+		case IE_TYPE_FAST_BSS_TRANSITION:
+			if (fte)
+				goto ft_error;
+
+			fte = ie_tlv_iter_get_data(&iter) - 2;
+			break;
+		}
+	}
+
+	is_rsn = hs->supplicant_ie != NULL;
+
+	if (is_rsn) {
+		if (!ft_verify_rsne(rsne, hs->pmk_r0_name,
+					hs->authenticator_ie))
+			goto ft_error;
+	} else if (rsne)
+		goto ft_error;
+
+	if (mde_out)
+		*mde_out = mde;
+
+	if (fte_out)
+		*fte_out = fte;
+
+	return 0;
+
+ft_error:
+	return -EINVAL;
 }
 
 static bool ft_parse_fte(struct handshake_state *hs,
@@ -465,29 +473,10 @@ static bool ft_parse_fte(struct handshake_state *hs,
 	return true;
 }
 
-static int ft_process_ies(struct handshake_state *hs, const uint8_t *ies,
-			size_t ies_len)
+static bool mde_equal(const uint8_t *mde1, const uint8_t *mde2)
 {
-	const uint8_t *rsne = NULL;
-	const uint8_t *mde = NULL;
-	const uint8_t *fte = NULL;
-	bool is_rsn;
-
-	/* Check 802.11r IEs */
-	if (!ies)
-		goto ft_error;
-
-	if (ft_parse_ies(ies, ies_len, &rsne, &mde, &fte) < 0)
-		goto ft_error;
-
-	is_rsn = hs->supplicant_ie != NULL;
-
-	if (is_rsn) {
-		if (!ft_verify_rsne(rsne, hs->pmk_r0_name,
-					hs->authenticator_ie))
-			goto ft_error;
-	} else if (rsne)
-		goto ft_error;
+	if (!mde1 || !mde2)
+		return false;
 
 	/*
 	 * Check for an MD IE identical to the one we sent in message 1
@@ -496,7 +485,25 @@ static int ft_process_ies(struct handshake_state *hs, const uint8_t *ies,
 	 * Policy fields. This element shall be the same as the MDE
 	 * advertised by the target AP in Beacon and Probe Response frames."
 	 */
-	if (!mde || memcmp(hs->mde, mde, hs->mde[1] + 2))
+	return memcmp(mde1, mde1, mde1[1] + 2) == 0;
+}
+
+static int ft_process_ies(struct handshake_state *hs, const uint8_t *ies,
+			size_t ies_len)
+{
+	const uint8_t *mde = NULL;
+	const uint8_t *fte = NULL;
+	bool is_rsn = hs->supplicant_ie != NULL;
+
+	/* Check 802.11r IEs */
+	if (!ies)
+		goto ft_error;
+
+	if (ft_parse_ies(hs, ies, ies_len, &mde, &fte) < 0)
+		goto ft_error;
+
+
+	if (!mde_equal(hs->mde, mde))
 		goto ft_error;
 
 	if (is_rsn) {
