@@ -194,8 +194,11 @@ class Process:
 		self.io_position = self.stdout.tell()
 
 		if ctx:
-			# Verbose requested, add stdout/stderr to write FD list
-			if self.name in ctx.args.verbose:
+			# Verbose requested, add stdout/stderr to write FD list.
+			# This will end up always returning true if logging is
+			# on which isn't desired so pass log=False as to only
+			# allow stdout to processes listed in --verbose.
+			if ctx.is_verbose(self.name, log=False):
 				self.verbose = True
 
 			# Add output file to FD list
@@ -693,14 +696,14 @@ class Namespace:
 		pid = self.start_process(args, env=env)
 		return pid
 
-	def is_verbose(self, process):
+	def is_verbose(self, process, log=True):
 		process = os.path.basename(process)
 
 		if self.args is None:
 			return False
 
 		# every process is verbose when logging is enabled
-		if self.args.log:
+		if log and self.args.log:
 			return True
 
 		if process in self.args.verbose:
