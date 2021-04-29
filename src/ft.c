@@ -917,10 +917,9 @@ static bool ft_start(struct auth_proto *ap)
 	return true;
 }
 
-static struct auth_proto *ft_sm_new(struct handshake_state *hs,
+struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
 				ft_tx_authenticate_func_t tx_auth,
 				ft_tx_associate_func_t tx_assoc,
-				bool over_air,
 				void *user_data)
 {
 	struct ft_sm *ft = l_new(struct ft_sm, 1);
@@ -930,7 +929,7 @@ static struct auth_proto *ft_sm_new(struct handshake_state *hs,
 	ft->hs = hs;
 	ft->user_data = user_data;
 
-	ft->ap.rx_authenticate = (over_air) ? ft_rx_authenticate : ft_rx_action;
+	ft->ap.rx_authenticate = ft_rx_authenticate;
 	ft->ap.rx_associate = ft_rx_associate;
 	ft->ap.start = ft_start;
 	ft->ap.free = ft_sm_free;
@@ -938,18 +937,22 @@ static struct auth_proto *ft_sm_new(struct handshake_state *hs,
 	return &ft->ap;
 }
 
-struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
-				ft_tx_authenticate_func_t tx_auth,
-				ft_tx_associate_func_t tx_assoc,
-				void *user_data)
-{
-	return ft_sm_new(hs, tx_auth, tx_assoc, true, user_data);
-}
-
 struct auth_proto *ft_over_ds_sm_new(struct handshake_state *hs,
 				ft_tx_authenticate_func_t tx_auth,
 				ft_tx_associate_func_t tx_assoc,
 				void *user_data)
 {
-	return ft_sm_new(hs, tx_auth, tx_assoc, false, user_data);
+	struct ft_sm *ft = l_new(struct ft_sm, 1);
+
+	ft->tx_assoc = tx_assoc;
+	ft->tx_auth = tx_auth;
+	ft->hs = hs;
+	ft->user_data = user_data;
+
+	ft->ap.rx_authenticate = ft_rx_action;
+	ft->ap.rx_associate = ft_rx_associate;
+	ft->ap.start = ft_start;
+	ft->ap.free = ft_sm_free;
+
+	return &ft->ap;
 }
