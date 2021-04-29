@@ -488,6 +488,35 @@ static bool mde_equal(const uint8_t *mde1, const uint8_t *mde2)
 	return memcmp(mde1, mde1, mde1[1] + 2) == 0;
 }
 
+static bool ft_over_ds_process_ies(struct ft_ds_info *info,
+					struct handshake_state *hs,
+					const uint8_t *ies,
+					size_t ies_len)
+{
+	const uint8_t *mde = NULL;
+	const uint8_t *fte = NULL;
+	bool is_rsn = hs->supplicant_ie != NULL;
+
+	if (ft_parse_ies(hs, ies, ies_len, &mde, &fte) < 0)
+		return false;
+
+	if (!mde_equal(info->mde, mde))
+		goto ft_error;
+
+	if (is_rsn) {
+		if (!ft_parse_fte(hs, info->snonce, fte, &info->ft_info))
+			goto ft_error;
+
+		info->fte = l_memdup(fte, fte[1] + 2);
+	} else if (fte)
+		goto ft_error;
+
+	return true;
+
+ft_error:
+	return false;
+}
+
 static int ft_process_ies(struct handshake_state *hs, const uint8_t *ies,
 			size_t ies_len)
 {
@@ -530,6 +559,59 @@ ft_error:
 	return -EBADMSG;
 }
 
+int ft_over_ds_parse_action_response(struct ft_ds_info *info,
+					struct handshake_state *hs,
+					const uint8_t *frame, size_t frame_len)
+{
+	uint16_t status;
+
+	if (frame_len < 16)
+		return -EINVAL;
+
+	/* Category FT */
+	if (frame[0] != 6)
+		return -EINVAL;
+
+	/* FT Action */
+	if (frame[1] != 2)
+		return -EINVAL;
+
+	if (memcmp(frame + 2, info->spa, 6))
+		return -ENOENT;
+	if (memcmp(frame + 8, info->aa, 6))
+		return -ENOENT;
+
+	status = l_get_le16(frame + 14);
+	if (status != 0)
+		return (int)status;
+
+	if (!ft_over_ds_process_ies(info, hs, frame + 16, frame_len - 16))
+		return -EBADMSG;
+
+	return 0;
+}
+
+bool ft_over_ds_prepare_handshake(struct ft_ds_info *info,
+					struct handshake_state *hs)
+{
+	if (!hs->supplicant_ie)
+		return true;
+
+	memcpy(hs->snonce, info->snonce, sizeof(hs->snonce));
+
+	handshake_state_set_fte(hs, info->fte);
+
+	handshake_state_set_anonce(hs, info->ft_info.anonce);
+
+	handshake_state_set_kh_ids(hs, info->ft_info.r0khid,
+						info->ft_info.r0khid_len,
+						info->ft_info.r1khid);
+
+	handshake_state_derive_ptk(hs);
+
+	return true;
+}
+
 static int ft_rx_action(struct auth_proto *ap, const uint8_t *frame,
 				size_t frame_len)
 {
@@ -556,6 +638,17 @@ static int ft_rx_action(struct auth_proto *ap, const uint8_t *frame,
 
 auth_error:
 	return (int)status_code;
+}
+
+void ft_ds_info_free(struct ft_ds_info *info)
+{
+	__typeof__(info->free) destroy = info->free;
+
+	if (info->fte)
+		l_free(info->fte);
+
+	if (destroy)
+		destroy(info);
 }
 
 static int ft_rx_authenticate(struct auth_proto *ap, const uint8_t *frame,
