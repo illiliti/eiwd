@@ -126,7 +126,6 @@ struct netdev {
 	struct l_timeout *neighbor_report_timeout;
 	struct l_timeout *sa_query_timeout;
 	struct l_timeout *group_handshake_timeout;
-	struct l_timeout *gas_timeout;
 	uint16_t sa_query_id;
 	uint8_t prev_bssid[ETH_ALEN];
 	uint8_t prev_snonce[32];
