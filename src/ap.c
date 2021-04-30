@@ -3296,7 +3296,7 @@ static struct l_dbus_message *ap_dbus_start_profile(struct l_dbus *dbus,
 {
 	struct ap_if_data *ap_if = user_data;
 	const char *ssid;
-	struct l_settings *config;
+	_auto_(l_settings_free) struct l_settings *config = NULL;
 	char *config_path;
 	int err;
 
@@ -3325,8 +3325,6 @@ static struct l_dbus_message *ap_dbus_start_profile(struct l_dbus *dbus,
 	l_settings_set_string(config, "General", "SSID", ssid);
 
 	ap_if->ap = ap_start(ap_if->netdev, config, &ap_dbus_ops, &err, ap_if);
-	l_settings_free(config);
-
 	if (!ap_if->ap)
 		goto error;
 
