@@ -3651,7 +3651,7 @@ restore_snonce:
 					MMPDU_STATUS_CODE_UNSPECIFIED);
 }
 
-static void netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
+static int netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
 					void *user_data)
 {
 	struct netdev *netdev = user_data;
@@ -3669,9 +3669,7 @@ static void netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
 	if (!netdev->connect_cmd_id) {
 		l_genl_msg_unref(msg);
 
-		netdev_connect_failed(netdev, NETDEV_RESULT_ASSOCIATION_FAILED,
-					MMPDU_STATUS_CODE_UNSPECIFIED);
-		return;
+		return -EIO;
 	}
 
 	/* No need to keep this around at this point */
@@ -3679,6 +3677,8 @@ static void netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
 		ft_ds_info_free(&netdev->ft_ds_info->super);
 		netdev->ft_ds_info = NULL;
 	}
+
+	return 0;
 }
 
 static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)

@@ -287,9 +287,7 @@ static int ft_tx_reassociate(struct ft_sm *ft)
 		iov_elems += 1;
 	}
 
-	ft->tx_assoc(iov, iov_elems, ft->user_data);
-
-	return 0;
+	return ft->tx_assoc(iov, iov_elems, ft->user_data);
 
 error:
 	return -EINVAL;

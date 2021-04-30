@@ -24,7 +24,7 @@ struct handshake_state;
 
 typedef void (*ft_tx_authenticate_func_t)(struct iovec *iov, size_t iov_len,
 					void *user_data);
-typedef void (*ft_tx_associate_func_t)(struct iovec *ie_iov, size_t iov_len,
+typedef int (*ft_tx_associate_func_t)(struct iovec *ie_iov, size_t iov_len,
 					void *user_data);
 
 typedef void (*ft_ds_free_func_t)(void *user_data);
