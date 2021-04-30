@@ -164,6 +164,18 @@ static const struct {
 	{ NL80211_CMD_STA_OPMODE_CHANGED,	"STA Opmode Changed"	},
 	{ NL80211_CMD_CONTROL_PORT_FRAME,	"Control Port Frame"	},
 	{ NL80211_CMD_GET_FTM_RESPONDER_STATS,	"Get FTM Responder Stats" },
+	{ NL80211_CMD_PEER_MEASUREMENT_START,	"Peer Measurement Start" },
+	{ NL80211_CMD_PEER_MEASUREMENT_RESULT,	"Peer Measurement Result" },
+	{ NL80211_CMD_PEER_MEASUREMENT_COMPLETE,
+						"Peer Measurement Complete" },
+
+	{ NL80211_CMD_NOTIFY_RADAR,		"Notify Radar"		},
+	{ NL80211_CMD_UPDATE_OWE_INFO,		"Update OWE Info"	},
+	{ NL80211_CMD_PROBE_MESH_LINK,		"Probe Mesh Link"	},
+	{ NL80211_CMD_SET_TID_CONFIG,		"Set TID Config"	},
+	{ NL80211_CMD_UNPROT_BEACON,		"Unprotected Beacon"	},
+	{ NL80211_CMD_CONTROL_PORT_FRAME_TX_STATUS,
+						"Control Port TX Status" },
 	{ }
 };
 
