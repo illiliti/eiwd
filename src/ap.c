@@ -2319,6 +2319,8 @@ static bool ap_parse_new_station_ies(const void *data, uint16_t len,
 
 	if (rates_out)
 		*rates_out = rates;
+	else
+		l_uintset_free(rates);
 
 	return true;
 
