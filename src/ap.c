@@ -1864,10 +1864,8 @@ static void ap_probe_req_cb(const struct mmpdu_header *hdr, const void *body,
 	struct ie_tlv_iter iter;
 	const uint8_t *bssid = netdev_get_address(ap->netdev);
 	bool match = false;
-	L_AUTO_FREE_VAR(uint8_t *, resp) =
-		l_malloc(512 + ap_get_extra_ies_len(ap,
-				MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE, hdr,
-				body + body_len - (void *) hdr));
+	uint32_t resp_len;
+	uint8_t *resp;
 
 	l_info("AP Probe Request from %s",
 		util_address_to_string(hdr->address_2));
@@ -1939,9 +1937,13 @@ static void ap_probe_req_cb(const struct mmpdu_header *hdr, const void *body,
 	if (!match)
 		return;
 
+	resp_len = 512 + ap_get_extra_ies_len(ap,
+					MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE,
+					hdr, body + body_len - (void *) hdr);
+	resp = l_new(uint8_t, resp_len);
 	len = ap_build_beacon_pr_head(ap,
 					MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE,
-					hdr->address_2, resp, sizeof(resp));
+					hdr->address_2, resp, resp_len);
 	len += ap_build_beacon_pr_tail(ap,
 					MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE,
 					hdr, body + body_len - (void *) hdr,
@@ -1949,6 +1951,7 @@ static void ap_probe_req_cb(const struct mmpdu_header *hdr, const void *body,
 
 	ap_send_mgmt_frame(ap, (struct mmpdu_header *) resp, len,
 				ap_probe_resp_cb, NULL);
+	l_free(resp);
 }
 
 /* 802.11-2016 9.3.3.5 (frame format), 802.11-2016 11.3.5.9 (MLME/SME) */
