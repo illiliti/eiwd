@@ -4345,7 +4345,8 @@ static void netdev_roam_event(struct l_genl_msg *msg, struct netdev *netdev)
 
 	netdev->operational = false;
 
-	l_genl_attr_init(&attr, msg);
+	if (!l_genl_attr_init(&attr, msg))
+		goto failed;
 
 	while (l_genl_attr_next(&attr, &type, &len, &data)) {
 		switch (type) {
@@ -4387,7 +4388,7 @@ get_fw_scan:
 
 	return;
 failed:
-	l_error("Failed to roam to new BSS");
+	l_error("Failed to properly handle the ROAM event -- submit logs!");
 	netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
 					MMPDU_REASON_CODE_UNSPECIFIED);
 
