@@ -92,6 +92,16 @@ struct netdev_handshake_state {
 	enum connection_type type;
 };
 
+struct netdev_ft_over_ds_info {
+	struct ft_ds_info super;
+	struct netdev *netdev;
+	struct l_timeout *timeout;
+	netdev_ft_over_ds_cb_t cb;
+	void *user_data;
+
+	bool parsed : 1;
+};
+
 struct netdev {
 	uint32_t index;
 	uint64_t wdev_id;
@@ -158,6 +168,8 @@ struct netdev {
 	struct l_genl_msg *connect_cmd;
 	struct l_genl_msg *auth_cmd;
 	struct wiphy_radio_work_item work;
+
+	struct netdev_ft_over_ds_info *ft_ds_info;
 
 	bool connected : 1;
 	bool associated : 1;
@@ -741,6 +753,9 @@ static void netdev_connect_free(struct netdev *netdev)
 		l_genl_family_cancel(nl80211, netdev->disconnect_cmd_id);
 		netdev->disconnect_cmd_id = 0;
 	}
+
+	if (netdev->ft_ds_info)
+		ft_ds_info_free(&netdev->ft_ds_info->super);
 }
 
 static void netdev_connect_failed(struct netdev *netdev,
@@ -3424,6 +3439,12 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 	if (err < 0)
 		return err;
 
+	/* In case of a previous failed over-DS attempt */
+	if (netdev->ft_ds_info) {
+		ft_ds_info_free(&netdev->ft_ds_info->super);
+		netdev->ft_ds_info = NULL;
+	}
+
 	memcpy(netdev->prev_bssid, orig_bss->addr, ETH_ALEN);
 
 	netdev->associated = false;
@@ -3652,6 +3673,12 @@ static void netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
 		return;
 	}
+
+	/* No need to keep this around at this point */
+	if (netdev->ft_ds_info) {
+		ft_ds_info_free(&netdev->ft_ds_info->super);
+		netdev->ft_ds_info = NULL;
+	}
 }
 
 static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)
@@ -3719,44 +3746,54 @@ static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)
 	}
 }
 
-static void netdev_ft_request_cb(struct l_genl_msg *msg, void *user_data)
+static void netdev_ft_over_ds_auth_failed(struct netdev_ft_over_ds_info *info,
+						uint16_t status)
 {
-	struct netdev *netdev = user_data;
-	int err = l_genl_msg_get_error(msg);
+	if (info->cb)
+		info->cb(info->netdev, status, info->super.aa, info->user_data);
 
-	if (err < 0) {
-		l_error("Could not send CMD_FRAME (%d)", err);
-		netdev_connect_failed(netdev,
-					NETDEV_RESULT_AUTHENTICATION_FAILED,
-					MMPDU_STATUS_CODE_UNSPECIFIED);
-	}
+	ft_ds_info_free(&info->super);
+
+	info->netdev->ft_ds_info = NULL;
 }
 
 static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
 					const void *body, size_t body_len,
 					int rssi, void *user_data)
 {
+	struct netdev *netdev = user_data;
+	struct netdev_ft_over_ds_info *info = netdev->ft_ds_info;
 	int ret;
 	uint16_t status_code = MMPDU_STATUS_CODE_UNSPECIFIED;
-	struct netdev *netdev = user_data;
 
-	if (!netdev->ap || !netdev->in_ft)
+	if (!info)
 		return;
 
-	ret = auth_proto_rx_authenticate(netdev->ap, body, body_len);
+	ret = ft_over_ds_parse_action_response(&info->super, netdev->handshake,
+						body, body_len);
 	if (ret < 0)
-		goto ft_error;
-	else if (ret > 0) {
+		return;
+
+	l_timeout_remove(info->timeout);
+	info->timeout = NULL;
+
+	/* Now make sure the packet contained a success status code */
+	if (ret > 0) {
 		status_code = (uint16_t)ret;
 		goto ft_error;
 	}
 
+	info->parsed = true;
+
+	if (info->cb)
+		info->cb(netdev, 0, info->super.aa, info->user_data);
+
 	return;
 
 ft_error:
-	netdev_connect_failed(netdev, NETDEV_RESULT_AUTHENTICATION_FAILED,
-				status_code);
-	return;
+	l_debug("FT-over-DS to "MAC" failed", MAC_STR(info->super.aa));
+
+	netdev_ft_over_ds_auth_failed(info, status_code);
 }
 
 static void netdev_qos_map_frame_event(const struct mmpdu_header *hdr,
@@ -3779,29 +3816,6 @@ static void netdev_qos_map_frame_event(const struct mmpdu_header *hdr,
 		return;
 
 	netdev_send_qos_map_set(netdev, body + 4, body_len - 4);
-}
-
-static void netdev_ft_over_ds_tx_authenticate(struct iovec *iov,
-					size_t iov_len, void *user_data)
-{
-	struct netdev *netdev = user_data;
-	uint8_t ft_req[14];
-	struct handshake_state *hs = netdev->handshake;
-	struct iovec iovs[iov_len + 1];
-
-	ft_req[0] = 6; /* FT category */
-	ft_req[1] = 1; /* FT Request action */
-	memcpy(ft_req + 2, netdev->addr, 6);
-	memcpy(ft_req + 8, hs->aa, 6);
-
-	iovs[0].iov_base = ft_req;
-	iovs[0].iov_len = sizeof(ft_req);
-	memcpy(iovs + 1, iov, sizeof(*iov) * iov_len);
-
-	netdev_send_action_framev(netdev, netdev->prev_bssid, iovs, iov_len + 1,
-					netdev->prev_frequency,
-					netdev_ft_request_cb,
-					netdev);
 }
 
 static bool netdev_ft_work_ready(struct wiphy_radio_work_item *item)
@@ -3855,6 +3869,11 @@ int netdev_fast_transition_over_ds(struct netdev *netdev,
 					struct scan_bss *target_bss,
 					netdev_connect_cb_t cb)
 {
+	struct netdev_ft_over_ds_info *info = netdev->ft_ds_info;
+
+	if (!info || !info->parsed)
+		return -ENOENT;
+
 	if (!netdev->operational)
 		return -ENOTCONN;
 
@@ -3865,18 +3884,124 @@ int netdev_fast_transition_over_ds(struct netdev *netdev,
 
 	prepare_ft(netdev, target_bss);
 
-	handshake_state_new_snonce(netdev->handshake);
+	ft_over_ds_prepare_handshake(&info->super, netdev->handshake);
 
 	netdev->connect_cb = cb;
 
 	netdev->ap = ft_over_ds_sm_new(netdev->handshake,
-					netdev_ft_over_ds_tx_authenticate,
-					netdev_ft_tx_associate, netdev);
+					netdev_ft_tx_associate,
+					netdev);
 
 	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
 				&ft_work_ops);
 
 	return 0;
+}
+
+static void netdev_ft_request_cb(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev_ft_over_ds_info *info = user_data;
+
+	if (l_genl_msg_get_error(msg) < 0) {
+		l_error("Could not send CMD_FRAME for FT-over-DS");
+		netdev_ft_over_ds_auth_failed(info,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
+	}
+}
+
+static void netdev_ft_over_ds_timeout(struct l_timeout *timeout,
+					void *user_data)
+{
+	struct netdev_ft_over_ds_info *info = user_data;
+
+	l_timeout_remove(info->timeout);
+	info->timeout = NULL;
+
+	l_debug("");
+
+	netdev_ft_over_ds_auth_failed(info, MMPDU_STATUS_CODE_UNSPECIFIED);
+}
+
+static void netdev_ft_ds_info_free(struct ft_ds_info *ft)
+{
+	struct netdev_ft_over_ds_info *info = l_container_of(ft,
+					struct netdev_ft_over_ds_info, super);
+
+	if (info->timeout)
+		l_timeout_remove(info->timeout);
+
+	l_free(info);
+}
+
+int netdev_fast_transition_over_ds_action(struct netdev *netdev,
+					const struct scan_bss *target_bss,
+					netdev_ft_over_ds_cb_t cb,
+					void *user_data)
+{
+	struct netdev_ft_over_ds_info *info;
+	uint8_t ft_req[14];
+	struct handshake_state *hs = netdev->handshake;
+	struct iovec iovs[5];
+	uint8_t buf[512];
+	size_t len;
+
+	/* TODO: Just allow single outstanding action frame for now */
+	if (netdev->ft_ds_info)
+		return -EALREADY;
+
+	if (!netdev->operational)
+		return -ENOTCONN;
+
+	if (!netdev->handshake->mde || !target_bss->mde_present ||
+			l_get_le16(netdev->handshake->mde + 2) !=
+			l_get_le16(target_bss->mde))
+		return -EINVAL;
+
+	l_debug("");
+
+	info = l_new(struct netdev_ft_over_ds_info, 1);
+	info->netdev = netdev;
+
+	memcpy(info->super.spa, hs->spa, ETH_ALEN);
+	memcpy(info->super.aa, target_bss->addr, ETH_ALEN);
+	memcpy(info->super.mde, target_bss->mde, sizeof(info->super.mde));
+	l_getrandom(info->super.snonce, 32);
+	info->super.free = netdev_ft_ds_info_free;
+
+	info->cb = cb;
+	info->user_data = user_data;
+
+	ft_req[0] = 6; /* FT category */
+	ft_req[1] = 1; /* FT Request action */
+	memcpy(ft_req + 2, netdev->addr, 6);
+	memcpy(ft_req + 8, info->super.aa, 6);
+
+	iovs[0].iov_base = ft_req;
+	iovs[0].iov_len = sizeof(ft_req);
+
+	if (!ft_build_authenticate_ies(hs, info->super.snonce, buf, &len))
+		goto failed;
+
+	iovs[1].iov_base = buf;
+	iovs[1].iov_len = len;
+
+	iovs[2].iov_base = NULL;
+
+	netdev->ft_ds_info = info;
+
+	info->timeout = l_timeout_create_ms(300, netdev_ft_over_ds_timeout,
+						info, NULL);
+
+	netdev_send_action_framev(netdev, netdev->handshake->aa, iovs, 2,
+					netdev->frequency,
+					netdev_ft_request_cb,
+					info);
+
+	return 0;
+
+failed:
+	l_free(info);
+	return -EIO;
 }
 
 static void netdev_preauth_cb(const uint8_t *pmk, void *user_data)

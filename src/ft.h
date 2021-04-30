@@ -57,7 +57,6 @@ struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
 				void *user_data);
 
 struct auth_proto *ft_over_ds_sm_new(struct handshake_state *hs,
-				ft_tx_authenticate_func_t tx_auth,
 				ft_tx_associate_func_t tx_assoc,
 				void *user_data);
 

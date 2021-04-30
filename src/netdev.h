@@ -125,6 +125,10 @@ typedef void (*netdev_get_station_cb_t)(
 
 const char *netdev_iftype_to_string(uint32_t iftype);
 
+typedef void (*netdev_ft_over_ds_cb_t)(struct netdev *netdev,
+					uint16_t status, const uint8_t *bssid,
+					void *user_data);
+
 struct wiphy *netdev_get_wiphy(struct netdev *netdev);
 const uint8_t *netdev_get_address(struct netdev *netdev);
 uint32_t netdev_get_ifindex(struct netdev *netdev);
@@ -158,6 +162,10 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 			netdev_connect_cb_t cb, void *user_data);
 int netdev_fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 				netdev_connect_cb_t cb);
+int netdev_fast_transition_over_ds_action(struct netdev *netdev,
+					const struct scan_bss *target_bss,
+					netdev_ft_over_ds_cb_t cb,
+					void *user_data);
 int netdev_fast_transition_over_ds(struct netdev *netdev,
 					struct scan_bss *target_bss,
 					netdev_connect_cb_t cb);

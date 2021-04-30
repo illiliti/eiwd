@@ -156,40 +156,6 @@ static bool ft_parse_authentication_resp_frame(const uint8_t *data, size_t len,
 	return true;
 }
 
-static bool ft_parse_action_resp_frame(const uint8_t *frame, size_t frame_len,
-					const uint8_t *spa, const uint8_t *aa,
-					uint16_t *out_status,
-					const uint8_t **out_ies,
-					size_t *out_ies_len)
-{
-	uint16_t status = 0;
-
-	/* Category FT */
-	if (frame[0] != 6)
-		return false;
-
-	/* FT Action */
-	if (frame[1] != 2)
-		return false;
-
-	if (memcmp(frame + 2, spa, 6))
-		return false;
-	if (memcmp(frame + 8, aa, 6))
-		return false;
-
-	status = l_get_le16(frame + 14);
-
-	if (out_status)
-		*out_status = status;
-
-	if (status == 0 && out_ies) {
-		*out_ies = frame + 16;
-		*out_ies_len = frame_len - 16;
-	}
-
-	return true;
-}
-
 static bool ft_parse_associate_resp_frame(const uint8_t *frame, size_t frame_len,
 				uint16_t *out_status, const uint8_t **rsne,
 				const uint8_t **mde, const uint8_t **fte)
@@ -612,34 +578,6 @@ bool ft_over_ds_prepare_handshake(struct ft_ds_info *info,
 	return true;
 }
 
-static int ft_rx_action(struct auth_proto *ap, const uint8_t *frame,
-				size_t frame_len)
-{
-	struct ft_sm *ft = l_container_of(ap, struct ft_sm, ap);
-	uint16_t status_code = MMPDU_STATUS_CODE_UNSPECIFIED;
-	const uint8_t *ies = NULL;
-	size_t ies_len;
-	int ret;
-
-	if (!ft_parse_action_resp_frame(frame, frame_len, ft->hs->spa,
-						ft->hs->aa, &status_code,
-						&ies, &ies_len))
-		return -EBADMSG;
-
-	/* AP Rejected the authenticate / associate */
-	if (status_code != 0)
-		goto auth_error;
-
-	ret = ft_process_ies(ft->hs, ies, ies_len);
-	if (ret < 0)
-		goto auth_error;
-
-	return ft_tx_reassociate(ft);
-
-auth_error:
-	return (int)status_code;
-}
-
 void ft_ds_info_free(struct ft_ds_info *info)
 {
 	__typeof__(info->free) destroy = info->free;
@@ -827,6 +765,13 @@ static void ft_sm_free(struct auth_proto *ap)
 	l_free(ft);
 }
 
+static bool ft_over_ds_start(struct auth_proto *ap)
+{
+	struct ft_sm *ft = l_container_of(ap, struct ft_sm, ap);
+
+	return ft_tx_reassociate(ft) == 0;
+}
+
 bool ft_build_authenticate_ies(struct handshake_state *hs,
 				const uint8_t *new_snonce, uint8_t *buf,
 				size_t *len)
@@ -938,20 +883,17 @@ struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
 }
 
 struct auth_proto *ft_over_ds_sm_new(struct handshake_state *hs,
-				ft_tx_authenticate_func_t tx_auth,
 				ft_tx_associate_func_t tx_assoc,
 				void *user_data)
 {
 	struct ft_sm *ft = l_new(struct ft_sm, 1);
 
 	ft->tx_assoc = tx_assoc;
-	ft->tx_auth = tx_auth;
 	ft->hs = hs;
 	ft->user_data = user_data;
 
-	ft->ap.rx_authenticate = ft_rx_action;
 	ft->ap.rx_associate = ft_rx_associate;
-	ft->ap.start = ft_start;
+	ft->ap.start = ft_over_ds_start;
 	ft->ap.free = ft_sm_free;
 
 	return &ft->ap;
