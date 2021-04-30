@@ -1582,6 +1582,21 @@ static void station_roamed(struct station *station)
 	station_enter_state(station, STATION_STATE_CONNECTED);
 }
 
+static void station_roam_retry(struct station *station)
+{
+	/*
+	 * If we're still connected to the old BSS, only clear preparing_roam
+	 * and reattempt in 60 seconds if signal level is still low at that
+	 * time.
+	 */
+	station->preparing_roam = false;
+	station->roam_scan_full = false;
+	station->ap_directed_roaming = false;
+
+	if (station->signal_low)
+		station_roam_timeout_rearm(station, roam_retry_interval);
+}
+
 static void station_roam_failed(struct station *station)
 {
 	l_debug("%u", netdev_get_ifindex(station->netdev));
@@ -1620,17 +1635,7 @@ static void station_roam_failed(struct station *station)
 	}
 
 delayed_retry:
-	/*
-	 * If we're still connected to the old BSS, only clear preparing_roam
-	 * and reattempt in 60 seconds if signal level is still low at that
-	 * time.
-	 */
-	station->preparing_roam = false;
-	station->roam_scan_full = false;
-	station->ap_directed_roaming = false;
-
-	if (station->signal_low)
-		station_roam_timeout_rearm(station, roam_retry_interval);
+	station_roam_retry(station);
 }
 
 static void station_netconfig_event_handler(enum netconfig_event event,
@@ -1711,6 +1716,45 @@ static bool bss_match_bssid(const void *a, const void *b)
 	const uint8_t *bssid = b;
 
 	return !memcmp(bss->addr, bssid, sizeof(bss->addr));
+}
+
+static void station_fast_transition_ds_cb(struct netdev *netdev,
+					uint16_t status, const uint8_t *bssid,
+					void *user_data)
+{
+	struct station *station = user_data;
+	struct scan_bss *bss;
+
+	if (status != 0)
+		goto failed;
+
+	/*
+	 * TODO: In the future it may be desired to start sending out these
+	 * FT-over-DS action frames at the time of connecting then be able to
+	 * roam immediately when required. If this is being done we can simply
+	 * bail out now as ft already caches the entires. But since this was
+	 * initiated due to a need to roam, do so now.
+	 */
+
+	/* Make sure we still have our BSS */
+	bss = l_queue_find(station->bss_list, bss_match_bssid, bssid);
+	if (!bss)
+		goto failed;
+
+	l_debug("Starting FT-over-DS roam");
+
+	if (netdev_fast_transition_over_ds(station->netdev, bss,
+					station_fast_transition_cb) < 0)
+		goto failed;
+
+	station->connected_bss = bss;
+	station->preparing_roam = false;
+	station_enter_state(station, STATION_STATE_ROAMING);
+
+	return;
+
+failed:
+	station_roam_retry(station);
 }
 
 static void station_preauthenticate_cb(struct netdev *netdev,
@@ -1810,11 +1854,18 @@ static void station_transition_start(struct station *station,
 		/* FT-over-DS can be better suited for these situations */
 		if ((hs->mde[4] & 1) && (station->ap_directed_roaming ||
 				station->signal_low)) {
-			if (netdev_fast_transition_over_ds(station->netdev, bss,
-					station_fast_transition_cb) < 0) {
-				station_roam_failed(station);
-				return;
+			if (netdev_fast_transition_over_ds_action(
+					station->netdev, bss,
+					station_fast_transition_ds_cb,
+					station) < 0) {
+				station_roam_retry(station);
 			}
+
+			/*
+			 * Set connected_bss/preparing_roam/state only on a
+			 * successful FT-over-DS action frame response
+			 */
+			return;
 		} else {
 			if (netdev_fast_transition(station->netdev, bss,
 					station_fast_transition_cb) < 0) {
