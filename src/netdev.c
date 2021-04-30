@@ -3449,6 +3449,7 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 
 	netdev->associated = false;
 	netdev->operational = false;
+	netdev->connected = false;
 
 	netdev_rssi_polling_update(netdev);
 
