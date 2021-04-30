@@ -131,10 +131,8 @@ static void systemd_link_generic_reply(struct l_dbus_message *message,
 	const char *name;
 	const char *text;
 
-	if (!l_dbus_message_is_error(message))
+	if (!l_dbus_message_get_error(message, &name, &text))
 		return;
-
-	l_dbus_message_get_error(message, &name, &text);
 
 	l_error("resolve-systemd: Failed to modify the %s entries. %s: %s",
 							type, name, text);
