@@ -1570,7 +1570,15 @@ class Main:
 		else:
 			smp = int(nproc / 2)
 
-		print("Using %d cores for VM" % smp)
+		#
+		# Increase RAM if valgrind is being used
+		#
+		if self.args.valgrind:
+			ram = 512
+		else:
+			ram = 256
+
+		print("Using %d cores, %d RAM for VM" % (smp, ram))
 
 		#
 		# This passes through most of the command line options to
@@ -1593,7 +1601,7 @@ class Main:
 			qemu_binary,
 			'-machine', 'type=q35,accel=kvm:tcg',
 			'-nodefaults', '-no-user-config', '-monitor', 'none',
-			'-display', 'none', '-m', '256M', '-nographic', '-vga',
+			'-display', 'none', '-m', '%dM' % ram, '-nographic', '-vga',
 			'none', '-no-acpi', '-no-hpet',
 			'-no-reboot', '-fsdev',
 			'local,id=fsdev-root,path=/,readonly,security_model=none,multidevs=remap',
