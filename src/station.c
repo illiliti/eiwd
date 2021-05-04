@@ -180,10 +180,11 @@ static void station_autoconnect_next(struct station *station)
 	int r;
 
 	while ((entry = l_queue_pop_head(station->autoconnect_list))) {
+		const char *ssid = network_get_ssid(entry->network);
+
 		l_debug("Considering autoconnecting to BSS '%s' with SSID: %s,"
 			" freq: %u, rank: %u, strength: %i",
-			util_address_to_string(entry->bss->addr),
-			network_get_ssid(entry->network),
+			util_address_to_string(entry->bss->addr), ssid,
 			entry->bss->frequency, entry->rank,
 			entry->bss->signal_strength);
 
@@ -206,7 +207,8 @@ static void station_autoconnect_next(struct station *station)
 			}
 
 			return;
-		}
+		} else
+			l_debug("Failed to autoconnect to %s (%d)", ssid, r);
 	}
 }
 
