@@ -54,6 +54,7 @@ static const char *nointerfaces;
 static const char *phys;
 static const char *nophys;
 static const char *debugopt;
+static bool developeropt;
 static bool terminating;
 static bool nl80211_complete;
 
@@ -126,6 +127,11 @@ const char *iwd_get_phy_blacklist(void)
 	return nophys;
 }
 
+bool iwd_is_developer_mode(void)
+{
+	return developeropt;
+}
+
 static void usage(void)
 {
 	printf("iwd - Wireless daemon\n"
@@ -143,6 +149,7 @@ static void usage(void)
 }
 
 static const struct option main_options[] = {
+	{ "developer",    no_argument,       NULL, 'E' },
 	{ "dbus-debug",   no_argument,       NULL, 'B' },
 	{ "version",      no_argument,       NULL, 'v' },
 	{ "interfaces",   required_argument, NULL, 'i' },
@@ -405,7 +412,7 @@ int main(int argc, char *argv[])
 	for (;;) {
 		int opt;
 
-		opt = getopt_long(argc, argv, "Bi:I:p:P:d::vh",
+		opt = getopt_long(argc, argv, "EBi:I:p:P:d::vh",
 							main_options, NULL);
 		if (opt < 0)
 			break;
@@ -413,6 +420,9 @@ int main(int argc, char *argv[])
 		switch (opt) {
 		case 'B':
 			enable_dbus_debug = true;
+			break;
+		case 'E':
+			developeropt = true;
 			break;
 		case 'i':
 			interfaces = optarg;

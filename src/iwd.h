@@ -41,3 +41,4 @@ const char *iwd_get_iface_blacklist(void);
 
 const char *iwd_get_phy_whitelist(void);
 const char *iwd_get_phy_blacklist(void);
+bool iwd_is_developer_mode(void);
