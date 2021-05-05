@@ -52,6 +52,7 @@ static uint32_t eapol_4way_handshake_time = 2;
 static eapol_rekey_offload_func_t rekey_offload = NULL;
 
 static eapol_tx_packet_func_t tx_packet = NULL;
+static eapol_install_pmk_func_t install_pmk = NULL;
 static void *tx_user_data;
 
 #define VERIFY_IS_ZERO(field)						\
@@ -1025,6 +1026,17 @@ static void eapol_set_key_timeout(struct eapol_sm *sm,
 	}
 }
 
+/*
+ * GCC version 8.3 seems to have trouble correctly calculating
+ * ek->header.packet_len when optimization is enabled.  This results in iwd
+ * sending invalid 1_of_4 packets (with the KDE payload missing).  Work
+ * around this by dropping to O0 for this function when old GCC versions
+ * are used
+ */
+#if __GNUC__ < 9
+#pragma GCC optimize ("O0")
+#endif
+
 /* 802.11-2016 Section 12.7.6.2 */
 static void eapol_send_ptk_1_of_4(struct eapol_sm *sm)
 {
@@ -1067,6 +1079,10 @@ static void eapol_send_ptk_1_of_4(struct eapol_sm *sm)
 
 	eapol_sm_write(sm, (struct eapol_frame *) ek, false);
 }
+
+#if __GNUC__ < 9
+#pragma GCC reset_options
+#endif
 
 static void eapol_ptk_1_of_4_retry(struct l_timeout *timeout, void *user_data)
 {
@@ -2162,6 +2178,10 @@ static void eapol_eap_complete_cb(enum eap_result result, void *user_data)
 		sm->eap = NULL;
 		handshake_failed(sm, MMPDU_REASON_CODE_IEEE8021X_FAILED);
 		return;
+	} else {
+		if (install_pmk)
+			install_pmk(sm->handshake, sm->handshake->pmk,
+					sm->handshake->pmk_len);
 	}
 
 	eap_reset(sm->eap);
@@ -2468,6 +2488,11 @@ void __eapol_set_tx_user_data(void *user_data)
 void __eapol_set_rekey_offload_func(eapol_rekey_offload_func_t func)
 {
 	rekey_offload = func;
+}
+
+void __eapol_set_install_pmk_func(eapol_install_pmk_func_t func)
+{
+	install_pmk = func;
 }
 
 void eapol_register(struct eapol_sm *sm)

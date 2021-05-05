@@ -67,6 +67,14 @@
 #define ENOTSUPP 524
 #endif
 
+enum connection_type {
+	CONNECTION_TYPE_SOFTMAC,
+	CONNECTION_TYPE_FULLMAC,
+	CONNECTION_TYPE_SAE_OFFLOAD,
+	CONNECTION_TYPE_PSK_OFFLOAD,
+	CONNECTION_TYPE_8021X_OFFLOAD,
+};
+
 static uint32_t unicast_watch;
 
 struct netdev_handshake_state {
@@ -75,11 +83,23 @@ struct netdev_handshake_state {
 	uint32_t group_new_key_cmd_id;
 	uint32_t group_management_new_key_cmd_id;
 	uint32_t set_station_cmd_id;
+	uint32_t set_pmk_cmd_id;
 	bool ptk_installed;
 	bool gtk_installed;
 	bool igtk_installed;
 	bool complete;
 	struct netdev *netdev;
+	enum connection_type type;
+};
+
+struct netdev_ft_over_ds_info {
+	struct ft_ds_info super;
+	struct netdev *netdev;
+	struct l_timeout *timeout;
+	netdev_ft_over_ds_cb_t cb;
+	void *user_data;
+
+	bool parsed : 1;
 };
 
 struct netdev {
@@ -116,7 +136,6 @@ struct netdev {
 	struct l_timeout *neighbor_report_timeout;
 	struct l_timeout *sa_query_timeout;
 	struct l_timeout *group_handshake_timeout;
-	struct l_timeout *gas_timeout;
 	uint16_t sa_query_id;
 	uint8_t prev_bssid[ETH_ALEN];
 	uint8_t prev_snonce[32];
@@ -140,6 +159,8 @@ struct netdev {
 	void *get_station_data;
 	netdev_destroy_func_t get_station_destroy;
 
+	struct l_idle *disconnect_idle;
+
 	struct watchlist station_watches;
 
 	struct l_io *pae_io;  /* for drivers without EAPoL over NL80211 */
@@ -147,6 +168,8 @@ struct netdev {
 	struct l_genl_msg *connect_cmd;
 	struct l_genl_msg *auth_cmd;
 	struct wiphy_radio_work_item work;
+
+	struct netdev_ft_over_ds_info *ft_ds_info;
 
 	bool connected : 1;
 	bool associated : 1;
@@ -182,6 +205,57 @@ static struct watchlist netdev_watches;
 static bool pae_over_nl80211;
 static bool mac_per_ssid;
 
+const char *netdev_iftype_to_string(uint32_t iftype)
+{
+	switch (iftype) {
+	case NL80211_IFTYPE_ADHOC:
+		return "ad-hoc";
+	case NL80211_IFTYPE_STATION:
+		return "station";
+	case NL80211_IFTYPE_AP:
+		return "ap";
+	case NL80211_IFTYPE_P2P_CLIENT:
+		return "p2p-client";
+	case NL80211_IFTYPE_P2P_GO:
+		return "p2p-go";
+	case NL80211_IFTYPE_P2P_DEVICE:
+		return "p2p-device";
+	default:
+		break;
+	}
+
+	return NULL;
+}
+
+static inline bool is_offload(struct handshake_state *hs)
+{
+	struct netdev_handshake_state *nhs =
+		l_container_of(hs, struct netdev_handshake_state, super);
+
+	if (!nhs)
+		return false;
+
+	switch (nhs->type) {
+	case CONNECTION_TYPE_SOFTMAC:
+	case CONNECTION_TYPE_FULLMAC:
+	/*
+	 * 8021x offload does not quite fit into the same category of PSK
+	 * offload. First the netdev_connect_event comes prior to EAP meaning
+	 * the handshake is not done at this point. In addition it still
+	 * requires EAP take place in userspace meaning IWD needs an eapol_sm.
+	 * Because of this, and our prior use of 'is_offload', it does not fit
+	 * into the same category and will need to be handled specially.
+	 */
+	case CONNECTION_TYPE_8021X_OFFLOAD:
+		return false;
+	case CONNECTION_TYPE_SAE_OFFLOAD:
+	case CONNECTION_TYPE_PSK_OFFLOAD:
+		return true;
+	}
+
+	return false;
+}
+
 /* Cancels ongoing GTK/IGTK related commands (if any) */
 static void netdev_handshake_state_cancel_rekey(
 					struct netdev_handshake_state *nhs)
@@ -211,6 +285,11 @@ static void netdev_handshake_state_cancel_all(
 	if (nhs->set_station_cmd_id) {
 		l_genl_family_cancel(nl80211, nhs->set_station_cmd_id);
 		nhs->set_station_cmd_id = 0;
+	}
+
+	if (nhs->set_pmk_cmd_id) {
+		l_genl_family_cancel(nl80211, nhs->set_pmk_cmd_id);
+		nhs->set_pmk_cmd_id = 0;
 	}
 }
 
@@ -269,22 +348,7 @@ uint64_t netdev_get_wdev_id(struct netdev *netdev)
 
 enum netdev_iftype netdev_get_iftype(struct netdev *netdev)
 {
-	switch (netdev->type) {
-	case NL80211_IFTYPE_STATION:
-		return NETDEV_IFTYPE_STATION;
-	case NL80211_IFTYPE_AP:
-		return NETDEV_IFTYPE_AP;
-	case NL80211_IFTYPE_ADHOC:
-		return NETDEV_IFTYPE_ADHOC;
-	case NL80211_IFTYPE_P2P_CLIENT:
-		return NETDEV_IFTYPE_P2P_CLIENT;
-	case NL80211_IFTYPE_P2P_GO:
-		return NETDEV_IFTYPE_P2P_GO;
-	default:
-		/* can't really do much here */
-		l_error("unknown iftype %u", netdev->type);
-		return NETDEV_IFTYPE_STATION;
-	}
+	return netdev->type;
 }
 
 const char *netdev_get_name(struct netdev *netdev)
@@ -689,6 +753,9 @@ static void netdev_connect_free(struct netdev *netdev)
 		l_genl_family_cancel(nl80211, netdev->disconnect_cmd_id);
 		netdev->disconnect_cmd_id = 0;
 	}
+
+	if (netdev->ft_ds_info)
+		ft_ds_info_free(&netdev->ft_ds_info->super);
 }
 
 static void netdev_connect_failed(struct netdev *netdev,
@@ -698,8 +765,6 @@ static void netdev_connect_failed(struct netdev *netdev,
 	netdev_connect_cb_t connect_cb = netdev->connect_cb;
 	netdev_event_func_t event_filter = netdev->event_filter;
 	void *connect_data = netdev->user_data;
-
-	netdev->disconnect_cmd_id = 0;
 
 	/* Done this way to allow re-entrant netdev_connect calls */
 	netdev_connect_free(netdev);
@@ -716,6 +781,7 @@ static void netdev_disconnect_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = user_data;
 
+	netdev->disconnect_cmd_id = 0;
 	netdev_connect_failed(netdev, netdev->result, netdev->last_code);
 }
 
@@ -782,6 +848,11 @@ static void netdev_free(void *data)
 
 	if (netdev->fw_roam_bss)
 		scan_bss_free(netdev->fw_roam_bss);
+
+	if (netdev->disconnect_idle) {
+		l_idle_remove(netdev->disconnect_idle);
+		netdev->disconnect_idle = NULL;
+	}
 
 	if (netdev->events_ready)
 		WATCHLIST_NOTIFY(&netdev_watches, netdev_watch_func_t,
@@ -1212,11 +1283,6 @@ static void netdev_connect_ok(struct netdev *netdev)
 		netdev->fw_roam_bss = NULL;
 	}
 
-	/* Allow station to sync the PSK to disk */
-	if (netdev->handshake && netdev->handshake->offload)
-		handshake_event(netdev->handshake,
-				HANDSHAKE_EVENT_SETTING_KEYS);
-
 	if (netdev->connect_cb) {
 		netdev->connect_cb(netdev, NETDEV_RESULT_OK, NULL,
 					netdev->user_data);
@@ -1257,12 +1323,20 @@ static void netdev_setting_keys_failed(struct netdev_handshake_state *nhs,
 		netdev->group_handshake_timeout = NULL;
 	}
 
-	netdev->result = NETDEV_RESULT_KEY_SETTING_FAILED;
-	handshake_event(&nhs->super, HANDSHAKE_EVENT_SETTING_KEYS_FAILED, &err);
-
 	switch (netdev->type) {
 	case NL80211_IFTYPE_STATION:
 	case NL80211_IFTYPE_P2P_CLIENT:
+		/*
+		 * If we failed due to the netdev being brought down,
+		 * just abort the connection and do not try to send a
+		 * CMD_DISCONNECT
+		 */
+		if (err == -ENETDOWN) {
+			netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
+			return;
+		}
+
 		msg = netdev_build_cmd_disconnect(netdev,
 						MMPDU_REASON_CODE_UNSPECIFIED);
 		netdev->disconnect_cmd_id = l_genl_family_send(nl80211, msg,
@@ -1270,11 +1344,19 @@ static void netdev_setting_keys_failed(struct netdev_handshake_state *nhs,
 							netdev, NULL);
 		break;
 	case NL80211_IFTYPE_AP:
+		if (err == -ENETDOWN)
+			return;
+
 		msg = netdev_build_cmd_del_station(netdev, nhs->super.spa,
 				MMPDU_REASON_CODE_UNSPECIFIED, false);
 		if (!l_genl_family_send(nl80211, msg, NULL, NULL, NULL))
 			l_error("error sending DEL_STATION");
+
+		break;
 	}
+
+	netdev->result = NETDEV_RESULT_KEY_SETTING_FAILED;
+	handshake_event(&nhs->super, HANDSHAKE_EVENT_SETTING_KEYS_FAILED, &err);
 }
 
 static void try_handshake_complete(struct netdev_handshake_state *nhs)
@@ -1284,7 +1366,9 @@ static void try_handshake_complete(struct netdev_handshake_state *nhs)
 		nhs->complete = true;
 		handshake_event(&nhs->super, HANDSHAKE_EVENT_COMPLETE);
 
-		netdev_connect_ok(nhs->netdev);
+		if (nhs->netdev->type == NL80211_IFTYPE_STATION ||
+				nhs->netdev->type == NL80211_IFTYPE_P2P_CLIENT)
+			netdev_connect_ok(nhs->netdev);
 	}
 }
 
@@ -1665,6 +1749,54 @@ invalid_key:
 	netdev_setting_keys_failed(nhs, err);
 }
 
+static void netdev_set_pmk_cb(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev_handshake_state *nhs = user_data;
+	struct netdev *netdev = nhs->netdev;
+	int err = l_genl_msg_get_error(msg);
+
+	nhs->set_pmk_cmd_id = 0;
+
+	if (err < 0) {
+		l_error("Error with SET_PMK/SET_STATION");
+		netdev_setting_keys_failed(nhs, err);
+		return;
+	}
+
+	handshake_event(netdev->handshake, HANDSHAKE_EVENT_SETTING_KEYS);
+	netdev_connect_ok(netdev);
+}
+
+static void netdev_set_pmk(struct handshake_state *hs, const uint8_t *pmk,
+				size_t pmk_len)
+{
+	struct l_genl_msg *msg;
+	struct netdev_handshake_state *nhs = l_container_of(hs,
+				struct netdev_handshake_state, super);
+	struct netdev *netdev = nhs->netdev;
+
+	/* Only relevent for 8021x offload */
+	if (nhs->type != CONNECTION_TYPE_8021X_OFFLOAD)
+		return;
+
+	msg = l_genl_msg_new(NL80211_CMD_SET_PMK);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, 6, netdev->handshake->aa);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_PMK,
+				netdev->handshake->pmk_len,
+				netdev->handshake->pmk);
+
+	nhs->set_pmk_cmd_id = l_genl_family_send(nl80211, msg,
+							netdev_set_pmk_cb,
+							nhs, NULL);
+	if (!nhs->set_pmk_cmd_id) {
+		l_error("Failed to set SET_PMK");
+		netdev_setting_keys_failed(nhs, -EIO);
+		return;
+	}
+}
+
 void netdev_handshake_failed(struct handshake_state *hs, uint16_t reason_code)
 {
 	struct netdev_handshake_state *nhs =
@@ -1825,6 +1957,60 @@ static void netdev_send_qos_map_set(struct netdev *netdev,
 						netdev, NULL);
 }
 
+static void parse_request_ies(struct netdev *netdev, const uint8_t *ies,
+				size_t ies_len)
+{
+	struct ie_tlv_iter iter;
+	const void *data;
+
+	/*
+	 * The driver may have modified the IEs we passed to CMD_CONNECT
+	 * before sending them out, the actual IE sent is reflected in the
+	 * ATTR_REQ_IE sequence.  These are the values EAPoL will need to use.
+	 */
+	ie_tlv_iter_init(&iter, ies, ies_len);
+
+	while (ie_tlv_iter_next(&iter)) {
+		data = ie_tlv_iter_get_data(&iter);
+
+		switch (ie_tlv_iter_get_tag(&iter)) {
+		case IE_TYPE_RSN:
+			handshake_state_set_supplicant_ie(netdev->handshake,
+								data - 2);
+			break;
+		case IE_TYPE_VENDOR_SPECIFIC:
+			if (!is_ie_wpa_ie(data, ie_tlv_iter_get_length(&iter)))
+				break;
+
+			handshake_state_set_supplicant_ie(netdev->handshake,
+								data - 2);
+			break;
+		case IE_TYPE_MOBILITY_DOMAIN:
+			handshake_state_set_mde(netdev->handshake, data - 2);
+			break;
+		}
+	}
+}
+
+static void netdev_driver_connected(struct netdev *netdev)
+{
+	netdev->connected = true;
+
+	if (netdev->event_filter)
+		netdev->event_filter(netdev, NETDEV_EVENT_ASSOCIATING, NULL,
+					netdev->user_data);
+
+	/*
+	 * We register the eapol state machine here, in case the PAE
+	 * socket receives EAPoL packets before the nl80211 socket
+	 * receives the connected event.  The logical sequence of
+	 * events can be reversed (e.g. connect_event, then PAE data)
+	 * due to scheduling
+	 */
+	if (netdev->sm)
+		eapol_register(netdev->sm);
+}
+
 static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 {
 	struct l_genl_attr attr;
@@ -1836,7 +2022,6 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 	struct ie_tlv_iter iter;
 	const uint8_t *resp_ies = NULL;
 	size_t resp_ies_len;
-	uint8_t cmd = l_genl_msg_get_command(msg);
 
 	l_debug("");
 
@@ -1845,6 +2030,10 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 
 	if (netdev->ignore_connect_event)
 		return;
+
+	/* Work around mwifiex which sends a Connect Event prior to the Ack */
+	if (netdev->connect_cmd_id)
+		netdev_driver_connected(netdev);
 
 	if (!netdev->connected) {
 		l_warn("Unexpected connection related event -- "
@@ -1890,46 +2079,14 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 			goto error;
 	}
 
-	/*
-	 * A CMD_ROAM event will not have a status code, since it indicates
-	 * the hardware has already roamed. A failed roam on fullmac should
-	 * result in an explicit disconnect event.
-	 */
-	if (cmd == NL80211_CMD_CONNECT) {
-		/* AP Rejected the authenticate / associate */
-		if (!status_code || *status_code != 0)
-			goto error;
-	}
+	/* AP Rejected the authenticate / associate */
+	if (!status_code || *status_code != 0)
+		goto error;
 
 	if (!ies)
 		goto process_resp_ies;
-	/*
-	 * The driver may have modified the IEs we passed to CMD_CONNECT
-	 * before sending them out, the actual IE sent is reflected in the
-	 * ATTR_REQ_IE sequence.  These are the values EAPoL will need to use.
-	 */
-	ie_tlv_iter_init(&iter, ies, ies_len);
 
-	while (ie_tlv_iter_next(&iter)) {
-		data = ie_tlv_iter_get_data(&iter);
-
-		switch (ie_tlv_iter_get_tag(&iter)) {
-		case IE_TYPE_RSN:
-			handshake_state_set_supplicant_ie(netdev->handshake,
-								data - 2);
-			break;
-		case IE_TYPE_VENDOR_SPECIFIC:
-			if (!is_ie_wpa_ie(data, ie_tlv_iter_get_length(&iter)))
-				break;
-
-			handshake_state_set_supplicant_ie(netdev->handshake,
-								data - 2);
-			break;
-		case IE_TYPE_MOBILITY_DOMAIN:
-			handshake_state_set_mde(netdev->handshake, data - 2);
-			break;
-		}
-	}
+	parse_request_ies(netdev, ies, ies_len);
 
 process_resp_ies:
 	if (resp_ies) {
@@ -1984,27 +2141,7 @@ process_resp_ies:
 			netdev_send_qos_map_set(netdev, qos_set, qos_len);
 	}
 
-	/*
-	 * TODO: Only SAE/WPA3-personal offload is supported. In this case IWD
-	 * is 'done'. In the case of 8021x offload EAP still needs to take
-	 * place, so this must be updated accordingly when that is implemented.
-	 */
-	if (netdev->handshake->offload)
-		goto done;
-
 	if (netdev->sm) {
-		/*
-		 * Let station know about the roam so a state change can occur.
-		 */
-		if (cmd == NL80211_CMD_ROAM) {
-			if (netdev->event_filter)
-				netdev->event_filter(netdev,
-						NETDEV_EVENT_ROAMING,
-						NULL, netdev->user_data);
-			/* EAPoL started after GET_SCAN */
-			return;
-		}
-
 		/*
 		 * Start processing EAPoL frames now that the state machine
 		 * has all the input data even in FT mode.
@@ -2015,7 +2152,11 @@ process_resp_ies:
 		return;
 	}
 
-done:
+	/* Allow station to sync the PSK to disk */
+	if (is_offload(netdev->handshake))
+		handshake_event(netdev->handshake,
+				HANDSHAKE_EVENT_SETTING_KEYS);
+
 	netdev_connect_ok(netdev);
 
 	return;
@@ -2234,12 +2375,7 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 			return;
 		else if (ret > 0)
 			status_code = (uint16_t)ret;
-
-		goto auth_error;
-	} else
-		goto auth_error;
-
-	return;
+	}
 
 auth_error:
 	netdev_connect_failed(netdev, NETDEV_RESULT_AUTHENTICATION_FAILED,
@@ -2280,7 +2416,15 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 			if (auth_proto_assoc_timeout(netdev->ap))
 				return;
 
-			goto assoc_failed;
+			/*
+			 * There will be no connect event when Associate times
+			 * out. The failed connection must be explicitly
+			 * initiated here.
+			 */
+			netdev_connect_failed(netdev,
+					NETDEV_RESULT_ASSOCIATION_FAILED,
+					status_code);
+			return;
 
 		case NL80211_ATTR_FRAME:
 			frame = data;
@@ -2326,7 +2470,7 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 		} else if (ret == -EAGAIN) {
 			/*
 			 * Here to support OWE retries. OWE will retry
-			 * internally, but a connect even will still be emitted.
+			 * internally, but a connect event will still be emitted
 			 */
 			netdev->ignore_connect_event = true;
 			return;
@@ -2350,25 +2494,14 @@ static void netdev_cmd_connect_cb(struct l_genl_msg *msg, void *user_data)
 
 	netdev->connect_cmd_id = 0;
 
-	/* Wait for connect event */
 	if (l_genl_msg_get_error(msg) >= 0) {
-		netdev->connected = true;
-
-		if (netdev->event_filter)
-			netdev->event_filter(netdev,
-						NETDEV_EVENT_ASSOCIATING,
-						NULL,
-						netdev->user_data);
-
 		/*
-		 * We register the eapol state machine here, in case the PAE
-		 * socket receives EAPoL packets before the nl80211 socket
-		 * receives the connected event.  The logical sequence of
-		 * events can be reversed (e.g. connect_event, then PAE data)
-		 * due to scheduling
+		 * connected should be false if the connect event hasn't come
+		 * in yet.  i.e. the CMD_CONNECT ack arrived first (typical).
+		 * Mark the connection as 'connected'
 		 */
-		if (netdev->sm)
-			eapol_register(netdev->sm);
+		if (!netdev->connected)
+			netdev_driver_connected(netdev);
 
 		return;
 	}
@@ -2615,6 +2748,8 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 						const struct iovec *vendor_ies,
 						size_t num_vendor_ies)
 {
+	struct netdev_handshake_state *nhs =
+		l_container_of(hs, struct netdev_handshake_state, super);
 	uint32_t auth_type = IE_AKM_IS_SAE(hs->akm_suite) ?
 					NL80211_AUTHTYPE_SAE :
 					NL80211_AUTHTYPE_OPEN_SYSTEM;
@@ -2634,10 +2769,20 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 						bss->ssid_len, bss->ssid);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_AUTH_TYPE, 4, &auth_type);
 
-	if (hs->offload) {
-		if (IE_AKM_IS_SAE(hs->akm_suite))
-			l_genl_msg_append_attr(msg, NL80211_ATTR_SAE_PASSWORD,
+	switch (nhs->type) {
+	case CONNECTION_TYPE_SOFTMAC:
+	case CONNECTION_TYPE_FULLMAC:
+		break;
+	case CONNECTION_TYPE_SAE_OFFLOAD:
+		l_genl_msg_append_attr(msg, NL80211_ATTR_SAE_PASSWORD,
 					strlen(hs->passphrase), hs->passphrase);
+		break;
+	case CONNECTION_TYPE_PSK_OFFLOAD:
+		l_genl_msg_append_attr(msg, NL80211_ATTR_PMK, 32, hs->pmk);
+		break;
+	case CONNECTION_TYPE_8021X_OFFLOAD:
+		l_genl_msg_append_attr(msg, NL80211_ATTR_WANT_1X_4WAY_HS,
+					0, NULL);
 	}
 
 	if (prev_bssid)
@@ -2994,6 +3139,93 @@ static const struct wiphy_radio_work_item_ops connect_work_ops = {
 	.destroy = netdev_connection_work_destroy,
 };
 
+static int netdev_handshake_state_setup_connection_type(
+						struct handshake_state *hs)
+{
+	struct netdev_handshake_state *nhs = l_container_of(hs,
+				struct netdev_handshake_state, super);
+	struct wiphy *wiphy = nhs->netdev->wiphy;
+	bool softmac = wiphy_supports_cmds_auth_assoc(wiphy);
+	bool canroam = wiphy_supports_firmware_roam(wiphy);
+
+	/*
+	 * Sanity check that any FT AKMs are set only on softmac or on
+	 * devices that support firmware roam
+	 */
+	if (L_WARN_ON(IE_AKM_IS_FT(hs->akm_suite) && !softmac && !canroam))
+		return -ENOTSUP;
+
+	switch (hs->akm_suite) {
+	case IE_RSN_AKM_SUITE_PSK:
+	case IE_RSN_AKM_SUITE_FT_USING_PSK:
+	case IE_RSN_AKM_SUITE_PSK_SHA256:
+		if (wiphy_has_ext_feature(wiphy,
+				NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK))
+			goto psk_offload;
+
+		if (softmac)
+			goto softmac;
+
+		goto fullmac;
+	case IE_RSN_AKM_SUITE_8021X:
+	case IE_RSN_AKM_SUITE_FT_OVER_8021X:
+	case IE_RSN_AKM_SUITE_8021X_SHA256:
+	case IE_RSN_AKM_SUITE_8021X_SUITE_B_SHA256:
+	case IE_RSN_AKM_SUITE_8021X_SUITE_B_SHA384:
+	case IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384:
+		if (wiphy_has_ext_feature(wiphy,
+				NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_1X))
+			goto offload_1x;
+
+		if (softmac)
+			goto softmac;
+
+		goto fullmac;
+	case IE_RSN_AKM_SUITE_SAE_SHA256:
+	case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
+		if (wiphy_has_ext_feature(wiphy,
+					NL80211_EXT_FEATURE_SAE_OFFLOAD))
+			goto sae_offload;
+
+		if (softmac && wiphy_has_feature(wiphy, NL80211_FEATURE_SAE))
+			goto softmac;
+
+		return -EINVAL;
+	case IE_RSN_AKM_SUITE_OWE:
+	case IE_RSN_AKM_SUITE_FILS_SHA256:
+	case IE_RSN_AKM_SUITE_FILS_SHA384:
+	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
+	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
+		/* FILS and OWE have no offload in any upstream driver */
+		if (softmac)
+			goto softmac;
+
+		return -ENOTSUP;
+	case IE_RSN_AKM_SUITE_TDLS:
+	case IE_RSN_AKM_SUITE_AP_PEER_KEY_SHA256:
+	case IE_RSN_AKM_SUITE_OSEN:
+		return -ENOTSUP;
+	}
+
+	return -ENOTSUP;
+
+softmac:
+	nhs->type = CONNECTION_TYPE_SOFTMAC;
+	return 0;
+fullmac:
+	nhs->type = CONNECTION_TYPE_FULLMAC;
+	return 0;
+sae_offload:
+	nhs->type = CONNECTION_TYPE_SAE_OFFLOAD;
+	return 0;
+psk_offload:
+	nhs->type = CONNECTION_TYPE_PSK_OFFLOAD;
+	return 0;
+offload_1x:
+	nhs->type = CONNECTION_TYPE_8021X_OFFLOAD;
+	return 0;
+}
+
 static int netdev_connect_common(struct netdev *netdev,
 					struct l_genl_msg *cmd_connect,
 					struct scan_bss *bss,
@@ -3030,6 +3262,8 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 				netdev_event_func_t event_filter,
 				netdev_connect_cb_t cb, void *user_data)
 {
+	struct netdev_handshake_state *nhs = l_container_of(hs,
+				struct netdev_handshake_state, super);
 	struct l_genl_msg *cmd_connect = NULL;
 	struct eapol_sm *sm = NULL;
 	bool is_rsn = hs->supplicant_ie != NULL;
@@ -3041,12 +3275,20 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 	if (netdev->connected || netdev->connect_cmd_id || netdev->work.id)
 		return -EISCONN;
 
+	if (!is_rsn) {
+		nhs->type = CONNECTION_TYPE_SOFTMAC;
+		goto build_cmd_connect;
+	}
+
+	if (netdev_handshake_state_setup_connection_type(hs) < 0)
+		return -ENOTSUP;
+
+	if (nhs->type != CONNECTION_TYPE_SOFTMAC)
+		goto build_cmd_connect;
+
 	switch (hs->akm_suite) {
 	case IE_RSN_AKM_SUITE_SAE_SHA256:
 	case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
-		if (hs->offload)
-			goto build_cmd_connect;
-
 		netdev->ap = sae_sm_new(hs, netdev_sae_tx_authenticate,
 						netdev_sae_tx_associate,
 						netdev);
@@ -3072,12 +3314,26 @@ build_cmd_connect:
 		if (!cmd_connect)
 			return -EINVAL;
 
-		if (!hs->offload && (is_rsn || hs->settings_8021x))
+		if (!is_offload(hs) && (is_rsn || hs->settings_8021x)) {
 			sm = eapol_sm_new(hs);
+
+			if (nhs->type == CONNECTION_TYPE_8021X_OFFLOAD)
+				eapol_sm_set_require_handshake(sm, false);
+		}
 	}
 
 	return netdev_connect_common(netdev, cmd_connect, bss, hs, sm,
 						event_filter, cb, user_data);
+}
+
+static void disconnect_idle(struct l_idle *idle, void *user_data)
+{
+	struct netdev *netdev = user_data;
+
+	l_idle_remove(idle);
+	netdev->disconnect_idle = NULL;
+
+	netdev->disconnect_cb(netdev, true, netdev->user_data);
 }
 
 int netdev_disconnect(struct netdev *netdev,
@@ -3112,7 +3368,8 @@ int netdev_disconnect(struct netdev *netdev,
 		if (netdev->connect_cmd_id) {
 			l_genl_family_cancel(nl80211, netdev->connect_cmd_id);
 			netdev->connect_cmd_id = 0;
-		} else
+		} else if (!wiphy_radio_work_is_running(netdev->wiphy,
+							netdev->work.id))
 			send_disconnect = false;
 
 		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
@@ -3136,8 +3393,12 @@ int netdev_disconnect(struct netdev *netdev,
 		netdev->disconnect_cb = cb;
 		netdev->user_data = user_data;
 		netdev->aborting = true;
-	} else if (cb)
-		cb(netdev, true, user_data);
+	} else if (cb) {
+		netdev->disconnect_cb = cb;
+		netdev->user_data = user_data;
+		netdev->disconnect_idle = l_idle_create(disconnect_idle,
+							netdev, NULL);
+	}
 
 	return 0;
 }
@@ -3153,6 +3414,14 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 	struct eapol_sm *sm = NULL, *old_sm;
 	bool is_rsn = hs->supplicant_ie != NULL;
 	int err;
+
+	if (netdev_handshake_state_setup_connection_type(hs) < 0)
+		return -ENOTSUP;
+
+	/* TODO: SoftMac SAE/FILS Re-Associations are not suppored yet */
+	if (L_WARN_ON(IE_AKM_IS_SAE(hs->akm_suite) ||
+				IE_AKM_IS_FILS(hs->akm_suite)))
+		return -ENOTSUP;
 
 	cmd_connect = netdev_build_cmd_connect(netdev, target_bss, hs,
 						orig_bss->addr, NULL, 0);
@@ -3170,10 +3439,17 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 	if (err < 0)
 		return err;
 
+	/* In case of a previous failed over-DS attempt */
+	if (netdev->ft_ds_info) {
+		ft_ds_info_free(&netdev->ft_ds_info->super);
+		netdev->ft_ds_info = NULL;
+	}
+
 	memcpy(netdev->prev_bssid, orig_bss->addr, ETH_ALEN);
 
 	netdev->associated = false;
 	netdev->operational = false;
+	netdev->connected = false;
 
 	netdev_rssi_polling_update(netdev);
 
@@ -3298,7 +3574,8 @@ static uint32_t netdev_send_action_framev(struct netdev *netdev,
 					const uint8_t *to,
 					struct iovec *iov, size_t iov_len,
 					uint32_t freq,
-					l_genl_msg_func_t callback)
+					l_genl_msg_func_t callback,
+					void *user_data)
 {
 	uint32_t id;
 	struct l_genl_msg *msg = nl80211_build_cmd_frame(netdev->index,
@@ -3306,7 +3583,7 @@ static uint32_t netdev_send_action_framev(struct netdev *netdev,
 								to, freq,
 								iov, iov_len);
 
-	id = l_genl_family_send(nl80211, msg, callback, netdev, NULL);
+	id = l_genl_family_send(nl80211, msg, callback, user_data, NULL);
 
 	if (!id)
 		l_genl_msg_unref(msg);
@@ -3318,14 +3595,16 @@ static uint32_t netdev_send_action_frame(struct netdev *netdev,
 					const uint8_t *to,
 					const uint8_t *body, size_t body_len,
 					uint32_t freq,
-					l_genl_msg_func_t callback)
+					l_genl_msg_func_t callback,
+					void *user_data)
 {
 	struct iovec iov[1];
 
 	iov[0].iov_base = (void *)body;
 	iov[0].iov_len = body_len;
 
-	return netdev_send_action_framev(netdev, to, iov, 1, freq, callback);
+	return netdev_send_action_framev(netdev, to, iov, 1, freq, callback,
+						user_data);
 }
 
 static void netdev_cmd_authenticate_ft_cb(struct l_genl_msg *msg,
@@ -3373,7 +3652,7 @@ restore_snonce:
 					MMPDU_STATUS_CODE_UNSPECIFIED);
 }
 
-static void netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
+static int netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
 					void *user_data)
 {
 	struct netdev *netdev = user_data;
@@ -3391,139 +3670,30 @@ static void netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
 	if (!netdev->connect_cmd_id) {
 		l_genl_msg_unref(msg);
 
-		netdev_connect_failed(netdev, NETDEV_RESULT_ASSOCIATION_FAILED,
-					MMPDU_STATUS_CODE_UNSPECIFIED);
-		return;
-	}
-}
-
-static void netdev_ft_request_cb(struct l_genl_msg *msg, void *user_data)
-{
-	struct netdev *netdev = user_data;
-
-	if (l_genl_msg_get_error(msg) < 0) {
-		l_error("Could not send CMD_FRAME");
-		netdev_connect_failed(netdev,
-					NETDEV_RESULT_AUTHENTICATION_FAILED,
-					MMPDU_STATUS_CODE_UNSPECIFIED);
-	}
-}
-
-static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
-					const void *body, size_t body_len,
-					int rssi, void *user_data)
-{
-	int ret;
-	uint16_t status_code = MMPDU_STATUS_CODE_UNSPECIFIED;
-	struct netdev *netdev = user_data;
-
-	if (!netdev->ap || !netdev->in_ft)
-		return;
-
-	ret = auth_proto_rx_authenticate(netdev->ap, body, body_len);
-	if (ret < 0)
-		goto ft_error;
-	else if (ret > 0) {
-		status_code = (uint16_t)ret;
-		goto ft_error;
+		return -EIO;
 	}
 
-	return;
-
-ft_error:
-	netdev_connect_failed(netdev, NETDEV_RESULT_AUTHENTICATION_FAILED,
-				status_code);
-	return;
-}
-
-static void netdev_qos_map_frame_event(const struct mmpdu_header *hdr,
-					const void *body, size_t body_len,
-					int rssi, void *user_data)
-{
-	struct netdev *netdev = user_data;
-
-	/* No point telling the kernel */
-	if (!netdev->connected)
-		return;
-
-	if (memcmp(netdev->handshake->aa, hdr->address_2, ETH_ALEN))
-		return;
-
-	if (body_len < 5)
-		return;
-
-	if (l_get_u8(body + 2) != IE_TYPE_QOS_MAP_SET)
-		return;
-
-	netdev_send_qos_map_set(netdev, body + 4, body_len - 4);
-}
-
-static void netdev_ft_over_ds_tx_authenticate(struct iovec *iov,
-					size_t iov_len, void *user_data)
-{
-	struct netdev *netdev = user_data;
-	uint8_t ft_req[14];
-	struct handshake_state *hs = netdev->handshake;
-	struct iovec iovs[iov_len + 1];
-
-	ft_req[0] = 6; /* FT category */
-	ft_req[1] = 1; /* FT Request action */
-	memcpy(ft_req + 2, netdev->addr, 6);
-	memcpy(ft_req + 8, hs->aa, 6);
-
-	iovs[0].iov_base = ft_req;
-	iovs[0].iov_len = sizeof(ft_req);
-	memcpy(iovs + 1, iov, sizeof(*iov) * iov_len);
-
-	netdev_send_action_framev(netdev, netdev->prev_bssid, iovs, iov_len + 1,
-					netdev->prev_frequency,
-					netdev_ft_request_cb);
-}
-
-static bool netdev_ft_work_ready(struct wiphy_radio_work_item *item)
-{
-	struct netdev *netdev = l_container_of(item, struct netdev, work);
-
-	if (!auth_proto_start(netdev->ap)) {
-		/* Restore original nonce */
-		memcpy(netdev->handshake->snonce, netdev->prev_snonce, 32);
-
-		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
-						MMPDU_STATUS_CODE_UNSPECIFIED);
-		return true;
+	/* No need to keep this around at this point */
+	if (netdev->ft_ds_info) {
+		ft_ds_info_free(&netdev->ft_ds_info->super);
+		netdev->ft_ds_info = NULL;
 	}
 
-	return false;
+	return 0;
 }
 
-static const struct wiphy_radio_work_item_ops ft_work_ops = {
-	.do_work = netdev_ft_work_ready,
-};
-
-static int fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
-				bool over_air,
-				netdev_connect_cb_t cb)
+static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)
 {
 	struct netdev_handshake_state *nhs;
-
-	if (!netdev->operational)
-		return -ENOTCONN;
-
-	if (!netdev->handshake->mde || !target_bss->mde_present ||
-			l_get_le16(netdev->handshake->mde + 2) !=
-			l_get_le16(target_bss->mde))
-		return -EINVAL;
 
 	/*
 	 * We reuse the handshake_state object and reset what's needed.
 	 * Could also create a new object and copy most of the state but
 	 * we would end up doing more work.
 	 */
-	memcpy(netdev->prev_bssid, netdev->handshake->aa, ETH_ALEN);
 	memcpy(netdev->prev_snonce, netdev->handshake->snonce, 32);
 
-	handshake_state_new_snonce(netdev->handshake);
-
+	memcpy(netdev->prev_bssid, netdev->handshake->aa, 6);
 	netdev->prev_frequency = netdev->frequency;
 	netdev->frequency = target_bss->frequency;
 
@@ -3538,7 +3708,6 @@ static int fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 	netdev->associated = false;
 	netdev->operational = false;
 	netdev->in_ft = true;
-	netdev->connect_cb = cb;
 
 	/*
 	 * Cancel commands that could be running because of EAPoL activity
@@ -3576,14 +3745,119 @@ static int fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 		eapol_sm_free(netdev->sm);
 		netdev->sm = NULL;
 	}
+}
 
-	if (over_air)
-		netdev->ap = ft_over_air_sm_new(netdev->handshake,
+static void netdev_ft_over_ds_auth_failed(struct netdev_ft_over_ds_info *info,
+						uint16_t status)
+{
+	if (info->cb)
+		info->cb(info->netdev, status, info->super.aa, info->user_data);
+
+	ft_ds_info_free(&info->super);
+
+	info->netdev->ft_ds_info = NULL;
+}
+
+static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
+					const void *body, size_t body_len,
+					int rssi, void *user_data)
+{
+	struct netdev *netdev = user_data;
+	struct netdev_ft_over_ds_info *info = netdev->ft_ds_info;
+	int ret;
+	uint16_t status_code = MMPDU_STATUS_CODE_UNSPECIFIED;
+
+	if (!info)
+		return;
+
+	ret = ft_over_ds_parse_action_response(&info->super, netdev->handshake,
+						body, body_len);
+	if (ret < 0)
+		return;
+
+	l_timeout_remove(info->timeout);
+	info->timeout = NULL;
+
+	/* Now make sure the packet contained a success status code */
+	if (ret > 0) {
+		status_code = (uint16_t)ret;
+		goto ft_error;
+	}
+
+	info->parsed = true;
+
+	if (info->cb)
+		info->cb(netdev, 0, info->super.aa, info->user_data);
+
+	return;
+
+ft_error:
+	l_debug("FT-over-DS to "MAC" failed", MAC_STR(info->super.aa));
+
+	netdev_ft_over_ds_auth_failed(info, status_code);
+}
+
+static void netdev_qos_map_frame_event(const struct mmpdu_header *hdr,
+					const void *body, size_t body_len,
+					int rssi, void *user_data)
+{
+	struct netdev *netdev = user_data;
+
+	/* No point telling the kernel */
+	if (!netdev->connected)
+		return;
+
+	if (memcmp(netdev->handshake->aa, hdr->address_2, ETH_ALEN))
+		return;
+
+	if (body_len < 5)
+		return;
+
+	if (l_get_u8(body + 2) != IE_TYPE_QOS_MAP_SET)
+		return;
+
+	netdev_send_qos_map_set(netdev, body + 4, body_len - 4);
+}
+
+static bool netdev_ft_work_ready(struct wiphy_radio_work_item *item)
+{
+	struct netdev *netdev = l_container_of(item, struct netdev, work);
+
+	if (!auth_proto_start(netdev->ap)) {
+		/* Restore original nonce */
+		memcpy(netdev->handshake->snonce, netdev->prev_snonce, 32);
+
+		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
+						MMPDU_STATUS_CODE_UNSPECIFIED);
+		return true;
+	}
+
+	return false;
+}
+
+static const struct wiphy_radio_work_item_ops ft_work_ops = {
+	.do_work = netdev_ft_work_ready,
+};
+
+int netdev_fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
+				netdev_connect_cb_t cb)
+{
+	if (!netdev->operational)
+		return -ENOTCONN;
+
+	if (!netdev->handshake->mde || !target_bss->mde_present ||
+			l_get_le16(netdev->handshake->mde + 2) !=
+			l_get_le16(target_bss->mde))
+		return -EINVAL;
+
+	prepare_ft(netdev, target_bss);
+
+	handshake_state_new_snonce(netdev->handshake);
+
+	netdev->connect_cb = cb;
+
+	netdev->ap = ft_over_air_sm_new(netdev->handshake,
 					netdev_ft_tx_authenticate,
-					netdev_ft_tx_associate, netdev);
-	else
-		netdev->ap = ft_over_ds_sm_new(netdev->handshake,
-					netdev_ft_over_ds_tx_authenticate,
 					netdev_ft_tx_associate, netdev);
 
 	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
@@ -3592,17 +3866,143 @@ static int fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 	return 0;
 }
 
-int netdev_fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
-				netdev_connect_cb_t cb)
-{
-	return fast_transition(netdev, target_bss, true, cb);
-}
-
 int netdev_fast_transition_over_ds(struct netdev *netdev,
 					struct scan_bss *target_bss,
 					netdev_connect_cb_t cb)
 {
-	return fast_transition(netdev, target_bss, false, cb);
+	struct netdev_ft_over_ds_info *info = netdev->ft_ds_info;
+
+	if (!info || !info->parsed)
+		return -ENOENT;
+
+	if (!netdev->operational)
+		return -ENOTCONN;
+
+	if (!netdev->handshake->mde || !target_bss->mde_present ||
+			l_get_le16(netdev->handshake->mde + 2) !=
+			l_get_le16(target_bss->mde))
+		return -EINVAL;
+
+	prepare_ft(netdev, target_bss);
+
+	ft_over_ds_prepare_handshake(&info->super, netdev->handshake);
+
+	netdev->connect_cb = cb;
+
+	netdev->ap = ft_over_ds_sm_new(netdev->handshake,
+					netdev_ft_tx_associate,
+					netdev);
+
+	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
+				&ft_work_ops);
+
+	return 0;
+}
+
+static void netdev_ft_request_cb(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev_ft_over_ds_info *info = user_data;
+
+	if (l_genl_msg_get_error(msg) < 0) {
+		l_error("Could not send CMD_FRAME for FT-over-DS");
+		netdev_ft_over_ds_auth_failed(info,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
+	}
+}
+
+static void netdev_ft_over_ds_timeout(struct l_timeout *timeout,
+					void *user_data)
+{
+	struct netdev_ft_over_ds_info *info = user_data;
+
+	l_timeout_remove(info->timeout);
+	info->timeout = NULL;
+
+	l_debug("");
+
+	netdev_ft_over_ds_auth_failed(info, MMPDU_STATUS_CODE_UNSPECIFIED);
+}
+
+static void netdev_ft_ds_info_free(struct ft_ds_info *ft)
+{
+	struct netdev_ft_over_ds_info *info = l_container_of(ft,
+					struct netdev_ft_over_ds_info, super);
+
+	if (info->timeout)
+		l_timeout_remove(info->timeout);
+
+	l_free(info);
+}
+
+int netdev_fast_transition_over_ds_action(struct netdev *netdev,
+					const struct scan_bss *target_bss,
+					netdev_ft_over_ds_cb_t cb,
+					void *user_data)
+{
+	struct netdev_ft_over_ds_info *info;
+	uint8_t ft_req[14];
+	struct handshake_state *hs = netdev->handshake;
+	struct iovec iovs[5];
+	uint8_t buf[512];
+	size_t len;
+
+	/* TODO: Just allow single outstanding action frame for now */
+	if (netdev->ft_ds_info)
+		return -EALREADY;
+
+	if (!netdev->operational)
+		return -ENOTCONN;
+
+	if (!netdev->handshake->mde || !target_bss->mde_present ||
+			l_get_le16(netdev->handshake->mde + 2) !=
+			l_get_le16(target_bss->mde))
+		return -EINVAL;
+
+	l_debug("");
+
+	info = l_new(struct netdev_ft_over_ds_info, 1);
+	info->netdev = netdev;
+
+	memcpy(info->super.spa, hs->spa, ETH_ALEN);
+	memcpy(info->super.aa, target_bss->addr, ETH_ALEN);
+	memcpy(info->super.mde, target_bss->mde, sizeof(info->super.mde));
+	l_getrandom(info->super.snonce, 32);
+	info->super.free = netdev_ft_ds_info_free;
+
+	info->cb = cb;
+	info->user_data = user_data;
+
+	ft_req[0] = 6; /* FT category */
+	ft_req[1] = 1; /* FT Request action */
+	memcpy(ft_req + 2, netdev->addr, 6);
+	memcpy(ft_req + 8, info->super.aa, 6);
+
+	iovs[0].iov_base = ft_req;
+	iovs[0].iov_len = sizeof(ft_req);
+
+	if (!ft_build_authenticate_ies(hs, info->super.snonce, buf, &len))
+		goto failed;
+
+	iovs[1].iov_base = buf;
+	iovs[1].iov_len = len;
+
+	iovs[2].iov_base = NULL;
+
+	netdev->ft_ds_info = info;
+
+	info->timeout = l_timeout_create_ms(300, netdev_ft_over_ds_timeout,
+						info, NULL);
+
+	netdev_send_action_framev(netdev, netdev->handshake->aa, iovs, 2,
+					netdev->frequency,
+					netdev_ft_request_cb,
+					info);
+
+	return 0;
+
+failed:
+	l_free(info);
+	return -EIO;
 }
 
 static void netdev_preauth_cb(const uint8_t *pmk, void *user_data)
@@ -3688,7 +4088,8 @@ int netdev_neighbor_report_req(struct netdev *netdev,
 	if (!netdev_send_action_frame(netdev, netdev->handshake->aa,
 					action_frame, sizeof(action_frame),
 					netdev->frequency,
-					netdev_neighbor_report_req_cb))
+					netdev_neighbor_report_req_cb,
+					netdev))
 		return -EIO;
 
 	netdev->neighbor_report_cb = cb;
@@ -3775,7 +4176,7 @@ static void netdev_sa_query_req_frame_event(const struct mmpdu_header *hdr,
 	if (!netdev_send_action_frame(netdev, netdev->handshake->aa,
 			sa_resp, sizeof(sa_resp),
 			netdev->frequency,
-			netdev_sa_query_resp_cb)) {
+			netdev_sa_query_resp_cb, netdev)) {
 		l_error("error sending SA Query response");
 		return;
 	}
@@ -3914,7 +4315,7 @@ static void netdev_unprot_disconnect_event(struct l_genl_msg *msg,
 	if (!netdev_send_action_frame(netdev, netdev->handshake->aa,
 			action_frame, sizeof(action_frame),
 			netdev->frequency,
-			netdev_sa_query_req_cb)) {
+			netdev_sa_query_req_cb, netdev)) {
 		l_error("error sending SA Query action frame");
 		return;
 	}
@@ -3957,16 +4358,22 @@ static void netdev_station_event(struct l_genl_msg *msg,
 			netdev_station_watch_func_t, netdev, mac, added);
 }
 
-static void netdev_scan_notify(struct l_genl_msg *msg, void *user_data)
+static struct netdev *netdev_from_message(struct l_genl_msg *msg)
 {
-	struct netdev *netdev = NULL;
 	uint32_t ifindex;
 
 	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFINDEX, &ifindex,
 					NL80211_ATTR_UNSPEC) < 0)
-		return;
+		return NULL;
 
-	netdev = netdev_find(ifindex);
+	return netdev_find(ifindex);
+}
+
+static void netdev_scan_notify(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev;
+
+	netdev = netdev_from_message(msg);
 	if (!netdev)
 		return;
 
@@ -3992,19 +4399,15 @@ static bool netdev_get_fw_scan_cb(int err, struct l_queue *bss_list,
 	struct scan_bss *bss = NULL;
 
 	/*
-	 * If there was a failure in netdev_connect_event this would reset
-	 * the connect state (netdev_connect_free) causing the sm to be freed.
-	 * In this case we should just ignore this and allow the disconnect
-	 * logic to continue.
+	 * If we happened to be disconnected prior to  GET_SCAN coming back
+	 * just bail out now. This disconnect should already have been handled.
 	 */
-	if (!netdev->sm)
+	if (!netdev->connected)
 		return false;
 
 	if (err < 0) {
 		l_error("Failed to get scan after roam (%d)", err);
-		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
-					MMPDU_REASON_CODE_UNSPECIFIED);
-		return false;
+		goto failed;
 	}
 
 	/*
@@ -4016,17 +4419,28 @@ static bool netdev_get_fw_scan_cb(int err, struct l_queue *bss_list,
 
 	if (!bss) {
 		l_error("Roam target BSS not found in scan results");
-		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
-					MMPDU_REASON_CODE_UNSPECIFIED);
-		return false;
+		goto failed;
 	}
 
 	netdev->fw_roam_bss = bss;
 
 	handshake_state_set_authenticator_ie(netdev->handshake, bss->rsne);
 
-	eapol_start(netdev->sm);
+	if (is_offload(netdev->handshake)) {
+		netdev_connect_ok(netdev);
+		return false;
+	}
 
+	if (netdev->sm) {
+		if (!eapol_start(netdev->sm))
+			goto failed;
+	}
+
+	return false;
+
+failed:
+	netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
+					MMPDU_REASON_CODE_UNSPECIFIED);
 	return false;
 }
 
@@ -4042,74 +4456,79 @@ static bool netdev_get_fw_scan_cb(int err, struct l_queue *bss_list,
  * The current handshake/netdev_handshake objects are reused after being
  * reset to allow eapol to happen again without it thinking this is a re-key.
  */
-static bool netdev_roam_event(struct l_genl_msg *msg, struct netdev *netdev)
+static void netdev_roam_event(struct l_genl_msg *msg, struct netdev *netdev)
 {
 	struct netdev_handshake_state *nhs =
 			l_container_of(netdev->handshake,
 					struct netdev_handshake_state,
 					super);
-	const uint8_t *mac;
+	struct l_genl_attr attr;
+	uint16_t type, len;
+	const void *data;
+	const uint8_t *mac = NULL;
 
 	l_debug("");
 
 	netdev->operational = false;
 
-	if (nl80211_parse_attrs(msg, NL80211_ATTR_MAC, &mac,
-					NL80211_ATTR_UNSPEC) < 0) {
+	if (!l_genl_attr_init(&attr, msg))
+		goto failed;
+
+	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+		switch (type) {
+		case NL80211_ATTR_MAC:
+			mac = data;
+			break;
+		case NL80211_ATTR_REQ_IE:
+			parse_request_ies(netdev, data, len);
+			break;
+		}
+	}
+
+	if (!mac) {
 		l_error("Failed to parse ATTR_MAC from CMD_ROAM");
 		goto failed;
 	}
+
+	/* Handshake completed in firmware, just get the roamed BSS */
+	if (is_offload(netdev->handshake))
+		goto get_fw_scan;
 
 	/* Reset handshake state */
 	nhs->complete = false;
 	nhs->ptk_installed = false;
 	nhs->gtk_installed = true;
 	nhs->igtk_installed = true;
-	handshake_state_set_authenticator_address(netdev->handshake, mac);
 	netdev->handshake->ptk_complete = false;
+
+get_fw_scan:
+	handshake_state_set_authenticator_address(netdev->handshake, mac);
 
 	if (!scan_get_firmware_scan(netdev->wdev_id, netdev_get_fw_scan_cb,
 					netdev, NULL))
 		goto failed;
 
-	return true;
+	if (netdev->event_filter)
+		netdev->event_filter(netdev, NETDEV_EVENT_ROAMING,
+					NULL, netdev->user_data);
 
+	return;
 failed:
-	l_error("Failed to roam to new BSS");
+	l_error("Failed to properly handle the ROAM event -- submit logs!");
 	netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
 					MMPDU_REASON_CODE_UNSPECIFIED);
 
-	return false;
 }
 
 static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = NULL;
-	struct l_genl_attr attr;
-	uint16_t type, len;
-	const void *data;
 	uint8_t cmd;
 
 	cmd = l_genl_msg_get_command(msg);
-
 	l_debug("MLME notification %s(%u)", nl80211cmd_to_string(cmd), cmd);
 
-	if (!l_genl_attr_init(&attr, msg))
-		return;
-
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
-		switch (type) {
-		case NL80211_ATTR_IFINDEX:
-			if (len != sizeof(uint32_t)) {
-				l_warn("Invalid interface index attribute");
-				return;
-			}
-
-			netdev = netdev_find(*((uint32_t *) data));
-			break;
-		}
-	}
-
+	netdev = netdev_from_message(msg);
 	if (!netdev)
 		return;
 
@@ -4124,9 +4543,8 @@ static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
 		netdev_associate_event(msg, netdev);
 		break;
 	case NL80211_CMD_ROAM:
-		if (!netdev_roam_event(msg, netdev))
-			return;
-		/* fall through */
+		netdev_roam_event(msg, netdev);
+		break;
 	case NL80211_CMD_CONNECT:
 		netdev_connect_event(msg, netdev);
 		break;
@@ -4497,6 +4915,8 @@ static void netdev_get_station_cb(struct l_genl_msg *msg, void *user_data)
 	if (!l_genl_attr_init(&attr, msg))
 		goto parse_error;
 
+	memset(&info, 0, sizeof(info));
+
 	while (l_genl_attr_next(&attr, &type, &len, &data)) {
 		switch (type) {
 		case NL80211_ATTR_STA_INFO:
@@ -4570,6 +4990,9 @@ int netdev_get_current_station(struct netdev *netdev,
 			netdev_get_station_cb_t cb, void *user_data,
 			netdev_destroy_func_t destroy)
 {
+	if (!netdev->handshake)
+		return -ENOTCONN;
+
 	return netdev_get_station(netdev, netdev->handshake->aa, cb,
 					user_data, destroy);
 }
@@ -4623,6 +5046,92 @@ static int netdev_cqm_rssi_update(struct netdev *netdev)
 	}
 
 	return 0;
+}
+
+static void netdev_add_station_frame_watches(struct netdev *netdev)
+{
+	static const uint8_t action_neighbor_report_prefix[2] = { 0x05, 0x05 };
+	static const uint8_t action_sa_query_resp_prefix[2] = { 0x08, 0x01 };
+	static const uint8_t action_sa_query_req_prefix[2] = { 0x08, 0x00 };
+	static const uint8_t action_ft_response_prefix[] =  { 0x06, 0x02 };
+	static const uint8_t action_qos_map_prefix[] = { 0x01, 0x04 };
+	uint64_t wdev = netdev->wdev_id;
+
+	/* Subscribe to Management -> Action -> RM -> Neighbor Report frames */
+	frame_watch_add(wdev, 0, 0x00d0, action_neighbor_report_prefix,
+			sizeof(action_neighbor_report_prefix),
+			netdev_neighbor_report_frame_event, netdev, NULL);
+
+	frame_watch_add(wdev, 0, 0x00d0, action_sa_query_resp_prefix,
+			sizeof(action_sa_query_resp_prefix),
+			netdev_sa_query_resp_frame_event, netdev, NULL);
+
+	frame_watch_add(wdev, 0, 0x00d0, action_sa_query_req_prefix,
+			sizeof(action_sa_query_req_prefix),
+			netdev_sa_query_req_frame_event, netdev, NULL);
+
+	frame_watch_add(wdev, 0, 0x00d0, action_ft_response_prefix,
+			sizeof(action_ft_response_prefix),
+			netdev_ft_response_frame_event, netdev, NULL);
+
+	if (wiphy_supports_qos_set_map(netdev->wiphy))
+		frame_watch_add(wdev, 0, 0x00d0, action_qos_map_prefix,
+				sizeof(action_qos_map_prefix),
+				netdev_qos_map_frame_event, netdev, NULL);
+}
+
+static void netdev_setup_interface(struct netdev *netdev)
+{
+	switch (netdev->type) {
+	case NL80211_IFTYPE_STATION:
+		/* Set RSSI threshold for CQM notifications */
+		netdev_cqm_rssi_update(netdev);
+		netdev_add_station_frame_watches(netdev);
+		break;
+	default:
+		break;
+	}
+}
+
+static void netdev_set_interface_event(struct l_genl_msg *msg,
+							struct netdev *netdev)
+{
+	uint32_t iftype;
+	uint64_t wdev_id;
+
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFTYPE, &iftype,
+					NL80211_ATTR_WDEV, &wdev_id,
+					NL80211_ATTR_UNSPEC) < 0)
+		return;
+
+	if (iftype == netdev->type)
+		return;
+
+	l_debug("Interface type changed from %s to %s",
+			netdev_iftype_to_string(netdev->type),
+			netdev_iftype_to_string(iftype));
+	netdev->type = iftype;
+	frame_watch_wdev_remove(wdev_id);
+
+	netdev_setup_interface(netdev);
+
+	WATCHLIST_NOTIFY(&netdev_watches, netdev_watch_func_t,
+				netdev, NETDEV_WATCH_EVENT_IFTYPE_CHANGE);
+}
+
+static void netdev_config_notify(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev;
+
+	netdev = netdev_from_message(msg);
+	if (!netdev)
+		return;
+
+	switch (l_genl_msg_get_command(msg)) {
+	case NL80211_CMD_SET_INTERFACE:
+		netdev_set_interface_event(msg, netdev);
+		break;
+	}
 }
 
 static struct l_genl_msg *netdev_build_cmd_set_interface(struct netdev *netdev,
@@ -4684,12 +5193,6 @@ static void netdev_set_iftype_cb(struct l_genl_msg *msg, void *user_data)
 
 	if (error != 0)
 		goto done;
-
-	netdev->type = req->pending_type;
-
-	/* Set RSSI threshold for CQM notifications */
-	if (netdev->type == NL80211_IFTYPE_STATION)
-		netdev_cqm_rssi_update(netdev);
 
 	/* If the netdev was down originally, we're done */
 	if (!req->bring_up)
@@ -5171,11 +5674,6 @@ struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 	struct wiphy *wiphy = NULL;
 	struct ifinfomsg *rtmmsg;
 	size_t bufsize;
-	const uint8_t action_neighbor_report_prefix[2] = { 0x05, 0x05 };
-	const uint8_t action_sa_query_resp_prefix[2] = { 0x08, 0x01 };
-	const uint8_t action_sa_query_req_prefix[2] = { 0x08, 0x00 };
-	const uint8_t action_ft_response_prefix[] =  { 0x06, 0x02 };
-	const uint8_t action_qos_map_prefix[] = { 0x01, 0x04 };
 	struct l_io *pae_io = NULL;
 
 	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFINDEX, &ifindex,
@@ -5249,31 +5747,7 @@ struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 
 	l_free(rtmmsg);
 
-	/* Subscribe to Management -> Action -> RM -> Neighbor Report frames */
-	frame_watch_add(wdev, 0, 0x00d0, action_neighbor_report_prefix,
-			sizeof(action_neighbor_report_prefix),
-			netdev_neighbor_report_frame_event, netdev, NULL);
-
-	frame_watch_add(wdev, 0, 0x00d0, action_sa_query_resp_prefix,
-			sizeof(action_sa_query_resp_prefix),
-			netdev_sa_query_resp_frame_event, netdev, NULL);
-
-	frame_watch_add(wdev, 0, 0x00d0, action_sa_query_req_prefix,
-			sizeof(action_sa_query_req_prefix),
-			netdev_sa_query_req_frame_event, netdev, NULL);
-
-	frame_watch_add(wdev, 0, 0x00d0, action_ft_response_prefix,
-			sizeof(action_ft_response_prefix),
-			netdev_ft_response_frame_event, netdev, NULL);
-
-	if (wiphy_supports_qos_set_map(netdev->wiphy))
-		frame_watch_add(wdev, 0, 0x00d0, action_qos_map_prefix,
-				sizeof(action_qos_map_prefix),
-				netdev_qos_map_frame_event, netdev, NULL);
-
-	/* Set RSSI threshold for CQM notifications */
-	if (netdev->type == NL80211_IFTYPE_STATION)
-		netdev_cqm_rssi_update(netdev);
+	netdev_setup_interface(netdev);
 
 	return netdev;
 }
@@ -5377,6 +5851,7 @@ static int netdev_init(void)
 
 	__eapol_set_rekey_offload_func(netdev_set_rekey_offload);
 	__eapol_set_tx_packet_func(netdev_control_port_frame);
+	__eapol_set_install_pmk_func(netdev_set_pmk);
 
 	unicast_watch = l_genl_add_unicast_watch(genl, NL80211_GENL_NAME,
 						netdev_unicast_notify,
@@ -5391,6 +5866,10 @@ static int netdev_init(void)
 	if (!l_genl_family_register(nl80211, "scan", netdev_scan_notify,
 								NULL, NULL))
 		l_error("Registering for scan notifications failed");
+
+	if (!l_genl_family_register(nl80211, "config", netdev_config_notify,
+								NULL, NULL))
+		l_error("Registering for config notifications failed");
 
 	return 0;
 

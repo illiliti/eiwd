@@ -494,6 +494,11 @@ static void adhoc_join_cb(struct netdev *netdev, int result, void *user_data)
 		return;
 	}
 
+	l_rtnl_set_linkmode_and_operstate(iwd_get_rtnl(),
+					netdev_get_ifindex(adhoc->netdev),
+					IF_LINK_MODE_DEFAULT, IF_OPER_UP,
+					NULL, NULL, NULL);
+
 	adhoc->sta_watch_id = netdev_station_watch_add(netdev,
 			adhoc_station_changed_cb, adhoc);
 
@@ -648,6 +653,11 @@ static struct l_dbus_message *adhoc_dbus_stop(struct l_dbus *dbus,
 
 	if (netdev_leave_adhoc(adhoc->netdev, adhoc_leave_cb, adhoc))
 		return dbus_error_failed(message);
+
+	l_rtnl_set_linkmode_and_operstate(iwd_get_rtnl(),
+					netdev_get_ifindex(adhoc->netdev),
+					IF_LINK_MODE_DORMANT, IF_OPER_DOWN,
+					NULL, NULL, NULL);
 
 	adhoc->pending = l_dbus_message_ref(message);
 

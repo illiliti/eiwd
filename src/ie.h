@@ -288,6 +288,20 @@ enum ie_rsn_akm_suite {
 	((akm == IE_RSN_AKM_SUITE_SAE_SHA256) || \
 	(akm == IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256))
 
+#define IE_AKM_IS_FT(akm) \
+	((akm == IE_RSN_AKM_SUITE_FT_OVER_8021X) || \
+	 (akm == IE_RSN_AKM_SUITE_FT_USING_PSK) || \
+	 (akm == IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256) || \
+	 (akm == IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384) || \
+	 (akm == IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256) || \
+	 (akm == IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
+
+#define IE_AKM_IS_FILS(akm) \
+	((akm == IE_RSN_AKM_SUITE_FILS_SHA256) || \
+	 (akm == IE_RSN_AKM_SUITE_FILS_SHA384) || \
+	 (akm == IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256) || \
+	 (akm == IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
+
 #define IE_LEN(ie) \
 	(ie) ? (ie)[1] + 2 : 0
 

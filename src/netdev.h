@@ -57,14 +57,16 @@ enum netdev_watch_event {
 	NETDEV_WATCH_EVENT_DOWN,
 	NETDEV_WATCH_EVENT_NAME_CHANGE,
 	NETDEV_WATCH_EVENT_ADDRESS_CHANGE,
+	NETDEV_WATCH_EVENT_IFTYPE_CHANGE,
 };
 
+/* Mirror definitions from nl80211.h to make conversions simpler */
 enum netdev_iftype {
 	NETDEV_IFTYPE_ADHOC = 1,
 	NETDEV_IFTYPE_STATION = 2,
 	NETDEV_IFTYPE_AP = 3,
-	NETDEV_IFTYPE_P2P_CLIENT,
-	NETDEV_IFTYPE_P2P_GO,
+	NETDEV_IFTYPE_P2P_CLIENT = 8,
+	NETDEV_IFTYPE_P2P_GO = 9,
 };
 
 typedef void (*netdev_command_cb_t)(struct netdev *netdev, int result,
@@ -78,7 +80,7 @@ typedef void (*netdev_command_cb_t)(struct netdev *netdev, int result,
  * NETDEV_RESULT_AUTHENTICATION_FAILED - MMPDU_STATUS_CODE
  * NETDEV_RESULT_ASSOCIATION_FAILED - MMPDU_STATUS_CODE
  * NETDEV_RESULT_HANDSHAKE_FAILED - MMPDU_REASON_CODE
- * NETDEV_RESULT_KEY_SETTINGS_FAILED - unused
+ * NETDEV_RESULT_KEY_SETTING_FAILED - unused
  * NETDEV_RESULT_ABORTED - unused.
  */
 typedef void (*netdev_connect_cb_t)(struct netdev *netdev,
@@ -121,6 +123,12 @@ typedef void (*netdev_get_station_cb_t)(
 				const struct diagnostic_station_info *info,
 				void *user_data);
 
+const char *netdev_iftype_to_string(uint32_t iftype);
+
+typedef void (*netdev_ft_over_ds_cb_t)(struct netdev *netdev,
+					uint16_t status, const uint8_t *bssid,
+					void *user_data);
+
 struct wiphy *netdev_get_wiphy(struct netdev *netdev);
 const uint8_t *netdev_get_address(struct netdev *netdev);
 uint32_t netdev_get_ifindex(struct netdev *netdev);
@@ -154,6 +162,10 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 			netdev_connect_cb_t cb, void *user_data);
 int netdev_fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 				netdev_connect_cb_t cb);
+int netdev_fast_transition_over_ds_action(struct netdev *netdev,
+					const struct scan_bss *target_bss,
+					netdev_ft_over_ds_cb_t cb,
+					void *user_data);
 int netdev_fast_transition_over_ds(struct netdev *netdev,
 					struct scan_bss *target_bss,
 					netdev_connect_cb_t cb);

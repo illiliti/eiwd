@@ -3050,3 +3050,48 @@ bool wsc_device_type_from_subcategory_str(struct wsc_primary_device_type *out,
 
 	return false;
 }
+
+bool wsc_device_type_from_setting_str(const char *value,
+					struct wsc_primary_device_type *out)
+{
+	unsigned long long u;
+	char *endp;
+
+	if (!value)
+		return false;
+
+	/*
+	 * Standard WSC subcategories are unique and more specific than
+	 * categories so there's no point for the user to specify the
+	 * category if they choose to use the string format.
+	 *
+	 * As an example our default value (Computer - PC) can be
+	 * encoded as either of:
+	 *
+	 * DeviceType=pc
+	 * DeviceType=0x00010050f2040001
+	 * DeviceType=1-0050f204-1
+	 */
+	if (wsc_device_type_from_subcategory_str(out, value))
+		true;
+
+	u = strtoull(value, &endp, 0);
+
+	/*
+	 * Accept any custom category, OUI and subcategory values but require
+	 * non-zero category as a sanity check.
+	 */
+	if (*endp == '\0' && (u & 0xffff000000000000ll) != 0) {
+		out->category = u >> 48;
+		out->oui[0] = u >> 40;
+		out->oui[1] = u >> 32;
+		out->oui[2] = u >> 24;
+		out->oui_type = u >> 16;
+		out->subcategory = u;
+		return true;
+	}
+
+	return sscanf(value, "%hx-%2hhx%2hhx%2hhx%2hhx-%2hx", &out->category,
+			&out->oui[0], &out->oui[1], &out->oui[2],
+			&out->oui_type, &out->subcategory) == 6;
+}

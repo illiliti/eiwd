@@ -906,8 +906,6 @@ static void frame_xchg_tx_cb(struct l_genl_msg *msg, void *user_data)
 
 	fx->tx_cmd_id = 0;
 
-	l_debug("err %i", -error);
-
 	if (error < 0) {
 		if (error == -EBUSY) {
 			fx->timeout = l_timeout_create_ms(fx->retry_interval,
@@ -925,6 +923,8 @@ static void frame_xchg_tx_cb(struct l_genl_msg *msg, void *user_data)
 		error = -EINVAL;
 		goto error;
 	}
+
+	l_debug("Frame sent, cookie: %"PRIu64" obtained", cookie);
 
 	early_status = fx->early_status && cookie == fx->cookie;
 	fx->tx_acked = early_status && fx->tx_acked;
@@ -1269,12 +1269,13 @@ static void frame_xchg_mlme_notify(struct l_genl_msg *msg, void *user_data)
 					NL80211_ATTR_UNSPEC) < 0)
 			return;
 
-		l_debug("Received %s", ack ? "an ACK" : "no ACK");
-
 		fx = l_queue_find(frame_xchgs, frame_xchg_match_running,
 					&wdev_id);
 		if (!fx)
 			return;
+
+		l_debug("Received %s for cookie: %"PRIu64,
+				ack ? "an ACK" : "no ACK", cookie);
 
 		if (fx->have_cookie && cookie == fx->cookie && !fx->tx_acked)
 			frame_xchg_tx_status(fx, ack);
@@ -1312,7 +1313,6 @@ static void frame_xchg_config_notify(struct l_genl_msg *msg, void *user_data)
 		if (!wdev) {
 			wdev = l_new(struct wdev_info, 1);
 			wdev->id = wdev_id;
-			wdev->iftype = iftype;
 
 			if (!wdevs)
 				wdevs = l_queue_new();
@@ -1321,11 +1321,7 @@ static void frame_xchg_config_notify(struct l_genl_msg *msg, void *user_data)
 			break;
 		}
 
-		if (wdev->iftype != iftype) {
-			wdev->iftype = iftype;
-			frame_watch_wdev_remove(wdev_id);
-		}
-
+		wdev->iftype = iftype;
 		break;
 
 	case NL80211_CMD_DEL_INTERFACE:

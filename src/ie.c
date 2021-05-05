@@ -740,7 +740,7 @@ static int parse_ciphers(const uint8_t *data, size_t len,
 	out_info->extended_key_id = test_bit(data + 1, 5);
 
 	/*
-	 * BIP—default group management cipher suite in an RSNA with
+	 * BIP-default group management cipher suite in an RSNA with
 	 * management frame protection enabled
 	 */
 	if (out_info->mfpc)
@@ -1931,7 +1931,7 @@ static int ie_parse_ht_capability_from_data(const uint8_t *data, uint8_t len,
  *
  * For simplicity, we are ignoring the Extended BSS BW support, per NOTE 11:
  *
- * NOTE 11—A receiving STA in which dot11VHTExtendedNSSCapable is false will
+ * NOTE 11-A receiving STA in which dot11VHTExtendedNSSCapable is false will
  * ignore the Extended NSS BW Support subfield and effectively evaluate this
  * table only at the entries where Extended NSS BW Support is 0.
  *

@@ -78,7 +78,8 @@ const char *wiphy_get_path(struct wiphy *wiphy);
 uint32_t wiphy_get_supported_bands(struct wiphy *wiphy);
 const struct scan_freq_set *wiphy_get_supported_freqs(
 						const struct wiphy *wiphy);
-bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss);
+bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss,
+				bool fils_hint);
 bool wiphy_supports_cmds_auth_assoc(struct wiphy *wiphy);
 bool wiphy_can_randomize_mac_addr(struct wiphy *wiphy);
 bool wiphy_rrm_capable(struct wiphy *wiphy);
@@ -116,3 +117,4 @@ uint32_t wiphy_radio_work_insert(struct wiphy *wiphy,
 				int priority,
 				const struct wiphy_radio_work_item_ops *ops);
 void wiphy_radio_work_done(struct wiphy *wiphy, uint32_t id);
+bool wiphy_radio_work_is_running(struct wiphy *wiphy, uint32_t id);

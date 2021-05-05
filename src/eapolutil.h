@@ -32,7 +32,7 @@ enum eapol_protocol_version {
 };
 
 /*
- * 802.1X-2010: Table 11-5—Descriptor Type value assignments
+ * 802.1X-2010: Table 11-5-Descriptor Type value assignments
  * The WPA key type of 254 comes from somewhere else.  Seems it is a legacy
  * value that might still be used by older implementations
  */

@@ -352,7 +352,7 @@ static void ordered_networks_display(struct l_queue *ordered_networks)
 
 	display_table_header("Available networks", "%s%-*s%-*s%-*s%*s",
 					MARGIN, 2, "", 32, "Network name",
-					10, "Security", 6, "Signal");
+					18, "Security", 6, "Signal");
 
 	if (!l_queue_length(ordered_networks)) {
 		display("No networks available\n");
@@ -369,13 +369,16 @@ static void ordered_networks_display(struct l_queue *ordered_networks)
 		const char *network_name = network_get_name(network_i);
 		const char *network_type = network_get_type(network_i);
 
+		if (!strcmp(network_type, "wep"))
+			network_type = "wep (unsupported)";
+
 		if (display_signal_as_dbms)
 			dbms = l_strdup_printf("%d", network->signal_strength);
 
 		display("%s%-*s%-*s%-*s%-*s\n", MARGIN, 2,
 			network_is_connected(network_i) ?
 				COLOR_BOLDGRAY "> " COLOR_OFF : "",
-			32, network_name, 10, network_type,
+			32, network_name, 18, network_type,
 			6, display_signal_as_dbms ? dbms :
 				dbms_tostars(network->signal_strength));
 
@@ -612,7 +615,6 @@ static void get_diagnostics_callback(struct l_dbus_message *message,
 done:
 	/* Finish the table started by cmd_show */
 	display_table_footer();
-	display_refresh_reset();
 }
 
 static enum cmd_status cmd_show(const char *device_name,
@@ -637,7 +639,6 @@ static enum cmd_status cmd_show(const char *device_name,
 	 */
 	if (!diagnostic) {
 		display_table_footer();
-		display_refresh_reset();
 		return CMD_STATUS_DONE;
 	}
 

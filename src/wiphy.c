@@ -178,6 +178,8 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 {
 	struct ie_rsn_info info;
 	enum security security;
+	bool psk_offload = wiphy_has_ext_feature(wiphy,
+				NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK);
 
 	memset(&info, 0, sizeof(info));
 	scan_bss_get_rsn_info(bss, &info);
@@ -246,10 +248,17 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 		}
 
 wpa2_personal:
+		/*
+		 * Allow FT if either Auth/Assoc is supported OR if the card
+		 * supports PSK offload. Without Auth/Assoc, PSK offload is the
+		 * only mechanism to allow FT on these cards.
+		 */
 		if ((info.akm_suites & IE_RSN_AKM_SUITE_FT_USING_PSK) &&
-				bss->rsne && bss->mde_present &&
-				wiphy->support_cmds_auth_assoc)
-			return IE_RSN_AKM_SUITE_FT_USING_PSK;
+					bss->rsne && bss->mde_present) {
+			if (wiphy->support_cmds_auth_assoc ||
+					(psk_offload && wiphy->support_fw_roam))
+				return IE_RSN_AKM_SUITE_FT_USING_PSK;
+		}
 
 		if (info.akm_suites & IE_RSN_AKM_SUITE_PSK_SHA256)
 			return IE_RSN_AKM_SUITE_PSK_SHA256;
@@ -388,7 +397,8 @@ const struct scan_freq_set *wiphy_get_supported_freqs(
 	return wiphy->supported_freqs;
 }
 
-bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss)
+bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss,
+			bool fils_hint)
 {
 	struct ie_rsn_info rsn_info;
 	int r;
@@ -407,24 +417,7 @@ bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss)
 					rsn_info.group_management_cipher))
 			return false;
 
-
-		switch (rsn_info.akm_suites) {
-		case IE_RSN_AKM_SUITE_SAE_SHA256:
-		case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
-			if (!wiphy_can_connect_sae(wiphy))
-				return false;
-
-			break;
-		case IE_RSN_AKM_SUITE_OWE:
-		case IE_RSN_AKM_SUITE_FILS_SHA256:
-		case IE_RSN_AKM_SUITE_FILS_SHA384:
-		case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
-		case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
-			if (!wiphy->support_cmds_auth_assoc)
-				return false;
-
-			break;
-		}
+		return wiphy_select_akm(wiphy, bss, fils_hint);
 	} else if (r != -ENOENT)
 		return false;
 
@@ -612,7 +605,7 @@ static char **wiphy_get_supported_iftypes(struct wiphy *wiphy, uint16_t mask)
 		if (!(supported_mask & (1 << i)))
 			continue;
 
-		str = dbus_iftype_to_string(i + 1);
+		str = netdev_iftype_to_string(i + 1);
 		if (str)
 			ret[j++] = l_strdup(str);
 	}
@@ -1633,6 +1626,16 @@ void wiphy_radio_work_done(struct wiphy *wiphy, uint32_t id)
 
 	if (next)
 		wiphy_radio_work_next(wiphy);
+}
+
+bool wiphy_radio_work_is_running(struct wiphy *wiphy, uint32_t id)
+{
+	struct wiphy_radio_work_item *item = l_queue_peek_head(wiphy->work);
+
+	if (!item)
+		return false;
+
+	return item->id == id;
 }
 
 static int wiphy_init(void)

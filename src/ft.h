@@ -20,10 +20,36 @@
  *
  */
 
+struct handshake_state;
+
 typedef void (*ft_tx_authenticate_func_t)(struct iovec *iov, size_t iov_len,
 					void *user_data);
-typedef void (*ft_tx_associate_func_t)(struct iovec *ie_iov, size_t iov_len,
+typedef int (*ft_tx_associate_func_t)(struct iovec *ie_iov, size_t iov_len,
 					void *user_data);
+
+typedef void (*ft_ds_free_func_t)(void *user_data);
+
+struct ft_ds_info {
+	uint8_t spa[6];
+	uint8_t aa[6];
+	uint8_t snonce[32];
+	uint8_t mde[3];
+	uint8_t *fte;
+
+	struct ie_ft_info ft_info;
+
+	void (*free)(struct ft_ds_info *s);
+};
+
+void ft_ds_info_free(struct ft_ds_info *info);
+
+bool ft_build_authenticate_ies(struct handshake_state *hs,
+				const uint8_t *new_snonce, uint8_t *buf,
+				size_t *len);
+
+int ft_over_ds_parse_action_response(struct ft_ds_info *info,
+					struct handshake_state *hs,
+					const uint8_t *frame, size_t frame_len);
 
 struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
 				ft_tx_authenticate_func_t tx_auth,
@@ -31,6 +57,8 @@ struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
 				void *user_data);
 
 struct auth_proto *ft_over_ds_sm_new(struct handshake_state *hs,
-				ft_tx_authenticate_func_t tx_auth,
 				ft_tx_associate_func_t tx_assoc,
 				void *user_data);
+
+bool ft_over_ds_prepare_handshake(struct ft_ds_info *info,
+					struct handshake_state *hs);

@@ -156,40 +156,6 @@ static bool ft_parse_authentication_resp_frame(const uint8_t *data, size_t len,
 	return true;
 }
 
-static bool ft_parse_action_resp_frame(const uint8_t *frame, size_t frame_len,
-					const uint8_t *spa, const uint8_t *aa,
-					uint16_t *out_status,
-					const uint8_t **out_ies,
-					size_t *out_ies_len)
-{
-	uint16_t status = 0;
-
-	/* Category FT */
-	if (frame[0] != 6)
-		return false;
-
-	/* FT Action */
-	if (frame[1] != 2)
-		return false;
-
-	if (memcmp(frame + 2, spa, 6))
-		return false;
-	if (memcmp(frame + 8, aa, 6))
-		return false;
-
-	status = l_get_le16(frame + 14);
-
-	if (out_status)
-		*out_status = status;
-
-	if (status == 0 && out_ies) {
-		*out_ies = frame + 16;
-		*out_ies_len = frame_len - 16;
-	}
-
-	return true;
-}
-
 static bool ft_parse_associate_resp_frame(const uint8_t *frame, size_t frame_len,
 				uint16_t *out_status, const uint8_t **rsne,
 				const uint8_t **mde, const uint8_t **fte)
@@ -254,10 +220,10 @@ static int ft_tx_reassociate(struct ft_sm *ft)
 		 * MDE + FTE.
 		 *
 		 * 12.8.4: "If present, the RSNE shall be set as follows:
-		 * — Version field shall be set to 1.
-		 * — PMKID Count field shall be set to 1.
-		 * — PMKID field shall contain the PMKR1Name.
-		 * — All other fields shall be as specified in 8.4.2.27
+		 * - Version field shall be set to 1.
+		 * - PMKID Count field shall be set to 1.
+		 * - PMKID field shall contain the PMKR1Name.
+		 * - All other fields shall be as specified in 8.4.2.27
 		 *   and 11.5.3."
 		 */
 		if (ie_parse_rsne_from_data(hs->supplicant_ie,
@@ -287,14 +253,14 @@ static int ft_tx_reassociate(struct ft_sm *ft)
 
 		/*
 		 * 12.8.4: "If present, the FTE shall be set as follows:
-		 * — ANonce, SNonce, R0KH-ID, and R1KH-ID shall be set to
+		 * - ANonce, SNonce, R0KH-ID, and R1KH-ID shall be set to
 		 *   the values contained in the second message of this
 		 *   sequence.
-		 * — The Element Count field of the MIC Control field shall
+		 * - The Element Count field of the MIC Control field shall
 		 *   be set to the number of elements protected in this
 		 *   frame (variable).
 		 * [...]
-		 * — All other fields shall be set to 0."
+		 * - All other fields shall be set to 0."
 		 */
 
 		memset(&ft_info, 0, sizeof(ft_info));
@@ -321,27 +287,58 @@ static int ft_tx_reassociate(struct ft_sm *ft)
 		iov_elems += 1;
 	}
 
-	ft->tx_assoc(iov, iov_elems, ft->user_data);
-
-	return 0;
+	return ft->tx_assoc(iov, iov_elems, ft->user_data);
 
 error:
 	return -EINVAL;
 }
 
-static int ft_process_ies(struct ft_sm *ft, const uint8_t *ies, size_t ies_len)
+static bool ft_verify_rsne(const uint8_t *rsne, const uint8_t *pmk_r0_name,
+				const uint8_t *authenticator_ie)
+{
+	/*
+	 * In an RSN, check for an RSNE containing the PMK-R0-Name and
+	 * the remaining fields same as in the advertised RSNE.
+	 *
+	 * 12.8.3: "The RSNE shall be present only if dot11RSNAActivated
+	 * is true. If present, the RSNE shall be set as follows:
+	 * - Version field shall be set to 1.
+	 * - PMKID Count field shall be set to 1.
+	 * - PMKID List field shall be set to the value contained in the
+	 *   first message of this sequence.
+	 * - All other fields shall be identical to the contents of the
+	 *   RSNE advertised by the AP in Beacon and Probe Response frames."
+	 */
+
+	struct ie_rsn_info msg2_rsne;
+
+	if (!rsne)
+		return false;
+
+	if (ie_parse_rsne_from_data(rsne, rsne[1] + 2,
+						&msg2_rsne) < 0)
+		return false;
+
+	if (msg2_rsne.num_pmkids != 1 ||
+				memcmp(msg2_rsne.pmkids, pmk_r0_name, 16))
+		return false;
+
+	if (!handshake_util_ap_ie_matches(rsne, authenticator_ie, false))
+		return false;
+
+	return true;
+}
+
+static int ft_parse_ies(struct handshake_state *hs,
+			const uint8_t *ies, size_t ies_len,
+			const uint8_t **mde_out,
+			const uint8_t **fte_out)
 {
 	struct ie_tlv_iter iter;
 	const uint8_t *rsne = NULL;
 	const uint8_t *mde = NULL;
 	const uint8_t *fte = NULL;
-	struct handshake_state *hs = ft->hs;
-	uint32_t kck_len = handshake_state_get_kck_len(hs);
 	bool is_rsn;
-
-	/* Check 802.11r IEs */
-	if (!ies)
-		goto ft_error;
 
 	ie_tlv_iter_init(&iter, ies, ies_len);
 
@@ -372,49 +369,30 @@ static int ft_process_ies(struct ft_sm *ft, const uint8_t *ies, size_t ies_len)
 
 	is_rsn = hs->supplicant_ie != NULL;
 
-	/*
-	 * In an RSN, check for an RSNE containing the PMK-R0-Name and
-	 * the remaining fields same as in the advertised RSNE.
-	 *
-	 * 12.8.3: "The RSNE shall be present only if dot11RSNAActivated
-	 * is true. If present, the RSNE shall be set as follows:
-	 * — Version field shall be set to 1.
-	 * — PMKID Count field shall be set to 1.
-	 * — PMKID List field shall be set to the value contained in the
-	 *   first message of this sequence.
-	 * — All other fields shall be identical to the contents of the
-	 *   RSNE advertised by the AP in Beacon and Probe Response frames."
-	 */
 	if (is_rsn) {
-		struct ie_rsn_info msg2_rsne;
-
-		if (!rsne)
-			goto ft_error;
-
-		if (ie_parse_rsne_from_data(rsne, rsne[1] + 2,
-						&msg2_rsne) < 0)
-			goto ft_error;
-
-		if (msg2_rsne.num_pmkids != 1 ||
-				memcmp(msg2_rsne.pmkids, hs->pmk_r0_name, 16))
-			goto ft_error;
-
-		if (!handshake_util_ap_ie_matches(rsne, hs->authenticator_ie,
-							false))
+		if (!ft_verify_rsne(rsne, hs->pmk_r0_name,
+					hs->authenticator_ie))
 			goto ft_error;
 	} else if (rsne)
 		goto ft_error;
 
-	/*
-	 * Check for an MD IE identical to the one we sent in message 1
-	 *
-	 * 12.8.3: "The MDE shall contain the MDID and FT Capability and
-	 * Policy fields. This element shall be the same as the MDE
-	 * advertised by the target AP in Beacon and Probe Response frames."
-	 */
-	if (!mde || memcmp(hs->mde, mde, hs->mde[1] + 2))
-		goto ft_error;
+	if (mde_out)
+		*mde_out = mde;
 
+	if (fte_out)
+		*fte_out = fte;
+
+	return 0;
+
+ft_error:
+	return -EINVAL;
+}
+
+static bool ft_parse_fte(struct handshake_state *hs,
+				const uint8_t *snonce,
+				const uint8_t *fte,
+				struct ie_ft_info *ft_info)
+{
 	/*
 	 * In an RSN, check for an FT IE with the same R0KH-ID and the same
 	 * SNonce that we sent, and check that the R1KH-ID and the ANonce
@@ -423,38 +401,108 @@ static int ft_process_ies(struct ft_sm *ft, const uint8_t *ies, size_t ies_len)
 	 *
 	 * 12.8.3: "The FTE shall be present only if dot11RSNAActivated is
 	 * true. If present, the FTE shall be set as follows:
-	 * — R0KH-ID shall be identical to the R0KH-ID provided by the FTO
+	 * - R0KH-ID shall be identical to the R0KH-ID provided by the FTO
 	 *   in the first message.
-	 * — R1KH-ID shall be set to the R1KH-ID of the target AP, from
+	 * - R1KH-ID shall be set to the R1KH-ID of the target AP, from
 	 *   dot11FTR1KeyHolderID.
-	 * — ANonce shall be set to a value chosen randomly by the target AP,
+	 * - ANonce shall be set to a value chosen randomly by the target AP,
 	 *   following the recommendations of 11.6.5.
-	 * — SNonce shall be set to the value contained in the first message
+	 * - SNonce shall be set to the value contained in the first message
 	 *   of this sequence.
-	 * — All other fields shall be set to 0."
+	 * - All other fields shall be set to 0."
 	 */
+	uint8_t zeros[24] = {};
+	uint32_t kck_len = handshake_state_get_kck_len(hs);
+
+	if (!fte)
+		return false;
+
+	if (ie_parse_fast_bss_transition_from_data(fte, fte[1] + 2,
+					kck_len, ft_info) < 0)
+		return false;
+
+	if (ft_info->mic_element_count != 0 ||
+			memcmp(ft_info->mic, zeros, kck_len))
+		return false;
+
+	if (hs->r0khid_len != ft_info->r0khid_len ||
+			memcmp(hs->r0khid, ft_info->r0khid,
+				hs->r0khid_len) ||
+			!ft_info->r1khid_present)
+		return false;
+
+	if (memcmp(ft_info->snonce, snonce, 32))
+		return false;
+
+	return true;
+}
+
+static bool mde_equal(const uint8_t *mde1, const uint8_t *mde2)
+{
+	if (!mde1 || !mde2)
+		return false;
+
+	/*
+	 * Check for an MD IE identical to the one we sent in message 1
+	 *
+	 * 12.8.3: "The MDE shall contain the MDID and FT Capability and
+	 * Policy fields. This element shall be the same as the MDE
+	 * advertised by the target AP in Beacon and Probe Response frames."
+	 */
+	return memcmp(mde1, mde1, mde1[1] + 2) == 0;
+}
+
+static bool ft_over_ds_process_ies(struct ft_ds_info *info,
+					struct handshake_state *hs,
+					const uint8_t *ies,
+					size_t ies_len)
+{
+	const uint8_t *mde = NULL;
+	const uint8_t *fte = NULL;
+	bool is_rsn = hs->supplicant_ie != NULL;
+
+	if (ft_parse_ies(hs, ies, ies_len, &mde, &fte) < 0)
+		return false;
+
+	if (!mde_equal(info->mde, mde))
+		goto ft_error;
+
+	if (is_rsn) {
+		if (!ft_parse_fte(hs, info->snonce, fte, &info->ft_info))
+			goto ft_error;
+
+		info->fte = l_memdup(fte, fte[1] + 2);
+	} else if (fte)
+		goto ft_error;
+
+	return true;
+
+ft_error:
+	return false;
+}
+
+static int ft_process_ies(struct handshake_state *hs, const uint8_t *ies,
+			size_t ies_len)
+{
+	const uint8_t *mde = NULL;
+	const uint8_t *fte = NULL;
+	bool is_rsn = hs->supplicant_ie != NULL;
+
+	/* Check 802.11r IEs */
+	if (!ies)
+		goto ft_error;
+
+	if (ft_parse_ies(hs, ies, ies_len, &mde, &fte) < 0)
+		goto ft_error;
+
+
+	if (!mde_equal(hs->mde, mde))
+		goto ft_error;
+
 	if (is_rsn) {
 		struct ie_ft_info ft_info;
-		uint8_t zeros[24] = {};
 
-		if (!fte)
-			goto ft_error;
-
-		if (ie_parse_fast_bss_transition_from_data(fte, fte[1] + 2,
-						kck_len, &ft_info) < 0)
-			goto ft_error;
-
-		if (ft_info.mic_element_count != 0 ||
-				memcmp(ft_info.mic, zeros, kck_len))
-			goto ft_error;
-
-		if (hs->r0khid_len != ft_info.r0khid_len ||
-				memcmp(hs->r0khid, ft_info.r0khid,
-					hs->r0khid_len) ||
-				!ft_info.r1khid_present)
-			goto ft_error;
-
-		if (memcmp(ft_info.snonce, hs->snonce, 32))
+		if (!ft_parse_fte(hs, hs->snonce, fte, &ft_info))
 			goto ft_error;
 
 		handshake_state_set_fte(hs, fte);
@@ -469,33 +517,74 @@ static int ft_process_ies(struct ft_sm *ft, const uint8_t *ies, size_t ies_len)
 	} else if (fte)
 		goto ft_error;
 
-	return ft_tx_reassociate(ft);
+	return 0;
 
 ft_error:
 	return -EBADMSG;
 }
 
-static int ft_rx_action(struct auth_proto *ap, const uint8_t *frame,
-				size_t frame_len)
+int ft_over_ds_parse_action_response(struct ft_ds_info *info,
+					struct handshake_state *hs,
+					const uint8_t *frame, size_t frame_len)
 {
-	struct ft_sm *ft = l_container_of(ap, struct ft_sm, ap);
-	uint16_t status_code = MMPDU_STATUS_CODE_UNSPECIFIED;
-	const uint8_t *ies = NULL;
-	size_t ies_len;
+	uint16_t status;
 
-	if (!ft_parse_action_resp_frame(frame, frame_len, ft->hs->spa,
-						ft->hs->aa, &status_code,
-						&ies, &ies_len))
+	if (frame_len < 16)
+		return -EINVAL;
+
+	/* Category FT */
+	if (frame[0] != 6)
+		return -EINVAL;
+
+	/* FT Action */
+	if (frame[1] != 2)
+		return -EINVAL;
+
+	if (memcmp(frame + 2, info->spa, 6))
+		return -ENOENT;
+	if (memcmp(frame + 8, info->aa, 6))
+		return -ENOENT;
+
+	status = l_get_le16(frame + 14);
+	if (status != 0)
+		return (int)status;
+
+	if (!ft_over_ds_process_ies(info, hs, frame + 16, frame_len - 16))
 		return -EBADMSG;
 
-	/* AP Rejected the authenticate / associate */
-	if (status_code != 0)
-		goto auth_error;
+	return 0;
+}
 
-	return ft_process_ies(ft, ies, ies_len);
+bool ft_over_ds_prepare_handshake(struct ft_ds_info *info,
+					struct handshake_state *hs)
+{
+	if (!hs->supplicant_ie)
+		return true;
 
-auth_error:
-	return (int)status_code;
+	memcpy(hs->snonce, info->snonce, sizeof(hs->snonce));
+
+	handshake_state_set_fte(hs, info->fte);
+
+	handshake_state_set_anonce(hs, info->ft_info.anonce);
+
+	handshake_state_set_kh_ids(hs, info->ft_info.r0khid,
+						info->ft_info.r0khid_len,
+						info->ft_info.r1khid);
+
+	handshake_state_derive_ptk(hs);
+
+	return true;
+}
+
+void ft_ds_info_free(struct ft_ds_info *info)
+{
+	__typeof__(info->free) destroy = info->free;
+
+	if (info->fte)
+		l_free(info->fte);
+
+	if (destroy)
+		destroy(info);
 }
 
 static int ft_rx_authenticate(struct auth_proto *ap, const uint8_t *frame,
@@ -505,6 +594,7 @@ static int ft_rx_authenticate(struct auth_proto *ap, const uint8_t *frame,
 	uint16_t status_code = MMPDU_STATUS_CODE_UNSPECIFIED;
 	const uint8_t *ies = NULL;
 	size_t ies_len;
+	int ret;
 
 	/*
 	 * Parse the Authentication Response and validate the contents
@@ -520,7 +610,11 @@ static int ft_rx_authenticate(struct auth_proto *ap, const uint8_t *frame,
 	if (status_code != 0)
 		goto auth_error;
 
-	return ft_process_ies(ft, ies, ies_len);
+	ret = ft_process_ies(ft->hs, ies, ies_len);
+	if (ret < 0)
+		goto auth_error;
+
+	return ft_tx_reassociate(ft);
 
 auth_error:
 	return (int)status_code;
@@ -550,10 +644,10 @@ static int ft_rx_associate(struct auth_proto *ap, const uint8_t *frame,
 	 *
 	 * 12.8.5: "The RSNE shall be present only if dot11RSNAActivated is
 	 * true. If present, the RSNE shall be set as follows:
-	 * — Version field shall be set to 1.
-	 * — PMKID Count field shall be set to 1.
-	 * — PMKID field shall contain the PMKR1Name
-	 * — All other fields shall be identical to the contents of the RSNE
+	 * - Version field shall be set to 1.
+	 * - PMKID Count field shall be set to 1.
+	 * - PMKID field shall contain the PMKR1Name
+	 * - All other fields shall be identical to the contents of the RSNE
 	 *   advertised by the target AP in Beacon and Probe Response frames."
 	 */
 	if (is_rsn) {
@@ -669,29 +763,33 @@ static void ft_sm_free(struct auth_proto *ap)
 	l_free(ft);
 }
 
-static bool ft_start(struct auth_proto *ap)
+static bool ft_over_ds_start(struct auth_proto *ap)
 {
 	struct ft_sm *ft = l_container_of(ap, struct ft_sm, ap);
-	struct handshake_state *hs = ft->hs;
+
+	return ft_tx_reassociate(ft) == 0;
+}
+
+bool ft_build_authenticate_ies(struct handshake_state *hs,
+				const uint8_t *new_snonce, uint8_t *buf,
+				size_t *len)
+{
 	uint32_t kck_len = handshake_state_get_kck_len(hs);
 	bool is_rsn = hs->supplicant_ie != NULL;
-	uint8_t mde[5];
-	struct iovec iov[3];
-	size_t iov_elems = 0;
+	uint8_t *ptr = buf;
 
 	if (is_rsn) {
 		struct ie_rsn_info rsn_info;
-		uint8_t *rsne;
 
 		/*
 		 * Rebuild the RSNE to include the PMKR0Name and append
 		 * MDE + FTE.
 		 *
 		 * 12.8.2: "If present, the RSNE shall be set as follows:
-		 * — Version field shall be set to 1.
-		 * — PMKID Count field shall be set to 1.
-		 * — PMKID List field shall contain the PMKR0Name.
-		 * — All other fields shall be as specified in 8.4.2.27
+		 * - Version field shall be set to 1.
+		 * - PMKID Count field shall be set to 1.
+		 * - PMKID List field shall contain the PMKR0Name.
+		 * - All other fields shall be as specified in 8.4.2.27
 		 *   and 11.5.3."
 		 */
 		if (ie_parse_rsne_from_data(hs->supplicant_ie,
@@ -702,35 +800,27 @@ static bool ft_start(struct auth_proto *ap)
 		rsn_info.num_pmkids = 1;
 		rsn_info.pmkids = hs->pmk_r0_name;
 
-		rsne = alloca(256);
-		ie_build_rsne(&rsn_info, rsne);
-
-		iov[iov_elems].iov_base = rsne;
-		iov[iov_elems].iov_len = rsne[1] + 2;
-		iov_elems += 1;
+		ie_build_rsne(&rsn_info, ptr);
+		ptr += ptr[1] + 2;
 	}
 
 	/* The MDE advertised by the BSS must be passed verbatim */
-	mde[0] = IE_TYPE_MOBILITY_DOMAIN;
-	mde[1] = 3;
-	memcpy(mde + 2, hs->mde + 2, 3);
-
-	iov[iov_elems].iov_base = mde;
-	iov[iov_elems].iov_len = 5;
-	iov_elems += 1;
+	ptr[0] = IE_TYPE_MOBILITY_DOMAIN;
+	ptr[1] = 3;
+	memcpy(ptr + 2, hs->mde + 2, 3);
+	ptr += 5;
 
 	if (is_rsn) {
 		struct ie_ft_info ft_info;
-		uint8_t *fte;
 
 		/*
 		 * 12.8.2: "If present, the FTE shall be set as follows:
-		 * — R0KH-ID shall be the value of R0KH-ID obtained by the
+		 * - R0KH-ID shall be the value of R0KH-ID obtained by the
 		 *   FTO during its FT initial mobility domain association
 		 *   exchange.
-		 * — SNonce shall be set to a value chosen randomly by the
+		 * - SNonce shall be set to a value chosen randomly by the
 		 *   FTO, following the recommendations of 11.6.5.
-		 * — All other fields shall be set to 0."
+		 * - All other fields shall be set to 0."
 		 */
 
 		memset(&ft_info, 0, sizeof(ft_info));
@@ -738,25 +828,41 @@ static bool ft_start(struct auth_proto *ap)
 		memcpy(ft_info.r0khid, hs->r0khid, hs->r0khid_len);
 		ft_info.r0khid_len = hs->r0khid_len;
 
-		memcpy(ft_info.snonce, hs->snonce, 32);
+		memcpy(ft_info.snonce, new_snonce, 32);
 
-		fte = alloca(256);
-		ie_build_fast_bss_transition(&ft_info, kck_len, fte);
+		ie_build_fast_bss_transition(&ft_info, kck_len, ptr);
 
-		iov[iov_elems].iov_base = fte;
-		iov[iov_elems].iov_len = fte[1] + 2;
-		iov_elems += 1;
+		ptr += ptr[1] + 2;
 	}
 
-	ft->tx_auth(iov, iov_elems, ft->user_data);
+	if (len)
+		*len = ptr - buf;
 
 	return true;
 }
 
-static struct auth_proto *ft_sm_new(struct handshake_state *hs,
+static bool ft_start(struct auth_proto *ap)
+{
+	struct ft_sm *ft = l_container_of(ap, struct ft_sm, ap);
+	struct handshake_state *hs = ft->hs;
+	struct iovec iov;
+	uint8_t buf[512];
+	size_t len;
+
+	if (!ft_build_authenticate_ies(hs, hs->snonce, buf, &len))
+		return false;
+
+	iov.iov_base = buf;
+	iov.iov_len = len;
+
+	ft->tx_auth(&iov, 1, ft->user_data);
+
+	return true;
+}
+
+struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
 				ft_tx_authenticate_func_t tx_auth,
 				ft_tx_associate_func_t tx_assoc,
-				bool over_air,
 				void *user_data)
 {
 	struct ft_sm *ft = l_new(struct ft_sm, 1);
@@ -766,7 +872,7 @@ static struct auth_proto *ft_sm_new(struct handshake_state *hs,
 	ft->hs = hs;
 	ft->user_data = user_data;
 
-	ft->ap.rx_authenticate = (over_air) ? ft_rx_authenticate : ft_rx_action;
+	ft->ap.rx_authenticate = ft_rx_authenticate;
 	ft->ap.rx_associate = ft_rx_associate;
 	ft->ap.start = ft_start;
 	ft->ap.free = ft_sm_free;
@@ -774,18 +880,19 @@ static struct auth_proto *ft_sm_new(struct handshake_state *hs,
 	return &ft->ap;
 }
 
-struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
-				ft_tx_authenticate_func_t tx_auth,
-				ft_tx_associate_func_t tx_assoc,
-				void *user_data)
-{
-	return ft_sm_new(hs, tx_auth, tx_assoc, true, user_data);
-}
-
 struct auth_proto *ft_over_ds_sm_new(struct handshake_state *hs,
-				ft_tx_authenticate_func_t tx_auth,
 				ft_tx_associate_func_t tx_assoc,
 				void *user_data)
 {
-	return ft_sm_new(hs, tx_auth, tx_assoc, false, user_data);
+	struct ft_sm *ft = l_new(struct ft_sm, 1);
+
+	ft->tx_assoc = tx_assoc;
+	ft->hs = hs;
+	ft->user_data = user_data;
+
+	ft->ap.rx_associate = ft_rx_associate;
+	ft->ap.start = ft_over_ds_start;
+	ft->ap.free = ft_sm_free;
+
+	return &ft->ap;
 }

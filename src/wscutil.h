@@ -681,3 +681,5 @@ bool wsc_device_type_to_dbus_str(const struct wsc_primary_device_type *val,
 					const char **subcategory_str);
 bool wsc_device_type_from_subcategory_str(struct wsc_primary_device_type *out,
 						const char *subcategory_str);
+bool wsc_device_type_from_setting_str(const char *value,
+					struct wsc_primary_device_type *out);

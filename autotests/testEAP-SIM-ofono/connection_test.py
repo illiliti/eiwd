@@ -14,8 +14,6 @@ from config import ctx
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
-        auth = AuthCenter('/tmp/hlrauc.sock', '/tmp/sim.db')
-
         ofono = Ofono()
         ofono.enable_modem('/phonesim')
         ofono.wait_for_sim_auth()
@@ -40,11 +38,7 @@ class Test(unittest.TestCase):
         condition = 'not obj.connected'
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
-        try:
-                ordered_network.network_object.connect()
-        except:
-                auth.stop()
-                raise
+        ordered_network.network_object.connect()
 
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
@@ -54,8 +48,6 @@ class Test(unittest.TestCase):
         condition = 'not obj.connected'
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
-        auth.stop()
-
     @classmethod
     def setUpClass(cls):
         if not ctx.is_process_running('ofonod'):
@@ -63,9 +55,14 @@ class Test(unittest.TestCase):
 
         IWD.copy_to_storage('ssidEAP-SIM.8021x')
 
+        cls.auth = AuthCenter('/tmp/hlrauc.sock', '/tmp/sim.db')
+
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
+
+        cls.auth.stop()
+        cls.auth = None
 
 if __name__ == '__main__':
     unittest.main(exit=True)

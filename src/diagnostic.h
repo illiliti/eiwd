@@ -20,6 +20,8 @@
  *
  */
 
+enum ie_rsn_akm_suite;
+
 enum diagnostic_mcs_type {
 	DIAGNOSTIC_MCS_TYPE_NONE,
 	DIAGNOSTIC_MCS_TYPE_HT,
@@ -52,3 +54,6 @@ struct diagnostic_station_info {
 
 bool diagnostic_info_to_dict(const struct diagnostic_station_info *info,
 				struct l_dbus_message_builder *builder);
+
+const char *diagnostic_akm_suite_to_security(enum ie_rsn_akm_suite suite,
+						bool wpa);

@@ -83,10 +83,6 @@ void station_remove_anqp_watch(uint32_t id);
 
 bool station_set_autoconnect(struct station *station, bool autoconnect);
 
-void station_ap_directed_roam(struct station *station,
-				const struct mmpdu_header *hdr,
-				const void *body, size_t body_len);
-
 int __station_connect_network(struct station *station, struct network *network,
 				struct scan_bss *bss);
 void station_connect_network(struct station *station, struct network *network,

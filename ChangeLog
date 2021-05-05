@@ -1,3 +1,11 @@
+ver 1.14:
+	Fix issue with scanning property and quick scan cancellation.
+	Fix issue with handling authentication timeouts from SAE.
+	Fix issue with handling association timeouts and retries.
+	Fix issue with handling roaming frequencies after roaming.
+	Fix issue with requesting neighbor report after roaming.
+	Add support for handling PSK offload connections.
+
 ver 1.13:
 	Fix issue with EAPoL protocol version 2010 handling.
 	Fix issue with authenticator method logic handling.

@@ -1742,19 +1742,12 @@ static bool load_primary_device_type(struct l_settings *settings,
 					struct wsc_primary_device_type *pdt)
 {
 	const char *v;
-	int r;
 
 	v = l_settings_get_value(settings, "WSC", "PrimaryDeviceType");
 	if (!v)
 		return false;
 
-	r = sscanf(v, "%hx-%2hhx%2hhx%2hhx%2hhx-%2hx", &pdt->category,
-			&pdt->oui[0], &pdt->oui[1], &pdt->oui[2],
-			&pdt->oui_type, &pdt->subcategory);
-	if (r != 6)
-		return false;
-
-	return true;
+	return wsc_device_type_from_setting_str(v, pdt);
 }
 
 static bool load_constrained_string(struct l_settings *settings,

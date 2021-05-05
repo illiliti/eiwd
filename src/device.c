@@ -37,8 +37,6 @@
 #include "src/scan.h"
 #include "src/netdev.h"
 #include "src/dbus.h"
-#include "src/frame-xchg.h"
-#include "src/station.h"
 
 struct device {
 	uint32_t index;
@@ -53,18 +51,6 @@ struct device {
 };
 
 static uint32_t netdev_watch;
-
-static void device_ap_roam_frame_event(const struct mmpdu_header *hdr,
-		const void *body, size_t body_len, int rssi, void *user_data)
-{
-	struct device *device = user_data;
-	struct station *station = station_find(device->index);
-
-	if (!station)
-		return;
-
-	station_ap_directed_roam(station, hdr, body, body_len);
-}
 
 static bool device_property_get_name(struct l_dbus *dbus,
 					struct l_dbus_message *message,
@@ -194,7 +180,7 @@ static bool device_property_get_mode(struct l_dbus *dbus,
 {
 	struct device *device = user_data;
 	uint32_t iftype = netdev_get_iftype(device->netdev);
-	const char *modestr = dbus_iftype_to_string(iftype);
+	const char *modestr = netdev_iftype_to_string(iftype);
 
 	if (modestr == NULL)
 		modestr = "unknown";
@@ -306,7 +292,6 @@ static struct device *device_create(struct wiphy *wiphy, struct netdev *netdev)
 	struct l_dbus *dbus = dbus_get_bus();
 #endif
 	uint32_t ifindex = netdev_get_ifindex(netdev);
-	const uint8_t action_ap_roam_prefix[2] = { 0x0a, 0x07 };
 
 	device = l_new(struct device, 1);
 	device->index = ifindex;
@@ -323,13 +308,6 @@ static struct device *device_create(struct wiphy *wiphy, struct netdev *netdev)
 		l_info("Unable to register %s interface",
 				L_DBUS_INTERFACE_PROPERTIES);
 #endif
-
-	/*
-	 * register for AP roam transition watch
-	 */
-	frame_watch_add(netdev_get_wdev_id(netdev), 0, 0x00d0,
-			action_ap_roam_prefix, sizeof(action_ap_roam_prefix),
-			device_ap_roam_frame_event, device, NULL);
 
 	device->powered = netdev_get_is_up(netdev);
 

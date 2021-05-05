@@ -32,6 +32,8 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
+
 #include "src/missing.h"
 #include "src/module.h"
 #include "src/ie.h"
@@ -50,6 +52,7 @@
 #include "src/network.h"
 #include "src/blacklist.h"
 #include "src/util.h"
+#include "src/erp.h"
 
 static uint32_t known_networks_watch;
 static uint32_t anqp_watch;
@@ -377,56 +380,54 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 	size_t psk_len;
 	uint8_t *psk = l_settings_get_bytes(network->settings, "Security",
 						"PreSharedKey", &psk_len);
-	char *passphrase = l_settings_get_string(network->settings,
+	_auto_(l_free) char *passphrase =
+			l_settings_get_string(network->settings,
 						"Security", "Passphrase");
+	_auto_(l_free) char *path =
+		storage_get_network_file_path(security, ssid);
 	int r;
 
-	/* PSK can be generated from the passphrase but not the other way */
-	if ((!psk || need_passphrase) && !passphrase) {
+	if (psk && psk_len != 32) {
+		l_error("%s: invalid PreSharedKey format", path);
 		l_free(psk);
-		return -ENOKEY;
+		psk = NULL;
+		psk_len = 0;
+	}
+
+	/* PSK can be generated from the passphrase but not the other way */
+	if (!psk || need_passphrase) {
+		if (!passphrase)
+			return -ENOKEY;
+
+		if (!crypto_passphrase_is_valid(passphrase)) {
+			l_error("%s: invalid Passphrase format", path);
+			return -ENOKEY;
+		}
 	}
 
 	network_reset_passphrase(network);
 	network_reset_psk(network);
-	network->passphrase = passphrase;
+	network->passphrase = l_steal_ptr(passphrase);
 
 	if (psk) {
-		char *path;
-
-		if (psk_len == 32) {
-			network->psk = psk;
-			return 0;
-		}
-
-		l_free(psk);
-
-		path = storage_get_network_file_path(security, ssid);
-		l_error("%s: invalid PreSharedKey format", path);
-		l_free(path);
-
-		if (!passphrase)
-			return -EINVAL;
+		network->psk = psk;
+		return 0;
 	}
 
 	network->psk = l_malloc(32);
-	r = crypto_psk_from_passphrase(passphrase, (uint8_t *) ssid,
+	r = crypto_psk_from_passphrase(network->passphrase, (uint8_t *) ssid,
 					strlen(ssid), network->psk);
 	if (!r) {
 		network->update_psk = true;
 		return 0;
 	}
 
-	if (r == -ERANGE || r == -EINVAL)
-		l_error("PSK generation failed: invalid passphrase format");
-	else
-		l_error("PSK generation failed: %s.  "
-			"Ensure Crypto Engine is properly configured",
-			strerror(-r));
+	l_error("PSK generation failed: %s", strerror(-r));
 
 	network_reset_passphrase(network);
 	network_reset_psk(network);
-	return -EINVAL;
+
+	return r;
 }
 
 void network_sync_psk(struct network *network)
@@ -722,6 +723,46 @@ static bool match_bss(const void *a, const void *b)
 	return a == b;
 }
 
+bool network_has_erp_identity(struct network *network)
+{
+	struct erp_cache_entry *cache;
+	struct l_settings *settings;
+	char *check_id;
+	const char *identity;
+	bool ret;
+
+	settings = network_get_settings(network);
+	if (!settings)
+		return false;
+
+	check_id = l_settings_get_string(settings, "Security", "EAP-Identity");
+	if (!check_id)
+		return false;
+
+	cache = erp_cache_get(network_get_ssid(network));
+	if (!cache) {
+		l_free(check_id);
+		return false;
+	}
+
+	identity = erp_cache_entry_get_identity(cache);
+
+	ret = strcmp(check_id, identity) == 0;
+
+	l_free(check_id);
+	erp_cache_put(cache);
+
+	/*
+	 * The settings file must have change out from under us. In this
+	 * case we want to remove the ERP entry because it is no longer
+	 * valid.
+	 */
+	if (!ret)
+		erp_cache_remove(identity);
+
+	return ret;
+}
+
 struct scan_bss *network_bss_select(struct network *network,
 						bool fallback_to_blacklist)
 {
@@ -729,6 +770,7 @@ struct scan_bss *network_bss_select(struct network *network,
 	struct wiphy *wiphy = station_get_wiphy(network->station);
 	const struct l_queue_entry *bss_entry;
 	struct scan_bss *candidate = NULL;
+	bool fils_hint = network_has_erp_identity(network);
 
 	for (bss_entry = l_queue_get_entries(bss_list); bss_entry;
 			bss_entry = bss_entry->next) {
@@ -737,7 +779,7 @@ struct scan_bss *network_bss_select(struct network *network,
 		switch (network_get_security(network)) {
 		case SECURITY_PSK:
 		case SECURITY_8021X:
-			if (!wiphy_can_connect(wiphy, bss))
+			if (!wiphy_can_connect(wiphy, bss, fils_hint))
 				continue;
 			/* fall through */
 		case SECURITY_NONE:
