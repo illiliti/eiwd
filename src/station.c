@@ -3721,12 +3721,49 @@ static struct l_dbus_message *station_get_diagnostics(struct l_dbus *dbus,
 	return NULL;
 }
 
+static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct station *station = user_data;
+	struct scan_bss *target;
+	struct l_dbus_message_iter iter;
+	uint8_t *mac;
+	uint32_t mac_len;
+
+	if (!l_dbus_message_get_arguments(message, "ay", &iter))
+		goto invalid_args;
+
+	if (!l_dbus_message_iter_get_fixed_array(&iter, &mac, &mac_len))
+		goto invalid_args;
+
+	if (mac_len != 6)
+		return dbus_error_invalid_args(message);
+
+	target = network_bss_find_by_addr(station->connected_network, mac);
+	if (!target || target == station->connected_bss)
+		return dbus_error_invalid_args(message);
+
+	l_debug("Attempting forced roam to BSS "MAC, MAC_STR(mac));
+
+	station_transition_start(station, target);
+
+	return l_dbus_message_new_method_return(message);
+
+invalid_args:
+	return dbus_error_invalid_args(message);
+}
+
 static void station_setup_diagnostic_interface(
 					struct l_dbus_interface *interface)
 {
 	l_dbus_interface_method(interface, "GetDiagnostics", 0,
 				station_get_diagnostics, "a{sv}", "",
 				"diagnostics");
+
+	if (iwd_is_developer_mode())
+		l_dbus_interface_method(interface, "Roam", 0,
+					station_force_roam, "", "ay", "mac");
 }
 
 static void station_destroy_diagnostic_interface(void *user_data)
