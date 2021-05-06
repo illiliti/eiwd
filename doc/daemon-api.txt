@@ -1,0 +1,24 @@
+Daemon hierarchy
+================
+
+Service		net.connman.iwd
+Interface	net.connman.iwd.Daemon [Experimental]
+Object path	/net/connman/iwd
+
+Methods		dict GetInfo()
+
+			Returns basic IWD daemon's status and configuration
+			properties.  Their values are global and may be useful
+			for D-Bus clients interacting with IWD, not so much
+			for the user.  The returned dictionary (a{sv}) maps
+			string keys to values of types defined per key.
+			Clients should ignore unknown keys.
+
+			The following key/value pairs are defined currently:
+
+			string Version - IWD release version,
+
+			string StateDirectory - Absolute path to the IWD
+			state directory where network configuration and
+			runtime state files are kept (see $STATE_DIRECTORY in
+			iwd(8) and iwd.network(5)).
