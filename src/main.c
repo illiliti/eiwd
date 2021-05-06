@@ -185,6 +185,16 @@ static void request_name_callback(struct l_dbus *dbus, bool success,
 	if (!l_dbus_object_manager_enable(dbus, "/"))
 		l_warn("Unable to register the ObjectManager");
 
+	if (!l_dbus_object_add_interface(dbus, IWD_BASE_PATH,
+						IWD_DAEMON_INTERFACE,
+						NULL) ||
+			!l_dbus_object_add_interface(dbus, IWD_BASE_PATH,
+						L_DBUS_INTERFACE_PROPERTIES,
+						NULL))
+		l_info("Unable to add %s and/or %s at %s",
+			IWD_DAEMON_INTERFACE, L_DBUS_INTERFACE_PROPERTIES,
+			IWD_BASE_PATH);
+
 	/* TODO: Always request nl80211 for now, ignoring auto-loading */
 	l_genl_request_family(genl, NL80211_GENL_NAME, nl80211_appeared,
 				NULL, NULL);
@@ -194,12 +204,44 @@ fail_exit:
 	l_main_quit();
 }
 
+static struct l_dbus_message *iwd_dbus_get_info(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct l_dbus_message *reply;
+	struct l_dbus_message_builder *builder;
+	L_AUTO_FREE_VAR(char *, storage_dir) = storage_get_path(NULL);
+
+	reply = l_dbus_message_new_method_return(message);
+	builder = l_dbus_message_builder_new(reply);
+	l_dbus_message_builder_enter_array(builder, "{sv}");
+
+	dbus_append_dict_basic(builder, "StateDirectory", 's', storage_dir);
+	dbus_append_dict_basic(builder, "Version", 's', VERSION);
+
+	l_dbus_message_builder_leave_array(builder);
+	l_dbus_message_builder_finalize(builder);
+	l_dbus_message_builder_destroy(builder);
+
+	return reply;
+}
+
+static void iwd_setup_deamon_interface(struct l_dbus_interface *interface)
+{
+	l_dbus_interface_method(interface, "GetInfo", 0, iwd_dbus_get_info,
+				"a{sv}", "", "info");
+}
+
 static void dbus_ready(void *user_data)
 {
 	struct l_dbus *dbus = user_data;
 
 	l_dbus_name_acquire(dbus, "net.connman.iwd", false, false, false,
 				request_name_callback, NULL);
+
+	l_dbus_register_interface(dbus, IWD_DAEMON_INTERFACE,
+					iwd_setup_deamon_interface,
+					NULL, false);
 }
 
 static void dbus_disconnected(void *user_data)
