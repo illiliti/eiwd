@@ -1186,6 +1186,7 @@ def post_test(ctx, to_copy):
 	allowed = ['phonesim.conf', 'certs', 'secrets', 'iwd']
 	for f in [f for f in os.listdir('/tmp') if f not in allowed]:
 		dbg("File %s was not cleaned up!" % f)
+		os.remove('/tmp/' + f)
 
 	if ctx.args.valgrind:
 		with open('/tmp/valgrind.log', 'r') as f:
