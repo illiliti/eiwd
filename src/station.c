@@ -152,12 +152,6 @@ static bool station_is_autoconnecting(struct station *station)
 			station->state == STATION_STATE_AUTOCONNECT_QUICK;
 }
 
-struct autoconnect_entry {
-	uint16_t rank;
-	struct network *network;
-	struct scan_bss *bss;
-};
-
 static void station_property_set_scanning(struct station *station,
 								bool scanning)
 {
@@ -176,25 +170,23 @@ static void station_enter_state(struct station *station,
 
 static void station_autoconnect_next(struct station *station)
 {
-	struct autoconnect_entry *entry;
+	struct network *network;
 	int r;
 
-	while ((entry = l_queue_pop_head(station->autoconnect_list))) {
-		const char *ssid = network_get_ssid(entry->network);
+	while ((network = l_queue_pop_head(station->autoconnect_list))) {
+		const char *ssid = network_get_ssid(network);
+		struct scan_bss *bss = network_bss_select(network, false);
 
 		l_debug("Considering autoconnecting to BSS '%s' with SSID: %s,"
 			" freq: %u, rank: %u, strength: %i",
-			util_address_to_string(entry->bss->addr), ssid,
-			entry->bss->frequency, entry->rank,
-			entry->bss->signal_strength);
+			util_address_to_string(bss->addr), ssid,
+			bss->frequency, bss->rank,
+			bss->signal_strength);
 
-		if (blacklist_contains_bss(entry->bss->addr)) {
-			l_free(entry);
+		if (blacklist_contains_bss(bss->addr))
 			continue;
-		}
 
-		r = network_autoconnect(entry->network, entry->bss);
-		l_free(entry);
+		r = network_autoconnect(network, bss);
 
 		if (!r) {
 			station_enter_state(station, STATION_STATE_CONNECTING);
@@ -210,33 +202,6 @@ static void station_autoconnect_next(struct station *station)
 		} else
 			l_debug("Failed to autoconnect to %s (%d)", ssid, r);
 	}
-}
-
-static int autoconnect_rank_compare(const void *a, const void *b, void *user)
-{
-	const struct autoconnect_entry *new_ae = a;
-	const struct autoconnect_entry *ae = b;
-
-	return (ae->rank > new_ae->rank) ? 1 : -1;
-}
-
-static void station_add_autoconnect_bss(struct station *station,
-					struct network *network,
-					struct scan_bss *bss)
-{
-	double rankmod;
-	struct autoconnect_entry *entry;
-
-	/* See if network is autoconnectable (is a known network) */
-	if (!network_rankmod(network, &rankmod))
-		return;
-
-	entry = l_new(struct autoconnect_entry, 1);
-	entry->network = network;
-	entry->bss = bss;
-	entry->rank = bss->rank * rankmod;
-	l_queue_insert(station->autoconnect_list, entry,
-				autoconnect_rank_compare, NULL);
 }
 
 static void bss_free(void *data)
@@ -457,12 +422,9 @@ static bool match_nai_realms(const struct network_info *info, void *user_data)
 static void network_add_foreach(struct network *network, void *user_data)
 {
 	struct station *station = user_data;
-	struct scan_bss *bss = network_bss_select(network, false);
 
-	if (!bss)
-		return;
-
-	station_add_autoconnect_bss(station, network, bss);
+	l_queue_insert(station->autoconnect_list, network,
+				network_rank_compare, NULL);
 }
 
 static bool match_pending(const void *a, const void *b)
@@ -553,7 +515,7 @@ request_done:
 	/* Notify all watchers now that every ANQP request has finished */
 	l_queue_foreach_remove(station->anqp_pending, anqp_entry_foreach, NULL);
 
-	l_queue_destroy(station->autoconnect_list, l_free);
+	l_queue_destroy(station->autoconnect_list, NULL);
 	station->autoconnect_list = l_queue_new();
 
 	if (station_is_autoconnecting(station)) {
@@ -662,7 +624,7 @@ void station_set_scan_results(struct station *station,
 
 	l_queue_clear(station->hidden_bss_list_sorted, NULL);
 
-	l_queue_destroy(station->autoconnect_list, l_free);
+	l_queue_destroy(station->autoconnect_list, NULL);
 	station->autoconnect_list = l_queue_new();
 
 	station_bss_list_remove_expired_bsses(station, freqs);
@@ -3631,7 +3593,7 @@ static void station_free(struct station *station)
 	l_hashmap_destroy(station->networks, network_free);
 	l_queue_destroy(station->bss_list, bss_free);
 	l_queue_destroy(station->hidden_bss_list_sorted, NULL);
-	l_queue_destroy(station->autoconnect_list, l_free);
+	l_queue_destroy(station->autoconnect_list, NULL);
 
 	watchlist_destroy(&station->state_watches);
 
