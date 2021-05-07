@@ -131,7 +131,14 @@ The group ``[General]`` contains general settings.
    * - RoamThreshold
      - Value: rssi dBm value, from -100 to 1, default: **-70**
 
-       This can be used to control how aggressively **iwd** roams.
+       This value can be used to control how aggressively **iwd** roams when
+       connected to a 2.4Ghz access point.
+
+   * - RoamThreshold5G
+     - Value: rssi dBm value, from -100 to 1, default: **-76**
+
+       This value can be used to control how aggressively **iwd** roams when
+       connected to a 5GHz access point.
 
    * - RoamRetryInterval
      - Value: unsigned int value in seconds (default: **60**)
