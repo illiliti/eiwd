@@ -1688,14 +1688,16 @@ static int ie_parse_supported_rates(struct ie_tlv_iter *supp_rates_iter,
 		max_rate = map->rate;
 	}
 
-	/* Find highest rate in Supported Rates IE */
-	rates = ie_tlv_iter_get_data(supp_rates_iter);
+	if (supp_rates_iter) {
+		/* Find highest rate in Supported Rates IE */
+		rates = ie_tlv_iter_get_data(supp_rates_iter);
 
-	for (i = 0; i < len; i++) {
-		uint8_t r = rates[i] & 0x7f;
+		for (i = 0; i < len; i++) {
+			uint8_t r = rates[i] & 0x7f;
 
-		if (r <= max_rate && r > highest)
-			highest = r;
+			if (r <= max_rate && r > highest)
+				highest = r;
+		}
 	}
 
 	/* Find highest rate in Extended Supported Rates IE */
@@ -1711,7 +1713,10 @@ static int ie_parse_supported_rates(struct ie_tlv_iter *supp_rates_iter,
 		}
 	}
 
-	*data_rate = (highest / 2) * 1000000;
+	if (highest)
+		*data_rate = (highest / 2) * 1000000;
+	else
+		*data_rate = (max_rate / 2) * 1000000;
 
 	return 0;
 }
