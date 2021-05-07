@@ -1326,39 +1326,31 @@ static struct scan_bss *scan_parse_result(struct l_genl_msg *msg,
 
 static void scan_bss_compute_rank(struct scan_bss *bss)
 {
-	static const double RANK_RSNE_FACTOR = 1.2;
-	static const double RANK_WPA_FACTOR = 1.0;
-	static const double RANK_OPEN_FACTOR = 0.5;
-	static const double RANK_NO_PRIVACY_FACTOR = 0.5;
 	static const double RANK_HIGH_UTILIZATION_FACTOR = 0.8;
 	static const double RANK_LOW_UTILIZATION_FACTOR = 1.2;
-	static const double RANK_MIN_SUPPORTED_RATE_FACTOR = 0.6;
-	static const double RANK_MAX_SUPPORTED_RATE_FACTOR = 1.3;
 	double rank;
 	uint32_t irank;
+	uint64_t data_rate;
+	/*
+	 * Maximum rate is 2340Mbps (VHT)
+	 */
+	uint64_t max_rate = 2340000000U;
 
 	/*
-	 * Signal strength is in mBm (100 * dBm) and is negative.
-	 * WiFi range is -0 to -100 dBm
+	 * If parsing fails choose a very low data rate as its unknown what
+	 * this AP supports or why its IEs did not parse. Likely not an AP
+	 * we should prefer to connect to.
 	 */
+	if (ie_parse_data_rates(bss->has_sup_rates ?
+				bss->supp_rates_ie : NULL,
+				bss->ext_supp_rates_ie,
+				bss->ht_capable ? bss->ht_ie : NULL,
+				bss->vht_capable ? bss->vht_ie : NULL,
+				bss->signal_strength / 100,
+				&data_rate) != 0)
+		data_rate = 2000000;
 
-	/* Heavily slanted towards signal strength */
-	rank = 10000 + bss->signal_strength;
-
-	/*
-	 * Prefer RSNE first, WPA second.  Open networks are much less
-	 * desirable.
-	 */
-	if (bss->rsne)
-		rank *= RANK_RSNE_FACTOR;
-	else if (bss->wpa)
-		rank *= RANK_WPA_FACTOR;
-	else
-		rank *= RANK_OPEN_FACTOR;
-
-	/* We prefer networks with CAP PRIVACY */
-	if (!(bss->capability & IE_BSS_CAP_PRIVACY))
-		rank *= RANK_NO_PRIVACY_FACTOR;
+	rank = (double)data_rate / (double)max_rate * USHRT_MAX;
 
 	/* Prefer 5G networks over 2.4G */
 	if (bss->frequency > 4000)
@@ -1369,29 +1361,6 @@ static void scan_bss_compute_rank(struct scan_bss *bss)
 		rank *= RANK_HIGH_UTILIZATION_FACTOR;
 	else if (bss->utilization <= 63)
 		rank *= RANK_LOW_UTILIZATION_FACTOR;
-
-	if (bss->has_sup_rates || bss->ext_supp_rates_ie) {
-		uint64_t data_rate;
-
-		if (ie_parse_data_rates(bss->has_sup_rates ?
-					bss->supp_rates_ie : NULL,
-					bss->ext_supp_rates_ie,
-					bss->ht_capable ? bss->ht_ie : NULL,
-					bss->vht_capable ? bss->vht_ie : NULL,
-					bss->signal_strength / 100,
-					&data_rate) == 0) {
-			double factor = RANK_MAX_SUPPORTED_RATE_FACTOR -
-					RANK_MIN_SUPPORTED_RATE_FACTOR;
-
-			/*
-			 * Maximum rate is 2340Mbps (VHT)
-			 */
-			factor = factor * data_rate / 2340000000U +
-						RANK_MIN_SUPPORTED_RATE_FACTOR;
-			rank *= factor;
-		} else
-			rank *= RANK_MIN_SUPPORTED_RATE_FACTOR;
-	}
 
 	irank = rank;
 
