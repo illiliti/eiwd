@@ -891,6 +891,7 @@ struct netdev *netdev_find(int ifindex)
 
 /* Threshold RSSI for roaming to trigger, configurable in main.conf */
 static int LOW_SIGNAL_THRESHOLD;
+static int LOW_SIGNAL_THRESHOLD_5GHZ;
 
 static void netdev_cqm_event_rssi_threshold(struct netdev *netdev,
 						uint32_t rssi_event)
@@ -925,6 +926,8 @@ static void netdev_cqm_event_rssi_value(struct netdev *netdev, int rssi_val)
 {
 	bool new_rssi_low;
 	uint8_t prev_rssi_level_idx = netdev->cur_rssi_level_idx;
+	int threshold = netdev->frequency > 4000 ? LOW_SIGNAL_THRESHOLD_5GHZ :
+						LOW_SIGNAL_THRESHOLD;
 
 	if (!netdev->connected)
 		return;
@@ -939,7 +942,7 @@ static void netdev_cqm_event_rssi_value(struct netdev *netdev, int rssi_val)
 	if (!netdev->event_filter)
 		return;
 
-	new_rssi_low = rssi_val < LOW_SIGNAL_THRESHOLD;
+	new_rssi_low = rssi_val < threshold;
 	if (netdev->cur_rssi_low != new_rssi_low) {
 		int event = new_rssi_low ?
 			NETDEV_EVENT_RSSI_THRESHOLD_LOW :
@@ -4806,9 +4809,11 @@ static struct l_genl_msg *netdev_build_cmd_cqm_rssi_update(
 	uint32_t hyst = 5;
 	int thold_count;
 	int32_t thold_list[levels_num + 2];
+	int threshold = netdev->frequency > 4000 ? LOW_SIGNAL_THRESHOLD_5GHZ :
+						LOW_SIGNAL_THRESHOLD;
 
 	if (levels_num == 0) {
-		thold_list[0] = LOW_SIGNAL_THRESHOLD;
+		thold_list[0] = threshold;
 		thold_count = 1;
 	} else {
 		/*
@@ -4827,13 +4832,12 @@ static struct l_genl_msg *netdev_build_cmd_cqm_rssi_update(
 			if (i && thold_list[thold_count - 1] >= val)
 				return NULL;
 
-			if (val >= LOW_SIGNAL_THRESHOLD && !low_sig_added) {
-				thold_list[thold_count++] =
-					LOW_SIGNAL_THRESHOLD;
+			if (val >= threshold && !low_sig_added) {
+				thold_list[thold_count++] = threshold;
 				low_sig_added = true;
 
 				/* Duplicate values are not allowed */
-				if (val == LOW_SIGNAL_THRESHOLD)
+				if (val == threshold)
 					continue;
 			}
 
@@ -5832,6 +5836,10 @@ static int netdev_init(void)
 	if (!l_settings_get_int(settings, "General", "RoamThreshold",
 					&LOW_SIGNAL_THRESHOLD))
 		LOW_SIGNAL_THRESHOLD = -70;
+
+	if (!l_settings_get_int(settings, "General", "RoamThreshold5G",
+					&LOW_SIGNAL_THRESHOLD_5GHZ))
+		LOW_SIGNAL_THRESHOLD_5GHZ = -76;
 
 	if (!l_settings_get_bool(settings, "General", "ControlPortOverNL80211",
 					&pae_over_nl80211))
