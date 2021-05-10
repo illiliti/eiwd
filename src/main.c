@@ -218,11 +218,19 @@ static struct l_dbus_message *iwd_dbus_get_info(struct l_dbus *dbus,
 	struct l_dbus_message *reply;
 	struct l_dbus_message_builder *builder;
 	L_AUTO_FREE_VAR(char *, storage_dir) = storage_get_path(NULL);
+	bool netconfig_enabled;
+
+	if (!l_settings_get_bool(iwd_config, "General",
+					"EnableNetworkConfiguration",
+					&netconfig_enabled))
+		netconfig_enabled = false;
 
 	reply = l_dbus_message_new_method_return(message);
 	builder = l_dbus_message_builder_new(reply);
 	l_dbus_message_builder_enter_array(builder, "{sv}");
 
+	dbus_append_dict_basic(builder, "NetworkConfigurationEnabled", 'b',
+				&netconfig_enabled);
 	dbus_append_dict_basic(builder, "StateDirectory", 's', storage_dir);
 	dbus_append_dict_basic(builder, "Version", 's', VERSION);
 
