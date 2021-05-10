@@ -2260,34 +2260,41 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 	return cmd;
 }
 
+static bool ap_start_send(struct ap_state *ap)
+{
+	struct l_genl_msg *cmd = ap_build_cmd_start_ap(ap);
+
+	if (!cmd) {
+		l_error("ap_build_cmd_start_ap failed");
+		return false;
+	}
+
+	ap->start_stop_cmd_id = l_genl_family_send(ap->nl80211, cmd,
+							ap_start_cb, ap, NULL);
+	if (!ap->start_stop_cmd_id) {
+		l_error("AP_START l_genl_family_send failed");
+		l_genl_msg_unref(cmd);
+		return false;
+	}
+
+	return true;
+}
+
 static void ap_ifaddr4_added_cb(int error, uint16_t type, const void *data,
 				uint32_t len, void *user_data)
 {
 	struct ap_state *ap = user_data;
-	struct l_genl_msg *cmd;
 
 	ap->rtnl_add_cmd = 0;
 
 	if (error) {
 		l_error("Failed to set IP address");
-		goto error;
+		ap_start_failed(ap);
+		return;
 	}
 
-	cmd = ap_build_cmd_start_ap(ap);
-	if (!cmd)
-		goto error;
-
-	ap->start_stop_cmd_id = l_genl_family_send(ap->nl80211, cmd,
-							ap_start_cb, ap, NULL);
-	if (!ap->start_stop_cmd_id) {
-		l_genl_msg_unref(cmd);
-		goto error;
-	}
-
-	return;
-
-error:
-	ap_start_failed(ap);
+	if (!ap_start_send(ap))
+		ap_start_failed(ap);
 }
 
 static bool ap_parse_new_station_ies(const void *data, uint16_t len,
@@ -2858,7 +2865,6 @@ struct ap_state *ap_start(struct netdev *netdev, struct l_settings *config,
 {
 	struct ap_state *ap;
 	struct wiphy *wiphy = netdev_get_wiphy(netdev);
-	struct l_genl_msg *cmd;
 	uint64_t wdev_id = netdev_get_wdev_id(netdev);
 	int err = -EINVAL;
 	bool wait_on_address = false;
@@ -2949,21 +2955,12 @@ struct ap_state *ap_start(struct netdev *netdev, struct l_settings *config,
 		return ap;
 	}
 
-	cmd = ap_build_cmd_start_ap(ap);
-	if (!cmd)
-		goto error;
+	if (ap_start_send(ap)) {
+		if (err_out)
+			*err_out = 0;
 
-	ap->start_stop_cmd_id = l_genl_family_send(ap->nl80211, cmd,
-							ap_start_cb, ap, NULL);
-	if (!ap->start_stop_cmd_id) {
-		l_genl_msg_unref(cmd);
-		goto error;
+		return ap;
 	}
-
-	if (err_out)
-		*err_out = 0;
-
-	return ap;
 
 error:
 	if (err_out)
