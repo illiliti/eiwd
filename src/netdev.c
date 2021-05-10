@@ -771,10 +771,15 @@ static void netdev_connect_failed(struct netdev *netdev,
 
 	if (connect_cb)
 		connect_cb(netdev, result, &status_or_reason, connect_data);
-	else if (event_filter)
+	else if (event_filter) {
+		/* NETDEV_EVENT_DISCONNECT_BY_SME expects a reason code */
+		if (result != NETDEV_RESULT_HANDSHAKE_FAILED)
+			status_or_reason = MMPDU_REASON_CODE_UNSPECIFIED;
+
 		event_filter(netdev, NETDEV_EVENT_DISCONNECT_BY_SME,
 				&status_or_reason,
 				connect_data);
+	}
 }
 
 static void netdev_disconnect_cb(struct l_genl_msg *msg, void *user_data)
