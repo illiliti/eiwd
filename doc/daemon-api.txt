@@ -22,3 +22,9 @@ Methods		dict GetInfo()
 			state directory where network configuration and
 			runtime state files are kept (see $STATE_DIRECTORY in
 			iwd(8) and iwd.network(5)).
+
+			bool NetworkConfigurationEnabled - Whether network
+			configuration is enabled (see iwd(8)).  When true,
+			IWD configures the address, netmask, the resolver,
+			a route, the DHCP client or server (in station vs.
+			access point mode.)
