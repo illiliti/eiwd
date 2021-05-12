@@ -761,6 +761,12 @@ bool network_has_erp_identity(struct network *network)
 	return ret;
 }
 
+const struct l_queue_entry *network_bss_list_get_entries(
+						struct network *network)
+{
+	return l_queue_get_entries(network->bss_list);
+}
+
 struct scan_bss *network_bss_select(struct network *network,
 						bool fallback_to_blacklist)
 {
