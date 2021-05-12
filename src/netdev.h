@@ -163,9 +163,7 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 int netdev_fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 				netdev_connect_cb_t cb);
 int netdev_fast_transition_over_ds_action(struct netdev *netdev,
-					const struct scan_bss *target_bss,
-					netdev_ft_over_ds_cb_t cb,
-					void *user_data);
+					const struct scan_bss *target_bss);
 int netdev_fast_transition_over_ds(struct netdev *netdev,
 					struct scan_bss *target_bss,
 					netdev_connect_cb_t cb);

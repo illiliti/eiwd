@@ -2502,8 +2502,7 @@ static void station_ft_ds_action_start(struct station *station, uint16_t mdid)
 		* Fire and forget. Netdev will maintain a cache of responses and
 		* when the time comes these can be referenced for a roam
 		*/
-		netdev_fast_transition_over_ds_action(station->netdev, bss,
-							NULL, NULL);
+		netdev_fast_transition_over_ds_action(station->netdev, bss);
 	}
 }
 

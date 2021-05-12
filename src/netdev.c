@@ -95,9 +95,6 @@ struct netdev_handshake_state {
 struct netdev_ft_over_ds_info {
 	struct ft_ds_info super;
 	struct netdev *netdev;
-	struct l_timeout *timeout;
-	netdev_ft_over_ds_cb_t cb;
-	void *user_data;
 
 	bool parsed : 1;
 };
@@ -3765,9 +3762,6 @@ static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)
 static void netdev_ft_over_ds_auth_failed(struct netdev_ft_over_ds_info *info,
 						uint16_t status)
 {
-	if (info->cb)
-		info->cb(info->netdev, status, info->super.aa, info->user_data);
-
 	l_queue_remove(info->netdev->ft_ds_list, info);
 	ft_ds_info_free(&info->super);
 }
@@ -3827,13 +3821,7 @@ static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
 	if (ret < 0)
 		goto ft_error;
 
-	l_timeout_remove(info->timeout);
-	info->timeout = NULL;
-
 	info->parsed = true;
-
-	if (info->cb)
-		info->cb(netdev, 0, info->super.aa, info->user_data);
 
 	return;
 
@@ -3963,34 +3951,16 @@ static void netdev_ft_request_cb(struct l_genl_msg *msg, void *user_data)
 	}
 }
 
-static void netdev_ft_over_ds_timeout(struct l_timeout *timeout,
-					void *user_data)
-{
-	struct netdev_ft_over_ds_info *info = user_data;
-
-	l_timeout_remove(info->timeout);
-	info->timeout = NULL;
-
-	l_debug("");
-
-	netdev_ft_over_ds_auth_failed(info, MMPDU_STATUS_CODE_UNSPECIFIED);
-}
-
 static void netdev_ft_ds_info_free(struct ft_ds_info *ft)
 {
 	struct netdev_ft_over_ds_info *info = l_container_of(ft,
 					struct netdev_ft_over_ds_info, super);
 
-	if (info->timeout)
-		l_timeout_remove(info->timeout);
-
 	l_free(info);
 }
 
 int netdev_fast_transition_over_ds_action(struct netdev *netdev,
-					const struct scan_bss *target_bss,
-					netdev_ft_over_ds_cb_t cb,
-					void *user_data)
+					const struct scan_bss *target_bss)
 {
 	struct netdev_ft_over_ds_info *info;
 	uint8_t ft_req[14];
@@ -4018,9 +3988,6 @@ int netdev_fast_transition_over_ds_action(struct netdev *netdev,
 	l_getrandom(info->super.snonce, 32);
 	info->super.free = netdev_ft_ds_info_free;
 
-	info->cb = cb;
-	info->user_data = user_data;
-
 	ft_req[0] = 6; /* FT category */
 	ft_req[1] = 1; /* FT Request action */
 	memcpy(ft_req + 2, netdev->addr, 6);
@@ -4041,9 +4008,6 @@ int netdev_fast_transition_over_ds_action(struct netdev *netdev,
 		netdev->ft_ds_list = l_queue_new();
 
 	l_queue_push_head(netdev->ft_ds_list, info);
-
-	info->timeout = l_timeout_create_ms(300, netdev_ft_over_ds_timeout,
-						info, NULL);
 
 	netdev_send_action_framev(netdev, netdev->handshake->aa, iovs, 2,
 					netdev->frequency,
