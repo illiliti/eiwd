@@ -3774,12 +3774,26 @@ static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
 	struct netdev_ft_over_ds_info *info = netdev->ft_ds_info;
 	int ret;
 	uint16_t status_code = MMPDU_STATUS_CODE_UNSPECIFIED;
+	const uint8_t *aa;
+	const uint8_t *spa;
+	const uint8_t *ies;
+	size_t ies_len;
 
 	if (!info)
 		return;
 
-	ret = ft_over_ds_parse_action_response(&info->super, netdev->handshake,
-						body, body_len);
+	ret = ft_over_ds_parse_action_response(body, body_len, &spa, &aa,
+						&ies, &ies_len);
+	if (ret != 0)
+		return;
+
+	if (memcmp(spa, info->super.spa, 6))
+		return;
+	if (memcmp(aa, info->super.aa, 6))
+		return;
+
+	ret = ft_over_ds_parse_action_ies(&info->super, netdev->handshake,
+						ies, ies_len);
 	if (ret < 0)
 		return;
 
