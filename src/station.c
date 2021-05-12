@@ -1867,8 +1867,7 @@ static void station_transition_start(struct station *station,
 		}
 
 		/* FT-over-DS can be better suited for these situations */
-		if ((hs->mde[4] & 1) && (station->ap_directed_roaming ||
-				station->signal_low)) {
+		if ((hs->mde[4] & 1) && station->signal_low) {
 			if (netdev_fast_transition_over_ds_action(
 					station->netdev, bss,
 					station_fast_transition_ds_cb,
