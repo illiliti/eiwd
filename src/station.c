@@ -865,11 +865,7 @@ build_ie:
 	if (!handshake_state_set_supplicant_ie(hs, rsne_buf))
 		goto not_supported;
 
-	if (info.akm_suites & (IE_RSN_AKM_SUITE_FT_OVER_8021X |
-				IE_RSN_AKM_SUITE_FT_USING_PSK |
-				IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256 |
-				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |
-				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
+	if (IE_AKM_IS_FT(info.akm_suites))
 		add_mde = true;
 
 open_network:
