@@ -169,7 +169,7 @@ struct netdev {
 	struct l_genl_msg *auth_cmd;
 	struct wiphy_radio_work_item work;
 
-	struct netdev_ft_over_ds_info *ft_ds_info;
+	struct l_queue *ft_ds_list;
 
 	bool connected : 1;
 	bool associated : 1;
@@ -687,6 +687,13 @@ static void netdev_preauth_destroy(void *data)
 	l_free(state);
 }
 
+static void netdev_ft_ds_entry_free(void *data)
+{
+	struct netdev_ft_over_ds_info *info = data;
+
+	ft_ds_info_free(&info->super);
+}
+
 static void netdev_connect_free(struct netdev *netdev)
 {
 	if (netdev->work.id)
@@ -754,8 +761,10 @@ static void netdev_connect_free(struct netdev *netdev)
 		netdev->disconnect_cmd_id = 0;
 	}
 
-	if (netdev->ft_ds_info)
-		ft_ds_info_free(&netdev->ft_ds_info->super);
+	if (netdev->ft_ds_list) {
+		l_queue_destroy(netdev->ft_ds_list, netdev_ft_ds_entry_free);
+		netdev->ft_ds_list = NULL;
+	}
 }
 
 static void netdev_connect_failed(struct netdev *netdev,
@@ -857,6 +866,11 @@ static void netdev_free(void *data)
 	if (netdev->disconnect_idle) {
 		l_idle_remove(netdev->disconnect_idle);
 		netdev->disconnect_idle = NULL;
+	}
+
+	if (netdev->ft_ds_list) {
+		l_queue_destroy(netdev->ft_ds_list, netdev_ft_ds_entry_free);
+		netdev->ft_ds_list = NULL;
 	}
 
 	if (netdev->events_ready)
@@ -1289,6 +1303,11 @@ static void netdev_connect_ok(struct netdev *netdev)
 			scan_bss_free(netdev->fw_roam_bss);
 
 		netdev->fw_roam_bss = NULL;
+	}
+
+	if (netdev->ft_ds_list) {
+		l_queue_destroy(netdev->ft_ds_list, netdev_ft_ds_entry_free);
+		netdev->ft_ds_list = NULL;
 	}
 
 	if (netdev->connect_cb) {
@@ -3447,12 +3466,6 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 	if (err < 0)
 		return err;
 
-	/* In case of a previous failed over-DS attempt */
-	if (netdev->ft_ds_info) {
-		ft_ds_info_free(&netdev->ft_ds_info->super);
-		netdev->ft_ds_info = NULL;
-	}
-
 	memcpy(netdev->prev_bssid, orig_bss->addr, ETH_ALEN);
 
 	netdev->associated = false;
@@ -3681,12 +3694,6 @@ static int netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
 		return -EIO;
 	}
 
-	/* No need to keep this around at this point */
-	if (netdev->ft_ds_info) {
-		ft_ds_info_free(&netdev->ft_ds_info->super);
-		netdev->ft_ds_info = NULL;
-	}
-
 	return 0;
 }
 
@@ -3761,9 +3768,26 @@ static void netdev_ft_over_ds_auth_failed(struct netdev_ft_over_ds_info *info,
 	if (info->cb)
 		info->cb(info->netdev, status, info->super.aa, info->user_data);
 
+	l_queue_remove(info->netdev->ft_ds_list, info);
 	ft_ds_info_free(&info->super);
+}
 
-	info->netdev->ft_ds_info = NULL;
+struct ft_ds_finder {
+	const uint8_t *spa;
+	const uint8_t *aa;
+};
+
+static bool match_ft_ds_info(const void *a, const void *b)
+{
+	const struct netdev_ft_over_ds_info *info = a;
+	const struct ft_ds_finder *finder = b;
+
+	if (memcmp(info->super.spa, finder->spa, 6))
+		return false;
+	if (memcmp(info->super.aa, finder->aa, 6))
+		return false;
+
+	return true;
 }
 
 static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
@@ -3771,40 +3795,40 @@ static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
 					int rssi, void *user_data)
 {
 	struct netdev *netdev = user_data;
-	struct netdev_ft_over_ds_info *info = netdev->ft_ds_info;
+	struct netdev_ft_over_ds_info *info;
 	int ret;
 	uint16_t status_code = MMPDU_STATUS_CODE_UNSPECIFIED;
 	const uint8_t *aa;
 	const uint8_t *spa;
 	const uint8_t *ies;
 	size_t ies_len;
-
-	if (!info)
-		return;
+	struct ft_ds_finder finder;
 
 	ret = ft_over_ds_parse_action_response(body, body_len, &spa, &aa,
 						&ies, &ies_len);
-	if (ret != 0)
-		return;
-
-	if (memcmp(spa, info->super.spa, 6))
-		return;
-	if (memcmp(aa, info->super.aa, 6))
-		return;
-
-	ret = ft_over_ds_parse_action_ies(&info->super, netdev->handshake,
-						ies, ies_len);
 	if (ret < 0)
 		return;
 
-	l_timeout_remove(info->timeout);
-	info->timeout = NULL;
+	finder.spa = spa;
+	finder.aa = aa;
 
-	/* Now make sure the packet contained a success status code */
+	info = l_queue_find(netdev->ft_ds_list, match_ft_ds_info, &finder);
+	if (!info)
+		return;
+
+	/* Lookup successful, now check the status code */
 	if (ret > 0) {
 		status_code = (uint16_t)ret;
 		goto ft_error;
 	}
+
+	ret = ft_over_ds_parse_action_ies(&info->super, netdev->handshake,
+						ies, ies_len);
+	if (ret < 0)
+		goto ft_error;
+
+	l_timeout_remove(info->timeout);
+	info->timeout = NULL;
 
 	info->parsed = true;
 
@@ -3814,7 +3838,8 @@ static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
 	return;
 
 ft_error:
-	l_debug("FT-over-DS to "MAC" failed", MAC_STR(info->super.aa));
+	l_debug("FT-over-DS to "MAC" failed (%d)", MAC_STR(info->super.aa),
+			status_code);
 
 	netdev_ft_over_ds_auth_failed(info, status_code);
 }
@@ -3892,10 +3917,8 @@ int netdev_fast_transition_over_ds(struct netdev *netdev,
 					struct scan_bss *target_bss,
 					netdev_connect_cb_t cb)
 {
-	struct netdev_ft_over_ds_info *info = netdev->ft_ds_info;
-
-	if (!info || !info->parsed)
-		return -ENOENT;
+	struct netdev_ft_over_ds_info *info;
+	struct ft_ds_finder finder;
 
 	if (!netdev->operational)
 		return -ENOTCONN;
@@ -3904,6 +3927,14 @@ int netdev_fast_transition_over_ds(struct netdev *netdev,
 			l_get_le16(netdev->handshake->mde + 2) !=
 			l_get_le16(target_bss->mde))
 		return -EINVAL;
+
+	finder.spa = netdev->addr;
+	finder.aa = target_bss->addr;
+
+	info = l_queue_find(netdev->ft_ds_list, match_ft_ds_info, &finder);
+
+	if (!info || !info->parsed)
+		return -ENOENT;
 
 	prepare_ft(netdev, target_bss);
 
@@ -3968,10 +3999,6 @@ int netdev_fast_transition_over_ds_action(struct netdev *netdev,
 	uint8_t buf[512];
 	size_t len;
 
-	/* TODO: Just allow single outstanding action frame for now */
-	if (netdev->ft_ds_info)
-		return -EALREADY;
-
 	if (!netdev->operational)
 		return -ENOTCONN;
 
@@ -4010,7 +4037,10 @@ int netdev_fast_transition_over_ds_action(struct netdev *netdev,
 
 	iovs[2].iov_base = NULL;
 
-	netdev->ft_ds_info = info;
+	if (!netdev->ft_ds_list)
+		netdev->ft_ds_list = l_queue_new();
+
+	l_queue_push_head(netdev->ft_ds_list, info);
 
 	info->timeout = l_timeout_create_ms(300, netdev_ft_over_ds_timeout,
 						info, NULL);
