@@ -62,8 +62,13 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
 
+        self.bss_hostapd[0].wait_for_event('AP-STA-CONNECTED %s' % device.address)
+
+        # list_sta actually reports any authenticated stations. Due to the
+        # nature of FT-over-DS IWD should authenticate to all stations with
+        # the same mobility domain. This means both APs should show our station.
         self.assertTrue(self.bss_hostapd[0].list_sta())
-        self.assertFalse(self.bss_hostapd[1].list_sta())
+        self.assertTrue(self.bss_hostapd[1].list_sta())
 
         wd.unregister_psk_agent(psk_agent)
 
