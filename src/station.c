@@ -1823,13 +1823,30 @@ static void station_preauthenticate_cb(struct netdev *netdev,
 	station_transition_reassociate(station, bss, new_hs);
 }
 
+static bool station_can_fast_transition(struct handshake_state *hs,
+					struct scan_bss *bss)
+{
+	uint16_t mdid;
+
+	if (!hs->mde)
+		return false;
+
+	if (ie_parse_mobility_domain_from_data(hs->mde, hs->mde[1] + 2,
+						&mdid, NULL, NULL) < 0)
+		return false;
+
+	if (bss->mde_present && l_get_le16(bss->mde) == mdid)
+		return true;
+
+	return false;
+}
+
 static void station_transition_start(struct station *station,
 							struct scan_bss *bss)
 {
 	struct handshake_state *hs = netdev_get_handshake(station->netdev);
 	struct network *connected = station->connected_network;
 	enum security security = network_get_security(connected);
-	uint16_t mdid;
 	struct handshake_state *new_hs;
 	struct ie_rsn_info cur_rsne, target_rsne;
 
@@ -1839,12 +1856,8 @@ static void station_transition_start(struct station *station,
 	/* Reset AP roam flag, at this point the roaming behaves the same */
 	station->ap_directed_roaming = false;
 
-	if (hs->mde)
-		ie_parse_mobility_domain_from_data(hs->mde, hs->mde[1] + 2,
-							&mdid, NULL, NULL);
-
 	/* Can we use Fast Transition? */
-	if (hs->mde && bss->mde_present && l_get_le16(bss->mde) == mdid) {
+	if (station_can_fast_transition(hs, bss)) {
 		/* Rebuild handshake RSN for target AP */
 		if (station_build_handshake_rsn(hs, station->wiphy,
 				station->connected_network, bss) < 0) {
