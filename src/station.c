@@ -1720,45 +1720,6 @@ static bool bss_match_bssid(const void *a, const void *b)
 	return !memcmp(bss->addr, bssid, sizeof(bss->addr));
 }
 
-static void station_fast_transition_ds_cb(struct netdev *netdev,
-					uint16_t status, const uint8_t *bssid,
-					void *user_data)
-{
-	struct station *station = user_data;
-	struct scan_bss *bss;
-
-	if (status != 0)
-		goto failed;
-
-	/*
-	 * TODO: In the future it may be desired to start sending out these
-	 * FT-over-DS action frames at the time of connecting then be able to
-	 * roam immediately when required. If this is being done we can simply
-	 * bail out now as ft already caches the entires. But since this was
-	 * initiated due to a need to roam, do so now.
-	 */
-
-	/* Make sure we still have our BSS */
-	bss = l_queue_find(station->bss_list, bss_match_bssid, bssid);
-	if (!bss)
-		goto failed;
-
-	l_debug("Starting FT-over-DS roam");
-
-	if (netdev_fast_transition_over_ds(station->netdev, bss,
-					station_fast_transition_cb) < 0)
-		goto failed;
-
-	station->connected_bss = bss;
-	station->preparing_roam = false;
-	station_enter_state(station, STATION_STATE_ROAMING);
-
-	return;
-
-failed:
-	station_roam_retry(station);
-}
-
 static void station_preauthenticate_cb(struct netdev *netdev,
 					enum netdev_result result,
 					const uint8_t *pmk, void *user_data)
@@ -1849,6 +1810,7 @@ static void station_transition_start(struct station *station,
 	enum security security = network_get_security(connected);
 	struct handshake_state *new_hs;
 	struct ie_rsn_info cur_rsne, target_rsne;
+	int ret;
 
 	l_debug("%u, target %s", netdev_get_ifindex(station->netdev),
 			util_address_to_string(bss->addr));
@@ -1868,19 +1830,21 @@ static void station_transition_start(struct station *station,
 
 		/* FT-over-DS can be better suited for these situations */
 		if ((hs->mde[4] & 1) && station->signal_low) {
-			if (netdev_fast_transition_over_ds_action(
-					station->netdev, bss,
-					station_fast_transition_ds_cb,
-					station) < 0) {
+			ret = netdev_fast_transition_over_ds(station->netdev,
+					bss, station_fast_transition_cb);
+			/* No action responses from this BSS, try over air */
+			if (ret == -ENOENT)
+				goto try_over_air;
+			else if (ret < 0) {
+				/*
+				 * If we are here FT-over-air will not work
+				 * either (identical checks) so try again later.
+				 */
 				station_roam_retry(station);
+				return;
 			}
-
-			/*
-			 * Set connected_bss/preparing_roam/state only on a
-			 * successful FT-over-DS action frame response
-			 */
-			return;
 		} else {
+try_over_air:
 			if (netdev_fast_transition(station->netdev, bss,
 					station_fast_transition_cb) < 0) {
 				station_roam_failed(station);
@@ -2512,10 +2476,42 @@ static void station_connect_dbus_reply(struct station *station,
 	dbus_pending_reply(&station->connect_pending, reply);
 }
 
+static void station_ft_ds_action_start(struct station *station, uint16_t mdid)
+{
+	const struct l_queue_entry *entry;
+	struct scan_bss *bss;
+	struct ie_rsn_info rsn_info;
+
+	for (entry = network_bss_list_get_entries(station->connected_network);
+						entry; entry = entry->next) {
+		bss = entry->data;
+
+		if (bss == station->connected_bss)
+			continue;
+
+		if (mdid != l_get_le16(bss->mde))
+			continue;
+
+		if (scan_bss_get_rsn_info(bss, &rsn_info) < 0)
+			continue;
+
+		if (!IE_AKM_IS_FT(rsn_info.akm_suites))
+			continue;
+
+		/*
+		* Fire and forget. Netdev will maintain a cache of responses and
+		* when the time comes these can be referenced for a roam
+		*/
+		netdev_fast_transition_over_ds_action(station->netdev, bss,
+							NULL, NULL);
+	}
+}
+
 static void station_connect_cb(struct netdev *netdev, enum netdev_result result,
 					void *event_data, void *user_data)
 {
 	struct station *station = user_data;
+	struct handshake_state *hs = netdev_get_handshake(netdev);
 
 	l_debug("%u, result: %d", netdev_get_ifindex(station->netdev), result);
 
@@ -2564,6 +2560,21 @@ static void station_connect_cb(struct netdev *netdev, enum netdev_result result,
 		if (netdev_neighbor_report_req(station->netdev,
 					station_early_neighbor_report_cb) < 0)
 			l_warn("Could not request neighbor report");
+	}
+
+	/*
+	 * If this network supports FT-over-DS send initial action frames now
+	 * to prepare for future roams.
+	 */
+	if (station_can_fast_transition(hs, station->connected_bss) &&
+						(hs->mde[4] & 1)) {
+		uint16_t mdid;
+
+		if (ie_parse_mobility_domain_from_data(hs->mde, hs->mde[1] + 2,
+						&mdid, NULL, NULL) < 0)
+			return;
+
+		station_ft_ds_action_start(station, mdid);
 	}
 
 	network_connected(station->connected_network);
