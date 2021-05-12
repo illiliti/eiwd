@@ -1796,10 +1796,23 @@ static bool station_can_fast_transition(struct handshake_state *hs,
 						&mdid, NULL, NULL) < 0)
 		return false;
 
-	if (bss->mde_present && l_get_le16(bss->mde) == mdid)
-		return true;
+	if (!(bss->mde_present && l_get_le16(bss->mde) == mdid))
+		return false;
 
-	return false;
+	if (hs->supplicant_ie != NULL) {
+		struct ie_rsn_info rsn_info;
+
+		if (!IE_AKM_IS_FT(hs->akm_suite))
+			return false;
+
+		if (scan_bss_get_rsn_info(bss, &rsn_info) < 0)
+			return false;
+
+		if (!IE_AKM_IS_FT(rsn_info.akm_suites))
+			return false;
+	}
+
+	return true;
 }
 
 static void station_transition_start(struct station *station,
