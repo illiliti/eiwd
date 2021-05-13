@@ -141,7 +141,7 @@ struct ap_ip_pool {
 
 struct ap_ip_pool pool;
 static uint32_t netdev_watch;
-struct l_netlink *rtnl;
+static struct l_netlink *rtnl;
 
 /*
  * Creates pool of IPs which AP intefaces can use. Each call to ip_pool_get
