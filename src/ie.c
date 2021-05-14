@@ -1662,21 +1662,15 @@ static const struct basic_rate_map rate_rssi_map[] = {
 	{ -65, 108 },
 };
 
-static int ie_parse_supported_rates(struct ie_tlv_iter *supp_rates_iter,
-					struct ie_tlv_iter *ext_supp_rates_iter,
-					int32_t rssi,
-					uint64_t *data_rate)
+static int ie_parse_supported_rates_from_data(const uint8_t *supp_rates_ie,
+					const uint8_t *ext_supp_rates_ie,
+					int32_t rssi, uint64_t *data_rate)
 {
 	uint8_t max_rate = 0;
 	uint8_t highest = 0;
 	const uint8_t *rates;
 	unsigned int len;
 	unsigned int i;
-
-	len = ie_tlv_iter_get_length(supp_rates_iter);
-
-	if (len == 0)
-		return -EINVAL;
 
 	/* Find highest rates possible with our RSSI */
 	for (i = 0; i < L_ARRAY_SIZE(rate_rssi_map); i++) {
@@ -1688,9 +1682,17 @@ static int ie_parse_supported_rates(struct ie_tlv_iter *supp_rates_iter,
 		max_rate = map->rate;
 	}
 
-	if (supp_rates_iter) {
-		/* Find highest rate in Supported Rates IE */
-		rates = ie_tlv_iter_get_data(supp_rates_iter);
+	/*
+	 * Find highest rate in Supported Rates IE. These IEs have at least
+	 * been verfied that the length is within the buffer bounds (as has
+	 * ext_supp_rates_ie).
+	 */
+	if (supp_rates_ie) {
+		len = supp_rates_ie[1];
+		if (len == 0)
+			return -EINVAL;
+
+		rates = supp_rates_ie + 2;
 
 		for (i = 0; i < len; i++) {
 			uint8_t r = rates[i] & 0x7f;
@@ -1701,9 +1703,12 @@ static int ie_parse_supported_rates(struct ie_tlv_iter *supp_rates_iter,
 	}
 
 	/* Find highest rate in Extended Supported Rates IE */
-	if (ext_supp_rates_iter) {
-		len = ie_tlv_iter_get_length(ext_supp_rates_iter);
-		rates = ie_tlv_iter_get_data(ext_supp_rates_iter);
+	if (ext_supp_rates_ie) {
+		len = ext_supp_rates_ie[1];
+		if (len == 0)
+			return -EINVAL;
+
+		rates = ext_supp_rates_ie + 2;
 
 		for (i = 0; i < len; i++) {
 			uint8_t r = rates[i] & 0x7f;
@@ -1719,45 +1724,6 @@ static int ie_parse_supported_rates(struct ie_tlv_iter *supp_rates_iter,
 		*data_rate = (max_rate / 2) * 1000000;
 
 	return 0;
-}
-
-int ie_parse_supported_rates_from_data(const uint8_t *supp_rates_ie,
-					uint8_t supp_rates_len,
-					const uint8_t *ext_supp_rates_ie,
-					uint8_t ext_supp_rates_len,
-					int32_t rssi, uint64_t *data_rate)
-{
-	struct ie_tlv_iter supp_rates_iter;
-	struct ie_tlv_iter ext_supp_rates_iter;
-
-	if (supp_rates_ie) {
-		ie_tlv_iter_init(&supp_rates_iter, supp_rates_ie,
-					supp_rates_len);
-
-		if (!ie_tlv_iter_next(&supp_rates_iter))
-			return -EMSGSIZE;
-
-		if (ie_tlv_iter_get_tag(&supp_rates_iter) !=
-						IE_TYPE_SUPPORTED_RATES)
-			return -EPROTOTYPE;
-	}
-
-	if (ext_supp_rates_ie) {
-		ie_tlv_iter_init(&ext_supp_rates_iter, ext_supp_rates_ie,
-					ext_supp_rates_len);
-
-		if (!ie_tlv_iter_next(&ext_supp_rates_iter))
-			return -EMSGSIZE;
-
-		if (ie_tlv_iter_get_tag(&ext_supp_rates_iter) !=
-					IE_TYPE_EXTENDED_SUPPORTED_RATES)
-			return -EPROTOTYPE;
-	}
-
-	return ie_parse_supported_rates(
-			(supp_rates_ie) ? &supp_rates_iter : NULL,
-			(ext_supp_rates_ie) ? &ext_supp_rates_iter : NULL,
-			rssi, data_rate);
 }
 
 enum ht_vht_channel_width {
@@ -2173,9 +2139,7 @@ int ie_parse_data_rates(const uint8_t *supp_rates_ie,
 
 	if (supp_rates_ie || ext_supp_rates_ie) {
 		ret = ie_parse_supported_rates_from_data(supp_rates_ie,
-						IE_LEN(supp_rates_ie),
 						ext_supp_rates_ie,
-						IE_LEN(supp_rates_ie),
 						rssi, &rate);
 		if (ret == 0)
 			goto done;
