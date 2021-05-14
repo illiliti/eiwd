@@ -692,6 +692,22 @@ static void ie_test_encapsulate_wsc(const void *data)
 	l_free(packed);
 }
 
+static void ie_test_supported_rates(const void *data)
+{
+	const uint8_t zero_len_supp[] = { IE_TYPE_SUPPORTED_RATES, 0 };
+	const uint8_t zero_len_ext_supp[] = { IE_TYPE_EXTENDED_SUPPORTED_RATES,
+						0 };
+	int ret;
+
+	ret = ie_parse_data_rates(zero_len_supp, NULL, NULL, NULL,
+					-70, NULL);
+	assert(ret == -EINVAL);
+
+	ret = ie_parse_data_rates(NULL, zero_len_ext_supp, NULL, NULL,
+					-70, NULL);
+	assert(ret == -EINVAL);
+}
+
 int main(int argc, char *argv[])
 {
 	l_test_init(&argc, &argv);
@@ -752,6 +768,8 @@ int main(int argc, char *argv[])
 	l_test_add("/ie/Encapsulation/WSC/Test Case 1",
 				ie_test_encapsulate_wsc,
 				&ie_tlv_concat_test_data_1);
+	l_test_add("/ie/Supported rates/Test Case 1", ie_test_supported_rates,
+				NULL);
 
 	return l_test_run();
 }
