@@ -335,8 +335,10 @@ static void ap_reset(struct ap_state *ap)
 		l_free(ap->own_ip);
 	}
 
-	if (ap->server)
-		l_dhcp_server_stop(ap->server);
+	if (ap->server) {
+		l_dhcp_server_destroy(ap->server);
+		ap->server = NULL;
+	}
 }
 
 static void ap_del_station(struct sta_state *sta, uint16_t reason,
@@ -3072,8 +3074,6 @@ void ap_free(struct ap_state *ap)
 {
 	ap_reset(ap);
 	l_genl_family_free(ap->nl80211);
-	if (ap->server)
-		l_dhcp_server_destroy(ap->server);
 	l_free(ap);
 }
 
