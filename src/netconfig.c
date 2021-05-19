@@ -824,24 +824,32 @@ static void netconfig_dhcp6_event_handler(struct l_dhcp6_client *client,
 	}
 }
 
+static void netconfig_remove_v4_address(struct netconfig *netconfig)
+{
+	if (!netconfig->v4_address)
+		return;
+
+	L_WARN_ON(!l_rtnl_ifaddr_delete(rtnl, netconfig->ifindex,
+					netconfig->v4_address,
+					netconfig_ifaddr_del_cmd_cb,
+					netconfig, NULL));
+	l_rtnl_address_free(netconfig->v4_address);
+	netconfig->v4_address = NULL;
+}
+
 static void netconfig_reset_v4(struct netconfig *netconfig)
 {
 	if (netconfig->rtm_protocol) {
-		if (netconfig->v4_address) {
-			L_WARN_ON(!l_rtnl_ifaddr_delete(rtnl,
-						netconfig->ifindex,
-						netconfig->v4_address,
-						netconfig_ifaddr_del_cmd_cb,
-						netconfig, NULL));
-			l_rtnl_address_free(netconfig->v4_address);
-			netconfig->v4_address = NULL;
-		}
+		netconfig_remove_v4_address(netconfig);
 
 		l_strfreev(netconfig->dns4_overrides);
 		netconfig->dns4_overrides = NULL;
 
 		l_dhcp_client_stop(netconfig->dhcp_client);
 		netconfig->rtm_protocol = 0;
+
+		l_acd_destroy(netconfig->acd);
+		netconfig->acd = NULL;
 	}
 }
 
@@ -872,7 +880,7 @@ static void netconfig_ipv4_acd_event(enum l_acd_event event, void *user_data)
 		 * case.
 		 */
 		l_error("netconfig: statically configured address was lost");
-		netconfig_reset_v4(netconfig);
+		netconfig_remove_v4_address(netconfig);
 		break;
 	}
 }
