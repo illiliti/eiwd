@@ -177,17 +177,19 @@ static void station_autoconnect_next(struct station *station)
 		const char *ssid = network_get_ssid(network);
 		struct scan_bss *bss = network_bss_select(network, false);
 
-		l_debug("Considering autoconnecting to BSS '%s' with SSID: %s,"
-			" freq: %u, rank: %u, strength: %i",
-			util_address_to_string(bss->addr), ssid,
+		l_debug("autoconnect: Trying SSID: %s", ssid);
+
+		if (!bss) {
+			l_debug("autoconnect: No suitable BSSes found");
+			continue;
+		}
+
+		l_debug("autoconnect: '%s' freq: %u, rank: %u, strength: %i",
+			util_address_to_string(bss->addr),
 			bss->frequency, bss->rank,
 			bss->signal_strength);
 
-		if (blacklist_contains_bss(bss->addr))
-			continue;
-
 		r = network_autoconnect(network, bss);
-
 		if (!r) {
 			station_enter_state(station, STATION_STATE_CONNECTING);
 
@@ -200,7 +202,8 @@ static void station_autoconnect_next(struct station *station)
 
 			return;
 		} else
-			l_debug("Failed to autoconnect to %s (%d)", ssid, r);
+			l_debug("autoconnect: network_autoconnect: %s (%d)",
+				strerror(-r), r);
 	}
 }
 
