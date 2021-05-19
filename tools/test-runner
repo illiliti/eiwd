@@ -672,7 +672,7 @@ class Namespace:
 
 		if self.args.valgrind:
 			args.extend(['valgrind', '--leak-check=full', '--track-origins=yes',
-						'--log-file=/tmp/valgrind.log'])
+					'--log-file=/tmp/valgrind.log.%p'])
 
 		args.extend(['iwd', '-p', iwd_radios])
 
@@ -1183,15 +1183,19 @@ def post_test(ctx, to_copy):
 	finally:
 		ctx.stop_test_processes()
 
+	if ctx.args.valgrind:
+		for f in os.listdir('/tmp'):
+			if f.startswith("valgrind.log."):
+				dbg(f)
+				with open('/tmp/' + f, 'r') as v:
+					dbg(v.read())
+				dbg("\n")
+				os.remove('/tmp/' + f)
+
 	allowed = ['phonesim.conf', 'certs', 'secrets', 'iwd']
 	for f in [f for f in os.listdir('/tmp') if f not in allowed]:
 		dbg("File %s was not cleaned up!" % f)
 		os.remove('/tmp/' + f)
-
-	if ctx.args.valgrind:
-		with open('/tmp/valgrind.log', 'r') as f:
-				dbg(f.read())
-		dbg("\n")
 
 def print_results(results):
 	table = PrettyTable(['Test', colored('Passed', 'green'), colored('Failed', 'red'), \
