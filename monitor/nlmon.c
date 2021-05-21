@@ -1312,6 +1312,59 @@ static void print_ie_ht_operation(unsigned int level, const char *label,
 	print_ie_mcs(level + 1, "Basic MCS set", &bytes[6], 16);
 }
 
+static void print_spatial_stream_map(unsigned int level, const char *label,
+					const uint8_t *map)
+{
+	static const char *spatial_streams[] = {
+		"0 - MCS 0-7 supported",
+		"1 - MCS 0-8 supported",
+		"2 - MCS 0-9 supported",
+		"3 - No MCS support",
+	};
+
+	print_attr(level + 1, "%s 1 Streams: %s", label,
+				spatial_streams[bit_field(map[0], 0, 2)]);
+	print_attr(level + 1, "%s 2 Streams: %s", label,
+				spatial_streams[bit_field(map[0], 2, 2)]);
+	print_attr(level + 1, "%s 3 Streams: %s", label,
+				spatial_streams[bit_field(map[0], 4, 2)]);
+	print_attr(level + 1, "%s 4 Streams: %s", label,
+				spatial_streams[bit_field(map[0], 6, 2)]);
+	print_attr(level + 1, "%s 5 Streams: %s", label,
+				spatial_streams[bit_field(map[1], 0, 2)]);
+	print_attr(level + 1, "%s 6 Streams: %s", label,
+				spatial_streams[bit_field(map[1], 2, 2)]);
+	print_attr(level + 1, "%s 7 Streams: %s", label,
+				spatial_streams[bit_field(map[1], 4, 2)]);
+	print_attr(level + 1, "%s 8 Streams: %s", label,
+				spatial_streams[bit_field(map[1], 6, 2)]);
+}
+
+static void print_ie_vht_operation(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	static const char *channel_width[] = {
+		"0 - 20 or 40 Mhz channel width",
+		"1 - 80 Mhz",
+		"2 - 160 Mhz",
+		"3 - 80+80 Mhz",
+	};
+	uint8_t *bytes = (uint8_t *) data;
+
+	if (size < 5) {
+		print_ie_error(level, label, size, -EINVAL);
+		return;
+	}
+
+	print_attr(level, "%s:", label);
+	print_attr(level + 1, "Channel Width %s", bytes[0] > 3 ? "Reserved" :
+						channel_width[bytes[0]]);
+	print_attr(level + 1, "Channel Center Frequency 1: %d", bytes[1]);
+	print_attr(level + 1, "Channel Center Frequency 2: %d", bytes[2]);
+
+	print_spatial_stream_map(level + 1, "Basic VHT-MCS", bytes + 3);
+}
+
 static const char *extended_capabilities_bitfield[80] = {
 	[0] = "20/40 BSS coexistence management support",
 	[1] = "Reserved",
@@ -1543,6 +1596,52 @@ static void print_ie_ht_capabilities(unsigned int level,
 
 	/* TODO: Transmit Beamforming Capabilities field */
 	/* TODO: ASEL Capability field */
+}
+
+static void print_ie_vht_capabilities(unsigned int level,
+					const char *label,
+					const void *data, uint16_t size)
+{
+	static const char *vht_capabilities_info_bitfield[] = {
+		[0 ... 1] = "Maximum MPDU Length",
+		[2 ... 3] = "Supported Channel Width Set",
+		[4] = "RX LDPC",
+		[5] = "Short GI for 80 Mhz",
+		[6] = "Short GI for 160 and 80+80 Mhz",
+		[7] = "Tx STBC",
+		[8 ... 10] = "Rx STBC",
+		[11] = "SU Beamformer Capable",
+		[12] = "SU Beamformee Capable",
+		[13 ... 15] = "Beamformee STS Capability",
+		[16 ... 18] = "Number of Sounding Dimensions",
+		[19] = "MU Beamformer Capable",
+		[20] = "MU Beamformee Capable",
+		[21] = "TXOP PS",
+		[22] = "+HTC-VHT Capable",
+		[23 ... 25] = "Maximum A-MPDU Length Exponent",
+		[26 ... 27] = "VHT Link Adapation Capable",
+		[28] = "RX Antenna Pattern Consistency",
+		[29] = "TX Antenna Pattern Consistency",
+		[30 ... 31] = "Extended NSS BW Support",
+	};
+	uint8_t info_mask[] = { 0xf0, 0x18, 0x7b, 0x30 };
+
+	print_attr(level, "%s: len %u", label, size);
+
+	if (size != 12)
+		return;
+
+	print_ie_bitfield(level + 1, "VHT Capabilities Info", data, info_mask,
+				4, vht_capabilities_info_bitfield);
+
+	print_spatial_stream_map(level + 1, "RxVHT-MCS", data + 4);
+	print_attr(level + 1, "Rx Highest Supported Long GI Data Rate: %d",
+			l_get_le16(data + 6) & 0x1f);
+	print_spatial_stream_map(level + 1, "TxVHT-MCS", data + 8);
+	print_attr(level + 1, "Tx Highest Supported Long GI Data Rate: %d",
+			l_get_le16(data + 10) & 0x1f);
+	if (test_bit(data + 4, 61))
+		print_attr(level + 1, "VHT Extended NSS BW Capable");
 }
 
 static void print_ie_rm_enabled_caps(unsigned int level,
@@ -2072,12 +2171,16 @@ static struct attr_entry ie_entry[] = {
 		ATTR_CUSTOM,	{ .function = print_ie_rate } },
 	{ IE_TYPE_HT_OPERATION,			"HT Operation",
 		ATTR_CUSTOM,	{ .function = print_ie_ht_operation } },
+	{ IE_TYPE_VHT_OPERATION,		"VHT Operation",
+		ATTR_CUSTOM,	{ .function = print_ie_vht_operation } },
 	{ IE_TYPE_VENDOR_SPECIFIC,		"Vendor specific",
 		ATTR_CUSTOM,	{ .function = print_ie_vendor } },
 	{ IE_TYPE_EXTENDED_CAPABILITIES,	"Extended Capabilities",
 		ATTR_CUSTOM,	{ .function = print_ie_extended_capabilities } },
 	{ IE_TYPE_HT_CAPABILITIES,		"HT Capabilities",
 		ATTR_CUSTOM,	{ .function = print_ie_ht_capabilities } },
+	{ IE_TYPE_VHT_CAPABILITIES,		"VHT Capabilities",
+		ATTR_CUSTOM,	{ .function = print_ie_vht_capabilities } },
 	{ IE_TYPE_RM_ENABLED_CAPABILITIES,	"RM Enabled Capabilities",
 		ATTR_CUSTOM,	{ .function = print_ie_rm_enabled_caps } },
 	{ IE_TYPE_INTERWORKING,			"Interworking",
