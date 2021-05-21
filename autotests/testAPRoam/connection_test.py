@@ -36,9 +36,9 @@ class Test(unittest.TestCase):
         rule2.source = bss_radio[2].addresses[0]
         rule2.bidirectional = True
 
-        rule0.signal = -2000
-        rule1.signal = -2500
-        rule2.signal = -3000
+        rule0.signal = -6000
+        rule1.signal = -6900
+        rule2.signal = -8000
 
         wd = IWD()
 
