@@ -46,9 +46,9 @@ class Test(unittest.TestCase):
 
         # Check that iwd selects BSS 0 first
         rule0.signal = -2500
-        rule1.signal = -3500
+        rule1.signal = -6900
 
-        wd = IWD()
+        wd = IWD(True)
 
         device = wd.list_devices(1)[0]
 
