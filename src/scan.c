@@ -1231,7 +1231,7 @@ static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr,
 			if (L_WARN_ON(len != sizeof(uint64_t)))
 				break;
 
-			bss->time_stamp = l_get_u64(data);
+			bss->time_stamp = l_get_u64(data) / L_NSEC_PER_USEC;
 			break;
 		}
 	}
