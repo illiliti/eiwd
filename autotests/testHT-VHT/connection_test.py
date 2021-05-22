@@ -61,17 +61,17 @@ class Test(unittest.TestCase):
         rule0 = hwsim.rules.create()
         rule0.source = vht_radio.addresses[0]
         rule0.bidirectional = True
-        rule0.signal = -2000
+        rule0.signal = -5100
 
         rule1 = hwsim.rules.create()
         rule1.source = ht_radio.addresses[0]
         rule1.bidirectional = True
-        rule1.signal = -2000
+        rule1.signal = -5200
 
         rule2 = hwsim.rules.create()
         rule2.source = non_ht_radio.addresses[0]
         rule2.bidirectional = True
-        rule2.signal = -2000
+        rule2.signal = -5300
 
         wd = IWD()
 
@@ -83,12 +83,12 @@ class Test(unittest.TestCase):
         self.do_connect(wd, device, vht_hostapd)
 
         # lower VHT BSS signal, HT should now be preferred
-        rule0.signal = -6000
+        rule0.signal = -7900
 
         self.do_connect(wd, device, ht_hostapd)
 
         # lower HT BSS signal, basic rate BSS should now be preferred
-        rule1.signal = -6000
+        rule1.signal = -7400
 
         self.do_connect(wd, device, non_ht_hostapd)
 
