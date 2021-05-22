@@ -1744,20 +1744,50 @@ static const int32_t ht_vht_base_rssi[] = {
 	-82, -79, -77, -74, -70, -66, -65, -64, -59, -57
 };
 
-struct ht_vht_rate {
-	uint64_t rate;
-	uint64_t sgi_rate;
-};
+/*
+ * Data Rate for HT/VHT is obtained according to this formula:
+ * Nsd * Nbpscs * R * Nss / (Tdft + Tgi)
+ *
+ * Where Nsd is [52, 108, 234, 468] for 20/40/80/160 Mhz respectively
+ * Nbpscs is [1, 2, 4, 6, 8] for BPSK/QPSK/16QAM/64QAM/256QAM
+ * R is [1/2, 2/3, 3/4, 5/6] depending on the MCS index
+ * Nss is the number of spatial streams
+ * Tdft = 3.2 us
+ * Tgi = Long/Short GI of 0.8/0.4 us
+ *
+ * Short GI rate can be easily obtained by multiplying by (10 / 9)
+ *
+ * The table was pre-computed using the following python snippet:
+ * rfactors = [ 1/2, 1/2, 3/4, 1/2, 3/4, 2/3, 3/4, 5/6, 3/4, 5/6 ]
+ * nbpscs = [1, 2, 2, 4, 4, 6, 6, 6, 8, 8 ]
+ * nsds = [52, 108, 234, 468]
+ *
+ * for nsd in nsds:
+ * 	rates = []
+ * 	for i in xrange(0, 10):
+ * 		data_rate = (nsd * rfactors[i] * nbpscs[i]) / 0.004
+ * 		rates.append(int(data_rate) * 1000)
+ * 	print('rates for nsd: ' + nsd + ': ' + rates)
+ */
 
-static const struct ht_vht_rate ht_vht_rates[] = {
-	[HT_VHT_CHANNEL_WIDTH_20MHZ] = {	.rate = 6500000,
-						.sgi_rate = 7200000 },
-	[HT_VHT_CHANNEL_WIDTH_40MHZ] = {	.rate = 13500000,
-						.sgi_rate = 15000000 },
-	[HT_VHT_CHANNEL_WIDTH_80MHZ] = {	.rate = 29300000,
-						.sgi_rate = 32500000 },
-	[HT_VHT_CHANNEL_WIDTH_160MHZ] = {	.rate = 58500000,
-						.sgi_rate = 65000000 },
+static const uint64_t ht_vht_rates[4][10] = {
+	[HT_VHT_CHANNEL_WIDTH_20MHZ] = {
+		6500000ULL, 13000000ULL, 19500000ULL, 26000000ULL,
+		39000000ULL, 52000000ULL, 58500000ULL, 65000000ULL,
+		78000000ULL, 86666000ULL },
+	[HT_VHT_CHANNEL_WIDTH_40MHZ] = {
+		13500000ULL, 27000000ULL, 40500000ULL, 54000000ULL,
+		81000000ULL, 108000000ULL, 121500000ULL, 135000000ULL,
+		162000000ULL, 180000000ULL, },
+	[HT_VHT_CHANNEL_WIDTH_80MHZ] = {
+		29250000ULL, 58500000ULL, 87750000ULL, 117000000ULL,
+		175500000ULL, 234000000ULL, 263250000ULL, 292500000ULL,
+		351000000ULL, 390000000ULL, },
+	[HT_VHT_CHANNEL_WIDTH_160MHZ] = {
+		58500000ULL, 117000000ULL, 175500000ULL, 234000000ULL,
+		351000000ULL, 468000000ULL, 526500000ULL, 585000000ULL,
+		702000000ULL, 780000000ULL,
+	}
 };
 
 /*
@@ -1771,29 +1801,20 @@ static bool calculate_ht_vht_data_rate(uint8_t index,
 					int32_t rssi, uint8_t nss, bool sgi,
 					uint64_t *data_rate)
 {
-	const struct ht_vht_rate *rate = &ht_vht_rates[width];
+	uint64_t rate;
 	int32_t width_adjust = width * 3;
 
 	if (rssi < ht_vht_base_rssi[index] + width_adjust)
 		return false;
 
+	rate = ht_vht_rates[width][index];
+
 	if (sgi)
-		*data_rate = rate->sgi_rate;
-	else
-		*data_rate = rate->rate;
+		rate = rate / 9 * 10;
 
-	/* adjust base for spatial streams */
-	*data_rate *= nss;
+	rate *= nss;
 
-	/*
-	 * As with HT, the VHT rates multiplier jumps up
-	 * by 2 after MCS index 4
-	 */
-	if (index < 4)
-		*data_rate *= index + 1;
-	else
-		*data_rate *= index + 3;
-
+	*data_rate = rate;
 	return true;
 }
 
