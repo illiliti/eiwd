@@ -191,7 +191,8 @@ static void station_autoconnect_next(struct station *station)
 
 		r = network_autoconnect(network, bss);
 		if (!r) {
-			station_enter_state(station, STATION_STATE_CONNECTING);
+			station_enter_state(station,
+						STATION_STATE_CONNECTING_AUTO);
 
 			if (station->quick_scan_id) {
 				scan_cancel(netdev_get_wdev_id(station->netdev),
@@ -1134,6 +1135,8 @@ static const char *station_state_to_string(enum station_state state)
 		return "autoconnect_full";
 	case STATION_STATE_CONNECTING:
 		return "connecting";
+	case STATION_STATE_CONNECTING_AUTO:
+		return "connecting (auto)";
 	case STATION_STATE_CONNECTED:
 		return "connected";
 	case STATION_STATE_DISCONNECTING:
@@ -1177,6 +1180,7 @@ static void station_enter_state(struct station *station,
 					new_scan_results, station);
 		break;
 	case STATION_STATE_CONNECTING:
+	case STATION_STATE_CONNECTING_AUTO:
 		/* Refresh the ordered network list */
 		network_rank_update(station->connected_network, true);
 		l_queue_remove(station->networks_sorted, station->connected_network);
@@ -1289,6 +1293,7 @@ static void station_reset_connection_state(struct station *station)
 
 	if (station->state == STATION_STATE_CONNECTED ||
 			station->state == STATION_STATE_CONNECTING ||
+			station->state == STATION_STATE_CONNECTING_AUTO ||
 			station->state == STATION_STATE_ROAMING)
 		network_disconnected(network);
 
@@ -3150,7 +3155,8 @@ static struct l_dbus_message *station_dbus_scan(struct l_dbus *dbus,
 	if (station->dbus_scan_id)
 		return dbus_error_busy(message);
 
-	if (station->state == STATION_STATE_CONNECTING)
+	if (station->state == STATION_STATE_CONNECTING ||
+			station->state == STATION_STATE_CONNECTING_AUTO)
 		return dbus_error_busy(message);
 
 	station->dbus_scan_subset_idx = 0;
@@ -3357,13 +3363,28 @@ static bool station_property_get_state(struct l_dbus *dbus,
 					void *user_data)
 {
 	struct station *station = user_data;
-	const char *statestr;
+	const char *statestr = "invalid";
 
-	if (!station_is_busy(station))
-		/* Special case. For now we treat AUTOCONNECT as disconnected */
+	switch (station->state) {
+	case STATION_STATE_AUTOCONNECT_QUICK:
+	case STATION_STATE_AUTOCONNECT_FULL:
+	case STATION_STATE_DISCONNECTED:
 		statestr = "disconnected";
-	else
-		statestr = station_state_to_string(station->state);
+		break;
+	case STATION_STATE_CONNECTING:
+	case STATION_STATE_CONNECTING_AUTO:
+		statestr = "connecting";
+		break;
+	case STATION_STATE_CONNECTED:
+		statestr = "connected";
+		break;
+	case STATION_STATE_DISCONNECTING:
+		statestr = "disconnecting";
+		break;
+	case STATION_STATE_ROAMING:
+		statestr = "roaming";
+		break;
+	}
 
 	l_dbus_message_builder_append_basic(builder, 's', statestr);
 	return true;
