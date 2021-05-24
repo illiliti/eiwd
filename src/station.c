@@ -2429,27 +2429,6 @@ static bool station_retry_with_status(struct station *station,
 	return station_try_next_bss(station);
 }
 
-static void station_connect_dbus_reply(struct station *station,
-					enum netdev_result result)
-{
-	struct l_dbus_message *reply;
-
-	switch (result) {
-	case NETDEV_RESULT_ABORTED:
-		reply = dbus_error_aborted(station->connect_pending);
-		break;
-	case NETDEV_RESULT_OK:
-		reply = l_dbus_message_new_method_return(
-					station->connect_pending);
-		break;
-	default:
-		reply = dbus_error_failed(station->connect_pending);
-		break;
-	}
-
-	dbus_pending_reply(&station->connect_pending, reply);
-}
-
 static void station_ft_ds_action_start(struct station *station, uint16_t mdid)
 {
 	const struct l_queue_entry *entry;
@@ -2480,49 +2459,17 @@ static void station_ft_ds_action_start(struct station *station, uint16_t mdid)
 	}
 }
 
-static void station_connect_cb(struct netdev *netdev, enum netdev_result result,
-					void *event_data, void *user_data)
+static void station_connect_ok(struct station *station)
 {
-	struct station *station = user_data;
-	struct handshake_state *hs = netdev_get_handshake(netdev);
+	struct handshake_state *hs = netdev_get_handshake(station->netdev);
 
-	l_debug("%u, result: %d", netdev_get_ifindex(station->netdev), result);
+	l_debug("");
 
-	switch (result) {
-	case NETDEV_RESULT_OK:
-		blacklist_remove_bss(station->connected_bss->addr);
-		break;
-	case NETDEV_RESULT_HANDSHAKE_FAILED:
-		/* reason code in this case */
-		if (station_retry_with_reason(station, l_get_u16(event_data)))
-			return;
-
-		break;
-	case NETDEV_RESULT_AUTHENTICATION_FAILED:
-	case NETDEV_RESULT_ASSOCIATION_FAILED:
-		/* status code in this case */
-		if (station_retry_with_status(station, l_get_u16(event_data)))
-			return;
-
-		break;
-	default:
-		break;
-	}
-
-	if (station->connect_pending)
-		station_connect_dbus_reply(station, result);
-
-	if (result != NETDEV_RESULT_OK) {
-		if (result != NETDEV_RESULT_ABORTED) {
-			bool in_handshake =
-				result == NETDEV_RESULT_HANDSHAKE_FAILED;
-
-			network_connect_failed(station->connected_network,
-						in_handshake);
-			station_disassociated(station);
-		}
-
-		return;
+	if (station->connect_pending) {
+		struct l_dbus_message *reply =
+			l_dbus_message_new_method_return(
+						station->connect_pending);
+		dbus_pending_reply(&station->connect_pending, reply);
 	}
 
 	/*
@@ -2561,6 +2508,55 @@ static void station_connect_cb(struct netdev *netdev, enum netdev_result result,
 					station);
 	else
 		station_enter_state(station, STATION_STATE_CONNECTED);
+}
+
+static void station_connect_cb(struct netdev *netdev, enum netdev_result result,
+					void *event_data, void *user_data)
+{
+	struct station *station = user_data;
+	bool during_eapol;
+
+	l_debug("%u, result: %d", netdev_get_ifindex(station->netdev), result);
+
+	switch (result) {
+	case NETDEV_RESULT_OK:
+		blacklist_remove_bss(station->connected_bss->addr);
+		station_connect_ok(station);
+		return;
+	case NETDEV_RESULT_HANDSHAKE_FAILED:
+		/* reason code in this case */
+		if (station_retry_with_reason(station, l_get_u16(event_data)))
+			return;
+
+		break;
+	case NETDEV_RESULT_AUTHENTICATION_FAILED:
+	case NETDEV_RESULT_ASSOCIATION_FAILED:
+		/* status code in this case */
+		if (station_retry_with_status(station, l_get_u16(event_data)))
+			return;
+
+		break;
+	default:
+		break;
+	}
+
+	if (station->connect_pending) {
+		struct l_dbus_message *reply;
+
+		if (result == NETDEV_RESULT_ABORTED)
+			reply = dbus_error_aborted(station->connect_pending);
+		else
+			reply = dbus_error_failed(station->connect_pending);
+
+		dbus_pending_reply(&station->connect_pending, reply);
+	}
+
+	if (result == NETDEV_RESULT_ABORTED)
+		return;
+
+	during_eapol = result == NETDEV_RESULT_HANDSHAKE_FAILED;
+	network_connect_failed(station->connected_network, during_eapol);
+	station_disassociated(station);
 }
 
 int __station_connect_network(struct station *station, struct network *network,
