@@ -168,7 +168,7 @@ static void station_property_set_scanning(struct station *station,
 static void station_enter_state(struct station *station,
 						enum station_state state);
 
-static void station_autoconnect_next(struct station *station)
+static int station_autoconnect_next(struct station *station)
 {
 	struct network *network;
 	int r;
@@ -201,11 +201,13 @@ static void station_autoconnect_next(struct station *station)
 				station_property_set_scanning(station, false);
 			}
 
-			return;
+			return 0;
 		} else
 			l_debug("autoconnect: network_autoconnect: %s (%d)",
 				strerror(-r), r);
 	}
+
+	return -ENOENT;
 }
 
 static void bss_free(void *data)
@@ -1329,21 +1331,6 @@ static void station_disassociated(struct station *station)
 		station_enter_state(station, STATION_STATE_AUTOCONNECT_QUICK);
 }
 
-static void station_connect_cb(struct netdev *netdev, enum netdev_result result,
-					void *event_data, void *user_data);
-
-static void station_disconnect_event(struct station *station, void *event_data)
-{
-	l_debug("%u", netdev_get_ifindex(station->netdev));
-
-	if (station->connect_pending)
-		station_connect_cb(station->netdev,
-					NETDEV_RESULT_HANDSHAKE_FAILED,
-					event_data, station);
-	else
-		station_disassociated(station);
-}
-
 static void station_roam_timeout_rearm(struct station *station, int seconds);
 static int station_roam_scan(struct station *station,
 				struct scan_freq_set *freq_set);
@@ -2332,40 +2319,6 @@ static void station_event_roamed(struct station *station, struct scan_bss *new)
 static void station_rssi_level_changed(struct station *station,
 					uint8_t level_idx);
 
-static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
-					void *event_data, void *user_data)
-{
-	struct station *station = user_data;
-
-	switch (event) {
-	case NETDEV_EVENT_AUTHENTICATING:
-		l_debug("Authenticating");
-		break;
-	case NETDEV_EVENT_ASSOCIATING:
-		l_debug("Associating");
-		break;
-	case NETDEV_EVENT_DISCONNECT_BY_AP:
-	case NETDEV_EVENT_DISCONNECT_BY_SME:
-		station_disconnect_event(station, event_data);
-		break;
-	case NETDEV_EVENT_RSSI_THRESHOLD_LOW:
-		station_low_rssi(station);
-		break;
-	case NETDEV_EVENT_RSSI_THRESHOLD_HIGH:
-		station_ok_rssi(station);
-		break;
-	case NETDEV_EVENT_RSSI_LEVEL_NOTIFY:
-		station_rssi_level_changed(station, l_get_u8(event_data));
-		break;
-	case NETDEV_EVENT_ROAMING:
-		station_enter_state(station, STATION_STATE_ROAMING);
-		break;
-	case NETDEV_EVENT_ROAMED:
-		station_event_roamed(station, (struct scan_bss *) event_data);
-		break;
-	}
-}
-
 static bool station_try_next_bss(struct station *station)
 {
 	struct scan_bss *next;
@@ -2519,7 +2472,7 @@ static void station_connect_cb(struct netdev *netdev, enum netdev_result result,
 					void *event_data, void *user_data)
 {
 	struct station *station = user_data;
-	bool during_eapol;
+	bool continue_autoconnect;
 
 	l_debug("%u, result: %d", netdev_get_ifindex(station->netdev), result);
 
@@ -2559,9 +2512,89 @@ static void station_connect_cb(struct netdev *netdev, enum netdev_result result,
 	if (result == NETDEV_RESULT_ABORTED)
 		return;
 
-	during_eapol = result == NETDEV_RESULT_HANDSHAKE_FAILED;
-	network_connect_failed(station->connected_network, during_eapol);
-	station_disassociated(station);
+	continue_autoconnect = station->state == STATION_STATE_CONNECTING_AUTO;
+
+	if (station->state == STATION_STATE_CONNECTING) {
+		bool during_eapol = result == NETDEV_RESULT_HANDSHAKE_FAILED;
+		network_connect_failed(station->connected_network,
+								during_eapol);
+	}
+
+	station_reset_connection_state(station);
+	station_enter_state(station, STATION_STATE_DISCONNECTED);
+
+	if (continue_autoconnect) {
+		if (station_autoconnect_next(station) < 0) {
+			l_debug("Nothing left on autoconnect list");
+			station_enter_state(station,
+					STATION_STATE_AUTOCONNECT_FULL);
+		}
+
+		return;
+	}
+
+	if (station->autoconnect)
+		station_enter_state(station, STATION_STATE_AUTOCONNECT_QUICK);
+}
+
+static void station_disconnect_event(struct station *station, void *event_data)
+{
+	l_debug("%u", netdev_get_ifindex(station->netdev));
+
+	/*
+	 * If we're connecting, AP deauthenticated us, most likely because
+	 * we provided the wrong password or otherwise failed authentication
+	 * during the handshaking phase.  Treat this as a connection failure
+	 */
+	switch (station->state) {
+	case STATION_STATE_CONNECTING:
+	case STATION_STATE_CONNECTING_AUTO:
+		station_connect_cb(station->netdev,
+					NETDEV_RESULT_HANDSHAKE_FAILED,
+					event_data, station);
+		return;
+	case STATION_STATE_CONNECTED:
+		station_disassociated(station);
+		return;
+	default:
+		break;
+	}
+
+	l_warn("Unexpected disconnect event");
+}
+
+static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
+					void *event_data, void *user_data)
+{
+	struct station *station = user_data;
+
+	switch (event) {
+	case NETDEV_EVENT_AUTHENTICATING:
+		l_debug("Authenticating");
+		break;
+	case NETDEV_EVENT_ASSOCIATING:
+		l_debug("Associating");
+		break;
+	case NETDEV_EVENT_DISCONNECT_BY_AP:
+	case NETDEV_EVENT_DISCONNECT_BY_SME:
+		station_disconnect_event(station, event_data);
+		break;
+	case NETDEV_EVENT_RSSI_THRESHOLD_LOW:
+		station_low_rssi(station);
+		break;
+	case NETDEV_EVENT_RSSI_THRESHOLD_HIGH:
+		station_ok_rssi(station);
+		break;
+	case NETDEV_EVENT_RSSI_LEVEL_NOTIFY:
+		station_rssi_level_changed(station, l_get_u8(event_data));
+		break;
+	case NETDEV_EVENT_ROAMING:
+		station_enter_state(station, STATION_STATE_ROAMING);
+		break;
+	case NETDEV_EVENT_ROAMED:
+		station_event_roamed(station, (struct scan_bss *) event_data);
+		break;
+	}
 }
 
 int __station_connect_network(struct station *station, struct network *network,
