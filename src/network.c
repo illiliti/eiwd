@@ -172,6 +172,8 @@ void network_connected(struct network *network)
 void network_disconnected(struct network *network)
 {
 	network_settings_close(network);
+
+	l_queue_clear(network->blacklist, NULL);
 }
 
 /* First 64 entries calculated by 1 / pow(n, 0.3) for n >= 1 */
@@ -611,8 +613,6 @@ void network_connect_failed(struct network *network, bool in_handshake)
 
 	l_queue_destroy(network->secrets, eap_secret_info_free);
 	network->secrets = NULL;
-
-	l_queue_clear(network->blacklist, NULL);
 }
 
 static bool hotspot_info_matches(struct network *network,
