@@ -1624,7 +1624,7 @@ static void print_ie_vht_capabilities(unsigned int level,
 		[29] = "TX Antenna Pattern Consistency",
 		[30 ... 31] = "Extended NSS BW Support",
 	};
-	uint8_t info_mask[] = { 0xf0, 0x18, 0x7b, 0x30 };
+	uint8_t info_mask[] = { 0xf0, 0x18, 0x78, 0x30 };
 
 	print_attr(level, "%s: len %u", label, size);
 
