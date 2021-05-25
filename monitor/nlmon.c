@@ -1104,8 +1104,8 @@ static void print_ie_vendor(unsigned int level, const char *label,
 	}
 }
 
-static void print_ie_mcs(unsigned int level, const char *label,
-				const void *data, uint16_t size)
+static void print_ht_mcs_set(unsigned int level, const char *label,
+					const void *data, uint16_t size)
 {
 	const uint8_t *bytes = data;
 	int i;
@@ -1309,7 +1309,7 @@ static void print_ie_ht_operation(unsigned int level, const char *label,
 	print_ie_bitfield(level + 1, "Information", &bytes[1],
 			bytemask, sizeof(bytemask), ht_ops_bitfield);
 
-	print_ie_mcs(level + 1, "Basic MCS set", &bytes[6], 16);
+	print_ht_mcs_set(level + 1, "Basic MCS set", &bytes[6], 16);
 }
 
 static void print_spatial_stream_map(unsigned int level, const char *label,
@@ -1568,7 +1568,7 @@ static void print_ie_ht_capabilities(unsigned int level,
 			"Minimum MPDU Start Spacing: %s",
 			ht_capabilities_min_mpdu_start_spacing[bits]);
 
-	print_ie_mcs(level + 1, "Supported MCS", htc + 3, 16);
+	print_ht_mcs_set(level + 1, "Supported MCS", htc + 3, 16);
 
 	pco = test_bit(htc + 18, 0);
 	print_attr(level + 1, "HT Extended Capabilities: PCO: %s",
@@ -5223,7 +5223,8 @@ static const struct attr_entry wiphy_bands_table[] = {
 			ATTR_CUSTOM, { .function = print_band_frequencies } },
 	{ NL80211_BAND_ATTR_RATES, "Rates",
 			ATTR_CUSTOM, { .function = print_band_rates } },
-	{ NL80211_BAND_ATTR_HT_MCS_SET, "HT MCS Set" },
+	{ NL80211_BAND_ATTR_HT_MCS_SET, "HT MCS Set",
+			ATTR_CUSTOM, { .function = print_ht_mcs_set } },
 	{ NL80211_BAND_ATTR_HT_CAPA, "HT Capabilities" },
 	{ NL80211_BAND_ATTR_HT_AMPDU_FACTOR, "AMPDU Factor" },
 	{ NL80211_BAND_ATTR_HT_AMPDU_DENSITY, "AMPDU Density" },
