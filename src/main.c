@@ -138,6 +138,7 @@ static void usage(void)
 		"Usage:\n");
 	printf("\tiwd [options]\n");
 	printf("Options:\n"
+		"\t-E, --developer        Enable developer mode\n"
 		"\t-i, --interfaces       Interfaces to manage\n"
 		"\t-I, --nointerfaces     Interfaces to ignore\n"
 		"\t-p, --phys             Phys to manage\n"
