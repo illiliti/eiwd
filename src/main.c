@@ -138,7 +138,6 @@ static void usage(void)
 		"Usage:\n");
 	printf("\tiwd [options]\n");
 	printf("Options:\n"
-		"\t-B, --dbus-debug       Enable D-Bus debugging\n"
 		"\t-i, --interfaces       Interfaces to manage\n"
 		"\t-I, --nointerfaces     Interfaces to ignore\n"
 		"\t-p, --phys             Phys to manage\n"
@@ -150,7 +149,6 @@ static void usage(void)
 
 static const struct option main_options[] = {
 	{ "developer",    no_argument,       NULL, 'E' },
-	{ "dbus-debug",   no_argument,       NULL, 'B' },
 	{ "version",      no_argument,       NULL, 'v' },
 	{ "interfaces",   required_argument, NULL, 'i' },
 	{ "nointerfaces", required_argument, NULL, 'I' },
@@ -410,7 +408,6 @@ done:
 
 int main(int argc, char *argv[])
 {
-	bool enable_dbus_debug = false;
 	int exit_status;
 	struct l_dbus *dbus;
 	const char *config_dir;
@@ -420,15 +417,12 @@ int main(int argc, char *argv[])
 	for (;;) {
 		int opt;
 
-		opt = getopt_long(argc, argv, "EBi:I:p:P:d::vh",
+		opt = getopt_long(argc, argv, "Ei:I:p:P:d::vh",
 							main_options, NULL);
 		if (opt < 0)
 			break;
 
 		switch (opt) {
-		case 'B':
-			enable_dbus_debug = true;
-			break;
 		case 'E':
 			developeropt = true;
 			break;
@@ -539,9 +533,6 @@ int main(int argc, char *argv[])
 		l_error("Failed to initialize D-Bus");
 		goto failed_dbus;
 	}
-
-	if (enable_dbus_debug)
-		l_dbus_set_debug(dbus, do_debug, "[DBUS] ", NULL);
 
 	l_dbus_set_ready_handler(dbus, dbus_ready, dbus, NULL);
 	l_dbus_set_disconnect_handler(dbus, dbus_disconnected, NULL, NULL);
