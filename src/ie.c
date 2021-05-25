@@ -1941,6 +1941,7 @@ static int ie_parse_vht_capability(struct ie_tlv_iter *vht_iter,
 				uint64_t *data_rate)
 {
 	int width;
+	int bitoffset;
 	int mcs;
 	unsigned int nss;
 	unsigned int len;
@@ -1995,11 +1996,11 @@ static int ie_parse_vht_capability(struct ie_tlv_iter *vht_iter,
 	tx_mcs_map[1] = *data++;
 
 	/* NSS->MCS map values are grouped in 2-bit values */
-	for (mcs = 15; mcs >= 0; mcs -= 2) {
-		uint8_t rx_val = bit_field(rx_mcs_map[mcs / 8],
-							mcs % 8, 2);
-		uint8_t tx_val = bit_field(tx_mcs_map[mcs / 8],
-							mcs % 8, 2);
+	for (bitoffset = 14; bitoffset >= 0; bitoffset -= 2) {
+		uint8_t rx_val = bit_field(rx_mcs_map[bitoffset / 8],
+							bitoffset % 8, 2);
+		uint8_t tx_val = bit_field(tx_mcs_map[bitoffset / 8],
+							bitoffset % 8, 2);
 
 		/*
 		 * 0 indicates support for MCS 0-7
@@ -2010,12 +2011,12 @@ static int ie_parse_vht_capability(struct ie_tlv_iter *vht_iter,
 		 */
 		if (!max_rx_mcs && rx_val < 3) {
 			max_rx_mcs = 7 + rx_val;
-			rx_nss = (mcs / 2) + 1;
+			rx_nss = (bitoffset / 2) + 1;
 		}
 
 		if (!max_tx_mcs && tx_val < 3) {
 			max_tx_mcs = 7 + tx_val;
-			tx_nss = (mcs / 2) + 1;
+			tx_nss = (bitoffset / 2) + 1;
 		}
 
 		if (max_rx_mcs && max_tx_mcs)
