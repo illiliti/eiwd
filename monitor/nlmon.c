@@ -4937,6 +4937,8 @@ static const struct attr_entry sta_info_table[] = {
 					"Per-chain signal strength" },
 	{ NL80211_STA_INFO_CHAIN_SIGNAL_AVG,
 					"Per-chain signal strength average" },
+	{ NL80211_STA_INFO_EXPECTED_THROUGHPUT,
+					"Expected Throughput",	ATTR_U32 },
 	{ }
 };
 
