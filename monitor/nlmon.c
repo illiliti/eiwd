@@ -1104,6 +1104,66 @@ static void print_ie_vendor(unsigned int level, const char *label,
 	}
 }
 
+static void print_ht_capabilities(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	static const char *ht_capabilities_info_bitfield[16] = {
+		[0] = "LDPC Coding Capability",
+		[1] = "Supported Channel Width Set",
+		[2] = "SM Power Save",
+		[3] = "SM Power Save",
+		[4] = "HT-Greenfield",
+		[5] = "Short GI for 20Mhz",
+		[6] = "Short GI for 40Mhz",
+		[7] = "Tx STBC",
+		[8] = "Rx STBC",
+		[9] = "Rx STBC",
+		[10] = "HT-Delayed Block Ack",
+		[11] = "Maximum A-MSDU Length",
+		[12] = "DSSS/CCK Mode in 40Mhz",
+		[13] = "Reserved",
+		[14] = "40 Mhz Intolerant",
+		[15] = "L-SIG TXOP Protection Support",
+	};
+	static const char *ht_capabilities_sm_power_save[4] = {
+		"Static", "Dynamic", "Reserved", "Disabled",
+	};
+	static const char *ht_capabilities_rx_stbc[4] = {
+		"Disabled", "One spatial stream", "One and two spatial streams",
+		"One, two and three spatial streams"
+	};
+	uint8_t info_mask[] = { 0x03, 0xfc };
+	const uint8_t *htc = data;
+	uint8_t sm_power_save;
+	uint8_t rx_stbc;
+
+	if (size != 2)
+		return print_ie_error(level, label, size, -EINVAL);
+
+	/* Print bits 0-1 */
+	print_ie_bitfield(level, "HT Capabilities Info", data, info_mask,
+				1, ht_capabilities_info_bitfield);
+
+	/* Print SM Power Save */
+	sm_power_save = bit_field(htc[0], 2, 2);
+	print_attr(level, "HT Capabilities Info: bits 2-3: %s",
+			ht_capabilities_sm_power_save[sm_power_save]);
+
+	/* Print bits 4-7 */
+	info_mask[0] = 0xf0;
+	print_ie_bitfield(level, "HT Capabilities Info", data, info_mask,
+				1, ht_capabilities_info_bitfield);
+
+	rx_stbc = bit_field(htc[1], 0, 2);
+	print_attr(level, "HT Capabilities Info: bits 8-9: %s",
+			ht_capabilities_rx_stbc[rx_stbc]);
+
+	/* Print bits 10-15 */
+	info_mask[0] = 0x00;
+	print_ie_bitfield(level, "HT Capabilities Info", data, info_mask,
+				2, ht_capabilities_info_bitfield);
+}
+
 static void print_ht_mcs_set(unsigned int level, const char *label,
 					const void *data, uint16_t size)
 {
@@ -1486,31 +1546,6 @@ static void print_ie_ht_capabilities(unsigned int level,
 					const char *label,
 					const void *data, uint16_t size)
 {
-	static const char *ht_capabilities_info_bitfield[16] = {
-		[0] = "LDPC Coding Capability",
-		[1] = "Supported Channel Width Set",
-		[2] = "SM Power Save",
-		[3] = "SM Power Save",
-		[4] = "HT-Greenfield",
-		[5] = "Short GI for 20Mhz",
-		[6] = "Short GI for 40Mhz",
-		[7] = "Tx STBC",
-		[8] = "Rx STBC",
-		[9] = "Rx STBC",
-		[10] = "HT-Delayed Block Ack",
-		[11] = "Maximum A-MSDU Length",
-		[12] = "DSSS/CCK Mode in 40Mhz",
-		[13] = "Reserved",
-		[14] = "40 Mhz Intolerant",
-		[15] = "L-SIG TXOP Protection Support",
-	};
-	static const char *ht_capabilities_sm_power_save[4] = {
-		"Static", "Dynamic", "Reserved", "Disabled",
-	};
-	static const char *ht_capabilities_rx_stbc[4] = {
-		"Disabled", "One spatial stream", "One and two spatial streams",
-		"One, two and three spatial streams"
-	};
 	static const char *ht_capabilities_min_mpdu_start_spacing[8] = {
 		"No restriction", "1/4 us", "1/2 us", "1 us", "2 us",
 		"4 us", "8 us", "16 us",
@@ -1521,10 +1556,7 @@ static void print_ie_ht_capabilities(unsigned int level,
 	static const char *ht_capabilities_mcs_feedback[4] = {
 		"No feedback", "Reserved", "Unsolicited", "Both",
 	};
-	uint8_t info_mask[] = { 0x03, 0xfc };
 	const uint8_t *htc = data;
-	uint8_t sm_power_save;
-	uint8_t rx_stbc;
 	uint8_t ampdu_exponent;
 	bool pco;
 	bool plus_htc;
@@ -1536,28 +1568,7 @@ static void print_ie_ht_capabilities(unsigned int level,
 	if (size != 26)
 		return;
 
-	/* Print bits 0-1 */
-	print_ie_bitfield(level + 1, "HT Capabilities Info", data, info_mask,
-				1, ht_capabilities_info_bitfield);
-
-	/* Print SM Power Save */
-	sm_power_save = bit_field(htc[0], 2, 2);
-	print_attr(level + 1, "HT Capabilities Info: bits 2-3: %s",
-			ht_capabilities_sm_power_save[sm_power_save]);
-
-	/* Print bits 4-7 */
-	info_mask[0] = 0xf0;
-	print_ie_bitfield(level + 1, "HT Capabilities Info", data, info_mask,
-				1, ht_capabilities_info_bitfield);
-
-	rx_stbc = bit_field(htc[1], 0, 2);
-	print_attr(level + 1, "HT Capabilities Info: bits 8-9: %s",
-			ht_capabilities_rx_stbc[rx_stbc]);
-
-	/* Print bits 10-15 */
-	info_mask[0] = 0x00;
-	print_ie_bitfield(level + 1, "HT Capabilities Info", data, info_mask,
-				2, ht_capabilities_info_bitfield);
+	print_ht_capabilities(level + 1, "HT Capabilities Info", htc, 2);
 
 	ampdu_exponent = bit_field(htc[2], 0, 2);
 	print_attr(level + 1, "A-MPDU Parameters: "
@@ -5225,7 +5236,8 @@ static const struct attr_entry wiphy_bands_table[] = {
 			ATTR_CUSTOM, { .function = print_band_rates } },
 	{ NL80211_BAND_ATTR_HT_MCS_SET, "HT MCS Set",
 			ATTR_CUSTOM, { .function = print_ht_mcs_set } },
-	{ NL80211_BAND_ATTR_HT_CAPA, "HT Capabilities" },
+	{ NL80211_BAND_ATTR_HT_CAPA, "HT Capabilities",
+			ATTR_CUSTOM, { .function = print_ht_capabilities } },
 	{ NL80211_BAND_ATTR_HT_AMPDU_FACTOR, "AMPDU Factor" },
 	{ NL80211_BAND_ATTR_HT_AMPDU_DENSITY, "AMPDU Density" },
 	{ NL80211_BAND_ATTR_VHT_MCS_SET, "VHT MCS Set" },
