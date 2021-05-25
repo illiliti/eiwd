@@ -1620,7 +1620,7 @@ class Main:
 			'-append',
 			'console=ttyS0,115200n8 earlyprintk=serial \
 				rootfstype=9p root=/dev/root \
-				rootflags=trans=virtio,version=9p2000.u \
+				rootflags=trans=virtio,msize=1048576,version=9p2000.u \
 				acpi=off pci=noacpi %s ro \
 				mac80211_hwsim.radios=0 %s' % (kern_log, options),
 			'-cpu', 'host', '-smp', str(smp)
