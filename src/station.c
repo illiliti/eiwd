@@ -2316,6 +2316,16 @@ static void station_event_roamed(struct station *station, struct scan_bss *new)
 	station_roamed(station);
 }
 
+static void station_event_channel_switched(struct station *station,
+						const uint32_t freq)
+{
+	struct network *network = station->connected_network;
+
+	station->connected_bss->frequency = freq;
+
+	network_bss_update(network, station->connected_bss);
+}
+
 static void station_rssi_level_changed(struct station *station,
 					uint8_t level_idx);
 
@@ -2593,6 +2603,9 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 		break;
 	case NETDEV_EVENT_ROAMED:
 		station_event_roamed(station, (struct scan_bss *) event_data);
+		break;
+	case NETDEV_EVENT_CHANNEL_SWITCHED:
+		station_event_channel_switched(station, l_get_u32(event_data));
 		break;
 	}
 }
