@@ -4536,6 +4536,42 @@ failed:
 
 }
 
+static void netdev_channel_switch_event(struct l_genl_msg *msg,
+					struct netdev *netdev)
+{
+	struct l_genl_attr attr;
+	uint16_t type, len;
+	const void *data;
+	uint32_t *freq = NULL;
+
+	l_debug("");
+
+	if (!l_genl_attr_init(&attr, msg))
+		return;
+
+	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+		switch (type) {
+		case NL80211_ATTR_WIPHY_FREQ:
+			if (len != 4)
+				continue;
+
+			freq = (uint32_t *) data;
+			break;
+		}
+	}
+
+	if (!freq)
+		return;
+
+	l_debug("Channel switch event, frequency: %u", *freq);
+
+	if (!netdev->event_filter)
+		return;
+
+	netdev->event_filter(netdev, NETDEV_EVENT_CHANNEL_SWITCHED, freq,
+				netdev->user_data);
+}
+
 static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = NULL;
@@ -4560,6 +4596,9 @@ static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
 		break;
 	case NL80211_CMD_ROAM:
 		netdev_roam_event(msg, netdev);
+		break;
+	case NL80211_CMD_CH_SWITCH_NOTIFY:
+		netdev_channel_switch_event(msg, netdev);
 		break;
 	case NL80211_CMD_CONNECT:
 		netdev_connect_event(msg, netdev);
