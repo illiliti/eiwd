@@ -691,6 +691,12 @@ bool network_bss_update(struct network *network, struct scan_bss *bss)
 
 	l_queue_insert(network->bss_list, bss, scan_bss_rank_compare, NULL);
 
+	/* Sync frequency for already known networks */
+	if (network->info) {
+		known_network_add_frequency(network->info, bss->frequency);
+		known_network_frequency_sync(network->info);
+	}
+
 	return true;
 }
 
