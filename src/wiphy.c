@@ -70,6 +70,9 @@ struct band {
 	uint8_t vht_mcs_set[8];
 	uint8_t vht_capabilities[4];
 	bool vht_supported : 1;
+	uint8_t ht_mcs_set[16];
+	uint8_t ht_capabilities[2];
+	bool ht_supported : 1;
 	uint16_t supported_rates_len;
 	uint8_t supported_rates[];
 };
@@ -986,6 +989,21 @@ static void parse_supported_bands(struct wiphy *wiphy,
 
 				memcpy(band->vht_capabilities, data, len);
 				band->vht_supported = true;
+				break;
+			case NL80211_BAND_ATTR_HT_MCS_SET:
+				if (L_WARN_ON(len != sizeof(band->ht_mcs_set)))
+					continue;
+
+				memcpy(band->ht_mcs_set, data, len);
+				band->ht_supported = true;
+				break;
+			case NL80211_BAND_ATTR_HT_CAPA:
+				if (L_WARN_ON(len !=
+						sizeof(band->ht_capabilities)))
+					continue;
+
+				memcpy(band->ht_capabilities, data, len);
+				band->ht_supported = true;
 				break;
 			}
 		}
