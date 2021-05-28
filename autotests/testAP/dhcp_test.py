@@ -58,8 +58,14 @@ class Test(unittest.TestCase):
             testutil.test_iface_operstate(dev2.name)
             testutil.test_ifaces_connected(dev1.name, dev2.name, group=False)
 
-            testutil.test_ip_address_match(dev1.name, "192.168.80.1")
-            testutil.test_ip_address_match(dev2.name, "192.168.80.2")
+            try:
+                testutil.test_ip_address_match(dev1.name, "192.168.80.1")
+                testutil.test_ip_address_match(dev2.name, "192.168.80.2")
+                ip = "192.168.80.1"
+            except:
+                testutil.test_ip_address_match(dev1.name, "192.168.80.17")
+                testutil.test_ip_address_match(dev2.name, "192.168.80.18")
+                ip = "192.168.80.17"
 
             wd.unregister_psk_agent(psk_agent)
 
@@ -76,7 +82,7 @@ class Test(unittest.TestCase):
             # got initially.
             dev4.start_ap('TestAP4', 'Password4')
 
-            testutil.test_ip_address_match(dev4.name, "192.168.80.1")
+            testutil.test_ip_address_match(dev4.name, ip)
 
         finally:
             dev1.stop_ap()
