@@ -20,4 +20,6 @@
  *
  */
 
+int ip_pool_select_addr4(const char **addr_str_list, uint8_t subnet_prefix_len,
+				struct l_rtnl_address **out_addr);
 struct l_rtnl_address *ip_pool_get_addr4(uint32_t ifindex);
