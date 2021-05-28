@@ -107,6 +107,11 @@ void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6]);
 void wiphy_generate_address_from_ssid(struct wiphy *wiphy, const char *ssid,
 					uint8_t addr[static 6]);
 
+int wiphy_estimate_data_rate(struct wiphy *wiphy,
+				const void *ies, uint16_t ies_len,
+				const struct scan_bss *bss,
+				uint64_t *out_data_rate);
+
 uint32_t wiphy_state_watch_add(struct wiphy *wiphy,
 				wiphy_state_watch_func_t func, void *user_data,
 				wiphy_destroy_func_t destroy);

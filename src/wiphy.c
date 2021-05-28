@@ -687,6 +687,56 @@ void wiphy_get_reg_domain_country(struct wiphy *wiphy, char *out)
 	out[1] = country[1];
 }
 
+int wiphy_estimate_data_rate(struct wiphy *wiphy,
+				const void *ies, uint16_t ies_len,
+				const struct scan_bss *bss,
+				uint64_t *out_data_rate)
+{
+	struct ie_tlv_iter iter;
+	const void *supported_rates = NULL;
+	const void *ext_supported_rates = NULL;
+	const void *vht_capabilities = NULL;
+	const void *ht_capabilities = NULL;
+
+	ie_tlv_iter_init(&iter, ies, ies_len);
+
+	while (ie_tlv_iter_next(&iter)) {
+		uint8_t tag = ie_tlv_iter_get_tag(&iter);
+
+		switch (tag) {
+		case IE_TYPE_SUPPORTED_RATES:
+			if (iter.len > 8)
+				return -EBADMSG;
+
+			supported_rates = iter.data - 2;
+			break;
+		case IE_TYPE_EXTENDED_SUPPORTED_RATES:
+			ext_supported_rates = iter.data - 2;
+			break;
+		case IE_TYPE_HT_CAPABILITIES:
+			if (iter.len != 26)
+				return -EBADMSG;
+
+			ht_capabilities = iter.data - 2;
+			break;
+		case IE_TYPE_VHT_CAPABILITIES:
+			if (iter.len != 12)
+				return false;
+
+			vht_capabilities = iter.data - 2;
+			break;
+		default:
+			break;
+		}
+	}
+
+	return ie_parse_data_rates(supported_rates, ext_supported_rates,
+					ht_capabilities,
+					vht_capabilities,
+					bss->signal_strength / 100,
+					out_data_rate);
+}
+
 uint32_t wiphy_state_watch_add(struct wiphy *wiphy,
 				wiphy_state_watch_func_t func,
 				void *user_data, wiphy_destroy_func_t destroy)
