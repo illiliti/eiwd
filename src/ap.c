@@ -2054,9 +2054,11 @@ static void do_debug(const char *str, void *user_data)
 	l_info("%s%s", prefix, str);
 }
 
-static void ap_start_failed(struct ap_state *ap)
+static void ap_start_failed(struct ap_state *ap, int err)
 {
-	ap->ops->handle_event(AP_EVENT_START_FAILED, NULL, ap->user_data);
+	struct ap_event_start_failed_data data = { err };
+
+	ap->ops->handle_event(AP_EVENT_START_FAILED, &data, ap->user_data);
 	ap_reset(ap);
 	l_genl_family_free(ap->nl80211);
 
@@ -2071,22 +2073,18 @@ static void ap_start_cb(struct l_genl_msg *msg, void *user_data)
 
 	if (l_genl_msg_get_error(msg) < 0) {
 		l_error("START_AP failed: %i", l_genl_msg_get_error(msg));
-
-		goto failed;
+		ap_start_failed(ap, l_genl_msg_get_error(msg));
+		return;
 	}
 
 	if (ap->netconfig_dhcp && !l_dhcp_server_start(ap->netconfig_dhcp)) {
 		l_error("DHCP server failed to start");
-		goto failed;
+		ap_start_failed(ap, -EINVAL);
+		return;
 	}
 
 	ap->started = true;
 	ap->ops->handle_event(AP_EVENT_STARTED, NULL, ap->user_data);
-
-	return;
-
-failed:
-	ap_start_failed(ap);
 }
 
 static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
@@ -2201,12 +2199,12 @@ static void ap_ifaddr4_added_cb(int error, uint16_t type, const void *data,
 
 	if (error) {
 		l_error("Failed to set IP address");
-		ap_start_failed(ap);
+		ap_start_failed(ap, error);
 		return;
 	}
 
 	if (!ap_start_send(ap))
-		ap_start_failed(ap);
+		ap_start_failed(ap, -EIO);
 }
 
 static bool ap_parse_new_station_ies(const void *data, uint16_t len,
@@ -2378,10 +2376,12 @@ static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)
 	switch (l_genl_msg_get_command(msg)) {
 	case NL80211_CMD_STOP_AP:
 		if (ap->start_stop_cmd_id) {
+			struct ap_event_start_failed_data data = { -ECANCELED };
+
 			l_genl_family_cancel(ap->nl80211,
 						ap->start_stop_cmd_id);
 			ap->start_stop_cmd_id = 0;
-			ap->ops->handle_event(AP_EVENT_START_FAILED, NULL,
+			ap->ops->handle_event(AP_EVENT_START_FAILED, &data,
 						ap->user_data);
 		} else if (ap->started) {
 			ap->started = false;
@@ -3164,13 +3164,17 @@ static void ap_if_event_func(enum ap_event_type type, const void *event_data,
 
 	switch (type) {
 	case AP_EVENT_START_FAILED:
+	{
+		const struct ap_event_start_failed_data *data = event_data;
+
 		if (L_WARN_ON(!ap_if->pending))
 			break;
 
-		reply = dbus_error_failed(ap_if->pending);
+		reply = dbus_error_from_errno(data->error, ap_if->pending);
 		dbus_pending_reply(&ap_if->pending, reply);
 		ap_if->ap = NULL;
 		break;
+	}
 
 	case AP_EVENT_STARTED:
 		if (L_WARN_ON(!ap_if->pending))

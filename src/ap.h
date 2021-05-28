@@ -35,6 +35,10 @@ enum ap_event_type {
 	AP_EVENT_PBC_MODE_EXIT,
 };
 
+struct ap_event_start_failed_data {
+	int error;
+};
+
 struct ap_event_station_added_data {
 	const uint8_t *mac;
 	const uint8_t *assoc_ies;
