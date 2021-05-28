@@ -64,14 +64,11 @@ struct scan_bss {
 	uint8_t mde[3];
 	uint8_t ssid[32];
 	uint8_t ssid_len;
-	uint8_t supp_rates_ie[10];
-	uint8_t *ext_supp_rates_ie;
 	uint8_t utilization;
 	uint8_t cc[3];
 	uint16_t rank;
-	uint8_t ht_ie[28];
-	uint8_t vht_ie[14];
 	uint64_t time_stamp;
+	uint64_t data_rate;
 	uint8_t hessid[6];
 	uint8_t *rc_ie;		/* Roaming consortium IE */
 	uint8_t hs20_version;
@@ -81,7 +78,6 @@ struct scan_bss {
 	bool mde_present : 1;
 	bool cc_present : 1;
 	bool cap_rm_neighbor_report : 1;
-	bool has_sup_rates : 1;
 	bool ht_capable : 1;
 	bool vht_capable : 1;
 	bool anqp_capable : 1;

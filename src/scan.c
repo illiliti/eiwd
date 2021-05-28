@@ -999,18 +999,6 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 			bss->ssid_len = iter.len;
 			have_ssid = true;
 			break;
-		case IE_TYPE_SUPPORTED_RATES:
-			if (iter.len > 8)
-				return false;
-
-			bss->has_sup_rates =  true;
-			memcpy(bss->supp_rates_ie, iter.data - 2, iter.len + 2);
-
-			break;
-		case IE_TYPE_EXTENDED_SUPPORTED_RATES:
-			bss->ext_supp_rates_ie = l_memdup(iter.data - 2,
-								iter.len + 2);
-			break;
 		case IE_TYPE_RSN:
 			if (!bss->rsne)
 				bss->rsne = l_memdup(iter.data - 2,
@@ -1056,20 +1044,10 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 
 			break;
 		case IE_TYPE_HT_CAPABILITIES:
-			if (iter.len != 26)
-				return false;
-
 			bss->ht_capable = true;
-			memcpy(bss->ht_ie, iter.data - 2, iter.len + 2);
-
 			break;
 		case IE_TYPE_VHT_CAPABILITIES:
-			if (iter.len != 12)
-				return false;
-
 			bss->vht_capable = true;
-			memcpy(bss->vht_ie, iter.data - 2, iter.len + 2);
-
 			break;
 		case IE_TYPE_ADVERTISEMENT_PROTOCOL:
 			if (iter.len < 2)
@@ -1164,6 +1142,7 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 }
 
 static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr,
+						struct wiphy *wiphy,
 						uint32_t *out_seen_ms_ago)
 {
 	uint16_t type, len;
@@ -1247,8 +1226,16 @@ static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr,
 				memcmp(ies, beacon_ies, ies_len)))
 		bss->source_frame = SCAN_BSS_PROBE_RESP;
 
-	if (ies && !scan_parse_bss_information_elements(bss, ies, ies_len))
-		goto fail;
+	/* Set data rate to something low, just in case estimation fails */
+	bss->data_rate = 2000000;
+
+	if (ies) {
+		if (!scan_parse_bss_information_elements(bss, ies, ies_len))
+			goto fail;
+
+		L_WARN_ON(wiphy_estimate_data_rate(wiphy, ies, ies_len, bss,
+						&bss->data_rate) < 0);
+	}
 
 	return bss;
 
@@ -1280,6 +1267,7 @@ static struct scan_freq_set *scan_parse_attr_scan_frequencies(
 }
 
 static struct scan_bss *scan_parse_result(struct l_genl_msg *msg,
+						struct wiphy *wiphy,
 						uint32_t *out_seen_ms_ago)
 {
 	struct l_genl_attr attr, nested;
@@ -1295,7 +1283,8 @@ static struct scan_bss *scan_parse_result(struct l_genl_msg *msg,
 			if (!l_genl_attr_recurse(&attr, &nested))
 				return NULL;
 
-			bss = scan_parse_attr_bss(&nested, out_seen_ms_ago);
+			bss = scan_parse_attr_bss(&nested, wiphy,
+							out_seen_ms_ago);
 			break;
 		}
 	}
@@ -1309,27 +1298,12 @@ static void scan_bss_compute_rank(struct scan_bss *bss)
 	static const double RANK_LOW_UTILIZATION_FACTOR = 1.2;
 	double rank;
 	uint32_t irank;
-	uint64_t data_rate;
 	/*
 	 * Maximum rate is 2340Mbps (VHT)
 	 */
-	uint64_t max_rate = 2340000000U;
+	double max_rate = 2340000000;
 
-	/*
-	 * If parsing fails choose a very low data rate as its unknown what
-	 * this AP supports or why its IEs did not parse. Likely not an AP
-	 * we should prefer to connect to.
-	 */
-	if (ie_parse_data_rates(bss->has_sup_rates ?
-				bss->supp_rates_ie : NULL,
-				bss->ext_supp_rates_ie,
-				bss->ht_capable ? bss->ht_ie : NULL,
-				bss->vht_capable ? bss->vht_ie : NULL,
-				bss->signal_strength / 100,
-				&data_rate) != 0)
-		data_rate = 2000000;
-
-	rank = (double)data_rate / (double)max_rate * USHRT_MAX;
+	rank = (double)bss->data_rate / max_rate * USHRT_MAX;
 
 	/* Prefer 5G networks over 2.4G */
 	if (bss->frequency > 4000)
@@ -1367,7 +1341,6 @@ struct scan_bss *scan_bss_new_from_probe_req(const struct mmpdu_header *mpdu,
 	if (!scan_parse_bss_information_elements(bss, body, body_len))
 		goto fail;
 
-	scan_bss_compute_rank(bss);
 	return bss;
 
 fail:
@@ -1377,7 +1350,6 @@ fail:
 
 void scan_bss_free(struct scan_bss *bss)
 {
-	l_free(bss->ext_supp_rates_ie);
 	l_free(bss->rsne);
 	l_free(bss->wpa);
 	l_free(bss->wsc);
@@ -1474,7 +1446,7 @@ static void get_scan_callback(struct l_genl_msg *msg, void *user_data)
 		return;
 	}
 
-	bss = scan_parse_result(msg, &seen_ms_ago);
+	bss = scan_parse_result(msg, sc->wiphy, &seen_ms_ago);
 	if (!bss)
 		return;
 
