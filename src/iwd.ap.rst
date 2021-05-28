@@ -104,14 +104,31 @@ is desired, the group header line must still be present:
    :widths: 20 80
 
    * - Address
-     - Local IP address
+     - Local IP address or a comma-separated list of prefix-notation addresses
 
        Optional local address pool for the access point and the DHCP server.
-       If provided this addresss will be set on the AP interface and any other
-       DHCP server options will be derived from it, unless they are overridden
-       by other settings below.  If *Address* is not provided and no IP
-       address is set on the interface prior to calling `StartProfile`,  the IP
-       pool defined by the global ``[General].APRanges`` setting will be used.
+       If a single address is provided this address will be set on the AP
+       interface and any other DHCP server options will be derived from it
+       if not overridden by other settings below.
+
+       If a list of addresses and prefix lengths is specified (in the
+       `<IP>/<prefix-len>` format), a single subnet address will be selected
+       from the available space each time this profile is started.  The subnet
+       size is based on the ``[IPv4].Netmask`` setting.
+
+       If *Address* is not provided and no IP address is set on the
+       interface prior to calling `StartProfile` the value of the main.conf
+       ``[IPv4].APAddressPool`` setting will be inherited, which in turn
+       defaults to 192.168.0.0/16.
+
+       For example, if ``[IPv4].Netmask`` is set to 255.255.255.0 and this
+       setting, or the global *APAddressPool* fallback, is set to
+       ``192.168.0.0/16, 10.0.0.0/22``, IWD will select one of the 256 subnets
+       with addresses in the 192.168.<0-255>.0/24 range or one of the 4 subnets
+       with addresses in the 10.0.<0-3>.0/24 range, allowing 270 possible
+       subnets.  Defining an address pool larger than the desired subnet gives
+       IWD a chance to avoid conflicts if other interfaces on the system use
+       dynamically assigned addresses.
 
    * - Gateway
      - IP Address of gateway
@@ -122,7 +139,7 @@ is desired, the group header line must still be present:
    * - Netmask
      - Local netmask of the AP
 
-       This will be generated from ``[IPv4].Address`` if not provided.
+       Defaults to a 28-bit netmask if not provided.
 
    * - DNSList
      - List of DNS servers as a comma-separated IP address list
