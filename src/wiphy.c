@@ -67,6 +67,9 @@ static char regdom_country[2];
 static uint32_t work_ids;
 
 struct band {
+	uint8_t vht_mcs_set[8];
+	uint8_t vht_capabilities[4];
+	bool vht_supported : 1;
 	uint16_t supported_rates_len;
 	uint8_t supported_rates[];
 };
@@ -907,6 +910,7 @@ static struct band *band_new_from_message(struct l_genl_attr *band)
 	toalloc = sizeof(struct band) + count * sizeof(uint8_t);
 	ret = l_malloc(toalloc);
 	memset(ret, 0, toalloc);
+	memset(ret->vht_mcs_set, 0xff, sizeof(ret->vht_mcs_set));
 
 	return ret;
 }
@@ -915,6 +919,8 @@ static void parse_supported_bands(struct wiphy *wiphy,
 						struct l_genl_attr *bands)
 {
 	uint16_t type;
+	uint16_t len;
+	const void *data;
 	struct l_genl_attr attr;
 
 	while (l_genl_attr_next(bands, &type, NULL, NULL)) {
@@ -948,7 +954,7 @@ static void parse_supported_bands(struct wiphy *wiphy,
 		} else
 			band = *bandp;
 
-		while (l_genl_attr_next(&attr, &type, NULL, NULL)) {
+		while (l_genl_attr_next(&attr, &type, &len, &data)) {
 			struct l_genl_attr freqs;
 
 			switch (type) {
@@ -965,6 +971,21 @@ static void parse_supported_bands(struct wiphy *wiphy,
 					continue;
 				}
 
+				break;
+			case NL80211_BAND_ATTR_VHT_MCS_SET:
+				if (L_WARN_ON(len != sizeof(band->vht_mcs_set)))
+					continue;
+
+				memcpy(band->vht_mcs_set, data, len);
+				band->vht_supported = true;
+				break;
+			case NL80211_BAND_ATTR_VHT_CAPA:
+				if (L_WARN_ON(len !=
+						sizeof(band->vht_capabilities)))
+					continue;
+
+				memcpy(band->vht_capabilities, data, len);
+				band->vht_supported = true;
 				break;
 			}
 		}
