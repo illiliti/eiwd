@@ -1280,27 +1280,17 @@ static struct scan_freq_set *scan_parse_attr_scan_frequencies(
 }
 
 static struct scan_bss *scan_parse_result(struct l_genl_msg *msg,
-						uint64_t *out_wdev,
 						uint32_t *out_seen_ms_ago)
 {
 	struct l_genl_attr attr, nested;
-	uint16_t type, len;
-	const void *data;
-	const uint64_t *wdev = NULL;
+	uint16_t type;
 	struct scan_bss *bss = NULL;
 
 	if (!l_genl_attr_init(&attr, msg))
 		return NULL;
 
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+	while (l_genl_attr_next(&attr, &type, NULL, NULL)) {
 		switch (type) {
-		case NL80211_ATTR_WDEV:
-			if (len != sizeof(uint64_t))
-				return NULL;
-
-			wdev = data;
-			break;
-
 		case NL80211_ATTR_BSS:
 			if (!l_genl_attr_recurse(&attr, &nested))
 				return NULL;
@@ -1309,17 +1299,6 @@ static struct scan_bss *scan_parse_result(struct l_genl_msg *msg,
 			break;
 		}
 	}
-
-	if (!bss)
-		return NULL;
-
-	if (!wdev) {
-		scan_bss_free(bss);
-		return NULL;
-	}
-
-	if (out_wdev)
-		*out_wdev = *wdev;
 
 	return bss;
 }
@@ -1486,15 +1465,18 @@ static void get_scan_callback(struct l_genl_msg *msg, void *user_data)
 
 	l_debug("get_scan_callback");
 
-	bss = scan_parse_result(msg, &wdev_id, &seen_ms_ago);
-	if (!bss)
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_WDEV, &wdev_id,
+					NL80211_ATTR_UNSPEC) < 0)
 		return;
 
 	if (wdev_id != sc->wdev_id) {
 		l_warn("wdev mismatch in get_scan_callback");
-		scan_bss_free(bss);
 		return;
 	}
+
+	bss = scan_parse_result(msg, &seen_ms_ago);
+	if (!bss)
+		return;
 
 	if (!bss->time_stamp)
 		bss->time_stamp = results->time_stamp -
