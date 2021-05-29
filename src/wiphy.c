@@ -749,29 +749,78 @@ bool wiphy_state_watch_remove(struct wiphy *wiphy, uint32_t id)
 	return watchlist_remove(&wiphy->state_watches, id);
 }
 
+static void wiphy_print_mcs_indexes(const uint8_t *mcs)
+{
+	int i;
+
+	for (i = 0; i < 77; i++) {
+		int start;
+
+		if (!test_bit(mcs, i))
+			continue;
+
+		start = i;
+
+		while (i < 76 && test_bit(mcs, i + 1))
+			i += 1;
+
+		if (start != i)
+			l_info("\t\t\t%d-%d", start, i);
+		else
+			l_info("\t\t\t%d", start);
+	}
+}
+
+static void wiphy_print_band_info(struct band *band, const char *name)
+{
+	int i;
+
+	l_info("\t%s:", name);
+	l_info("\t\tBitrates (non-HT):");
+
+	for (i = 0; i < band->supported_rates_len; i++)
+		l_info("\t\t\t%2d.%d Mbps", band->supported_rates[i] / 2,
+					band->supported_rates[i] % 2 * 5);
+
+	if (band->ht_supported) {
+		uint8_t max_nss = bit_field(band->ht_mcs_set[12], 2, 2) + 1;
+		l_info("\t\tHT Capabilities:");
+
+		if (test_bit(band->ht_capabilities, 1))
+			l_info("\t\t\tHT40");
+		else
+			l_info("\t\t\tHT20");
+
+		if (test_bit(band->ht_capabilities, 5))
+			l_info("\t\t\tShort GI for 20Mhz");
+
+		if (test_bit(band->ht_capabilities, 6))
+			l_info("\t\t\tShort GI for 40Mhz");
+
+		l_info("\t\tHT RX MCS indexes:");
+		wiphy_print_mcs_indexes(band->ht_mcs_set);
+
+		if (test_bit(band->ht_mcs_set, 96)) {
+			if (test_bit(band->ht_mcs_set, 97))
+				l_info("\t\tHT TX MCS differ, max NSS: %d",
+					max_nss);
+		} else
+			l_info("\t\tHT TX MCS set undefined");
+	}
+}
+
 static void wiphy_print_basic_info(struct wiphy *wiphy)
 {
-	uint32_t bands;
 	char buf[1024];
 
 	l_info("Wiphy: %d, Name: %s", wiphy->id, wiphy->name);
 	l_info("\tPermanent Address: "MAC, MAC_STR(wiphy->permanent_addr));
 
-	bands = scan_freq_set_get_bands(wiphy->supported_freqs);
+	if (wiphy->band_2g)
+		wiphy_print_band_info(wiphy->band_2g, "2.4Ghz Band");
 
-	if (bands) {
-		int len = 0;
-
-		len += sprintf(buf + len, "\tBands:");
-
-		if (bands & SCAN_BAND_2_4_GHZ)
-			len += sprintf(buf + len, " 2.4 GHz");
-
-		if (bands & SCAN_BAND_5_GHZ)
-			len += sprintf(buf + len, " 5 GHz");
-
-		l_info("%s", buf);
-	}
+	if (wiphy->band_5g)
+		wiphy_print_band_info(wiphy->band_5g, "5Ghz Band");
 
 	if (wiphy->supported_ciphers) {
 		int len = 0;
