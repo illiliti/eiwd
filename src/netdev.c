@@ -802,6 +802,8 @@ static void netdev_free(void *data)
 
 	l_debug("Freeing netdev %s[%d]", netdev->name, netdev->index);
 
+	netdev->ifi_flags &= ~IFF_UP;
+
 	if (netdev->events_ready)
 		WATCHLIST_NOTIFY(&netdev_watches, netdev_watch_func_t,
 					netdev, NETDEV_WATCH_EVENT_DEL);
@@ -3293,6 +3295,9 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 	struct eapol_sm *sm = NULL;
 	bool is_rsn = hs->supplicant_ie != NULL;
 
+	if (!(netdev->ifi_flags & IFF_UP))
+		return -ENETDOWN;
+
 	if (netdev->type != NL80211_IFTYPE_STATION &&
 			netdev->type != NL80211_IFTYPE_P2P_CLIENT)
 		return -ENOTSUP;
@@ -3366,6 +3371,9 @@ int netdev_disconnect(struct netdev *netdev,
 {
 	struct l_genl_msg *disconnect;
 	bool send_disconnect = true;
+
+	if (!(netdev->ifi_flags & IFF_UP))
+		return -ENETDOWN;
 
 	if (netdev->type != NL80211_IFTYPE_STATION &&
 			netdev->type != NL80211_IFTYPE_P2P_CLIENT)
