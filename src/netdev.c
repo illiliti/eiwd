@@ -815,7 +815,8 @@ static void netdev_free(void *data)
 
 	if (netdev->connected)
 		netdev_connect_free(netdev);
-	else if (netdev->disconnect_cmd_id) {
+
+	if (netdev->disconnect_cmd_id) {
 		l_genl_family_cancel(nl80211, netdev->disconnect_cmd_id);
 		netdev->disconnect_cmd_id = 0;
 
@@ -824,6 +825,11 @@ static void netdev_free(void *data)
 
 		netdev->disconnect_cb = NULL;
 		netdev->user_data = NULL;
+	}
+
+	if (netdev->disconnect_idle) {
+		l_idle_remove(netdev->disconnect_idle);
+		netdev->disconnect_idle = NULL;
 	}
 
 	if (netdev->join_adhoc_cmd_id) {
@@ -863,11 +869,6 @@ static void netdev_free(void *data)
 
 	if (netdev->fw_roam_bss)
 		scan_bss_free(netdev->fw_roam_bss);
-
-	if (netdev->disconnect_idle) {
-		l_idle_remove(netdev->disconnect_idle);
-		netdev->disconnect_idle = NULL;
-	}
 
 	if (netdev->ft_ds_list) {
 		l_queue_destroy(netdev->ft_ds_list, netdev_ft_ds_entry_free);
