@@ -3605,9 +3605,6 @@ static void station_free(struct station *station)
 	if (!l_queue_remove(station_list, station))
 		return;
 
-	if (station->connected_bss)
-		netdev_disconnect(station->netdev, NULL, NULL);
-
 	l_dbus_object_remove_interface(dbus_get_bus(),
 					netdev_get_path(station->netdev),
 					IWD_STATION_DIAGNOSTIC_INTERFACE);
