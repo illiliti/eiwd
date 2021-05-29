@@ -5959,6 +5959,7 @@ static void netdev_exit(void)
 
 	watchlist_destroy(&netdev_watches);
 	l_queue_destroy(netdev_list, netdev_free);
+	netdev_list = NULL;
 
 	l_genl_family_free(nl80211);
 	nl80211 = NULL;
@@ -5979,9 +5980,6 @@ void netdev_shutdown(void)
 		netdev_free(netdev);
 		l_queue_pop_head(netdev_list);
 	}
-
-	l_queue_destroy(netdev_list, NULL);
-	netdev_list = NULL;
 }
 
 IWD_MODULE(netdev, netdev_init, netdev_exit);
