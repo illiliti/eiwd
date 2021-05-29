@@ -802,6 +802,10 @@ static void netdev_free(void *data)
 
 	l_debug("Freeing netdev %s[%d]", netdev->name, netdev->index);
 
+	if (netdev->events_ready)
+		WATCHLIST_NOTIFY(&netdev_watches, netdev_watch_func_t,
+					netdev, NETDEV_WATCH_EVENT_DEL);
+
 	if (netdev->neighbor_report_cb) {
 		netdev->neighbor_report_cb(netdev, -ENODEV, NULL, 0,
 						netdev->user_data);
@@ -869,10 +873,6 @@ static void netdev_free(void *data)
 		l_queue_destroy(netdev->ft_ds_list, netdev_ft_ds_entry_free);
 		netdev->ft_ds_list = NULL;
 	}
-
-	if (netdev->events_ready)
-		WATCHLIST_NOTIFY(&netdev_watches, netdev_watch_func_t,
-					netdev, NETDEV_WATCH_EVENT_DEL);
 
 	scan_wdev_remove(netdev->wdev_id);
 
