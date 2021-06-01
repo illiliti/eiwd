@@ -721,7 +721,7 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 			break;
 		case IE_TYPE_VHT_CAPABILITIES:
 			if (iter.len != 12)
-				return false;
+				return -EBADMSG;
 
 			vht_capabilities = iter.data - 2;
 			break;
