@@ -815,7 +815,7 @@ static void netdev_free(void *data)
 		l_timeout_remove(netdev->neighbor_report_timeout);
 	}
 
-	if (netdev->connected)
+	if (netdev->connected || netdev->connect_cmd_id || netdev->work.id)
 		netdev_connect_free(netdev);
 
 	if (netdev->disconnect_cmd_id) {
