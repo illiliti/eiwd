@@ -3926,15 +3926,8 @@ static int station_init(void)
 
 	if (!l_settings_get_bool(iwd_get_config(), "General",
 					"EnableNetworkConfiguration",
-					&netconfig_enabled)) {
-		if (l_settings_get_bool(iwd_get_config(), "General",
-					"enable_network_config",
 					&netconfig_enabled))
-			l_warn("[General].enable_network_config is deprecated,"
-				" use [General].EnableNetworkConfiguration");
-		else
 			netconfig_enabled = false;
-	}
 
 	if (!netconfig_enabled)
 		l_info("station: Network configuration is disabled.");
