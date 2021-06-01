@@ -771,6 +771,23 @@ static void wiphy_print_mcs_indexes(const uint8_t *mcs)
 	}
 }
 
+static void wiphy_print_vht_mcs_info(const uint8_t *mcs_map,
+						const char *prefix)
+{
+	int i;
+
+	for (i = 14; i >= 0; i -= 2) {
+		int mcs = bit_field(mcs_map[i / 8], i % 8, 2);
+
+		if (mcs == 0x3)
+			continue;
+
+		l_info("\t\t\tMax %s MCS: 0-%d for NSS: %d", prefix,
+			mcs + 7, i / 2 + 1);
+		return;
+	}
+}
+
 static void wiphy_print_band_info(struct band *band, const char *name)
 {
 	int i;
@@ -806,6 +823,28 @@ static void wiphy_print_band_info(struct band *band, const char *name)
 					max_nss);
 		} else
 			l_info("\t\tHT TX MCS set undefined");
+	}
+
+	if (band->vht_supported) {
+		l_info("\t\tVHT Capabilities:");
+
+		switch (bit_field(band->vht_capabilities[0], 2, 2)) {
+		case 1:
+			l_info("\t\t\t160 Mhz operation");
+			break;
+		case 2:
+			l_info("\t\t\t160 Mhz, 80+80 Mhz operation");
+			break;
+		}
+
+		if (test_bit(band->vht_capabilities, 5))
+			l_info("\t\t\tShort GI for 80Mhz");
+
+		if (test_bit(band->vht_capabilities, 6))
+			l_info("\t\t\tShort GI for 160 and 80 + 80 Mhz");
+
+		wiphy_print_vht_mcs_info(band->vht_mcs_set, "RX");
+		wiphy_print_vht_mcs_info(band->vht_mcs_set + 4, "TX");
 	}
 }
 
