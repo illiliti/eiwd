@@ -847,14 +847,8 @@ static int manager_init(void)
 	}
 
 	if (!l_settings_get_bool(config, "General",
-				"UseDefaultInterface", &use_default)) {
-		if (!l_settings_get_bool(config, "General",
-					"use_default_interface", &use_default))
-			use_default = false;
-		else
-			l_warn("[General].use_default_interface is deprecated"
-					", please use UseDefaultInterface");
-	}
+				"UseDefaultInterface", &use_default))
+		use_default = false;
 
 	return 0;
 
