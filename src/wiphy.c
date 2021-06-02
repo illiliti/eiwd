@@ -55,6 +55,7 @@
 #include "src/watchlist.h"
 #include "src/nl80211util.h"
 #include "src/nl80211cmd.h"
+#include "src/band.h"
 
 #define EXT_CAP_LEN 10
 
@@ -65,17 +66,6 @@ static char **blacklist_filter;
 static int mac_randomize_bytes = 6;
 static char regdom_country[2];
 static uint32_t work_ids;
-
-struct band {
-	uint8_t vht_mcs_set[8];
-	uint8_t vht_capabilities[4];
-	bool vht_supported : 1;
-	uint8_t ht_mcs_set[16];
-	uint8_t ht_capabilities[2];
-	bool ht_supported : 1;
-	uint16_t supported_rates_len;
-	uint8_t supported_rates[];
-};
 
 struct wiphy {
 	uint32_t id;
@@ -136,11 +126,6 @@ enum ie_rsn_cipher_suite wiphy_select_cipher(struct wiphy *wiphy, uint16_t mask)
 		return IE_RSN_CIPHER_SUITE_BIP;
 
 	return 0;
-}
-
-static void band_free(struct band *band)
-{
-	l_free(band);
 }
 
 static bool wiphy_can_connect_sae(struct wiphy *wiphy)
