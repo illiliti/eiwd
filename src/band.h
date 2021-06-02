@@ -20,6 +20,13 @@
  *
  */
 
+enum ofdm_channel_width {
+	OFDM_CHANNEL_WIDTH_20MHZ = 0,
+	OFDM_CHANNEL_WIDTH_40MHZ,
+	OFDM_CHANNEL_WIDTH_80MHZ,
+	OFDM_CHANNEL_WIDTH_160MHZ,
+};
+
 struct band {
 	uint8_t vht_mcs_set[8];
 	uint8_t vht_capabilities[4];
@@ -32,3 +39,7 @@ struct band {
 };
 
 void band_free(struct band *band);
+
+bool band_ofdm_rate(uint8_t index, enum ofdm_channel_width width,
+			int32_t rssi, uint8_t nss, bool sgi,
+			uint64_t *data_rate);
