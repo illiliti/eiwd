@@ -68,6 +68,8 @@ struct netconfig {
 
 	struct l_acd *acd;
 
+	uint32_t addr4_add_cmd_id;
+	uint32_t addr6_add_cmd_id;
 	uint32_t route4_add_gateway_cmd_id;
 };
 
@@ -680,6 +682,8 @@ static void netconfig_ipv4_ifaddr_add_cmd_cb(int error, uint16_t type,
 {
 	struct netconfig *netconfig = user_data;
 
+	netconfig->addr4_add_cmd_id = 0;
+
 	if (error && error != -EEXIST) {
 		l_error("netconfig: Failed to add IP address. "
 				"Error %d: %s", error, strerror(-error));
@@ -701,6 +705,8 @@ static void netconfig_ipv6_ifaddr_add_cmd_cb(int error, uint16_t type,
 {
 	struct netconfig *netconfig = user_data;
 	struct l_rtnl_route *gateway;
+
+	netconfig->addr6_add_cmd_id = 0;
 
 	if (error && error != -EEXIST) {
 		l_error("netconfig: Failed to add IPv6 address. "
@@ -765,10 +771,11 @@ static void netconfig_ipv4_dhcp_event_handler(struct l_dhcp_client *client,
 			return;
 		}
 
-		L_WARN_ON(!l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
+		L_WARN_ON(!(netconfig->addr4_add_cmd_id =
+				l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
 					netconfig->v4_address,
 					netconfig_ipv4_ifaddr_add_cmd_cb,
-					netconfig, NULL));
+					netconfig, NULL)));
 		break;
 	case L_DHCP_CLIENT_EVENT_LEASE_RENEWED:
 		break;
@@ -859,10 +866,11 @@ static void netconfig_ipv4_acd_event(enum l_acd_event event, void *user_data)
 
 	switch (event) {
 	case L_ACD_EVENT_AVAILABLE:
-		L_WARN_ON(!l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
+		L_WARN_ON(!(netconfig->addr4_add_cmd_id =
+				l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
 					netconfig->v4_address,
 					netconfig_ipv4_ifaddr_add_cmd_cb,
-					netconfig, NULL));
+					netconfig, NULL)));
 		return;
 	case L_ACD_EVENT_CONFLICT:
 		/*
@@ -907,10 +915,11 @@ static void netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 			l_acd_destroy(netconfig->acd);
 			netconfig->acd = NULL;
 
-			L_WARN_ON(!l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
+			L_WARN_ON(!(netconfig->addr4_add_cmd_id =
+				l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
 					netconfig->v4_address,
 					netconfig_ipv4_ifaddr_add_cmd_cb,
-					netconfig, NULL));
+					netconfig, NULL)));
 		}
 
 		return;
@@ -945,9 +954,10 @@ static void netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 	address = netconfig_get_static6_address(netconfig);
 	if (address) {
 		netconfig->rtm_v6_protocol = RTPROT_STATIC;
-		L_WARN_ON(!l_rtnl_ifaddr_add(rtnl, netconfig->ifindex, address,
+		L_WARN_ON(!(netconfig->addr6_add_cmd_id =
+			l_rtnl_ifaddr_add(rtnl, netconfig->ifindex, address,
 					netconfig_ipv6_ifaddr_add_cmd_cb,
-					netconfig, NULL));
+					netconfig, NULL)));
 		l_rtnl_address_free(address);
 		return;
 	}
@@ -1062,6 +1072,16 @@ bool netconfig_reset(struct netconfig *netconfig)
 	if (netconfig->route4_add_gateway_cmd_id) {
 		l_netlink_cancel(rtnl, netconfig->route4_add_gateway_cmd_id);
 		netconfig->route4_add_gateway_cmd_id = 0;
+	}
+
+	if (netconfig->addr4_add_cmd_id) {
+		l_netlink_cancel(rtnl, netconfig->addr4_add_cmd_id);
+		netconfig->addr4_add_cmd_id = 0;
+	}
+
+	if (netconfig->addr6_add_cmd_id) {
+		l_netlink_cancel(rtnl, netconfig->addr6_add_cmd_id);
+		netconfig->addr6_add_cmd_id = 0;
 	}
 
 	if (netconfig->rtm_protocol || netconfig->rtm_v6_protocol)
