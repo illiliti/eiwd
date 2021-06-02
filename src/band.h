@@ -43,3 +43,8 @@ void band_free(struct band *band);
 bool band_ofdm_rate(uint8_t index, enum ofdm_channel_width width,
 			int32_t rssi, uint8_t nss, bool sgi,
 			uint64_t *data_rate);
+
+int band_estimate_vht_rx_rate(const struct band *band,
+				const uint8_t *vhtc, const uint8_t *vhto,
+				const uint8_t *htc, const uint8_t *hto,
+				int32_t rssi, uint64_t *out_data_rate);

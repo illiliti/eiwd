@@ -22,8 +22,11 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <errno.h>
 
 #include <ell/ell.h>
+
+#include "ell/useful.h"
 
 #include "band.h"
 
@@ -114,4 +117,161 @@ bool band_ofdm_rate(uint8_t index, enum ofdm_channel_width width,
 
 	*data_rate = rate;
 	return true;
+}
+
+static bool find_best_mcs_vht(uint8_t max_index, enum ofdm_channel_width width,
+				int32_t rssi, uint8_t nss, bool sgi,
+				uint64_t *out_data_rate)
+{
+	int i;
+
+	/*
+	 * Iterate over all available MCS indexes to find the best one
+	 * we can use.  Note that band_ofdm_rate() will return false if a
+	 * given combination cannot be used due to rssi being too low.
+	 *
+	 * Also, Certain MCS/Width/NSS combinations are not valid,
+	 * refer to IEEE 802.11-2016 Section 21.5 for more details
+	 */
+
+	for (i = max_index; i >= 0; i--)
+		if (band_ofdm_rate(i, width, rssi,
+						nss, sgi, out_data_rate))
+			return true;
+
+	return false;
+}
+
+/*
+ * IEEE 802.11 - Table 9-250
+ *
+ * For simplicity, we are ignoring the Extended BSS BW support, per NOTE 11:
+ *
+ * NOTE 11-A receiving STA in which dot11VHTExtendedNSSCapable is false will
+ * ignore the Extended NSS BW Support subfield and effectively evaluate this
+ * table only at the entries where Extended NSS BW Support is 0.
+ *
+ * This also allows us to group the 160/80+80 widths together, since they are
+ * the same when Extended NSS BW is zero.
+ */
+int band_estimate_vht_rx_rate(const struct band *band,
+				const uint8_t *vhtc, const uint8_t *vhto,
+				const uint8_t *htc, const uint8_t *hto,
+				int32_t rssi, uint64_t *out_data_rate)
+{
+	uint32_t nss = 0;
+	uint32_t max_mcs = 7; /* MCS 0-7 for NSS:1 is always supported */
+	const uint8_t *rx_mcs_map;
+	const uint8_t *tx_mcs_map;
+	int bitoffset;
+	uint8_t chan_width;
+	uint8_t channel_offset;
+	bool sgi;
+
+	if (!band->vht_supported || !band->ht_supported)
+		return -ENOTSUP;
+
+	if (!vhtc || !vhto || !htc || !hto)
+		return -ENOTSUP;
+
+	if (vhto[2] > 3)
+		return -EBADMSG;
+
+	/*
+	 * Find the highest NSS/MCS index combination.  Since this is used by
+	 * STAs, we try to estimate our 'download' speed from the AP/peer.
+	 * Hence we look at the TX MCS map of the peer and our own RX MCS map
+	 * to find an overlapping combination that works
+	 */
+	rx_mcs_map = band->vht_mcs_set;
+	tx_mcs_map = vhtc + 2 + 8;
+
+	for (bitoffset = 14; bitoffset >= 0; bitoffset -= 2) {
+		uint8_t rx_val = bit_field(rx_mcs_map[bitoffset / 8],
+							bitoffset % 8, 2);
+		uint8_t tx_val = bit_field(tx_mcs_map[bitoffset / 8],
+							bitoffset % 8, 2);
+
+		/*
+		 * 0 indicates support for MCS 0-7
+		 * 1 indicates support for MCS 0-8
+		 * 2 indicates support for MCS 0-9
+		 * 3 indicates no support
+		 */
+
+		if (rx_val == 3 || tx_val == 3)
+			continue;
+
+		/* 7 + rx_val/tx_val gives us the maximum mcs index */
+		max_mcs = minsize(rx_val, tx_val) + 7;
+		nss = bitoffset / 2 + 1;
+		break;
+	}
+
+	if (!nss)
+		return -EBADMSG;
+
+	/*
+	 * There is no way to know whether a peer would send us packets using
+	 * the short guard interval (SGI.)  SGI capability is only used to
+	 * indicate whether the peer can accept packets that we send this way.
+	 * Here we make the assumption that if the peer has the capability to
+	 * accept packets using SGI and we have the capability to do so, then
+	 * SGI will be used
+	 *
+	 * Also, we assume that the highest bandwidth will result in the
+	 * highest rate for any given rssi.  Even accounting for invalid
+	 * MCS/Width/NSS combinations, the higher channel width results
+	 * in better data rate at [mcs index - 2] compared to [mcs index] of
+	 * a next lower bandwidth.
+	 */
+
+	/* See if 160 Mhz operation is available */
+	chan_width = bit_field(band->vht_capabilities[0], 2, 2);
+	if (chan_width != 1 && chan_width != 2)
+		goto try_vht80;
+
+	/*
+	 * Channel Width is set to 2 or 3, or 1 and
+	 * channel center frequency segment 1 is non-zero
+	 */
+	if (vhto[2] == 2 || vhto[2] == 3 || (vhto[2] == 1 && vhto[4])) {
+		sgi = test_bit(band->vht_capabilities, 6) &&
+						test_bit(vhtc + 2, 6);
+
+		if (find_best_mcs_vht(max_mcs, OFDM_CHANNEL_WIDTH_160MHZ,
+					rssi, nss, sgi, out_data_rate))
+			return 0;
+	}
+
+try_vht80:
+	if (vhto[2] == 1) {
+		sgi = test_bit(band->vht_capabilities, 5) &&
+						test_bit(vhtc + 2, 5);
+
+		if (find_best_mcs_vht(max_mcs, OFDM_CHANNEL_WIDTH_80MHZ,
+					rssi, nss, sgi, out_data_rate))
+			return 0;
+	} /* Otherwise, assume 20/40 Operation */
+
+	channel_offset = bit_field(hto[3], 0, 2);
+
+	/* Test for 40 Mhz operation */
+	if (test_bit(hto + 3, 2) &&
+			(channel_offset == 1 || channel_offset == 3)) {
+		sgi = test_bit(band->ht_capabilities, 6) &&
+						test_bit(htc + 2, 6);
+
+		if (find_best_mcs_vht(max_mcs, OFDM_CHANNEL_WIDTH_40MHZ,
+					rssi, nss, sgi, out_data_rate))
+			return 0;
+	}
+
+	sgi = test_bit(band->ht_capabilities, 5) && test_bit(htc + 2, 5);
+
+	if (find_best_mcs_vht(max_mcs, OFDM_CHANNEL_WIDTH_20MHZ,
+				rssi, nss, sgi, out_data_rate))
+		return 0;
+
+	return -EINVAL;
 }
