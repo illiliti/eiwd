@@ -75,6 +75,66 @@ static struct band *new_band()
 	return band;
 }
 
+static void band_test_ht_1(const void *data)
+{
+	/* HT40 */
+	uint8_t hto[] = { 61, 22,
+				0x95, 0x0d, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+	/* HT40, MCS 0-23, 40/20Mhz SGI */
+	uint8_t htc[] = { 45, 26,
+				0xef, 0x09, 0x17, 0xff, 0xff, 0xff, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00 };
+	struct band *band = new_band();
+	uint64_t data_rate;
+	int ret;
+
+	ret = band_estimate_ht_rx_rate(band, htc, hto, -51, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 300000000);
+
+	ret = band_estimate_ht_rx_rate(band, htc, hto, -62, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 270000000);
+
+	ret = band_estimate_ht_rx_rate(band, htc, hto, -63, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 240000000);
+
+	ret = band_estimate_ht_rx_rate(band, htc, hto, -66, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 180000000);
+
+	ret = band_estimate_ht_rx_rate(band, htc, hto, -71, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 120000000);
+
+	ret = band_estimate_ht_rx_rate(band, htc, hto, -74, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 90000000);
+
+	ret = band_estimate_ht_rx_rate(band, htc, hto, -76, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 60000000);
+
+	ret = band_estimate_ht_rx_rate(band, htc, hto, -79, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 30000000);
+
+	/* We should now fall back to HT20 */
+	ret = band_estimate_ht_rx_rate(band, htc, hto, -82, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 14444440);
+
+	ret = band_estimate_ht_rx_rate(band, htc, hto, -83, &data_rate);
+	assert(ret < 0);
+
+	band_free(band);
+}
+
 static void band_test_vht_1(const void *data)
 {
 	/* VHT operating on 80 Mhz */
@@ -170,6 +230,8 @@ static void band_test_vht_1(const void *data)
 int main(int argc, char *argv[])
 {
 	l_test_init(&argc, &argv);
+
+	l_test_add("/band/HT/test1", band_test_ht_1, NULL);
 
 	l_test_add("/band/VHT/test1", band_test_vht_1, NULL);
 
