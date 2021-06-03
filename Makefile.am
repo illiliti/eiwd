@@ -385,7 +385,7 @@ unit_tests = unit/test-cmac-aes \
 		unit/test-crypto unit/test-eapol unit/test-mpdu \
 		unit/test-ie unit/test-util unit/test-ssid-security \
 		unit/test-arc4 unit/test-wsc unit/test-eap-mschapv2 \
-		unit/test-eap-sim unit/test-sae unit/test-p2p
+		unit/test-eap-sim unit/test-sae unit/test-p2p unit/test-band
 
 if CLIENT
 unit_tests += unit/test-client
@@ -441,6 +441,9 @@ unit_test_kdf_sha256_LDADD = $(ell_ldadd)
 
 unit_test_ie_SOURCES = unit/test-ie.c src/ie.h src/ie.c
 unit_test_ie_LDADD = $(ell_ldadd)
+
+unit_test_band_SOURCES = unit/test-band.c src/band.h src/band.c
+unit_test_band_LDADD = $(ell_ldadd)
 
 unit_test_crypto_SOURCES = unit/test-crypto.c \
 				src/crypto.h src/crypto.c
