@@ -48,3 +48,6 @@ int band_estimate_vht_rx_rate(const struct band *band,
 				const uint8_t *vhtc, const uint8_t *vhto,
 				const uint8_t *htc, const uint8_t *hto,
 				int32_t rssi, uint64_t *out_data_rate);
+int band_estimate_ht_rx_rate(const struct band *band,
+				const uint8_t *htc, const uint8_t *hto,
+				int32_t rssi, uint64_t *out_data_rate);

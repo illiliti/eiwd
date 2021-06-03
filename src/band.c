@@ -119,6 +119,110 @@ bool band_ofdm_rate(uint8_t index, enum ofdm_channel_width width,
 	return true;
 }
 
+static bool find_best_mcs_ht(const struct band *band,
+				const uint8_t *tx_mcs_set,
+				uint8_t max_mcs, enum ofdm_channel_width width,
+				int32_t rssi, bool sgi,
+				uint64_t *out_data_rate)
+{
+	int i;
+
+	/*
+	 * TODO: Support MCS values 32 - 76
+	 *
+	 * The MCS values > 31 use an unequal modulation, and the number of
+	 * supported MCS indexes per NSS differs.  We do not consider them
+	 * here for now to keep things simple(r).
+	 */
+	for (i = max_mcs; i >= 0; i--) {
+		if (!test_bit(band->ht_mcs_set, i))
+			continue;
+
+		if (!test_bit(tx_mcs_set, i))
+			continue;
+
+		if (band_ofdm_rate(i % 8, width, rssi,
+					(i / 8) + 1, sgi, out_data_rate))
+			return true;
+	}
+
+	return false;
+}
+
+int band_estimate_ht_rx_rate(const struct band *band,
+				const uint8_t *htc, const uint8_t *hto,
+				int32_t rssi, uint64_t *out_data_rate)
+{
+	uint8_t channel_offset;
+	int max_mcs = 31;
+	bool sgi;
+	uint8_t unequal_tx_mcs_set[16];
+	const uint8_t *tx_mcs_set;
+
+	if (!band->ht_supported)
+		return -ENOTSUP;
+
+	if (!htc || !hto)
+		return -ENOTSUP;
+
+	memset(unequal_tx_mcs_set, 0, sizeof(unequal_tx_mcs_set));
+
+	tx_mcs_set = htc + 5;
+
+	/*
+	 * Check 'Tx MCS Set Defined' at bit 96 and 'Tx MCS Set Unequal' at
+	 * bit 97 of the Supported MCS Set field.  Also extract 'Tx Maximum
+	 * Number of Spatial Streams Supported' field at bits 98 and 99.
+	 *
+	 * Note 44 on page 1662 of 802.11-2016 states:
+	 * "How a non-AP STA determines an AP’s HT MCS transmission support,
+	 * if the Tx MCS Set subfield in the HT Capabilities element
+	 * advertised by the AP is equal to 0 or if he Tx Rx MCS Set Not Equal
+	 * subfield in that element is equal to 1, is implementation dependent.
+	 * The non-AP STA might conservatively use the basic HT-MCS set, or it
+	 * might use knowledge of past transmissions by the AP, or it might
+	 * use other means.
+	 */
+	if (test_bit(tx_mcs_set, 96)) {
+		if (test_bit(tx_mcs_set, 97)) {
+			uint8_t max_nss = bit_field(tx_mcs_set[12], 2, 2);
+
+			max_mcs = max_nss * 4 + 7;
+
+			/*
+			 * For purposes of finding the best MCS below, assume
+			 * the AP can send any MCS up to max_nss (i.e 0-7 for
+			 * 1 nss, 0-15 for 2 nss, 0-23 for 3 nss, 0-31 for 4
+			 */
+			memset(unequal_tx_mcs_set, 0xff, max_nss + 1);
+			tx_mcs_set = unequal_tx_mcs_set;
+		}
+	} else
+		max_mcs = 7;
+
+	/* Test for 40 Mhz operation */
+	channel_offset = bit_field(hto[3], 0, 2);
+	if (test_bit(hto + 3, 2) &&
+			(channel_offset == 1 || channel_offset == 3)) {
+		sgi = test_bit(band->ht_capabilities, 6) &&
+						test_bit(htc + 2, 6);
+
+		if (find_best_mcs_ht(band, tx_mcs_set, max_mcs,
+					OFDM_CHANNEL_WIDTH_40MHZ,
+					rssi, sgi, out_data_rate))
+			return 0;
+	}
+
+	sgi = test_bit(band->ht_capabilities, 5) && test_bit(htc + 2, 5);
+
+	if (find_best_mcs_ht(band, tx_mcs_set, max_mcs,
+				OFDM_CHANNEL_WIDTH_20MHZ,
+				rssi, sgi, out_data_rate))
+		return 0;
+
+	return -EINVAL;
+}
+
 static bool find_best_mcs_vht(uint8_t max_index, enum ofdm_channel_width width,
 				int32_t rssi, uint8_t nss, bool sgi,
 				uint64_t *out_data_rate)
