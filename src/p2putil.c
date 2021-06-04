@@ -2637,7 +2637,7 @@ void p2p_get_random_string(char *buf, size_t len)
 	l_getrandom(buf, len);
 
 	while (len) {
-		int index = *buf % set_size;
+		int index = (uint8_t) *buf % set_size;
 
 		*buf++ = CHARSET[index];
 		len--;
