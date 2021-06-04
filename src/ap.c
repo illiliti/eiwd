@@ -2630,7 +2630,7 @@ static int ap_load_ipv4(struct ap_state *ap, const struct l_settings *config)
 		for (i = 0; i < 2; i++) {
 			struct in_addr range_addr;
 
-			if (inet_aton(ip_range[i], &range_addr) != 1) {
+			if (inet_pton(AF_INET, ip_range[i], &range_addr) != 1) {
 				l_error("Can't parse address in "
 					"[IPv4].IPRange[%i]", i + 1);
 				goto done;
