@@ -36,6 +36,92 @@ void band_free(struct band *band)
 }
 
 /*
+ * Rates are stored as they are encoded in the Supported Rates IE.
+ * This data was taken from 802.11 Section 17.3.10.2 Table 17-18 and
+ * Table 17-4. Together we have minimum RSSI required for a given data rate.
+ */
+static const struct {
+	int32_t rssi;
+	uint8_t rate;
+} rate_rssi_map[] = {
+	{ -90, 2 },  /* Make something up for 11b rates */
+	{ -88, 4 },
+	{ -86, 11 },
+	{ -84, 22 },
+	{ -82, 12 },
+	{ -81, 18 },
+	{ -79, 24 },
+	{ -77, 36 },
+	{ -74, 48 },
+	{ -70, 72 },
+	{ -66, 96 },
+	{ -65, 108 },
+};
+
+static bool peer_supports_rate(const uint8_t *rates, uint8_t rate)
+{
+	int i;
+
+	if (rates && rates[1]) {
+		for (i = 0; i < rates[1]; i++) {
+			uint8_t r = rates[i + 2] & 0x7f;
+
+			if (r == rate)
+				return true;
+		}
+	}
+
+	return false;
+}
+
+int band_estimate_nonht_rate(const struct band *band,
+				const uint8_t *supported_rates,
+				const uint8_t *ext_supported_rates,
+				int32_t rssi, uint64_t *out_data_rate)
+{
+	int nrates = L_ARRAY_SIZE(rate_rssi_map);
+	uint8_t max_rate = 0;
+	int i;
+
+	if (!supported_rates && !ext_supported_rates)
+		return -EINVAL;
+
+	/*
+	 * Start at the back of the array.  Rates are generally given in
+	 * ascending order, starting at 11b rates, then 11g rates.  More often
+	 * than not we'll pick the highest rate and avoid unneeded processing
+	 */
+	for (i = band->supported_rates_len - 1; i >= 0; i--) {
+		uint8_t rate = band->supported_rates[i];
+		int j;
+
+		if (max_rate >= rate)
+			continue;
+
+		/* Can this rate be used at the peer's RSSI? */
+		for (j = 0; j < nrates; j++)
+			if (rate_rssi_map[j].rate == rate)
+				break;
+
+		if (j == nrates)
+			continue;
+
+		if (rssi < rate_rssi_map[j].rssi)
+			continue;
+
+		if (peer_supports_rate(supported_rates, rate) ||
+				peer_supports_rate(ext_supported_rates, rate))
+			max_rate = rate;
+	}
+
+	if (!max_rate)
+		return -EINVAL;
+
+	*out_data_rate = max_rate * 500000;
+	return 0;
+}
+
+/*
  * Base RSSI values for 20MHz (both HT and VHT) channel. These values can be
  * used to calculate the minimum RSSI values for all other channel widths. HT
  * MCS indexes are grouped into ranges of 8 (per spatial stream) where VHT are
