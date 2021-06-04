@@ -75,6 +75,61 @@ static struct band *new_band()
 	return band;
 }
 
+static void band_test_nonht_1(const void *data)
+{
+	uint8_t supported_rates[] = { 1, 8,
+			0x8c, 0x12, 0x98, 0x24, 0xb0, 0x48, 0x60, 0x6c };
+	struct band *band = new_band();
+	uint64_t data_rate;
+	int ret;
+
+	ret = band_estimate_nonht_rate(band, supported_rates, NULL,
+							-50, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 54000000);
+
+	ret = band_estimate_nonht_rate(band, supported_rates, NULL,
+							-66, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 48000000);
+
+	ret = band_estimate_nonht_rate(band, supported_rates, NULL,
+							-70, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 36000000);
+
+	ret = band_estimate_nonht_rate(band, supported_rates, NULL,
+							-74, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 24000000);
+
+	ret = band_estimate_nonht_rate(band, supported_rates, NULL,
+							-77, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 18000000);
+
+	ret = band_estimate_nonht_rate(band, supported_rates, NULL,
+							-79, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 12000000);
+
+	ret = band_estimate_nonht_rate(band, supported_rates, NULL,
+							-81, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 9000000);
+
+	ret = band_estimate_nonht_rate(band, supported_rates, NULL,
+							-82, &data_rate);
+	assert(ret == 0);
+	assert(data_rate == 6000000);
+
+	ret = band_estimate_nonht_rate(band, supported_rates, NULL,
+							-83, &data_rate);
+	assert(ret < 0);
+
+	band_free(band);
+}
+
 static void band_test_ht_1(const void *data)
 {
 	/* HT40 */
@@ -230,6 +285,8 @@ static void band_test_vht_1(const void *data)
 int main(int argc, char *argv[])
 {
 	l_test_init(&argc, &argv);
+
+	l_test_add("/band/non-HT/test1", band_test_nonht_1, NULL);
 
 	l_test_add("/band/HT/test1", band_test_ht_1, NULL);
 
