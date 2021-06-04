@@ -131,18 +131,6 @@ static char **global_addr4_strs;
 static uint32_t netdev_watch;
 static struct l_netlink *rtnl;
 
-static const char *broadcast_from_ip(const char *ip, uint8_t prefix_len)
-{
-	struct in_addr ia;
-	uint32_t netmask = util_netmask_from_prefix(prefix_len);
-
-	if (inet_aton(ip, &ia) != 1)
-		return NULL;
-
-	ia.s_addr |= htonl(~netmask);
-	return inet_ntoa(ia);
-}
-
 static void ap_stop_handshake(struct sta_state *sta)
 {
 	if (sta->sm) {
@@ -2444,13 +2432,6 @@ static int ap_setup_netconfig4(struct ap_state *ap, const char **addr_str_list,
 		}
 
 		new_addr = l_rtnl_address_new(addr_str_buf, prefix_len);
-
-		if (!l_rtnl_address_set_broadcast(new_addr,
-				broadcast_from_ip(addr_str_buf, prefix_len))) {
-			ret = -EIO;
-			goto cleanup;
-		}
-
 		ret = 0;
 	} else {
 		if (!prefix_len)
