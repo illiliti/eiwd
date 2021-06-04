@@ -1,0 +1,17 @@
+#! /bin/bash
+case $reason in
+BOUND|RENEW|REBIND|REBOOT)
+  if [ x$new_ip_address != x ] && \
+     [ x$new_ip_address != x$old_ip_address -o \
+       x$reason = xBOUND -o x$reason = xREBOOT ]; then
+    /sbin/ip addr add $new_ip_address/${new_subnet_mask:-32} \
+                      ${new_broadcast_arg} \
+                      dev $interface
+  fi
+;;
+EXPIRE|FAIL|RELEASE|STOP)
+  if [ x$old_ip_address != x ]; then
+    /sbin/ip -4 addr flush dev $interface
+  fi
+;;
+esac
