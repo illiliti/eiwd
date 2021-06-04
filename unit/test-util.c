@@ -162,6 +162,7 @@ static void ip_prefix_test(const void *data)
 		uint32_t end;
 		uint32_t mask;
 		struct in_addr ia;
+		char ip[INET_ADDRSTRLEN];
 
 		assert(util_ip_prefix_tohl(valid[i].ip_prefix,
 						&prefix, &start, &end, &mask));
@@ -169,13 +170,16 @@ static void ip_prefix_test(const void *data)
 		assert(valid[i].prefix == prefix);
 
 		ia.s_addr = htonl(start);
-		assert(strcmp(inet_ntoa(ia), valid[i].start) == 0);
+		assert(inet_ntop(AF_INET, &ia, ip, INET_ADDRSTRLEN));
+		assert(strcmp(ip, valid[i].start) == 0);
 
 		ia.s_addr = htonl(end);
-		assert(strcmp(inet_ntoa(ia), valid[i].end) == 0);
+		assert(inet_ntop(AF_INET, &ia, ip, INET_ADDRSTRLEN));
+		assert(strcmp(ip, valid[i].end) == 0);
 
 		ia.s_addr = htonl(mask);
-		assert(strcmp(inet_ntoa(ia), valid[i].mask) == 0);
+		assert(inet_ntop(AF_INET, &ia, ip, INET_ADDRSTRLEN));
+		assert(strcmp(ip, valid[i].mask) == 0);
 	}
 }
 
