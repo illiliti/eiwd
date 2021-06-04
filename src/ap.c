@@ -211,6 +211,7 @@ static void ap_reset(struct ap_state *ap)
 		l_uintset_free(ap->rates);
 
 	l_queue_destroy(ap->wsc_pbc_probes, l_free);
+	l_timeout_remove(ap->wsc_pbc_timeout);
 
 	ap->started = false;
 
