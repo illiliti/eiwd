@@ -83,12 +83,12 @@ class Test(unittest.TestCase):
         self.do_connect(wd, device, vht_hostapd)
 
         # lower VHT BSS signal, HT should now be preferred
-        rule0.signal = -7900
+        rule0.signal = -8200
 
         self.do_connect(wd, device, ht_hostapd)
 
         # lower HT BSS signal, basic rate BSS should now be preferred
-        rule1.signal = -7400
+        rule1.signal = -7600
 
         self.do_connect(wd, device, non_ht_hostapd)
 
