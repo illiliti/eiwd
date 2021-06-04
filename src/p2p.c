@@ -170,6 +170,7 @@ struct p2p_wfd_properties {
 };
 
 static struct l_queue *p2p_device_list;
+static unsigned int p2p_dhcp_timeout_val;
 static struct l_settings *p2p_dhcp_settings;
 static struct p2p_wfd_properties *p2p_own_wfd;
 static unsigned int p2p_wfd_disconnect_watch;
@@ -1175,6 +1176,22 @@ static const struct ap_ops p2p_go_ops = {
 	.write_extra_ies = p2p_group_write_ies,
 };
 
+static void p2p_dhcp_timeout(struct l_timeout *timeout, void *user_data)
+{
+	struct p2p_device *dev = user_data;
+
+	l_debug("");
+
+	p2p_connect_failed(dev);
+}
+
+static void p2p_dhcp_timeout_destroy(void *user_data)
+{
+	struct p2p_device *dev = user_data;
+
+	dev->conn_dhcp_timeout = NULL;
+}
+
 static void p2p_group_start(struct p2p_device *dev)
 {
 	struct l_settings *config = l_settings_new();
@@ -1233,8 +1250,15 @@ static void p2p_group_start(struct p2p_device *dev)
 	dev->group = ap_start(dev->conn_netdev, config, &p2p_go_ops, NULL, dev);
 	l_settings_free(config);
 
-	if (!dev->group)
+	if (!dev->group) {
 		p2p_connect_failed(dev);
+		return;
+	}
+
+	/* Set timeout on client connecting and getting its IP */
+	dev->conn_dhcp_timeout = l_timeout_create(p2p_dhcp_timeout_val,
+						p2p_dhcp_timeout, dev,
+						p2p_dhcp_timeout_destroy);
 }
 
 static void p2p_netconfig_event_handler(enum netconfig_event event,
@@ -1259,31 +1283,10 @@ static void p2p_netconfig_event_handler(enum netconfig_event event,
 	}
 }
 
-static void p2p_dhcp_timeout(struct l_timeout *timeout, void *user_data)
-{
-	struct p2p_device *dev = user_data;
-
-	l_debug("");
-
-	p2p_connect_failed(dev);
-}
-
-static void p2p_dhcp_timeout_destroy(void *user_data)
-{
-	struct p2p_device *dev = user_data;
-
-	dev->conn_dhcp_timeout = NULL;
-}
-
 static void p2p_start_client_netconfig(struct p2p_device *dev)
 {
 	uint32_t ifindex = netdev_get_ifindex(dev->conn_netdev);
-	unsigned int dhcp_timeout_val;
 	struct l_settings *settings;
-
-	if (!l_settings_get_uint(iwd_get_config(), "P2P", "DHCPTimeout",
-					&dhcp_timeout_val))
-		dhcp_timeout_val = 20;	/* 20s default */
 
 	if (!dev->conn_netconfig) {
 		dev->conn_netconfig = netconfig_new(ifindex);
@@ -1296,7 +1299,7 @@ static void p2p_start_client_netconfig(struct p2p_device *dev)
 	settings = dev->conn_netconfig_settings ?: p2p_dhcp_settings;
 	netconfig_configure(dev->conn_netconfig, settings, dev->conn_addr,
 				p2p_netconfig_event_handler, dev);
-	dev->conn_dhcp_timeout = l_timeout_create(dhcp_timeout_val,
+	dev->conn_dhcp_timeout = l_timeout_create(p2p_dhcp_timeout_val,
 						p2p_dhcp_timeout, dev,
 						p2p_dhcp_timeout_destroy);
 }
@@ -5109,6 +5112,10 @@ static int p2p_init(void)
 					IWD_P2P_SERVICE_MANAGER_INTERFACE,
 					NULL))
 		l_error("Unable to register the P2P Service Manager object");
+
+	if (!l_settings_get_uint(iwd_get_config(), "P2P", "DHCPTimeout",
+					&p2p_dhcp_timeout_val))
+		p2p_dhcp_timeout_val = 20;	/* 20s default */
 
 	return 0;
 }
