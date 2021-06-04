@@ -895,10 +895,11 @@ static void netconfig_ipv4_acd_event(enum l_acd_event event, void *user_data)
 
 static void netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 {
-	netconfig->v4_address = netconfig_get_static4_address(netconfig);
-	if (netconfig->v4_address) {
-		char ip[INET6_ADDRSTRLEN];
+	char ip[INET6_ADDRSTRLEN];
 
+	netconfig->v4_address = netconfig_get_static4_address(netconfig);
+	if (netconfig->v4_address &&
+			l_rtnl_address_get_address(netconfig->v4_address, ip)) {
 		netconfig->rtm_protocol = RTPROT_STATIC;
 		netconfig->acd = l_acd_new(netconfig->ifindex);
 		l_acd_set_event_handler(netconfig->acd,
@@ -907,8 +908,6 @@ static void netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 		if (getenv("IWD_ACD_DEBUG"))
 			l_acd_set_debug(netconfig->acd, do_debug,
 					"[ACD] ", NULL);
-
-		l_rtnl_address_get_address(netconfig->v4_address, ip);
 
 		if (!l_acd_start(netconfig->acd, ip)) {
 			l_error("failed to start ACD, continuing anyways");
