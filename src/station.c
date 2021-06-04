@@ -34,6 +34,7 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "src/util.h"
 #include "src/iwd.h"
 #include "src/module.h"
@@ -297,12 +298,14 @@ static struct network *station_add_seen_bss(struct station *station,
 	enum security security;
 	const char *path;
 	char ssid[33];
+	uint32_t kbps100 = DIV_ROUND_CLOSEST(bss->data_rate, 100000);
 
 	l_debug("Processing BSS '%s' with SSID: %s, freq: %u, rank: %u, "
-			"strength: %i",
+			"strength: %i, data_rate: %u.%u",
 			util_address_to_string(bss->addr),
 			util_ssid_to_utf8(bss->ssid_len, bss->ssid),
-			bss->frequency, bss->rank, bss->signal_strength);
+			bss->frequency, bss->rank, bss->signal_strength,
+			kbps100 / 10, kbps100 % 10);
 
 	if (util_ssid_is_hidden(bss->ssid_len, bss->ssid)) {
 		l_debug("BSS has hidden SSID");
