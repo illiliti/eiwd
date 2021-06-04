@@ -1032,6 +1032,7 @@ static size_t p2p_group_write_p2p_ie(struct p2p_device *dev,
 
 	case MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE:
 	{
+		L_AUTO_FREE_VAR(uint8_t *, tmp) = NULL;
 		struct p2p_probe_resp info = {};
 		const struct mmpdu_probe_request *req =
 			mmpdu_body(client_frame);
@@ -1045,8 +1046,8 @@ static size_t p2p_group_write_p2p_ie(struct p2p_device *dev,
 		 * Response frame if the received Probe Request frame does
 		 * not contain a P2P IE."
 		 */
-		if (!ie_tlv_extract_p2p_payload(req->ies, req_ies_len,
-							&req_p2p_data_size))
+		if (!(tmp = ie_tlv_extract_p2p_payload(req->ies, req_ies_len,
+							&req_p2p_data_size)))
 			return 0;
 
 		info.capability = dev->capability;
