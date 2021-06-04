@@ -2044,6 +2044,28 @@ static void ap_start_failed(struct ap_state *ap, int err)
 	l_free(ap);
 }
 
+static void ap_dhcp_event_cb(struct l_dhcp_server *server,
+				enum l_dhcp_server_event event, void *user_data,
+				const struct l_dhcp_lease *lease)
+{
+	struct ap_state *ap = user_data;
+
+	switch (event) {
+	case L_DHCP_SERVER_EVENT_NEW_LEASE:
+		ap->ops->handle_event(AP_EVENT_DHCP_NEW_LEASE, lease,
+					ap->user_data);
+		break;
+
+	case L_DHCP_SERVER_EVENT_LEASE_EXPIRED:
+		ap->ops->handle_event(AP_EVENT_DHCP_LEASE_EXPIRED, lease,
+					ap->user_data);
+		break;
+
+	default:
+		break;
+	}
+}
+
 static void ap_start_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct ap_state *ap = user_data;
@@ -2056,10 +2078,20 @@ static void ap_start_cb(struct l_genl_msg *msg, void *user_data)
 		return;
 	}
 
-	if (ap->netconfig_dhcp && !l_dhcp_server_start(ap->netconfig_dhcp)) {
-		l_error("DHCP server failed to start");
-		ap_start_failed(ap, -EINVAL);
-		return;
+	if (ap->netconfig_dhcp) {
+		if (!l_dhcp_server_start(ap->netconfig_dhcp)) {
+			l_error("DHCP server failed to start");
+			ap_start_failed(ap, -EINVAL);
+			return;
+		}
+
+		if (!l_dhcp_server_set_event_handler(ap->netconfig_dhcp,
+							ap_dhcp_event_cb,
+							ap, NULL)) {
+			l_error("l_dhcp_server_set_event_handler failed");
+			ap_start_failed(ap, -EIO);
+			return;
+		}
 	}
 
 	ap->started = true;
@@ -3200,6 +3232,8 @@ static void ap_if_event_func(enum ap_event_type type, const void *event_data,
 	case AP_EVENT_REGISTRATION_START:
 	case AP_EVENT_REGISTRATION_SUCCESS:
 	case AP_EVENT_PBC_MODE_EXIT:
+	case AP_EVENT_DHCP_NEW_LEASE:
+	case AP_EVENT_DHCP_LEASE_EXPIRED:
 		/* Ignored */
 		break;
 	}
