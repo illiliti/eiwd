@@ -34,6 +34,7 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <linux/if.h>
 
 #include <ell/ell.h>
 
@@ -976,6 +977,11 @@ static void p2p_group_event(enum ap_event_type type, const void *event_data,
 
 		if (dev->conn_peer_added)
 			break;
+
+		l_rtnl_set_linkmode_and_operstate(iwd_get_rtnl(),
+					netdev_get_ifindex(dev->conn_netdev),
+					IF_LINK_MODE_DEFAULT, IF_OPER_UP,
+					NULL, NULL, NULL);
 
 		dev->conn_peer_added = true;
 		dev->conn_peer_ip = l_dhcp_lease_get_address(lease);
