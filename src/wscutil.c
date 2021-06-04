@@ -3073,7 +3073,7 @@ bool wsc_device_type_from_setting_str(const char *value,
 	 * DeviceType=1-0050f204-1
 	 */
 	if (wsc_device_type_from_subcategory_str(out, value))
-		true;
+		return true;
 
 	u = strtoull(value, &endp, 0);
 
