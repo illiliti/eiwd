@@ -625,8 +625,8 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 {
 	L_AUTO_FREE_VAR(char *, gateway) = NULL;
 	struct in_addr in_addr;
-	char *network;
 	char ip[INET_ADDRSTRLEN];
+	char network[INET_ADDRSTRLEN];
 	unsigned int prefix_len =
 		l_rtnl_address_get_prefix_length(netconfig->v4_address);
 
@@ -637,8 +637,7 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 	in_addr.s_addr = in_addr.s_addr &
 				htonl(0xFFFFFFFFLU << (32 - prefix_len));
 
-	network = inet_ntoa(in_addr);
-	if (!network)
+	if (!inet_ntop(AF_INET, &in_addr, network, INET_ADDRSTRLEN))
 		return false;
 
 	if (!l_rtnl_route4_add_connected(rtnl, netconfig->ifindex,
