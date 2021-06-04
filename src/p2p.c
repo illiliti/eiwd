@@ -898,21 +898,10 @@ static void p2p_group_event(enum ap_event_type type, const void *event_data,
 	case AP_EVENT_STATION_ADDED:
 	{
 		const struct ap_event_station_added_data *data = event_data;
-		L_AUTO_FREE_VAR(uint8_t *, p2p_data) = NULL;
-		ssize_t p2p_data_len;
 		L_AUTO_FREE_VAR(uint8_t *, wfd_data) = NULL;
 		ssize_t wfd_data_len;
 		struct p2p_association_req req_info;
 		int r;
-
-		p2p_data = ie_tlv_extract_p2p_payload(data->assoc_ies,
-							data->assoc_ies_len,
-							&p2p_data_len);
-		if (!p2p_data) {
-			l_error("Missing or invalid P2P IEs: %s (%i)",
-				strerror(-p2p_data_len), (int) -p2p_data_len);
-			goto invalid_ie;
-		}
 
 		/*
 		 * We don't need to validate most of the Association Request
@@ -928,8 +917,8 @@ static void p2p_group_event(enum ap_event_type type, const void *event_data,
 		 * information shall be used by the P2P Group Owner for Group
 		 * Information Advertisement.
 		 */
-		r = p2p_parse_association_req(p2p_data, p2p_data_len,
-						&req_info);
+		r = p2p_parse_association_req(data->assoc_ies,
+						data->assoc_ies_len, &req_info);
 		if (r < 0) {
 			l_error("Can't parse P2P Association Request: %s (%i)",
 				strerror(-r), -r);
