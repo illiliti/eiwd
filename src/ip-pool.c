@@ -152,7 +152,7 @@ int ip_pool_select_addr4(const char **addr_str_list, uint8_t subnet_prefix_len,
 			(32 - l_rtnl_address_get_prefix_length(rec->addr));
 
 		if (!l_rtnl_address_get_address(rec->addr, addr_str) ||
-				inet_aton(addr_str, &ia) < 0)
+				inet_pton(AF_INET, addr_str, &ia) != 1)
 			continue;
 
 		range = l_new(struct ip_pool_addr4_range, 1);
