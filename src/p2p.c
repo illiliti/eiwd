@@ -659,9 +659,10 @@ static void p2p_connection_reset(struct p2p_device *dev)
 		netconfig_destroy(dev->conn_netconfig);
 		dev->conn_netconfig = NULL;
 		l_settings_free(dev->conn_netconfig_settings);
-		l_free(dev->conn_peer_ip);
-		dev->conn_peer_ip = NULL;
 	}
+
+	l_free(dev->conn_peer_ip);
+	dev->conn_peer_ip = NULL;
 
 	if (dev->conn_new_intf_cmd_id)
 		/*
@@ -948,8 +949,8 @@ static void p2p_group_event(enum ap_event_type type, const void *event_data,
 			p2p_extract_wfd_properties(wfd_data, wfd_data_len,
 							dev->conn_peer->wfd);
 
-		dev->conn_peer_added = true;
-		p2p_peer_connect_done(dev);
+		/* Setup is progressing so re-arm the timeout */
+		l_timeout_modify(dev->conn_dhcp_timeout, p2p_dhcp_timeout_val);
 		break;
 	}
 
@@ -967,6 +968,28 @@ static void p2p_group_event(enum ap_event_type type, const void *event_data,
 		ap_update_beacon(dev->group);
 		break;
 	case AP_EVENT_PBC_MODE_EXIT:
+		break;
+
+	case AP_EVENT_DHCP_NEW_LEASE:
+	{
+		const struct l_dhcp_lease *lease = event_data;
+
+		if (dev->conn_peer_added)
+			break;
+
+		dev->conn_peer_added = true;
+		dev->conn_peer_ip = l_dhcp_lease_get_address(lease);
+		l_timeout_remove(dev->conn_dhcp_timeout);
+		p2p_peer_connect_done(dev);
+		break;
+	}
+
+	case AP_EVENT_DHCP_LEASE_EXPIRED:
+		/*
+		 * Only one DHCP lease allowed for now, as soon as it expires
+		 * the connection is considered to be down.
+		 */
+		p2p_connect_failed(dev);
 		break;
 	};
 
@@ -1242,7 +1265,8 @@ static void p2p_group_start(struct p2p_device *dev)
 
 	l_settings_set_bytes(config, "Security", "PreSharedKey", psk, 32);
 
-	l_settings_add_group(config, "IPv4");
+	/* Enable netconfig, set maximum usable DHCP lease time */
+	l_settings_set_uint(config, "IPv4", "LeaseTime", 0x7fffffff);
 
 	dev->capability.group_caps |= P2P_GROUP_CAP_GO;
 	dev->capability.group_caps |= P2P_GROUP_CAP_GROUP_FORMATION;
@@ -4757,7 +4781,7 @@ static bool p2p_peer_get_connected_ip(struct l_dbus *dbus,
 {
 	struct p2p_peer *peer = user_data;
 
-	if (!p2p_peer_operational(peer) || !peer->dev->conn_peer_ip)
+	if (!p2p_peer_operational(peer))
 		return false;
 
 	l_dbus_message_builder_append_basic(builder, 's', peer->dev->conn_peer_ip);
