@@ -141,6 +141,7 @@ int ip_pool_select_addr4(const char **addr_str_list, uint8_t subnet_prefix_len,
 	struct in_addr ia;
 	const struct l_queue_entry *entry;
 	int err = -EINVAL;
+	char ipstr[INET_ADDRSTRLEN];
 
 	/* Build a sorted list of used/unavailable subnets */
 	for (entry = l_queue_get_entries((struct l_queue *) used_addr4_list);
@@ -242,7 +243,10 @@ check_avail:
 done:
 	err = 0;
 	ia.s_addr = htonl(host_addr);
-	*out_addr = l_rtnl_address_new(inet_ntoa(ia), subnet_prefix_len);
+	if (L_WARN_ON(!inet_ntop(AF_INET, &ia, ipstr, INET_ADDRSTRLEN)))
+		err = -errno;
+	else
+		*out_addr = l_rtnl_address_new(ipstr, subnet_prefix_len);
 
 cleanup:
 	l_queue_destroy(ranges, l_free);
