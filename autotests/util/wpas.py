@@ -203,20 +203,20 @@ class Wpas:
     def p2p_connect(self, peer, pin=None, go_intent=None):
         self._rx_data = []
         self._ctrl_request('P2P_CONNECT ' + peer['p2p_dev_addr'] + ' ' + ('pbc' if pin is None else pin) +
-                        ('' if go_intent is None else 'go_intent=' + str(go_intent)))
+                        ('' if go_intent is None else ' go_intent=' + str(go_intent)))
         self.wait_for_event('OK')
 
     def p2p_accept_go_neg_request(self, request, pin=None, go_intent=None):
         self._rx_data = []
         self._ctrl_request('P2P_CONNECT ' + request['p2p_dev_addr'] + ' ' + ('pbc' if pin is None else pin) +
-                        ('' if go_intent is None else 'go_intent=' + str(go_intent)))
+                        ('' if go_intent is None else ' go_intent=' + str(go_intent)))
         self.wait_for_event('OK')
 
     # Pre-accept the next GO Negotiation Request from this peer to avoid the extra Respone + Request frames
     def p2p_authorize(self, peer, pin=None, go_intent=None):
         self._rx_data = []
         self._ctrl_request('P2P_CONNECT ' + peer['p2p_dev_addr'] + ' ' + ('pbc' if pin is None else pin) +
-                        ('' if go_intent is None else 'go_intent=' + str(go_intent)) + ' auth')
+                        ('' if go_intent is None else ' go_intent=' + str(go_intent)) + ' auth')
         self.wait_for_event('OK')
 
     # Probably needed: remove references to self so that the GC can call __del__ automatically
