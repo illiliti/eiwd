@@ -681,7 +681,25 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 	const void *supported_rates = NULL;
 	const void *ext_supported_rates = NULL;
 	const void *vht_capabilities = NULL;
+	const void *vht_operation = NULL;
 	const void *ht_capabilities = NULL;
+	const void *ht_operation = NULL;
+	const struct band *bandp;
+	enum scan_band band;
+
+	if (scan_freq_to_channel(bss->frequency, &band) == 0)
+		return -ENOTSUP;
+
+	switch (band) {
+	case SCAN_BAND_2_4_GHZ:
+		bandp = wiphy->band_2g;
+		break;
+	case SCAN_BAND_5_GHZ:
+		bandp = wiphy->band_5g;
+		break;
+	default:
+		return -ENOTSUP;
+	}
 
 	ie_tlv_iter_init(&iter, ies, ies_len);
 
@@ -704,22 +722,47 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 
 			ht_capabilities = iter.data - 2;
 			break;
+		case IE_TYPE_HT_OPERATION:
+			if (iter.len != 22)
+				return -EBADMSG;
+
+			ht_operation = iter.data - 2;
+			break;
 		case IE_TYPE_VHT_CAPABILITIES:
 			if (iter.len != 12)
 				return -EBADMSG;
 
 			vht_capabilities = iter.data - 2;
 			break;
+		case IE_TYPE_VHT_OPERATION:
+			if (iter.len != 5)
+				return -EBADMSG;
+
+			vht_operation = iter.data - 2;
+			break;
 		default:
 			break;
 		}
 	}
 
-	return ie_parse_data_rates(supported_rates, ext_supported_rates,
-					ht_capabilities,
-					vht_capabilities,
+	if (!band_estimate_vht_rx_rate(bandp, vht_capabilities, vht_operation,
+					ht_capabilities, ht_operation,
 					bss->signal_strength / 100,
-					out_data_rate);
+					out_data_rate))
+		return 0;
+
+	if (!band_estimate_ht_rx_rate(bandp, ht_capabilities, ht_operation,
+					bss->signal_strength / 100,
+					out_data_rate))
+		return 0;
+
+	if (!band_estimate_nonht_rate(bandp, supported_rates,
+						ext_supported_rates,
+						bss->signal_strength / 100,
+						out_data_rate))
+		return 0;
+
+	return -ENOTSUP;
 }
 
 uint32_t wiphy_state_watch_add(struct wiphy *wiphy,
