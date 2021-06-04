@@ -3547,6 +3547,9 @@ static int ap_init(void)
 			}
 		} else if (l_settings_get_value(settings,
 						"General", "APRanges")) {
+			l_warn("The [General].APRanges setting is deprecated, "
+				"use [IPv4].APAddressPool instead");
+
 			global_addr4_strs = l_settings_get_string_list(settings,
 								"General",
 								"APRanges",
