@@ -149,12 +149,18 @@ int ip_pool_select_addr4(const char **addr_str_list, uint8_t subnet_prefix_len,
 		const struct ip_pool_addr4_record *rec = entry->data;
 		struct ip_pool_addr4_range *range;
 		char addr_str[INET_ADDRSTRLEN];
-		uint32_t used_subnet_size = 1 <<
-			(32 - l_rtnl_address_get_prefix_length(rec->addr));
+		uint8_t used_prefix_len =
+			l_rtnl_address_get_prefix_length(rec->addr);
+		uint32_t used_subnet_size;
 
-		if (!l_rtnl_address_get_address(rec->addr, addr_str) ||
+		if (l_rtnl_address_get_family(rec->addr) != AF_INET ||
+				!l_rtnl_address_get_address(rec->addr,
+								addr_str) ||
+				used_prefix_len < 1 ||
 				inet_pton(AF_INET, addr_str, &ia) != 1)
 			continue;
+
+		used_subnet_size = 1 << (32 - used_prefix_len);
 
 		range = l_new(struct ip_pool_addr4_range, 1);
 		range->start = ntohl(ia.s_addr) & subnet_mask;
@@ -216,7 +222,7 @@ check_avail:
 	for (entry = l_queue_get_entries(ranges); entry; entry = entry->next) {
 		struct ip_pool_addr4_range *range = entry->data;
 
-	total += (range->end - range->start) >>
+		total += (range->end - range->start) >>
 			(32 - subnet_prefix_len);
 	}
 
