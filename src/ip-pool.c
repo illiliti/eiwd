@@ -237,7 +237,7 @@ check_avail:
 		selected -= count;
 	}
 
-	if ((host_addr & 0xff) == 0)
+	if ((host_addr & host_mask) == 0)
 		host_addr += 1;
 
 done:
