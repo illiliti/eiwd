@@ -143,6 +143,9 @@ int ip_pool_select_addr4(const char **addr_str_list, uint8_t subnet_prefix_len,
 	int err = -EINVAL;
 	char ipstr[INET_ADDRSTRLEN];
 
+	if (!addr_str_list || !addr_str_list[0])
+		goto cleanup;
+
 	/* Build a sorted list of used/unavailable subnets */
 	for (entry = l_queue_get_entries((struct l_queue *) used_addr4_list);
 			entry; entry = entry->next) {
