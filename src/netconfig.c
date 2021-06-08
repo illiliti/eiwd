@@ -652,11 +652,17 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 
 	gateway = netconfig_ipv4_get_gateway(netconfig);
 	if (!gateway) {
-		l_error("netconfig: Failed to obtain gateway from %s.",
+		l_debug("No gateway obtained from %s.",
 				netconfig->rtm_protocol == RTPROT_STATIC ?
 				"setting file" : "DHCPv4 lease");
 
-		return false;
+		if (netconfig->notify) {
+			netconfig->notify(NETCONFIG_EVENT_CONNECTED,
+						netconfig->user_data);
+			netconfig->notify = NULL;
+		}
+
+		return true;
 	}
 
 	netconfig->route4_add_gateway_cmd_id =
