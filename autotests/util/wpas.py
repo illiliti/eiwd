@@ -245,6 +245,9 @@ class Wpas:
         if self.io_watch is not None:
             GLib.source_remove(self.io_watch)
             self.io_watch = None
+        for ifname in self.sockets:
+            self.sockets[ifname].close()
+        self.sockets = {}
         if self.wpa_supplicant is not None:
             ctx.stop_process(self.wpa_supplicant)
             self.wpa_supplicant = None
@@ -253,11 +256,5 @@ class Wpas:
                 os.remove(path)
         self.cleanup_paths = []
 
-    def _stop_wpas(self):
-        self.clean_up()
-        for ifname in self.sockets:
-            self.sockets[ifname].close()
-        self.sockets = {}
-
     def __del__(self):
-        self._stop_wpas()
+        self.clean_up()
