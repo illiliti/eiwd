@@ -33,6 +33,12 @@ enum ap_event_type {
 	AP_EVENT_REGISTRATION_START,
 	AP_EVENT_REGISTRATION_SUCCESS,
 	AP_EVENT_PBC_MODE_EXIT,
+	AP_EVENT_DHCP_NEW_LEASE,
+	AP_EVENT_DHCP_LEASE_EXPIRED,
+};
+
+struct ap_event_start_failed_data {
+	int error;
 };
 
 struct ap_event_station_added_data {

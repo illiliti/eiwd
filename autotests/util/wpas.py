@@ -8,13 +8,11 @@ ctrl_count = 0
 
 class Wpas:
     def _start_wpas(self, config_name=None, p2p=False):
-        global ctrl_count
-
         main_interface = None
         for interface in ctx.wpas_interfaces:
             if config_name is None or interface.config == config_name:
                 if main_interface is not None:
-                    raise Exception('More than was wpa_supplicant interface matches given config')
+                    raise Exception('More than one wpa_supplicant interface matches given config')
                 main_interface = interface
 
         if main_interface is None:
@@ -37,15 +35,9 @@ class Wpas:
 
         self.wpa_supplicant = ctx.start_process(cmd)
 
-        self.local_ctrl = '/tmp/wpas_' + str(os.getpid()) + '_' + str(ctrl_count)
-        ctrl_count = ctrl_count + 1
-        self.ctrl_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-        self.ctrl_sock.bind(self.local_ctrl)
-
-        self.remote_ctrl = self.socket_path + '/' + self.ifname
-        self.wpa_supplicant.wait_for_socket(self.remote_ctrl, 2)
-        self.ctrl_sock.connect(self.remote_ctrl)
-        self.io_watch = GLib.io_add_watch(self.ctrl_sock, GLib.IO_IN, self._handle_data_in)
+        self.sockets = {}
+        self.cleanup_paths = []
+        self.io_watch = GLib.io_add_watch(self._get_socket(), GLib.IO_IN, self._handle_data_in)
 
         self.p2p_peers = {}
         self.p2p_go_neg_requests = {}
@@ -173,11 +165,34 @@ class Wpas:
 
         return True
 
-    def _ctrl_request(self, command, timeout=10):
+    def _ctrl_request(self, command, ifname=None):
         if type(command) is str:
             command = str.encode(command)
 
-        self.ctrl_sock.send(bytes(command))
+        self._get_socket(ifname).send(bytes(command))
+
+    def _get_socket(self, ifname=None):
+        global ctrl_count
+
+        if ifname is None:
+            ifname = self.ifname
+
+        if ifname in self.sockets:
+            return self.sockets[ifname]
+
+        local_path = '/tmp/wpas_' + str(os.getpid()) + '_' + str(ctrl_count)
+        ctrl_count = ctrl_count + 1
+        remote_path = self.socket_path + '/' + ifname
+
+        self.wpa_supplicant.wait_for_socket(remote_path, 2)
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        sock.bind(local_path)
+        self.cleanup_paths.append(local_path)
+        sock.connect(remote_path)
+        self.cleanup_paths.append(remote_path)
+
+        self.sockets[ifname] = sock
+        return sock
 
     # Normal find phase with listen and active scan states
     def p2p_find(self):
@@ -203,21 +218,27 @@ class Wpas:
     def p2p_connect(self, peer, pin=None, go_intent=None):
         self._rx_data = []
         self._ctrl_request('P2P_CONNECT ' + peer['p2p_dev_addr'] + ' ' + ('pbc' if pin is None else pin) +
-                        ('' if go_intent is None else 'go_intent=' + str(go_intent)))
+                        ('' if go_intent is None else ' go_intent=' + str(go_intent)))
         self.wait_for_event('OK')
 
     def p2p_accept_go_neg_request(self, request, pin=None, go_intent=None):
         self._rx_data = []
         self._ctrl_request('P2P_CONNECT ' + request['p2p_dev_addr'] + ' ' + ('pbc' if pin is None else pin) +
-                        ('' if go_intent is None else 'go_intent=' + str(go_intent)))
+                        ('' if go_intent is None else ' go_intent=' + str(go_intent)))
         self.wait_for_event('OK')
 
     # Pre-accept the next GO Negotiation Request from this peer to avoid the extra Respone + Request frames
     def p2p_authorize(self, peer, pin=None, go_intent=None):
         self._rx_data = []
         self._ctrl_request('P2P_CONNECT ' + peer['p2p_dev_addr'] + ' ' + ('pbc' if pin is None else pin) +
-                        ('' if go_intent is None else 'go_intent=' + str(go_intent)) + ' auth')
+                        ('' if go_intent is None else ' go_intent=' + str(go_intent)) + ' auth')
         self.wait_for_event('OK')
+
+    def p2p_set(self, key, value, **kwargs):
+        self._ctrl_request('P2P_SET ' + key + ' ' + value, **kwargs)
+
+    def set(self, key, value, **kwargs):
+        self._ctrl_request('SET ' + key + ' ' + value, **kwargs)
 
     # Probably needed: remove references to self so that the GC can call __del__ automatically
     def clean_up(self):
@@ -227,16 +248,16 @@ class Wpas:
         if self.wpa_supplicant is not None:
             ctx.stop_process(self.wpa_supplicant)
             self.wpa_supplicant = None
+        for path in self.cleanup_paths:
+            if os.path.exists(path):
+                os.remove(path)
+        self.cleanup_paths = []
 
     def _stop_wpas(self):
         self.clean_up()
-        if self.ctrl_sock:
-            self.ctrl_sock.close()
-            self.ctrl_sock = None
-        if os.path.exists(self.remote_ctrl):
-            os.remove(self.remote_ctrl)
-        if os.path.exists(self.local_ctrl):
-            os.remove(self.local_ctrl)
+        for ifname in self.sockets:
+            self.sockets[ifname].close()
+        self.sockets = {}
 
     def __del__(self):
         self._stop_wpas()

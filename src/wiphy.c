@@ -55,6 +55,7 @@
 #include "src/watchlist.h"
 #include "src/nl80211util.h"
 #include "src/nl80211cmd.h"
+#include "src/band.h"
 
 #define EXT_CAP_LEN 10
 
@@ -78,13 +79,14 @@ struct wiphy {
 	uint16_t supported_iftypes;
 	uint16_t supported_ciphers;
 	struct scan_freq_set *supported_freqs;
+	struct band *band_2g;
+	struct band *band_5g;
 	char *model_str;
 	char *vendor_str;
 	char *driver_str;
 	struct watchlist state_watches;
 	uint8_t extended_capabilities[EXT_CAP_LEN + 2]; /* max bitmap size + IE header */
 	uint8_t *iftype_extended_capabilities[NUM_NL80211_IFTYPES];
-	uint8_t *supported_rates[NUM_NL80211_BANDS];
 	uint8_t rm_enabled_capabilities[7]; /* 5 size max + header */
 	struct l_genl_family *nl80211;
 	char regdom_country[2];
@@ -304,8 +306,15 @@ static void wiphy_free(void *data)
 	for (i = 0; i < NUM_NL80211_IFTYPES; i++)
 		l_free(wiphy->iftype_extended_capabilities[i]);
 
-	for (i = 0; i < NUM_NL80211_BANDS; i++)
-		l_free(wiphy->supported_rates[i]);
+	if (wiphy->band_2g) {
+		band_free(wiphy->band_2g);
+		wiphy->band_2g = NULL;
+	}
+
+	if (wiphy->band_5g) {
+		band_free(wiphy->band_5g);
+		wiphy->band_5g = NULL;
+	}
 
 	scan_freq_set_free(wiphy->supported_freqs);
 	watchlist_destroy(&wiphy->state_watches);
@@ -385,10 +394,15 @@ uint32_t wiphy_get_id(struct wiphy *wiphy)
 
 uint32_t wiphy_get_supported_bands(struct wiphy *wiphy)
 {
-	if (!wiphy->supported_freqs)
-		return 0;
+	uint32_t bands = 0;
 
-	return scan_freq_set_get_bands(wiphy->supported_freqs);
+	if (wiphy->band_2g)
+		bands |= SCAN_BAND_2_4_GHZ;
+
+	if (wiphy->band_5g)
+		bands |= SCAN_BAND_5_GHZ;
+
+	return bands;
 }
 
 const struct scan_freq_set *wiphy_get_supported_freqs(
@@ -624,15 +638,26 @@ bool wiphy_supports_iftype(struct wiphy *wiphy, uint32_t iftype)
 const uint8_t *wiphy_get_supported_rates(struct wiphy *wiphy, unsigned int band,
 						unsigned int *out_num)
 {
-	if (band >= L_ARRAY_SIZE(wiphy->supported_rates))
+	struct band *bandp;
+
+	switch (band) {
+	case NL80211_BAND_2GHZ:
+		bandp = wiphy->band_2g;
+		break;
+	case NL80211_BAND_5GHZ:
+		bandp = wiphy->band_5g;
+		break;
+	default:
+		return NULL;
+	}
+
+	if (!bandp)
 		return NULL;
 
 	if (out_num)
-		*out_num =
-			(uint8_t *) rawmemchr(wiphy->supported_rates[band], 0) -
-			wiphy->supported_rates[band];
+		*out_num = bandp->supported_rates_len;
 
-	return wiphy->supported_rates[band];
+	return bandp->supported_rates;
 }
 
 void wiphy_get_reg_domain_country(struct wiphy *wiphy, char *out)
@@ -647,6 +672,99 @@ void wiphy_get_reg_domain_country(struct wiphy *wiphy, char *out)
 	out[1] = country[1];
 }
 
+int wiphy_estimate_data_rate(struct wiphy *wiphy,
+				const void *ies, uint16_t ies_len,
+				const struct scan_bss *bss,
+				uint64_t *out_data_rate)
+{
+	struct ie_tlv_iter iter;
+	const void *supported_rates = NULL;
+	const void *ext_supported_rates = NULL;
+	const void *vht_capabilities = NULL;
+	const void *vht_operation = NULL;
+	const void *ht_capabilities = NULL;
+	const void *ht_operation = NULL;
+	const struct band *bandp;
+	enum scan_band band;
+
+	if (scan_freq_to_channel(bss->frequency, &band) == 0)
+		return -ENOTSUP;
+
+	switch (band) {
+	case SCAN_BAND_2_4_GHZ:
+		bandp = wiphy->band_2g;
+		break;
+	case SCAN_BAND_5_GHZ:
+		bandp = wiphy->band_5g;
+		break;
+	default:
+		return -ENOTSUP;
+	}
+
+	ie_tlv_iter_init(&iter, ies, ies_len);
+
+	while (ie_tlv_iter_next(&iter)) {
+		uint8_t tag = ie_tlv_iter_get_tag(&iter);
+
+		switch (tag) {
+		case IE_TYPE_SUPPORTED_RATES:
+			if (iter.len > 8)
+				return -EBADMSG;
+
+			supported_rates = iter.data - 2;
+			break;
+		case IE_TYPE_EXTENDED_SUPPORTED_RATES:
+			ext_supported_rates = iter.data - 2;
+			break;
+		case IE_TYPE_HT_CAPABILITIES:
+			if (iter.len != 26)
+				return -EBADMSG;
+
+			ht_capabilities = iter.data - 2;
+			break;
+		case IE_TYPE_HT_OPERATION:
+			if (iter.len != 22)
+				return -EBADMSG;
+
+			ht_operation = iter.data - 2;
+			break;
+		case IE_TYPE_VHT_CAPABILITIES:
+			if (iter.len != 12)
+				return -EBADMSG;
+
+			vht_capabilities = iter.data - 2;
+			break;
+		case IE_TYPE_VHT_OPERATION:
+			if (iter.len != 5)
+				return -EBADMSG;
+
+			vht_operation = iter.data - 2;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (!band_estimate_vht_rx_rate(bandp, vht_capabilities, vht_operation,
+					ht_capabilities, ht_operation,
+					bss->signal_strength / 100,
+					out_data_rate))
+		return 0;
+
+	if (!band_estimate_ht_rx_rate(bandp, ht_capabilities, ht_operation,
+					bss->signal_strength / 100,
+					out_data_rate))
+		return 0;
+
+	if (!band_estimate_nonht_rate(bandp, supported_rates,
+						ext_supported_rates,
+						bss->signal_strength / 100,
+						out_data_rate))
+		return 0;
+
+	return -ENOTSUP;
+}
+
 uint32_t wiphy_state_watch_add(struct wiphy *wiphy,
 				wiphy_state_watch_func_t func,
 				void *user_data, wiphy_destroy_func_t destroy)
@@ -659,29 +777,117 @@ bool wiphy_state_watch_remove(struct wiphy *wiphy, uint32_t id)
 	return watchlist_remove(&wiphy->state_watches, id);
 }
 
+static void wiphy_print_mcs_indexes(const uint8_t *mcs)
+{
+	int i;
+
+	for (i = 0; i < 77; i++) {
+		int start;
+
+		if (!test_bit(mcs, i))
+			continue;
+
+		start = i;
+
+		while (i < 76 && test_bit(mcs, i + 1))
+			i += 1;
+
+		if (start != i)
+			l_info("\t\t\t%d-%d", start, i);
+		else
+			l_info("\t\t\t%d", start);
+	}
+}
+
+static void wiphy_print_vht_mcs_info(const uint8_t *mcs_map,
+						const char *prefix)
+{
+	int i;
+
+	for (i = 14; i >= 0; i -= 2) {
+		int mcs = bit_field(mcs_map[i / 8], i % 8, 2);
+
+		if (mcs == 0x3)
+			continue;
+
+		l_info("\t\t\tMax %s MCS: 0-%d for NSS: %d", prefix,
+			mcs + 7, i / 2 + 1);
+		return;
+	}
+}
+
+static void wiphy_print_band_info(struct band *band, const char *name)
+{
+	int i;
+
+	l_info("\t%s:", name);
+	l_info("\t\tBitrates (non-HT):");
+
+	for (i = 0; i < band->supported_rates_len; i++)
+		l_info("\t\t\t%2d.%d Mbps", band->supported_rates[i] / 2,
+					band->supported_rates[i] % 2 * 5);
+
+	if (band->ht_supported) {
+		uint8_t max_nss = bit_field(band->ht_mcs_set[12], 2, 2) + 1;
+		l_info("\t\tHT Capabilities:");
+
+		if (test_bit(band->ht_capabilities, 1))
+			l_info("\t\t\tHT40");
+		else
+			l_info("\t\t\tHT20");
+
+		if (test_bit(band->ht_capabilities, 5))
+			l_info("\t\t\tShort GI for 20Mhz");
+
+		if (test_bit(band->ht_capabilities, 6))
+			l_info("\t\t\tShort GI for 40Mhz");
+
+		l_info("\t\tHT RX MCS indexes:");
+		wiphy_print_mcs_indexes(band->ht_mcs_set);
+
+		if (test_bit(band->ht_mcs_set, 96)) {
+			if (test_bit(band->ht_mcs_set, 97))
+				l_info("\t\tHT TX MCS differ, max NSS: %d",
+					max_nss);
+		} else
+			l_info("\t\tHT TX MCS set undefined");
+	}
+
+	if (band->vht_supported) {
+		l_info("\t\tVHT Capabilities:");
+
+		switch (bit_field(band->vht_capabilities[0], 2, 2)) {
+		case 1:
+			l_info("\t\t\t160 Mhz operation");
+			break;
+		case 2:
+			l_info("\t\t\t160 Mhz, 80+80 Mhz operation");
+			break;
+		}
+
+		if (test_bit(band->vht_capabilities, 5))
+			l_info("\t\t\tShort GI for 80Mhz");
+
+		if (test_bit(band->vht_capabilities, 6))
+			l_info("\t\t\tShort GI for 160 and 80 + 80 Mhz");
+
+		wiphy_print_vht_mcs_info(band->vht_mcs_set, "RX");
+		wiphy_print_vht_mcs_info(band->vht_mcs_set + 4, "TX");
+	}
+}
+
 static void wiphy_print_basic_info(struct wiphy *wiphy)
 {
-	uint32_t bands;
 	char buf[1024];
 
 	l_info("Wiphy: %d, Name: %s", wiphy->id, wiphy->name);
 	l_info("\tPermanent Address: "MAC, MAC_STR(wiphy->permanent_addr));
 
-	bands = scan_freq_set_get_bands(wiphy->supported_freqs);
+	if (wiphy->band_2g)
+		wiphy_print_band_info(wiphy->band_2g, "2.4Ghz Band");
 
-	if (bands) {
-		int len = 0;
-
-		len += sprintf(buf + len, "\tBands:");
-
-		if (bands & SCAN_BAND_2_4_GHZ)
-			len += sprintf(buf + len, " 2.4 GHz");
-
-		if (bands & SCAN_BAND_5_GHZ)
-			len += sprintf(buf + len, " 5 GHz");
-
-		l_info("%s", buf);
-	}
+	if (wiphy->band_5g)
+		wiphy_print_band_info(wiphy->band_5g, "5Ghz Band");
 
 	if (wiphy->supported_ciphers) {
 		int len = 0;
@@ -800,48 +1006,80 @@ static void parse_supported_frequencies(struct wiphy *wiphy,
 	}
 }
 
-static uint8_t *parse_supported_rates(struct l_genl_attr *attr)
+static int parse_supported_rates(struct l_genl_attr *attr, struct band *band)
 {
 	uint16_t type;
 	uint16_t len;
 	const void *data;
 	struct l_genl_attr nested;
 	int count = 0;
-	uint8_t *ret;
 
 	if (!l_genl_attr_recurse(attr, &nested))
-		return NULL;
-
-	while (l_genl_attr_next(&nested, NULL, NULL, NULL))
-		count++;
-
-	if (!l_genl_attr_recurse(attr, &nested))
-		return NULL;
-
-	ret = l_malloc(count + 1);
-	ret[count] = 0;
-
-	count = 0;
+		return -EBADMSG;
 
 	while (l_genl_attr_next(&nested, NULL, NULL, NULL)) {
 		struct l_genl_attr nested2;
 
-		if (!l_genl_attr_recurse(&nested, &nested2)) {
-			l_free(ret);
-			return NULL;
-		}
+		if (!l_genl_attr_recurse(&nested, &nested2))
+			return -EBADMSG;
 
 		while (l_genl_attr_next(&nested2, &type, &len, &data)) {
+			uint32_t rate;
+
 			if (type != NL80211_BITRATE_ATTR_RATE || len != 4)
+				continue;
+
+			rate = l_get_u32(data);
+
+			if (rate % 5)
 				continue;
 
 			/*
 			 * Convert from the 100kb/s units reported by the
 			 * kernel to the 500kb/s used in 802.11 IEs.
 			 */
-			ret[count++] = *(const uint32_t *) data / 5;
+			rate /= 5;
+
+			/*
+			 * Rates past 120 seem to be used for other purposes,
+			 * BSS Membership Selector (HT/VHT), etc
+			 */
+			if (rate > 120)
+				continue;
+
+			band->supported_rates[count++] = rate;
 		}
 	}
+
+	band->supported_rates_len = count;
+
+	return 0;
+}
+
+static struct band *band_new_from_message(struct l_genl_attr *band)
+{
+	uint16_t type;
+	struct l_genl_attr nested;
+	uint16_t count = 0;
+	struct band *ret;
+	size_t toalloc;
+
+	/* First find the number of supported rates */
+	while (l_genl_attr_next(band, &type, NULL, NULL)) {
+		switch (type) {
+		case NL80211_BAND_ATTR_RATES:
+			if (!l_genl_attr_recurse(band, &nested))
+				return NULL;
+
+			while (l_genl_attr_next(&nested, NULL, NULL, NULL))
+				count++;
+		}
+	}
+
+	toalloc = sizeof(struct band) + count * sizeof(uint8_t);
+	ret = l_malloc(toalloc);
+	memset(ret, 0, toalloc);
+	memset(ret->vht_mcs_set, 0xff, sizeof(ret->vht_mcs_set));
 
 	return ret;
 }
@@ -850,18 +1088,42 @@ static void parse_supported_bands(struct wiphy *wiphy,
 						struct l_genl_attr *bands)
 {
 	uint16_t type;
+	uint16_t len;
+	const void *data;
 	struct l_genl_attr attr;
 
 	while (l_genl_attr_next(bands, &type, NULL, NULL)) {
-		enum nl80211_band band = type;
+		struct band **bandp;
+		struct band *band;
 
-		if (band != NL80211_BAND_2GHZ && band != NL80211_BAND_5GHZ)
+		switch (type) {
+		case NL80211_BAND_2GHZ:
+			bandp = &wiphy->band_2g;
+			break;
+		case NL80211_BAND_5GHZ:
+			bandp = &wiphy->band_5g;
+			break;
+		default:
 			continue;
+		}
 
 		if (!l_genl_attr_recurse(bands, &attr))
 			continue;
 
-		while (l_genl_attr_next(&attr, &type, NULL, NULL)) {
+		if (*bandp == NULL) {
+			band = band_new_from_message(&attr);
+			if (!band)
+				continue;
+
+			/* Reset iter to beginning */
+			if (!l_genl_attr_recurse(bands, &attr)) {
+				band_free(band);
+				continue;
+			}
+		} else
+			band = *bandp;
+
+		while (l_genl_attr_next(&attr, &type, &len, &data)) {
 			struct l_genl_attr freqs;
 
 			switch (type) {
@@ -873,14 +1135,47 @@ static void parse_supported_bands(struct wiphy *wiphy,
 				break;
 
 			case NL80211_BAND_ATTR_RATES:
-				if (wiphy->supported_rates[band])
+				if (parse_supported_rates(&attr, band) < 0) {
+					band_free(band);
+					continue;
+				}
+
+				break;
+			case NL80211_BAND_ATTR_VHT_MCS_SET:
+				if (L_WARN_ON(len != sizeof(band->vht_mcs_set)))
 					continue;
 
-				wiphy->supported_rates[band] =
-					parse_supported_rates(&attr);
+				memcpy(band->vht_mcs_set, data, len);
+				band->vht_supported = true;
+				break;
+			case NL80211_BAND_ATTR_VHT_CAPA:
+				if (L_WARN_ON(len !=
+						sizeof(band->vht_capabilities)))
+					continue;
+
+				memcpy(band->vht_capabilities, data, len);
+				band->vht_supported = true;
+				break;
+			case NL80211_BAND_ATTR_HT_MCS_SET:
+				if (L_WARN_ON(len != sizeof(band->ht_mcs_set)))
+					continue;
+
+				memcpy(band->ht_mcs_set, data, len);
+				band->ht_supported = true;
+				break;
+			case NL80211_BAND_ATTR_HT_CAPA:
+				if (L_WARN_ON(len !=
+						sizeof(band->ht_capabilities)))
+					continue;
+
+				memcpy(band->ht_capabilities, data, len);
+				band->ht_supported = true;
 				break;
 			}
 		}
+
+		if (*bandp == NULL)
+			*bandp = band;
 	}
 }
 

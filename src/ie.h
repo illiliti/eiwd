@@ -289,12 +289,12 @@ enum ie_rsn_akm_suite {
 	(akm == IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256))
 
 #define IE_AKM_IS_FT(akm) \
-	((akm == IE_RSN_AKM_SUITE_FT_OVER_8021X) || \
-	 (akm == IE_RSN_AKM_SUITE_FT_USING_PSK) || \
-	 (akm == IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256) || \
-	 (akm == IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384) || \
-	 (akm == IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256) || \
-	 (akm == IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
+	(akm & (IE_RSN_AKM_SUITE_FT_OVER_8021X | \
+		IE_RSN_AKM_SUITE_FT_USING_PSK | \
+		IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256 | \
+		IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384 | \
+		IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 | \
+		IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
 
 #define IE_AKM_IS_FILS(akm) \
 	((akm == IE_RSN_AKM_SUITE_FILS_SHA256) || \
@@ -483,19 +483,6 @@ int ie_parse_bss_load_from_data(const uint8_t *data, uint8_t len,
 				uint16_t *out_sta_count,
 				uint8_t *out_channel_utilization,
 				uint16_t *out_admission_capacity);
-
-int ie_parse_supported_rates_from_data(const uint8_t *supp_rates_ie,
-					uint8_t supp_rates_len,
-					const uint8_t *ext_supp_rates_ie,
-					uint8_t ext_supp_rates_len,
-					int32_t rssi, uint64_t *data_rate);
-
-int ie_parse_data_rates(const uint8_t *supp_rates_ie,
-			const uint8_t *ext_supp_rates_ie,
-			const uint8_t *ht_ie,
-			const uint8_t *vht_ie,
-			int32_t rssi,
-			uint64_t *data_rate);
 
 int ie_parse_mobility_domain(struct ie_tlv_iter *iter, uint16_t *mdid,
 				bool *ft_over_ds, bool *resource_req);

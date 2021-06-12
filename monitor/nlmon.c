@@ -1104,8 +1104,68 @@ static void print_ie_vendor(unsigned int level, const char *label,
 	}
 }
 
-static void print_ie_mcs(unsigned int level, const char *label,
-				const void *data, uint16_t size)
+static void print_ht_capabilities(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	static const char *ht_capabilities_info_bitfield[16] = {
+		[0] = "LDPC Coding Capability",
+		[1] = "Supported Channel Width Set",
+		[2] = "SM Power Save",
+		[3] = "SM Power Save",
+		[4] = "HT-Greenfield",
+		[5] = "Short GI for 20Mhz",
+		[6] = "Short GI for 40Mhz",
+		[7] = "Tx STBC",
+		[8] = "Rx STBC",
+		[9] = "Rx STBC",
+		[10] = "HT-Delayed Block Ack",
+		[11] = "Maximum A-MSDU Length",
+		[12] = "DSSS/CCK Mode in 40Mhz",
+		[13] = "Reserved",
+		[14] = "40 Mhz Intolerant",
+		[15] = "L-SIG TXOP Protection Support",
+	};
+	static const char *ht_capabilities_sm_power_save[4] = {
+		"Static", "Dynamic", "Reserved", "Disabled",
+	};
+	static const char *ht_capabilities_rx_stbc[4] = {
+		"Disabled", "One spatial stream", "One and two spatial streams",
+		"One, two and three spatial streams"
+	};
+	uint8_t info_mask[] = { 0x03, 0xfc };
+	const uint8_t *htc = data;
+	uint8_t sm_power_save;
+	uint8_t rx_stbc;
+
+	if (size != 2)
+		return print_ie_error(level, label, size, -EINVAL);
+
+	/* Print bits 0-1 */
+	print_ie_bitfield(level, "HT Capabilities Info", data, info_mask,
+				1, ht_capabilities_info_bitfield);
+
+	/* Print SM Power Save */
+	sm_power_save = bit_field(htc[0], 2, 2);
+	print_attr(level, "HT Capabilities Info: bits 2-3: %s",
+			ht_capabilities_sm_power_save[sm_power_save]);
+
+	/* Print bits 4-7 */
+	info_mask[0] = 0xf0;
+	print_ie_bitfield(level, "HT Capabilities Info", data, info_mask,
+				1, ht_capabilities_info_bitfield);
+
+	rx_stbc = bit_field(htc[1], 0, 2);
+	print_attr(level, "HT Capabilities Info: bits 8-9: %s",
+			ht_capabilities_rx_stbc[rx_stbc]);
+
+	/* Print bits 10-15 */
+	info_mask[0] = 0x00;
+	print_ie_bitfield(level, "HT Capabilities Info", data, info_mask,
+				2, ht_capabilities_info_bitfield);
+}
+
+static void print_ht_mcs_set(unsigned int level, const char *label,
+					const void *data, uint16_t size)
 {
 	const uint8_t *bytes = data;
 	int i;
@@ -1309,7 +1369,60 @@ static void print_ie_ht_operation(unsigned int level, const char *label,
 	print_ie_bitfield(level + 1, "Information", &bytes[1],
 			bytemask, sizeof(bytemask), ht_ops_bitfield);
 
-	print_ie_mcs(level + 1, "Basic MCS set", &bytes[6], 16);
+	print_ht_mcs_set(level + 1, "Basic MCS set", &bytes[6], 16);
+}
+
+static void print_spatial_stream_map(unsigned int level, const char *label,
+					const uint8_t *map)
+{
+	static const char *spatial_streams[] = {
+		"0 - MCS 0-7 supported",
+		"1 - MCS 0-8 supported",
+		"2 - MCS 0-9 supported",
+		"3 - No MCS support",
+	};
+
+	print_attr(level + 1, "%s 1 Streams: %s", label,
+				spatial_streams[bit_field(map[0], 0, 2)]);
+	print_attr(level + 1, "%s 2 Streams: %s", label,
+				spatial_streams[bit_field(map[0], 2, 2)]);
+	print_attr(level + 1, "%s 3 Streams: %s", label,
+				spatial_streams[bit_field(map[0], 4, 2)]);
+	print_attr(level + 1, "%s 4 Streams: %s", label,
+				spatial_streams[bit_field(map[0], 6, 2)]);
+	print_attr(level + 1, "%s 5 Streams: %s", label,
+				spatial_streams[bit_field(map[1], 0, 2)]);
+	print_attr(level + 1, "%s 6 Streams: %s", label,
+				spatial_streams[bit_field(map[1], 2, 2)]);
+	print_attr(level + 1, "%s 7 Streams: %s", label,
+				spatial_streams[bit_field(map[1], 4, 2)]);
+	print_attr(level + 1, "%s 8 Streams: %s", label,
+				spatial_streams[bit_field(map[1], 6, 2)]);
+}
+
+static void print_ie_vht_operation(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	static const char *channel_width[] = {
+		"0 - 20 or 40 Mhz channel width",
+		"1 - 80 Mhz",
+		"2 - 160 Mhz",
+		"3 - 80+80 Mhz",
+	};
+	uint8_t *bytes = (uint8_t *) data;
+
+	if (size < 5) {
+		print_ie_error(level, label, size, -EINVAL);
+		return;
+	}
+
+	print_attr(level, "%s:", label);
+	print_attr(level + 1, "Channel Width %s", bytes[0] > 3 ? "Reserved" :
+						channel_width[bytes[0]]);
+	print_attr(level + 1, "Channel Center Frequency 1: %d", bytes[1]);
+	print_attr(level + 1, "Channel Center Frequency 2: %d", bytes[2]);
+
+	print_spatial_stream_map(level + 1, "Basic VHT-MCS", bytes + 3);
 }
 
 static const char *extended_capabilities_bitfield[80] = {
@@ -1433,31 +1546,6 @@ static void print_ie_ht_capabilities(unsigned int level,
 					const char *label,
 					const void *data, uint16_t size)
 {
-	static const char *ht_capabilities_info_bitfield[16] = {
-		[0] = "LDPC Coding Capability",
-		[1] = "Supported Channel Width Set",
-		[2] = "SM Power Save",
-		[3] = "SM Power Save",
-		[4] = "HT-Greenfield",
-		[5] = "Short GI for 20Mhz",
-		[6] = "Short GI for 40Mhz",
-		[7] = "Tx STBC",
-		[8] = "Rx STBC",
-		[9] = "Rx STBC",
-		[10] = "HT-Delayed Block Ack",
-		[11] = "Maximum A-MSDU Length",
-		[12] = "DSSS/CCK Mode in 40Mhz",
-		[13] = "Reserved",
-		[14] = "40 Mhz Intolerant",
-		[15] = "L-SIG TXOP Protection Support",
-	};
-	static const char *ht_capabilities_sm_power_save[4] = {
-		"Static", "Dynamic", "Reserved", "Disabled",
-	};
-	static const char *ht_capabilities_rx_stbc[4] = {
-		"Disabled", "One spatial stream", "One and two spatial streams",
-		"One, two and three spatial streams"
-	};
 	static const char *ht_capabilities_min_mpdu_start_spacing[8] = {
 		"No restriction", "1/4 us", "1/2 us", "1 us", "2 us",
 		"4 us", "8 us", "16 us",
@@ -1468,10 +1556,7 @@ static void print_ie_ht_capabilities(unsigned int level,
 	static const char *ht_capabilities_mcs_feedback[4] = {
 		"No feedback", "Reserved", "Unsolicited", "Both",
 	};
-	uint8_t info_mask[] = { 0x03, 0xfc };
 	const uint8_t *htc = data;
-	uint8_t sm_power_save;
-	uint8_t rx_stbc;
 	uint8_t ampdu_exponent;
 	bool pco;
 	bool plus_htc;
@@ -1483,28 +1568,7 @@ static void print_ie_ht_capabilities(unsigned int level,
 	if (size != 26)
 		return;
 
-	/* Print bits 0-1 */
-	print_ie_bitfield(level + 1, "HT Capabilities Info", data, info_mask,
-				1, ht_capabilities_info_bitfield);
-
-	/* Print SM Power Save */
-	sm_power_save = bit_field(htc[0], 2, 2);
-	print_attr(level + 1, "HT Capabilities Info: bits 2-3: %s",
-			ht_capabilities_sm_power_save[sm_power_save]);
-
-	/* Print bits 4-7 */
-	info_mask[0] = 0xf0;
-	print_ie_bitfield(level + 1, "HT Capabilities Info", data, info_mask,
-				1, ht_capabilities_info_bitfield);
-
-	rx_stbc = bit_field(htc[1], 0, 2);
-	print_attr(level + 1, "HT Capabilities Info: bits 8-9: %s",
-			ht_capabilities_rx_stbc[rx_stbc]);
-
-	/* Print bits 10-15 */
-	info_mask[0] = 0x00;
-	print_ie_bitfield(level + 1, "HT Capabilities Info", data, info_mask,
-				2, ht_capabilities_info_bitfield);
+	print_ht_capabilities(level + 1, "HT Capabilities Info", htc, 2);
 
 	ampdu_exponent = bit_field(htc[2], 0, 2);
 	print_attr(level + 1, "A-MPDU Parameters: "
@@ -1515,7 +1579,7 @@ static void print_ie_ht_capabilities(unsigned int level,
 			"Minimum MPDU Start Spacing: %s",
 			ht_capabilities_min_mpdu_start_spacing[bits]);
 
-	print_ie_mcs(level + 1, "Supported MCS", htc + 3, 16);
+	print_ht_mcs_set(level + 1, "Supported MCS", htc + 3, 16);
 
 	pco = test_bit(htc + 18, 0);
 	print_attr(level + 1, "HT Extended Capabilities: PCO: %s",
@@ -1543,6 +1607,52 @@ static void print_ie_ht_capabilities(unsigned int level,
 
 	/* TODO: Transmit Beamforming Capabilities field */
 	/* TODO: ASEL Capability field */
+}
+
+static void print_ie_vht_capabilities(unsigned int level,
+					const char *label,
+					const void *data, uint16_t size)
+{
+	static const char *vht_capabilities_info_bitfield[] = {
+		[0 ... 1] = "Maximum MPDU Length",
+		[2 ... 3] = "Supported Channel Width Set",
+		[4] = "RX LDPC",
+		[5] = "Short GI for 80 Mhz",
+		[6] = "Short GI for 160 and 80+80 Mhz",
+		[7] = "Tx STBC",
+		[8 ... 10] = "Rx STBC",
+		[11] = "SU Beamformer Capable",
+		[12] = "SU Beamformee Capable",
+		[13 ... 15] = "Beamformee STS Capability",
+		[16 ... 18] = "Number of Sounding Dimensions",
+		[19] = "MU Beamformer Capable",
+		[20] = "MU Beamformee Capable",
+		[21] = "TXOP PS",
+		[22] = "+HTC-VHT Capable",
+		[23 ... 25] = "Maximum A-MPDU Length Exponent",
+		[26 ... 27] = "VHT Link Adapation Capable",
+		[28] = "RX Antenna Pattern Consistency",
+		[29] = "TX Antenna Pattern Consistency",
+		[30 ... 31] = "Extended NSS BW Support",
+	};
+	uint8_t info_mask[] = { 0xf0, 0x18, 0x78, 0x30 };
+
+	print_attr(level, "%s: len %u", label, size);
+
+	if (size != 12)
+		return;
+
+	print_ie_bitfield(level + 1, "VHT Capabilities Info", data, info_mask,
+				4, vht_capabilities_info_bitfield);
+
+	print_spatial_stream_map(level + 1, "RxVHT-MCS", data + 4);
+	print_attr(level + 1, "Rx Highest Supported Long GI Data Rate: %d",
+			l_get_le16(data + 6) & 0x1f);
+	print_spatial_stream_map(level + 1, "TxVHT-MCS", data + 8);
+	print_attr(level + 1, "Tx Highest Supported Long GI Data Rate: %d",
+			l_get_le16(data + 10) & 0x1f);
+	if (test_bit(data + 4, 61))
+		print_attr(level + 1, "VHT Extended NSS BW Capable");
 }
 
 static void print_ie_rm_enabled_caps(unsigned int level,
@@ -2072,12 +2182,16 @@ static struct attr_entry ie_entry[] = {
 		ATTR_CUSTOM,	{ .function = print_ie_rate } },
 	{ IE_TYPE_HT_OPERATION,			"HT Operation",
 		ATTR_CUSTOM,	{ .function = print_ie_ht_operation } },
+	{ IE_TYPE_VHT_OPERATION,		"VHT Operation",
+		ATTR_CUSTOM,	{ .function = print_ie_vht_operation } },
 	{ IE_TYPE_VENDOR_SPECIFIC,		"Vendor specific",
 		ATTR_CUSTOM,	{ .function = print_ie_vendor } },
 	{ IE_TYPE_EXTENDED_CAPABILITIES,	"Extended Capabilities",
 		ATTR_CUSTOM,	{ .function = print_ie_extended_capabilities } },
 	{ IE_TYPE_HT_CAPABILITIES,		"HT Capabilities",
 		ATTR_CUSTOM,	{ .function = print_ie_ht_capabilities } },
+	{ IE_TYPE_VHT_CAPABILITIES,		"VHT Capabilities",
+		ATTR_CUSTOM,	{ .function = print_ie_vht_capabilities } },
 	{ IE_TYPE_RM_ENABLED_CAPABILITIES,	"RM Enabled Capabilities",
 		ATTR_CUSTOM,	{ .function = print_ie_rm_enabled_caps } },
 	{ IE_TYPE_INTERWORKING,			"Interworking",
@@ -4834,6 +4948,8 @@ static const struct attr_entry sta_info_table[] = {
 					"Per-chain signal strength" },
 	{ NL80211_STA_INFO_CHAIN_SIGNAL_AVG,
 					"Per-chain signal strength average" },
+	{ NL80211_STA_INFO_EXPECTED_THROUGHPUT,
+					"Expected Throughput",	ATTR_U32 },
 	{ }
 };
 
@@ -5118,8 +5234,10 @@ static const struct attr_entry wiphy_bands_table[] = {
 			ATTR_CUSTOM, { .function = print_band_frequencies } },
 	{ NL80211_BAND_ATTR_RATES, "Rates",
 			ATTR_CUSTOM, { .function = print_band_rates } },
-	{ NL80211_BAND_ATTR_HT_MCS_SET, "HT MCS Set" },
-	{ NL80211_BAND_ATTR_HT_CAPA, "HT Capabilities" },
+	{ NL80211_BAND_ATTR_HT_MCS_SET, "HT MCS Set",
+			ATTR_CUSTOM, { .function = print_ht_mcs_set } },
+	{ NL80211_BAND_ATTR_HT_CAPA, "HT Capabilities",
+			ATTR_CUSTOM, { .function = print_ht_capabilities } },
 	{ NL80211_BAND_ATTR_HT_AMPDU_FACTOR, "AMPDU Factor" },
 	{ NL80211_BAND_ATTR_HT_AMPDU_DENSITY, "AMPDU Density" },
 	{ NL80211_BAND_ATTR_VHT_MCS_SET, "VHT MCS Set" },

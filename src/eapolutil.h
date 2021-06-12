@@ -57,7 +57,7 @@ struct eapol_header {
 
 struct eapol_frame {
 	struct eapol_header header;
-	uint8_t data[0];
+	uint8_t data[];
 } __attribute__ ((packed));
 
 /* gets pointer to MIC */
@@ -111,7 +111,7 @@ struct eapol_key {
 	uint8_t eapol_key_iv[16];
 	uint8_t key_rsc[8];
 	uint8_t reserved[8];
-	uint8_t key_data[0];
+	uint8_t key_data[];
 } __attribute__ ((packed));
 
 const struct eapol_key *eapol_key_validate(const uint8_t *frame, size_t len,

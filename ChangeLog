@@ -1,3 +1,8 @@
+ver 1.15:
+	Add support for FT-over-DS procedure with multiple BSS.
+	Add support for estimation of VHT RX data rate.
+	Add support for exporting Daemon information.
+
 ver 1.14:
 	Fix issue with scanning property and quick scan cancellation.
 	Fix issue with handling authentication timeouts from SAE.

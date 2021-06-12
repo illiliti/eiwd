@@ -43,6 +43,7 @@ enum netdev_event {
 	NETDEV_EVENT_ASSOCIATING,
 	NETDEV_EVENT_ROAMING,
 	NETDEV_EVENT_ROAMED,
+	NETDEV_EVENT_CHANNEL_SWITCHED,
 	NETDEV_EVENT_DISCONNECT_BY_AP,
 	NETDEV_EVENT_DISCONNECT_BY_SME,
 	NETDEV_EVENT_RSSI_THRESHOLD_LOW,
@@ -163,9 +164,7 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 int netdev_fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 				netdev_connect_cb_t cb);
 int netdev_fast_transition_over_ds_action(struct netdev *netdev,
-					const struct scan_bss *target_bss,
-					netdev_ft_over_ds_cb_t cb,
-					void *user_data);
+					const struct scan_bss *target_bss);
 int netdev_fast_transition_over_ds(struct netdev *netdev,
 					struct scan_bss *target_bss,
 					netdev_connect_cb_t cb);

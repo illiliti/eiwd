@@ -382,17 +382,10 @@ void known_network_update(struct network_info *network,
 
 	network->is_hidden = is_hidden;
 
+	/* If no entry, default to AutoConnectable=True */
 	if (!l_settings_get_bool(settings, "Settings", "AutoConnect",
-							&is_autoconnectable)) {
-		/* If no entry, default to AutoConnectable=True */
-		is_autoconnectable = true;
-
-		/* Try legacy property name just in case */
-		if (l_settings_get_bool(settings, "Settings", "Autoconnect",
 							&is_autoconnectable))
-			l_warn("Autoconnect setting is deprecated, use"
-					" AutoConnect instead");
-	}
+		is_autoconnectable = true;
 
 	known_network_set_autoconnect(network, is_autoconnectable);
 }
@@ -705,15 +698,8 @@ static void known_network_new(const char *ssid, enum security security,
 		is_hidden = false;
 
 	if (!l_settings_get_bool(settings, "Settings", "AutoConnect",
-						&is_autoconnectable)) {
+						&is_autoconnectable))
 		is_autoconnectable = true;
-
-		/* Try legacy property name just in case */
-		if (l_settings_get_bool(settings, "Settings", "Autoconnect",
-							&is_autoconnectable))
-			l_warn("Autoconnect setting is deprecated, use"
-					" AutoConnect instead");
-	}
 
 	if (is_hidden)
 		num_known_hidden_networks++;

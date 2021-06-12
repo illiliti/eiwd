@@ -1,0 +1,16 @@
+#!/usr/bin/python3
+
+import sys
+import dbus
+
+if (len(sys.argv) != 3):
+    print("Usage: %s <device> <mac>" % (sys.argv[0]))
+    sys.exit(1)
+
+bus = dbus.SystemBus()
+device = dbus.Interface(bus.get_object("net.connman.iwd", sys.argv[1]),
+                                    "net.connman.iwd.StationDiagnostic")
+
+mac = sys.argv[2].replace(':', '')
+
+device.Roam(dbus.ByteArray.fromhex(mac))

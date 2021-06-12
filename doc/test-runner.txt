@@ -28,6 +28,7 @@ OS:
 	10. <iwd>/src/iwd	0.0
 	11. ofono (optional)
 	12. phonesim (optional)
+	13. wpa_supplicant	2.9
 
 Note: The version for hostapd is listed as 'recent'. Older hostapd versions
 will work but we are continually adopting new features from hostapd and using

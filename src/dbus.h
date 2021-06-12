@@ -24,6 +24,7 @@
 
 #define IWD_SERVICE "net.connman.iwd"
 
+#define IWD_DAEMON_INTERFACE "net.connman.iwd.Daemon"
 #define IWD_AGENT_MANAGER_INTERFACE "net.connman.iwd.AgentManager"
 #define IWD_WIPHY_INTERFACE "net.connman.iwd.Adapter"
 #define IWD_DEVICE_INTERFACE "net.connman.iwd.Device"

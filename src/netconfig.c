@@ -68,6 +68,8 @@ struct netconfig {
 
 	struct l_acd *acd;
 
+	uint32_t addr4_add_cmd_id;
+	uint32_t addr6_add_cmd_id;
 	uint32_t route4_add_gateway_cmd_id;
 };
 
@@ -623,8 +625,8 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 {
 	L_AUTO_FREE_VAR(char *, gateway) = NULL;
 	struct in_addr in_addr;
-	char *network;
 	char ip[INET_ADDRSTRLEN];
+	char network[INET_ADDRSTRLEN];
 	unsigned int prefix_len =
 		l_rtnl_address_get_prefix_length(netconfig->v4_address);
 
@@ -635,8 +637,7 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 	in_addr.s_addr = in_addr.s_addr &
 				htonl(0xFFFFFFFFLU << (32 - prefix_len));
 
-	network = inet_ntoa(in_addr);
-	if (!network)
+	if (!inet_ntop(AF_INET, &in_addr, network, INET_ADDRSTRLEN))
 		return false;
 
 	if (!l_rtnl_route4_add_connected(rtnl, netconfig->ifindex,
@@ -651,11 +652,17 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 
 	gateway = netconfig_ipv4_get_gateway(netconfig);
 	if (!gateway) {
-		l_error("netconfig: Failed to obtain gateway from %s.",
+		l_debug("No gateway obtained from %s.",
 				netconfig->rtm_protocol == RTPROT_STATIC ?
 				"setting file" : "DHCPv4 lease");
 
-		return false;
+		if (netconfig->notify) {
+			netconfig->notify(NETCONFIG_EVENT_CONNECTED,
+						netconfig->user_data);
+			netconfig->notify = NULL;
+		}
+
+		return true;
 	}
 
 	netconfig->route4_add_gateway_cmd_id =
@@ -680,6 +687,8 @@ static void netconfig_ipv4_ifaddr_add_cmd_cb(int error, uint16_t type,
 {
 	struct netconfig *netconfig = user_data;
 
+	netconfig->addr4_add_cmd_id = 0;
+
 	if (error && error != -EEXIST) {
 		l_error("netconfig: Failed to add IP address. "
 				"Error %d: %s", error, strerror(-error));
@@ -701,6 +710,8 @@ static void netconfig_ipv6_ifaddr_add_cmd_cb(int error, uint16_t type,
 {
 	struct netconfig *netconfig = user_data;
 	struct l_rtnl_route *gateway;
+
+	netconfig->addr6_add_cmd_id = 0;
 
 	if (error && error != -EEXIST) {
 		l_error("netconfig: Failed to add IPv6 address. "
@@ -765,10 +776,11 @@ static void netconfig_ipv4_dhcp_event_handler(struct l_dhcp_client *client,
 			return;
 		}
 
-		L_WARN_ON(!l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
+		L_WARN_ON(!(netconfig->addr4_add_cmd_id =
+				l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
 					netconfig->v4_address,
 					netconfig_ipv4_ifaddr_add_cmd_cb,
-					netconfig, NULL));
+					netconfig, NULL)));
 		break;
 	case L_DHCP_CLIENT_EVENT_LEASE_RENEWED:
 		break;
@@ -824,24 +836,32 @@ static void netconfig_dhcp6_event_handler(struct l_dhcp6_client *client,
 	}
 }
 
+static void netconfig_remove_v4_address(struct netconfig *netconfig)
+{
+	if (!netconfig->v4_address)
+		return;
+
+	L_WARN_ON(!l_rtnl_ifaddr_delete(rtnl, netconfig->ifindex,
+					netconfig->v4_address,
+					netconfig_ifaddr_del_cmd_cb,
+					netconfig, NULL));
+	l_rtnl_address_free(netconfig->v4_address);
+	netconfig->v4_address = NULL;
+}
+
 static void netconfig_reset_v4(struct netconfig *netconfig)
 {
 	if (netconfig->rtm_protocol) {
-		if (netconfig->v4_address) {
-			L_WARN_ON(!l_rtnl_ifaddr_delete(rtnl,
-						netconfig->ifindex,
-						netconfig->v4_address,
-						netconfig_ifaddr_del_cmd_cb,
-						netconfig, NULL));
-			l_rtnl_address_free(netconfig->v4_address);
-			netconfig->v4_address = NULL;
-		}
+		netconfig_remove_v4_address(netconfig);
 
 		l_strfreev(netconfig->dns4_overrides);
 		netconfig->dns4_overrides = NULL;
 
 		l_dhcp_client_stop(netconfig->dhcp_client);
 		netconfig->rtm_protocol = 0;
+
+		l_acd_destroy(netconfig->acd);
+		netconfig->acd = NULL;
 	}
 }
 
@@ -851,10 +871,11 @@ static void netconfig_ipv4_acd_event(enum l_acd_event event, void *user_data)
 
 	switch (event) {
 	case L_ACD_EVENT_AVAILABLE:
-		L_WARN_ON(!l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
+		L_WARN_ON(!(netconfig->addr4_add_cmd_id =
+				l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
 					netconfig->v4_address,
 					netconfig_ipv4_ifaddr_add_cmd_cb,
-					netconfig, NULL));
+					netconfig, NULL)));
 		return;
 	case L_ACD_EVENT_CONFLICT:
 		/*
@@ -872,17 +893,18 @@ static void netconfig_ipv4_acd_event(enum l_acd_event event, void *user_data)
 		 * case.
 		 */
 		l_error("netconfig: statically configured address was lost");
-		netconfig_reset_v4(netconfig);
+		netconfig_remove_v4_address(netconfig);
 		break;
 	}
 }
 
 static void netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 {
-	netconfig->v4_address = netconfig_get_static4_address(netconfig);
-	if (netconfig->v4_address) {
-		char ip[INET6_ADDRSTRLEN];
+	char ip[INET6_ADDRSTRLEN];
 
+	netconfig->v4_address = netconfig_get_static4_address(netconfig);
+	if (netconfig->v4_address &&
+			l_rtnl_address_get_address(netconfig->v4_address, ip)) {
 		netconfig->rtm_protocol = RTPROT_STATIC;
 		netconfig->acd = l_acd_new(netconfig->ifindex);
 		l_acd_set_event_handler(netconfig->acd,
@@ -892,17 +914,16 @@ static void netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 			l_acd_set_debug(netconfig->acd, do_debug,
 					"[ACD] ", NULL);
 
-		l_rtnl_address_get_address(netconfig->v4_address, ip);
-
 		if (!l_acd_start(netconfig->acd, ip)) {
 			l_error("failed to start ACD, continuing anyways");
 			l_acd_destroy(netconfig->acd);
 			netconfig->acd = NULL;
 
-			L_WARN_ON(!l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
+			L_WARN_ON(!(netconfig->addr4_add_cmd_id =
+				l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
 					netconfig->v4_address,
 					netconfig_ipv4_ifaddr_add_cmd_cb,
-					netconfig, NULL));
+					netconfig, NULL)));
 		}
 
 		return;
@@ -937,9 +958,10 @@ static void netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 	address = netconfig_get_static6_address(netconfig);
 	if (address) {
 		netconfig->rtm_v6_protocol = RTPROT_STATIC;
-		L_WARN_ON(!l_rtnl_ifaddr_add(rtnl, netconfig->ifindex, address,
+		L_WARN_ON(!(netconfig->addr6_add_cmd_id =
+			l_rtnl_ifaddr_add(rtnl, netconfig->ifindex, address,
 					netconfig_ipv6_ifaddr_add_cmd_cb,
-					netconfig, NULL));
+					netconfig, NULL)));
 		l_rtnl_address_free(address);
 		return;
 	}
@@ -1054,6 +1076,16 @@ bool netconfig_reset(struct netconfig *netconfig)
 	if (netconfig->route4_add_gateway_cmd_id) {
 		l_netlink_cancel(rtnl, netconfig->route4_add_gateway_cmd_id);
 		netconfig->route4_add_gateway_cmd_id = 0;
+	}
+
+	if (netconfig->addr4_add_cmd_id) {
+		l_netlink_cancel(rtnl, netconfig->addr4_add_cmd_id);
+		netconfig->addr4_add_cmd_id = 0;
+	}
+
+	if (netconfig->addr6_add_cmd_id) {
+		l_netlink_cancel(rtnl, netconfig->addr6_add_cmd_id);
+		netconfig->addr6_add_cmd_id = 0;
 	}
 
 	if (netconfig->rtm_protocol || netconfig->rtm_v6_protocol)

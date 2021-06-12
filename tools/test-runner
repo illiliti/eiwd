@@ -672,7 +672,7 @@ class Namespace:
 
 		if self.args.valgrind:
 			args.extend(['valgrind', '--leak-check=full', '--track-origins=yes',
-						'--log-file=/tmp/valgrind.log'])
+					'--log-file=/tmp/valgrind.log.%p'])
 
 		args.extend(['iwd', '-p', iwd_radios])
 
@@ -1183,14 +1183,19 @@ def post_test(ctx, to_copy):
 	finally:
 		ctx.stop_test_processes()
 
+	if ctx.args.valgrind:
+		for f in os.listdir('/tmp'):
+			if f.startswith("valgrind.log."):
+				dbg(f)
+				with open('/tmp/' + f, 'r') as v:
+					dbg(v.read())
+				dbg("\n")
+				os.remove('/tmp/' + f)
+
 	allowed = ['phonesim.conf', 'certs', 'secrets', 'iwd']
 	for f in [f for f in os.listdir('/tmp') if f not in allowed]:
 		dbg("File %s was not cleaned up!" % f)
-
-	if ctx.args.valgrind:
-		with open('/tmp/valgrind.log', 'r') as f:
-				dbg(f.read())
-		dbg("\n")
+		os.remove('/tmp/' + f)
 
 def print_results(results):
 	table = PrettyTable(['Test', colored('Passed', 'green'), colored('Failed', 'red'), \
@@ -1570,7 +1575,15 @@ class Main:
 		else:
 			smp = int(nproc / 2)
 
-		print("Using %d cores for VM" % smp)
+		#
+		# Increase RAM if valgrind is being used
+		#
+		if self.args.valgrind:
+			ram = 512
+		else:
+			ram = 256
+
+		print("Using %d cores, %d RAM for VM" % (smp, ram))
 
 		#
 		# This passes through most of the command line options to
@@ -1593,7 +1606,7 @@ class Main:
 			qemu_binary,
 			'-machine', 'type=q35,accel=kvm:tcg',
 			'-nodefaults', '-no-user-config', '-monitor', 'none',
-			'-display', 'none', '-m', '256M', '-nographic', '-vga',
+			'-display', 'none', '-m', '%dM' % ram, '-nographic', '-vga',
 			'none', '-no-acpi', '-no-hpet',
 			'-no-reboot', '-fsdev',
 			'local,id=fsdev-root,path=/,readonly,security_model=none,multidevs=remap',
@@ -1607,7 +1620,7 @@ class Main:
 			'-append',
 			'console=ttyS0,115200n8 earlyprintk=serial \
 				rootfstype=9p root=/dev/root \
-				rootflags=trans=virtio,version=9p2000.u \
+				rootflags=trans=virtio,msize=1048576,version=9p2000.u \
 				acpi=off pci=noacpi %s ro \
 				mac80211_hwsim.radios=0 %s' % (kern_log, options),
 			'-cpu', 'host', '-smp', str(smp)

@@ -15,8 +15,6 @@ from config import ctx
 
 class Test(unittest.TestCase):
     def test_roam_success(self):
-        wd = IWD()
-
         hwsim = Hwsim()
 
         rule0 = hwsim.rules.create()
@@ -31,15 +29,17 @@ class Test(unittest.TestCase):
         rule2.source = self.bss_radio[2].addresses[0]
         rule2.bidirectional = True
 
+        # Check that iwd selects BSS 0 first
+        rule0.signal = -2000
+        rule1.signal = -6900
+        rule2.signal = -7200
+
+        wd = IWD(True)
+
         psk_agent = PSKAgent("EasilyGuessedPassword")
         wd.register_psk_agent(psk_agent)
 
         device = wd.list_devices(1)[0]
-
-        # Check that iwd selects BSS 0 first
-        rule0.signal = -2000
-        rule1.signal = -2500
-        rule2.signal = -3000
 
         condition = 'not obj.scanning'
         wd.wait_for_object_condition(device, condition)
@@ -135,16 +135,6 @@ class Test(unittest.TestCase):
         os.system('ifconfig "' + self.bss_hostapd[2].ifname + '" up')
 
         hwsim = Hwsim()
-        wd = IWD()
-        device = wd.list_devices(1)[0]
-        try:
-            device.disconnect()
-        except:
-            pass
-
-        condition = 'obj.state == DeviceState.disconnected'
-        wd.wait_for_object_condition(device, condition)
-
         for rule in list(hwsim.rules.keys()):
             del hwsim.rules[rule]
 

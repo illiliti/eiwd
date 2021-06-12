@@ -34,6 +34,7 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <linux/if.h>
 
 #include <ell/ell.h>
 
@@ -170,6 +171,7 @@ struct p2p_wfd_properties {
 };
 
 static struct l_queue *p2p_device_list;
+static unsigned int p2p_dhcp_timeout_val;
 static struct l_settings *p2p_dhcp_settings;
 static struct p2p_wfd_properties *p2p_own_wfd;
 static unsigned int p2p_wfd_disconnect_watch;
@@ -662,9 +664,10 @@ static void p2p_connection_reset(struct p2p_device *dev)
 		netconfig_destroy(dev->conn_netconfig);
 		dev->conn_netconfig = NULL;
 		l_settings_free(dev->conn_netconfig_settings);
-		l_free(dev->conn_peer_ip);
-		dev->conn_peer_ip = NULL;
 	}
+
+	l_free(dev->conn_peer_ip);
+	dev->conn_peer_ip = NULL;
 
 	if (dev->conn_new_intf_cmd_id)
 		/*
@@ -902,21 +905,10 @@ static void p2p_group_event(enum ap_event_type type, const void *event_data,
 	case AP_EVENT_STATION_ADDED:
 	{
 		const struct ap_event_station_added_data *data = event_data;
-		L_AUTO_FREE_VAR(uint8_t *, p2p_data) = NULL;
-		ssize_t p2p_data_len;
 		L_AUTO_FREE_VAR(uint8_t *, wfd_data) = NULL;
 		ssize_t wfd_data_len;
 		struct p2p_association_req req_info;
 		int r;
-
-		p2p_data = ie_tlv_extract_p2p_payload(data->assoc_ies,
-							data->assoc_ies_len,
-							&p2p_data_len);
-		if (!p2p_data) {
-			l_error("Missing or invalid P2P IEs: %s (%i)",
-				strerror(-p2p_data_len), (int) -p2p_data_len);
-			goto invalid_ie;
-		}
 
 		/*
 		 * We don't need to validate most of the Association Request
@@ -932,8 +924,8 @@ static void p2p_group_event(enum ap_event_type type, const void *event_data,
 		 * information shall be used by the P2P Group Owner for Group
 		 * Information Advertisement.
 		 */
-		r = p2p_parse_association_req(p2p_data, p2p_data_len,
-						&req_info);
+		r = p2p_parse_association_req(data->assoc_ies,
+						data->assoc_ies_len, &req_info);
 		if (r < 0) {
 			l_error("Can't parse P2P Association Request: %s (%i)",
 				strerror(-r), -r);
@@ -962,8 +954,8 @@ static void p2p_group_event(enum ap_event_type type, const void *event_data,
 			p2p_extract_wfd_properties(wfd_data, wfd_data_len,
 							dev->conn_peer->wfd);
 
-		dev->conn_peer_added = true;
-		p2p_peer_connect_done(dev);
+		/* Setup is progressing so re-arm the timeout */
+		l_timeout_modify(dev->conn_dhcp_timeout, p2p_dhcp_timeout_val);
 		break;
 	}
 
@@ -981,6 +973,33 @@ static void p2p_group_event(enum ap_event_type type, const void *event_data,
 		ap_update_beacon(dev->group);
 		break;
 	case AP_EVENT_PBC_MODE_EXIT:
+		break;
+
+	case AP_EVENT_DHCP_NEW_LEASE:
+	{
+		const struct l_dhcp_lease *lease = event_data;
+
+		if (dev->conn_peer_added)
+			break;
+
+		l_rtnl_set_linkmode_and_operstate(iwd_get_rtnl(),
+					netdev_get_ifindex(dev->conn_netdev),
+					IF_LINK_MODE_DEFAULT, IF_OPER_UP,
+					NULL, NULL, NULL);
+
+		dev->conn_peer_added = true;
+		dev->conn_peer_ip = l_dhcp_lease_get_address(lease);
+		l_timeout_remove(dev->conn_dhcp_timeout);
+		p2p_peer_connect_done(dev);
+		break;
+	}
+
+	case AP_EVENT_DHCP_LEASE_EXPIRED:
+		/*
+		 * Only one DHCP lease allowed for now, as soon as it expires
+		 * the connection is considered to be down.
+		 */
+		p2p_connect_failed(dev);
 		break;
 	};
 
@@ -1036,6 +1055,7 @@ static size_t p2p_group_write_p2p_ie(struct p2p_device *dev,
 
 	case MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE:
 	{
+		L_AUTO_FREE_VAR(uint8_t *, tmp) = NULL;
 		struct p2p_probe_resp info = {};
 		const struct mmpdu_probe_request *req =
 			mmpdu_body(client_frame);
@@ -1049,8 +1069,8 @@ static size_t p2p_group_write_p2p_ie(struct p2p_device *dev,
 		 * Response frame if the received Probe Request frame does
 		 * not contain a P2P IE."
 		 */
-		if (!ie_tlv_extract_p2p_payload(req->ies, req_ies_len,
-							&req_p2p_data_size))
+		if (!(tmp = ie_tlv_extract_p2p_payload(req->ies, req_ies_len,
+							&req_p2p_data_size)))
 			return 0;
 
 		info.capability = dev->capability;
@@ -1189,6 +1209,22 @@ static const struct ap_ops p2p_go_ops = {
 	.write_extra_ies = p2p_group_write_ies,
 };
 
+static void p2p_dhcp_timeout(struct l_timeout *timeout, void *user_data)
+{
+	struct p2p_device *dev = user_data;
+
+	l_debug("");
+
+	p2p_connect_failed(dev);
+}
+
+static void p2p_dhcp_timeout_destroy(void *user_data)
+{
+	struct p2p_device *dev = user_data;
+
+	dev->conn_dhcp_timeout = NULL;
+}
+
 static void p2p_group_start(struct p2p_device *dev)
 {
 	struct l_settings *config = l_settings_new();
@@ -1239,7 +1275,8 @@ static void p2p_group_start(struct p2p_device *dev)
 
 	l_settings_set_bytes(config, "Security", "PreSharedKey", psk, 32);
 
-	l_settings_add_group(config, "IPv4");
+	/* Enable netconfig, set maximum usable DHCP lease time */
+	l_settings_set_uint(config, "IPv4", "LeaseTime", 0x7fffffff);
 
 	dev->capability.group_caps |= P2P_GROUP_CAP_GO;
 	dev->capability.group_caps |= P2P_GROUP_CAP_GROUP_FORMATION;
@@ -1247,8 +1284,15 @@ static void p2p_group_start(struct p2p_device *dev)
 	dev->group = ap_start(dev->conn_netdev, config, &p2p_go_ops, NULL, dev);
 	l_settings_free(config);
 
-	if (!dev->group)
+	if (!dev->group) {
 		p2p_connect_failed(dev);
+		return;
+	}
+
+	/* Set timeout on client connecting and getting its IP */
+	dev->conn_dhcp_timeout = l_timeout_create(p2p_dhcp_timeout_val,
+						p2p_dhcp_timeout, dev,
+						p2p_dhcp_timeout_destroy);
 }
 
 static void p2p_netconfig_event_handler(enum netconfig_event event,
@@ -1273,31 +1317,10 @@ static void p2p_netconfig_event_handler(enum netconfig_event event,
 	}
 }
 
-static void p2p_dhcp_timeout(struct l_timeout *timeout, void *user_data)
-{
-	struct p2p_device *dev = user_data;
-
-	l_debug("");
-
-	p2p_connect_failed(dev);
-}
-
-static void p2p_dhcp_timeout_destroy(void *user_data)
-{
-	struct p2p_device *dev = user_data;
-
-	dev->conn_dhcp_timeout = NULL;
-}
-
 static void p2p_start_client_netconfig(struct p2p_device *dev)
 {
 	uint32_t ifindex = netdev_get_ifindex(dev->conn_netdev);
-	unsigned int dhcp_timeout_val;
 	struct l_settings *settings;
-
-	if (!l_settings_get_uint(iwd_get_config(), "P2P", "DHCPTimeout",
-					&dhcp_timeout_val))
-		dhcp_timeout_val = 20;	/* 20s default */
 
 	if (!dev->conn_netconfig) {
 		dev->conn_netconfig = netconfig_new(ifindex);
@@ -1310,7 +1333,7 @@ static void p2p_start_client_netconfig(struct p2p_device *dev)
 	settings = dev->conn_netconfig_settings ?: p2p_dhcp_settings;
 	netconfig_configure(dev->conn_netconfig, settings, dev->conn_addr,
 				p2p_netconfig_event_handler, dev);
-	dev->conn_dhcp_timeout = l_timeout_create(dhcp_timeout_val,
+	dev->conn_dhcp_timeout = l_timeout_create(p2p_dhcp_timeout_val,
 						p2p_dhcp_timeout, dev,
 						p2p_dhcp_timeout_destroy);
 }
@@ -4774,7 +4797,7 @@ static bool p2p_peer_get_connected_ip(struct l_dbus *dbus,
 {
 	struct p2p_peer *peer = user_data;
 
-	if (!p2p_peer_operational(peer) || !peer->dev->conn_peer_ip)
+	if (!p2p_peer_operational(peer))
 		return false;
 
 	l_dbus_message_builder_append_basic(builder, 's', peer->dev->conn_peer_ip);
@@ -5133,6 +5156,10 @@ static int p2p_init(void)
 					NULL))
 		l_error("Unable to register the P2P Service Manager object");
 #endif
+
+	if (!l_settings_get_uint(iwd_get_config(), "P2P", "DHCPTimeout",
+					&p2p_dhcp_timeout_val))
+		p2p_dhcp_timeout_val = 20;	/* 20s default */
 
 	return 0;
 }

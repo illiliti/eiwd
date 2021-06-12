@@ -999,18 +999,6 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 			bss->ssid_len = iter.len;
 			have_ssid = true;
 			break;
-		case IE_TYPE_SUPPORTED_RATES:
-			if (iter.len > 8)
-				return false;
-
-			bss->has_sup_rates =  true;
-			memcpy(bss->supp_rates_ie, iter.data - 2, iter.len + 2);
-
-			break;
-		case IE_TYPE_EXTENDED_SUPPORTED_RATES:
-			bss->ext_supp_rates_ie = l_memdup(iter.data - 2,
-								iter.len + 2);
-			break;
 		case IE_TYPE_RSN:
 			if (!bss->rsne)
 				bss->rsne = l_memdup(iter.data - 2,
@@ -1056,20 +1044,10 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 
 			break;
 		case IE_TYPE_HT_CAPABILITIES:
-			if (iter.len != 26)
-				return false;
-
 			bss->ht_capable = true;
-			memcpy(bss->ht_ie, iter.data - 2, iter.len + 2);
-
 			break;
 		case IE_TYPE_VHT_CAPABILITIES:
-			if (iter.len != 12)
-				return false;
-
 			bss->vht_capable = true;
-			memcpy(bss->vht_ie, iter.data - 2, iter.len + 2);
-
 			break;
 		case IE_TYPE_ADVERTISEMENT_PROTOCOL:
 			if (iter.len < 2)
@@ -1164,6 +1142,7 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 }
 
 static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr,
+						struct wiphy *wiphy,
 						uint32_t *out_seen_ms_ago)
 {
 	uint16_t type, len;
@@ -1231,7 +1210,7 @@ static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr,
 			if (L_WARN_ON(len != sizeof(uint64_t)))
 				break;
 
-			bss->time_stamp = l_get_u64(data);
+			bss->time_stamp = l_get_u64(data) / L_NSEC_PER_USEC;
 			break;
 		}
 	}
@@ -1247,8 +1226,16 @@ static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr,
 				memcmp(ies, beacon_ies, ies_len)))
 		bss->source_frame = SCAN_BSS_PROBE_RESP;
 
-	if (ies && !scan_parse_bss_information_elements(bss, ies, ies_len))
-		goto fail;
+	/* Set data rate to something low, just in case estimation fails */
+	bss->data_rate = 2000000;
+
+	if (ies) {
+		if (!scan_parse_bss_information_elements(bss, ies, ies_len))
+			goto fail;
+
+		L_WARN_ON(wiphy_estimate_data_rate(wiphy, ies, ies_len, bss,
+						&bss->data_rate) < 0);
+	}
 
 	return bss;
 
@@ -1280,85 +1267,43 @@ static struct scan_freq_set *scan_parse_attr_scan_frequencies(
 }
 
 static struct scan_bss *scan_parse_result(struct l_genl_msg *msg,
-						uint64_t *out_wdev,
+						struct wiphy *wiphy,
 						uint32_t *out_seen_ms_ago)
 {
 	struct l_genl_attr attr, nested;
-	uint16_t type, len;
-	const void *data;
-	const uint64_t *wdev = NULL;
+	uint16_t type;
 	struct scan_bss *bss = NULL;
 
 	if (!l_genl_attr_init(&attr, msg))
 		return NULL;
 
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+	while (l_genl_attr_next(&attr, &type, NULL, NULL)) {
 		switch (type) {
-		case NL80211_ATTR_WDEV:
-			if (len != sizeof(uint64_t))
-				return NULL;
-
-			wdev = data;
-			break;
-
 		case NL80211_ATTR_BSS:
 			if (!l_genl_attr_recurse(&attr, &nested))
 				return NULL;
 
-			bss = scan_parse_attr_bss(&nested, out_seen_ms_ago);
+			bss = scan_parse_attr_bss(&nested, wiphy,
+							out_seen_ms_ago);
 			break;
 		}
 	}
-
-	if (!bss)
-		return NULL;
-
-	if (!wdev) {
-		scan_bss_free(bss);
-		return NULL;
-	}
-
-	if (out_wdev)
-		*out_wdev = *wdev;
 
 	return bss;
 }
 
 static void scan_bss_compute_rank(struct scan_bss *bss)
 {
-	static const double RANK_RSNE_FACTOR = 1.2;
-	static const double RANK_WPA_FACTOR = 1.0;
-	static const double RANK_OPEN_FACTOR = 0.5;
-	static const double RANK_NO_PRIVACY_FACTOR = 0.5;
 	static const double RANK_HIGH_UTILIZATION_FACTOR = 0.8;
 	static const double RANK_LOW_UTILIZATION_FACTOR = 1.2;
-	static const double RANK_MIN_SUPPORTED_RATE_FACTOR = 0.6;
-	static const double RANK_MAX_SUPPORTED_RATE_FACTOR = 1.3;
 	double rank;
 	uint32_t irank;
-
 	/*
-	 * Signal strength is in mBm (100 * dBm) and is negative.
-	 * WiFi range is -0 to -100 dBm
+	 * Maximum rate is 2340Mbps (VHT)
 	 */
+	double max_rate = 2340000000;
 
-	/* Heavily slanted towards signal strength */
-	rank = 10000 + bss->signal_strength;
-
-	/*
-	 * Prefer RSNE first, WPA second.  Open networks are much less
-	 * desirable.
-	 */
-	if (bss->rsne)
-		rank *= RANK_RSNE_FACTOR;
-	else if (bss->wpa)
-		rank *= RANK_WPA_FACTOR;
-	else
-		rank *= RANK_OPEN_FACTOR;
-
-	/* We prefer networks with CAP PRIVACY */
-	if (!(bss->capability & IE_BSS_CAP_PRIVACY))
-		rank *= RANK_NO_PRIVACY_FACTOR;
+	rank = (double)bss->data_rate / max_rate * USHRT_MAX;
 
 	/* Prefer 5G networks over 2.4G */
 	if (bss->frequency > 4000)
@@ -1369,29 +1314,6 @@ static void scan_bss_compute_rank(struct scan_bss *bss)
 		rank *= RANK_HIGH_UTILIZATION_FACTOR;
 	else if (bss->utilization <= 63)
 		rank *= RANK_LOW_UTILIZATION_FACTOR;
-
-	if (bss->has_sup_rates || bss->ext_supp_rates_ie) {
-		uint64_t data_rate;
-
-		if (ie_parse_data_rates(bss->has_sup_rates ?
-					bss->supp_rates_ie : NULL,
-					bss->ext_supp_rates_ie,
-					bss->ht_capable ? bss->ht_ie : NULL,
-					bss->vht_capable ? bss->vht_ie : NULL,
-					bss->signal_strength / 100,
-					&data_rate) == 0) {
-			double factor = RANK_MAX_SUPPORTED_RATE_FACTOR -
-					RANK_MIN_SUPPORTED_RATE_FACTOR;
-
-			/*
-			 * Maximum rate is 2340Mbps (VHT)
-			 */
-			factor = factor * data_rate / 2340000000U +
-						RANK_MIN_SUPPORTED_RATE_FACTOR;
-			rank *= factor;
-		} else
-			rank *= RANK_MIN_SUPPORTED_RATE_FACTOR;
-	}
 
 	irank = rank;
 
@@ -1419,7 +1341,6 @@ struct scan_bss *scan_bss_new_from_probe_req(const struct mmpdu_header *mpdu,
 	if (!scan_parse_bss_information_elements(bss, body, body_len))
 		goto fail;
 
-	scan_bss_compute_rank(bss);
 	return bss;
 
 fail:
@@ -1429,7 +1350,6 @@ fail:
 
 void scan_bss_free(struct scan_bss *bss)
 {
-	l_free(bss->ext_supp_rates_ie);
 	l_free(bss->rsne);
 	l_free(bss->wpa);
 	l_free(bss->wsc);
@@ -1517,15 +1437,18 @@ static void get_scan_callback(struct l_genl_msg *msg, void *user_data)
 
 	l_debug("get_scan_callback");
 
-	bss = scan_parse_result(msg, &wdev_id, &seen_ms_ago);
-	if (!bss)
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_WDEV, &wdev_id,
+					NL80211_ATTR_UNSPEC) < 0)
 		return;
 
 	if (wdev_id != sc->wdev_id) {
 		l_warn("wdev mismatch in get_scan_callback");
-		scan_bss_free(bss);
 		return;
 	}
+
+	bss = scan_parse_result(msg, sc->wiphy, &seen_ms_ago);
+	if (!bss)
+		return;
 
 	if (!bss->time_stamp)
 		bss->time_stamp = results->time_stamp -

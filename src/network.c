@@ -172,6 +172,8 @@ void network_connected(struct network *network)
 void network_disconnected(struct network *network)
 {
 	network_settings_close(network);
+
+	l_queue_clear(network->blacklist, NULL);
 }
 
 /* First 64 entries calculated by 1 / pow(n, 0.3) for n >= 1 */
@@ -613,8 +615,6 @@ void network_connect_failed(struct network *network, bool in_handshake)
 
 	l_queue_destroy(network->secrets, eap_secret_info_free);
 	network->secrets = NULL;
-
-	l_queue_clear(network->blacklist, NULL);
 }
 
 static bool hotspot_info_matches(struct network *network,
@@ -693,6 +693,12 @@ bool network_bss_update(struct network *network, struct scan_bss *bss)
 
 	l_queue_insert(network->bss_list, bss, scan_bss_rank_compare, NULL);
 
+	/* Sync frequency for already known networks */
+	if (network->info) {
+		known_network_add_frequency(network->info, bss->frequency);
+		known_network_frequency_sync(network->info);
+	}
+
 	return true;
 }
 
@@ -761,6 +767,12 @@ bool network_has_erp_identity(struct network *network)
 		erp_cache_remove(identity);
 
 	return ret;
+}
+
+const struct l_queue_entry *network_bss_list_get_entries(
+						struct network *network)
+{
+	return l_queue_get_entries(network->bss_list);
 }
 
 struct scan_bss *network_bss_select(struct network *network,
@@ -1460,6 +1472,10 @@ int network_rank_compare(const void *a, const void *b, void *user)
 
 void network_rank_update(struct network *network, bool connected)
 {
+	static const double RANK_RSNE_FACTOR = 1.2;
+	static const double RANK_WPA_FACTOR = 1.0;
+	static const double RANK_OPEN_FACTOR = 0.5;
+	static const double RANK_NO_PRIVACY_FACTOR = 0.5;
 	/*
 	 * Theoretically there may be difference between the BSS selection
 	 * here and in network_bss_select but those should be rare cases.
@@ -1499,6 +1515,21 @@ void network_rank_update(struct network *network, bool connected)
 		network->rank = rankmod_table[n] * best_bss->rank + USHRT_MAX;
 	} else
 		network->rank = best_bss->rank;
+
+	/*
+	 * Prefer RSNE first, WPA second.  Open networks are much less
+	 * desirable.
+	 */
+	if (best_bss->rsne)
+		network->rank *= RANK_RSNE_FACTOR;
+	else if (best_bss->wpa)
+		network->rank *= RANK_WPA_FACTOR;
+	else
+		network->rank *= RANK_OPEN_FACTOR;
+
+	/* We prefer networks with CAP PRIVACY */
+	if (!(best_bss->capability & IE_BSS_CAP_PRIVACY))
+		network->rank *= RANK_NO_PRIVACY_FACTOR;
 }
 
 static void network_unset_hotspot(struct network *network, void *user_data)

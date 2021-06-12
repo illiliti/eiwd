@@ -628,6 +628,7 @@ static void wsc_check_can_connect(struct wsc_station_dbus *wsc,
 		wsc_connect(wsc);
 		return;
 	case STATION_STATE_CONNECTING:
+	case STATION_STATE_CONNECTING_AUTO:
 	case STATION_STATE_CONNECTED:
 		if (station_disconnect(wsc->station) < 0)
 			goto error;

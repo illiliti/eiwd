@@ -24,16 +24,16 @@ class Test(unittest.TestCase):
         rule1.source = self.bss_radio[1].addresses[0]
         rule1.bidirectional = True
 
-        wd = IWD()
+        # Check that iwd selects BSS 0 first
+        rule0.signal = -2000
+        rule1.signal = -6900
+
+        wd = IWD(True)
 
         psk_agent = PSKAgent("EasilyGuessedPassword")
         wd.register_psk_agent(psk_agent)
 
         device = wd.list_devices(1)[0]
-
-        # Check that iwd selects BSS 0 first
-        rule0.signal = -2000
-        rule1.signal = -2500
 
         condition = 'not obj.scanning'
         wd.wait_for_object_condition(device, condition)
@@ -62,8 +62,13 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
 
+        self.bss_hostapd[0].wait_for_event('AP-STA-CONNECTED %s' % device.address)
+
+        # list_sta actually reports any authenticated stations. Due to the
+        # nature of FT-over-DS IWD should authenticate to all stations with
+        # the same mobility domain. This means both APs should show our station.
         self.assertTrue(self.bss_hostapd[0].list_sta())
-        self.assertFalse(self.bss_hostapd[1].list_sta())
+        self.assertTrue(self.bss_hostapd[1].list_sta())
 
         wd.unregister_psk_agent(psk_agent)
 
@@ -103,16 +108,6 @@ class Test(unittest.TestCase):
         os.system('ifconfig "' + self.bss_hostapd[1].ifname + '" up')
 
         hwsim = Hwsim()
-        wd = IWD()
-        device = wd.list_devices(1)[0]
-        try:
-            device.disconnect()
-        except:
-            pass
-
-        condition = 'obj.state == DeviceState.disconnected'
-        wd.wait_for_object_condition(device, condition)
-
         for rule in list(hwsim.rules.keys()):
             del hwsim.rules[rule]
 
@@ -132,7 +127,9 @@ class Test(unittest.TestCase):
                 '" down hw ether 12:00:00:00:00:02 up')
 
         cls.bss_hostapd[0].reload()
+        cls.bss_hostapd[0].wait_for_event("AP-ENABLED")
         cls.bss_hostapd[1].reload()
+        cls.bss_hostapd[1].wait_for_event("AP-ENABLED")
 
         # Fill in the neighbor AP tables in both BSSes.  By default each
         # instance knows only about current BSS, even inside one hostapd

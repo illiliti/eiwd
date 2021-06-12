@@ -95,9 +95,6 @@ struct netdev_handshake_state {
 struct netdev_ft_over_ds_info {
 	struct ft_ds_info super;
 	struct netdev *netdev;
-	struct l_timeout *timeout;
-	netdev_ft_over_ds_cb_t cb;
-	void *user_data;
 
 	bool parsed : 1;
 };
@@ -169,7 +166,7 @@ struct netdev {
 	struct l_genl_msg *auth_cmd;
 	struct wiphy_radio_work_item work;
 
-	struct netdev_ft_over_ds_info *ft_ds_info;
+	struct l_queue *ft_ds_list;
 
 	bool connected : 1;
 	bool associated : 1;
@@ -687,6 +684,13 @@ static void netdev_preauth_destroy(void *data)
 	l_free(state);
 }
 
+static void netdev_ft_ds_entry_free(void *data)
+{
+	struct netdev_ft_over_ds_info *info = data;
+
+	ft_ds_info_free(&info->super);
+}
+
 static void netdev_connect_free(struct netdev *netdev)
 {
 	if (netdev->work.id)
@@ -754,8 +758,10 @@ static void netdev_connect_free(struct netdev *netdev)
 		netdev->disconnect_cmd_id = 0;
 	}
 
-	if (netdev->ft_ds_info)
-		ft_ds_info_free(&netdev->ft_ds_info->super);
+	if (netdev->ft_ds_list) {
+		l_queue_destroy(netdev->ft_ds_list, netdev_ft_ds_entry_free);
+		netdev->ft_ds_list = NULL;
+	}
 }
 
 static void netdev_connect_failed(struct netdev *netdev,
@@ -771,10 +777,15 @@ static void netdev_connect_failed(struct netdev *netdev,
 
 	if (connect_cb)
 		connect_cb(netdev, result, &status_or_reason, connect_data);
-	else if (event_filter)
+	else if (event_filter) {
+		/* NETDEV_EVENT_DISCONNECT_BY_SME expects a reason code */
+		if (result != NETDEV_RESULT_HANDSHAKE_FAILED)
+			status_or_reason = MMPDU_REASON_CODE_UNSPECIFIED;
+
 		event_filter(netdev, NETDEV_EVENT_DISCONNECT_BY_SME,
 				&status_or_reason,
 				connect_data);
+	}
 }
 
 static void netdev_disconnect_cb(struct l_genl_msg *msg, void *user_data)
@@ -791,6 +802,12 @@ static void netdev_free(void *data)
 
 	l_debug("Freeing netdev %s[%d]", netdev->name, netdev->index);
 
+	netdev->ifi_flags &= ~IFF_UP;
+
+	if (netdev->events_ready)
+		WATCHLIST_NOTIFY(&netdev_watches, netdev_watch_func_t,
+					netdev, NETDEV_WATCH_EVENT_DEL);
+
 	if (netdev->neighbor_report_cb) {
 		netdev->neighbor_report_cb(netdev, -ENODEV, NULL, 0,
 						netdev->user_data);
@@ -798,9 +815,10 @@ static void netdev_free(void *data)
 		l_timeout_remove(netdev->neighbor_report_timeout);
 	}
 
-	if (netdev->connected)
+	if (netdev->connected || netdev->connect_cmd_id || netdev->work.id)
 		netdev_connect_free(netdev);
-	else if (netdev->disconnect_cmd_id) {
+
+	if (netdev->disconnect_cmd_id) {
 		l_genl_family_cancel(nl80211, netdev->disconnect_cmd_id);
 		netdev->disconnect_cmd_id = 0;
 
@@ -809,6 +827,11 @@ static void netdev_free(void *data)
 
 		netdev->disconnect_cb = NULL;
 		netdev->user_data = NULL;
+	}
+
+	if (netdev->disconnect_idle) {
+		l_idle_remove(netdev->disconnect_idle);
+		netdev->disconnect_idle = NULL;
 	}
 
 	if (netdev->join_adhoc_cmd_id) {
@@ -849,14 +872,10 @@ static void netdev_free(void *data)
 	if (netdev->fw_roam_bss)
 		scan_bss_free(netdev->fw_roam_bss);
 
-	if (netdev->disconnect_idle) {
-		l_idle_remove(netdev->disconnect_idle);
-		netdev->disconnect_idle = NULL;
+	if (netdev->ft_ds_list) {
+		l_queue_destroy(netdev->ft_ds_list, netdev_ft_ds_entry_free);
+		netdev->ft_ds_list = NULL;
 	}
-
-	if (netdev->events_ready)
-		WATCHLIST_NOTIFY(&netdev_watches, netdev_watch_func_t,
-					netdev, NETDEV_WATCH_EVENT_DEL);
 
 	scan_wdev_remove(netdev->wdev_id);
 
@@ -891,6 +910,7 @@ struct netdev *netdev_find(int ifindex)
 
 /* Threshold RSSI for roaming to trigger, configurable in main.conf */
 static int LOW_SIGNAL_THRESHOLD;
+static int LOW_SIGNAL_THRESHOLD_5GHZ;
 
 static void netdev_cqm_event_rssi_threshold(struct netdev *netdev,
 						uint32_t rssi_event)
@@ -925,6 +945,8 @@ static void netdev_cqm_event_rssi_value(struct netdev *netdev, int rssi_val)
 {
 	bool new_rssi_low;
 	uint8_t prev_rssi_level_idx = netdev->cur_rssi_level_idx;
+	int threshold = netdev->frequency > 4000 ? LOW_SIGNAL_THRESHOLD_5GHZ :
+						LOW_SIGNAL_THRESHOLD;
 
 	if (!netdev->connected)
 		return;
@@ -939,7 +961,7 @@ static void netdev_cqm_event_rssi_value(struct netdev *netdev, int rssi_val)
 	if (!netdev->event_filter)
 		return;
 
-	new_rssi_low = rssi_val < LOW_SIGNAL_THRESHOLD;
+	new_rssi_low = rssi_val < threshold;
 	if (netdev->cur_rssi_low != new_rssi_low) {
 		int event = new_rssi_low ?
 			NETDEV_EVENT_RSSI_THRESHOLD_LOW :
@@ -1281,6 +1303,11 @@ static void netdev_connect_ok(struct netdev *netdev)
 			scan_bss_free(netdev->fw_roam_bss);
 
 		netdev->fw_roam_bss = NULL;
+	}
+
+	if (netdev->ft_ds_list) {
+		l_queue_destroy(netdev->ft_ds_list, netdev_ft_ds_entry_free);
+		netdev->ft_ds_list = NULL;
 	}
 
 	if (netdev->connect_cb) {
@@ -3268,6 +3295,9 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 	struct eapol_sm *sm = NULL;
 	bool is_rsn = hs->supplicant_ie != NULL;
 
+	if (!(netdev->ifi_flags & IFF_UP))
+		return -ENETDOWN;
+
 	if (netdev->type != NL80211_IFTYPE_STATION &&
 			netdev->type != NL80211_IFTYPE_P2P_CLIENT)
 		return -ENOTSUP;
@@ -3341,6 +3371,9 @@ int netdev_disconnect(struct netdev *netdev,
 {
 	struct l_genl_msg *disconnect;
 	bool send_disconnect = true;
+
+	if (!(netdev->ifi_flags & IFF_UP))
+		return -ENETDOWN;
 
 	if (netdev->type != NL80211_IFTYPE_STATION &&
 			netdev->type != NL80211_IFTYPE_P2P_CLIENT)
@@ -3438,12 +3471,6 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 					event_filter, cb, user_data);
 	if (err < 0)
 		return err;
-
-	/* In case of a previous failed over-DS attempt */
-	if (netdev->ft_ds_info) {
-		ft_ds_info_free(&netdev->ft_ds_info->super);
-		netdev->ft_ds_info = NULL;
-	}
 
 	memcpy(netdev->prev_bssid, orig_bss->addr, ETH_ALEN);
 
@@ -3673,12 +3700,6 @@ static int netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
 		return -EIO;
 	}
 
-	/* No need to keep this around at this point */
-	if (netdev->ft_ds_info) {
-		ft_ds_info_free(&netdev->ft_ds_info->super);
-		netdev->ft_ds_info = NULL;
-	}
-
 	return 0;
 }
 
@@ -3750,12 +3771,26 @@ static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)
 static void netdev_ft_over_ds_auth_failed(struct netdev_ft_over_ds_info *info,
 						uint16_t status)
 {
-	if (info->cb)
-		info->cb(info->netdev, status, info->super.aa, info->user_data);
-
+	l_queue_remove(info->netdev->ft_ds_list, info);
 	ft_ds_info_free(&info->super);
+}
 
-	info->netdev->ft_ds_info = NULL;
+struct ft_ds_finder {
+	const uint8_t *spa;
+	const uint8_t *aa;
+};
+
+static bool match_ft_ds_info(const void *a, const void *b)
+{
+	const struct netdev_ft_over_ds_info *info = a;
+	const struct ft_ds_finder *finder = b;
+
+	if (memcmp(info->super.spa, finder->spa, 6))
+		return false;
+	if (memcmp(info->super.aa, finder->aa, 6))
+		return false;
+
+	return true;
 }
 
 static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
@@ -3763,36 +3798,45 @@ static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
 					int rssi, void *user_data)
 {
 	struct netdev *netdev = user_data;
-	struct netdev_ft_over_ds_info *info = netdev->ft_ds_info;
+	struct netdev_ft_over_ds_info *info;
 	int ret;
 	uint16_t status_code = MMPDU_STATUS_CODE_UNSPECIFIED;
+	const uint8_t *aa;
+	const uint8_t *spa;
+	const uint8_t *ies;
+	size_t ies_len;
+	struct ft_ds_finder finder;
 
-	if (!info)
-		return;
-
-	ret = ft_over_ds_parse_action_response(&info->super, netdev->handshake,
-						body, body_len);
+	ret = ft_over_ds_parse_action_response(body, body_len, &spa, &aa,
+						&ies, &ies_len);
 	if (ret < 0)
 		return;
 
-	l_timeout_remove(info->timeout);
-	info->timeout = NULL;
+	finder.spa = spa;
+	finder.aa = aa;
 
-	/* Now make sure the packet contained a success status code */
+	info = l_queue_find(netdev->ft_ds_list, match_ft_ds_info, &finder);
+	if (!info)
+		return;
+
+	/* Lookup successful, now check the status code */
 	if (ret > 0) {
 		status_code = (uint16_t)ret;
 		goto ft_error;
 	}
 
-	info->parsed = true;
+	ret = ft_over_ds_parse_action_ies(&info->super, netdev->handshake,
+						ies, ies_len);
+	if (ret < 0)
+		goto ft_error;
 
-	if (info->cb)
-		info->cb(netdev, 0, info->super.aa, info->user_data);
+	info->parsed = true;
 
 	return;
 
 ft_error:
-	l_debug("FT-over-DS to "MAC" failed", MAC_STR(info->super.aa));
+	l_debug("FT-over-DS to "MAC" failed (%d)", MAC_STR(info->super.aa),
+			status_code);
 
 	netdev_ft_over_ds_auth_failed(info, status_code);
 }
@@ -3870,10 +3914,8 @@ int netdev_fast_transition_over_ds(struct netdev *netdev,
 					struct scan_bss *target_bss,
 					netdev_connect_cb_t cb)
 {
-	struct netdev_ft_over_ds_info *info = netdev->ft_ds_info;
-
-	if (!info || !info->parsed)
-		return -ENOENT;
+	struct netdev_ft_over_ds_info *info;
+	struct ft_ds_finder finder;
 
 	if (!netdev->operational)
 		return -ENOTCONN;
@@ -3882,6 +3924,14 @@ int netdev_fast_transition_over_ds(struct netdev *netdev,
 			l_get_le16(netdev->handshake->mde + 2) !=
 			l_get_le16(target_bss->mde))
 		return -EINVAL;
+
+	finder.spa = netdev->addr;
+	finder.aa = target_bss->addr;
+
+	info = l_queue_find(netdev->ft_ds_list, match_ft_ds_info, &finder);
+
+	if (!info || !info->parsed)
+		return -ENOENT;
 
 	prepare_ft(netdev, target_bss);
 
@@ -3910,34 +3960,16 @@ static void netdev_ft_request_cb(struct l_genl_msg *msg, void *user_data)
 	}
 }
 
-static void netdev_ft_over_ds_timeout(struct l_timeout *timeout,
-					void *user_data)
-{
-	struct netdev_ft_over_ds_info *info = user_data;
-
-	l_timeout_remove(info->timeout);
-	info->timeout = NULL;
-
-	l_debug("");
-
-	netdev_ft_over_ds_auth_failed(info, MMPDU_STATUS_CODE_UNSPECIFIED);
-}
-
 static void netdev_ft_ds_info_free(struct ft_ds_info *ft)
 {
 	struct netdev_ft_over_ds_info *info = l_container_of(ft,
 					struct netdev_ft_over_ds_info, super);
 
-	if (info->timeout)
-		l_timeout_remove(info->timeout);
-
 	l_free(info);
 }
 
 int netdev_fast_transition_over_ds_action(struct netdev *netdev,
-					const struct scan_bss *target_bss,
-					netdev_ft_over_ds_cb_t cb,
-					void *user_data)
+					const struct scan_bss *target_bss)
 {
 	struct netdev_ft_over_ds_info *info;
 	uint8_t ft_req[14];
@@ -3945,10 +3977,6 @@ int netdev_fast_transition_over_ds_action(struct netdev *netdev,
 	struct iovec iovs[5];
 	uint8_t buf[512];
 	size_t len;
-
-	/* TODO: Just allow single outstanding action frame for now */
-	if (netdev->ft_ds_info)
-		return -EALREADY;
 
 	if (!netdev->operational)
 		return -ENOTCONN;
@@ -3969,9 +3997,6 @@ int netdev_fast_transition_over_ds_action(struct netdev *netdev,
 	l_getrandom(info->super.snonce, 32);
 	info->super.free = netdev_ft_ds_info_free;
 
-	info->cb = cb;
-	info->user_data = user_data;
-
 	ft_req[0] = 6; /* FT category */
 	ft_req[1] = 1; /* FT Request action */
 	memcpy(ft_req + 2, netdev->addr, 6);
@@ -3988,10 +4013,10 @@ int netdev_fast_transition_over_ds_action(struct netdev *netdev,
 
 	iovs[2].iov_base = NULL;
 
-	netdev->ft_ds_info = info;
+	if (!netdev->ft_ds_list)
+		netdev->ft_ds_list = l_queue_new();
 
-	info->timeout = l_timeout_create_ms(300, netdev_ft_over_ds_timeout,
-						info, NULL);
+	l_queue_push_head(netdev->ft_ds_list, info);
 
 	netdev_send_action_framev(netdev, netdev->handshake->aa, iovs, 2,
 					netdev->frequency,
@@ -4520,6 +4545,42 @@ failed:
 
 }
 
+static void netdev_channel_switch_event(struct l_genl_msg *msg,
+					struct netdev *netdev)
+{
+	struct l_genl_attr attr;
+	uint16_t type, len;
+	const void *data;
+	uint32_t *freq = NULL;
+
+	l_debug("");
+
+	if (!l_genl_attr_init(&attr, msg))
+		return;
+
+	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+		switch (type) {
+		case NL80211_ATTR_WIPHY_FREQ:
+			if (len != 4)
+				continue;
+
+			freq = (uint32_t *) data;
+			break;
+		}
+	}
+
+	if (!freq)
+		return;
+
+	l_debug("Channel switch event, frequency: %u", *freq);
+
+	if (!netdev->event_filter)
+		return;
+
+	netdev->event_filter(netdev, NETDEV_EVENT_CHANNEL_SWITCHED, freq,
+				netdev->user_data);
+}
+
 static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = NULL;
@@ -4544,6 +4605,9 @@ static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
 		break;
 	case NL80211_CMD_ROAM:
 		netdev_roam_event(msg, netdev);
+		break;
+	case NL80211_CMD_CH_SWITCH_NOTIFY:
+		netdev_channel_switch_event(msg, netdev);
 		break;
 	case NL80211_CMD_CONNECT:
 		netdev_connect_event(msg, netdev);
@@ -4806,9 +4870,11 @@ static struct l_genl_msg *netdev_build_cmd_cqm_rssi_update(
 	uint32_t hyst = 5;
 	int thold_count;
 	int32_t thold_list[levels_num + 2];
+	int threshold = netdev->frequency > 4000 ? LOW_SIGNAL_THRESHOLD_5GHZ :
+						LOW_SIGNAL_THRESHOLD;
 
 	if (levels_num == 0) {
-		thold_list[0] = LOW_SIGNAL_THRESHOLD;
+		thold_list[0] = threshold;
 		thold_count = 1;
 	} else {
 		/*
@@ -4827,13 +4893,12 @@ static struct l_genl_msg *netdev_build_cmd_cqm_rssi_update(
 			if (i && thold_list[thold_count - 1] >= val)
 				return NULL;
 
-			if (val >= LOW_SIGNAL_THRESHOLD && !low_sig_added) {
-				thold_list[thold_count++] =
-					LOW_SIGNAL_THRESHOLD;
+			if (val >= threshold && !low_sig_added) {
+				thold_list[thold_count++] = threshold;
 				low_sig_added = true;
 
 				/* Duplicate values are not allowed */
-				if (val == LOW_SIGNAL_THRESHOLD)
+				if (val == threshold)
 					continue;
 			}
 
@@ -5833,6 +5898,10 @@ static int netdev_init(void)
 					&LOW_SIGNAL_THRESHOLD))
 		LOW_SIGNAL_THRESHOLD = -70;
 
+	if (!l_settings_get_int(settings, "General", "RoamThreshold5G",
+					&LOW_SIGNAL_THRESHOLD_5GHZ))
+		LOW_SIGNAL_THRESHOLD_5GHZ = -76;
+
 	if (!l_settings_get_bool(settings, "General", "ControlPortOverNL80211",
 					&pae_over_nl80211))
 		pae_over_nl80211 = true;
@@ -5890,6 +5959,7 @@ static void netdev_exit(void)
 
 	watchlist_destroy(&netdev_watches);
 	l_queue_destroy(netdev_list, netdev_free);
+	netdev_list = NULL;
 
 	l_genl_family_free(nl80211);
 	nl80211 = NULL;
@@ -5910,9 +5980,6 @@ void netdev_shutdown(void)
 		netdev_free(netdev);
 		l_queue_pop_head(netdev_list);
 	}
-
-	l_queue_destroy(netdev_list, NULL);
-	netdev_list = NULL;
 }
 
 IWD_MODULE(netdev, netdev_init, netdev_exit);

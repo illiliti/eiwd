@@ -29,7 +29,7 @@ Service		unique name
 Interface	net.connman.iwd.Agent
 Object path	freely definable
 
-Methods		void Release()
+Methods		void Release() [noreply]
 
 			This method gets called when the service daemon
 			unregisters the agent. An agent can use it to do
@@ -70,7 +70,7 @@ Methods		void Release()
 
 			Possible Errors: net.connman.iwd.Agent.Error.Canceled
 
-		void Cancel(string reason)
+		void Cancel(string reason) [noreply]
 
 			This method gets called to indicate that the agent
 			request failed before a reply was returned.  The

@@ -47,9 +47,15 @@ bool ft_build_authenticate_ies(struct handshake_state *hs,
 				const uint8_t *new_snonce, uint8_t *buf,
 				size_t *len);
 
-int ft_over_ds_parse_action_response(struct ft_ds_info *info,
+int ft_over_ds_parse_action_response(const uint8_t *frame, size_t frame_len,
+					const uint8_t **spa_out,
+					const uint8_t **aa_out,
+					const uint8_t **ies_out,
+					size_t *ies_len);
+bool ft_over_ds_parse_action_ies(struct ft_ds_info *info,
 					struct handshake_state *hs,
-					const uint8_t *frame, size_t frame_len);
+					const uint8_t *ies,
+					size_t ies_len);
 
 struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
 				ft_tx_authenticate_func_t tx_auth,

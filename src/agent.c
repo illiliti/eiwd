@@ -75,24 +75,6 @@ static unsigned int agent_timeout_input_request(void)
 	return 120;
 }
 
-static void send_request(struct agent *agent, const char *request)
-{
-	struct l_dbus_message *message;
-
-	l_debug("send %s request to %s %s", request, agent->owner,
-							agent->path);
-
-	message = l_dbus_message_new_method_call(dbus_get_bus(),
-							agent->owner,
-							agent->path,
-							IWD_AGENT_INTERFACE,
-							request);
-
-	l_dbus_message_set_arguments(message, "");
-
-	l_dbus_send(dbus_get_bus(), message);
-}
-
 static void send_cancel_request(void *user_data, int reason)
 {
 	struct agent *agent = user_data;
@@ -126,6 +108,7 @@ static void send_cancel_request(void *user_data, int reason)
 							"Cancel");
 
 	l_dbus_message_set_arguments(message, "s", reasonstr);
+	l_dbus_message_set_no_reply(message, true);
 
 	l_dbus_send(dbus_get_bus(), message);
 }
@@ -656,9 +639,20 @@ static void setup_agent_interface(struct l_dbus_interface *interface)
 static bool release_agent(void *data, void *user_data)
 {
 	struct agent *agent = data;
-
 #ifdef HAVE_DBUS
-	send_request(agent, "Release");
+	struct l_dbus_message *message;
+
+	l_debug("send Release to %s %s", agent->owner, agent->path);
+
+	message = l_dbus_message_new_method_call(dbus_get_bus(),
+							agent->owner,
+							agent->path,
+							IWD_AGENT_INTERFACE,
+							"Release");
+
+	l_dbus_message_set_arguments(message, "");
+	l_dbus_message_set_no_reply(message, true);
+	l_dbus_send(dbus_get_bus(), message);
 #endif
 
 	agent_free(agent);

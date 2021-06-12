@@ -826,7 +826,7 @@ class P2PDevice(IWDDBusAbstract):
         self._peer_dict = {}
 
         for path, rssi in self._iface.GetPeers():
-            self._peer_dict[path] = old_dict[path] if path in old_dict else P2PPeer(path)
+            self._peer_dict[path] = old_dict[path] if path in old_dict else P2PPeer(path, namespace=self._namespace)
             self._peer_dict[path].rssi = rssi
 
         return self._peer_dict

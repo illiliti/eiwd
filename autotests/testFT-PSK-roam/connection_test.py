@@ -34,8 +34,6 @@ class Test(unittest.TestCase):
         wd.register_psk_agent(psk_agent)
 
         device = wd.list_devices(1)[0]
-        # prevent autoconnect
-        device.disconnect()
 
         condition = 'not obj.scanning'
         wd.wait_for_object_condition(device, condition)
@@ -124,7 +122,6 @@ class Test(unittest.TestCase):
         os.system('ifconfig "' + self.bss_hostapd[1].ifname + '" up')
 
         hwsim = Hwsim()
-
         for rule in list(hwsim.rules.keys()):
             del hwsim.rules[rule]
 
@@ -144,7 +141,9 @@ class Test(unittest.TestCase):
                 '" down hw ether 12:00:00:00:00:02 up')
 
         cls.bss_hostapd[0].reload()
+        cls.bss_hostapd[0].wait_for_event("AP-ENABLED")
         cls.bss_hostapd[1].reload()
+        cls.bss_hostapd[1].wait_for_event("AP-ENABLED")
 
         # Fill in the neighbor AP tables in both BSSes.  By default each
         # instance knows only about current BSS, even inside one hostapd

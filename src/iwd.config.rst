@@ -67,8 +67,8 @@ The group ``[General]`` contains general settings.
        obtain the dynamic addresses from the network through the built-in
        DHCP client.
 
-       This also enables DHCP server when in AP mode when either
-       [General].APRanges is set or an AP profile is being used.
+       This also enables network configuration and the DHCP server when in AP
+       mode and the AP profile being activated does not override it.
 
        The network configuration feature is disabled by default.  See
        ``[Network]`` settings for additional settings related to network
@@ -131,7 +131,14 @@ The group ``[General]`` contains general settings.
    * - RoamThreshold
      - Value: rssi dBm value, from -100 to 1, default: **-70**
 
-       This can be used to control how aggressively **iwd** roams.
+       This value can be used to control how aggressively **iwd** roams when
+       connected to a 2.4Ghz access point.
+
+   * - RoamThreshold5G
+     - Value: rssi dBm value, from -100 to 1, default: **-76**
+
+       This value can be used to control how aggressively **iwd** roams when
+       connected to a 5GHz access point.
 
    * - RoamRetryInterval
      - Value: unsigned int value in seconds (default: **60**)
@@ -175,7 +182,7 @@ The group ``[General]`` contains general settings.
        then setting ``DisableANQP`` to ``false`` is recommended.
 
 Network
----------
+-------
 
 The group ``[Network]`` contains network configuration related settings.
 
@@ -311,6 +318,29 @@ No modification from defaults is normally required.
        from trying to scan when roaming decisions are activated.  This can
        prevent **iwd** from roaming properly, but can be useful for networks
        operating under extremely low rssi levels where roaming isn't possible.
+
+IPv4
+----
+
+The group ``[IPv4]`` contains settings related to IPv4 network configuration.
+
+.. list-table::
+   :header-rows: 0
+   :stub-columns: 0
+   :widths: 20 80
+   :align: left
+
+   * - APAddressPool
+     - Values: comma-separated list of prefix-notation IP strings
+
+       Defines the space of IPs used for the Access Point-mode subnet addresses
+       and the DHCP server.  Defaults to 192.168.0.0/16.  The prefix length
+       decides the size of the pool from which an address is selected but the
+       actual subnet size (netmask) is based on the AP profile being activated
+       and defaults to 28 bits.  The AP profile's ``[IPv4].Address`` setting
+       overrides the global value set here.  Setting a too small address space
+       will limit the number of access points that can be running
+       simultaneously on different interfaces.
 
 SEE ALSO
 ========

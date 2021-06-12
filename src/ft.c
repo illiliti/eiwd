@@ -452,7 +452,7 @@ static bool mde_equal(const uint8_t *mde1, const uint8_t *mde2)
 	return memcmp(mde1, mde1, mde1[1] + 2) == 0;
 }
 
-static bool ft_over_ds_process_ies(struct ft_ds_info *info,
+bool ft_over_ds_parse_action_ies(struct ft_ds_info *info,
 					struct handshake_state *hs,
 					const uint8_t *ies,
 					size_t ies_len)
@@ -523,11 +523,15 @@ ft_error:
 	return -EBADMSG;
 }
 
-int ft_over_ds_parse_action_response(struct ft_ds_info *info,
-					struct handshake_state *hs,
-					const uint8_t *frame, size_t frame_len)
+int ft_over_ds_parse_action_response(const uint8_t *frame, size_t frame_len,
+					const uint8_t **spa_out,
+					const uint8_t **aa_out,
+					const uint8_t **ies_out,
+					size_t *ies_len)
 {
 	uint16_t status;
+	const uint8_t *aa;
+	const uint8_t *spa;
 
 	if (frame_len < 16)
 		return -EINVAL;
@@ -540,17 +544,23 @@ int ft_over_ds_parse_action_response(struct ft_ds_info *info,
 	if (frame[1] != 2)
 		return -EINVAL;
 
-	if (memcmp(frame + 2, info->spa, 6))
-		return -ENOENT;
-	if (memcmp(frame + 8, info->aa, 6))
-		return -ENOENT;
+	spa = frame + 2;
+	aa = frame + 8;
 
 	status = l_get_le16(frame + 14);
 	if (status != 0)
 		return (int)status;
 
-	if (!ft_over_ds_process_ies(info, hs, frame + 16, frame_len - 16))
-		return -EBADMSG;
+	if (spa_out)
+		*spa_out = spa;
+
+	if (aa_out)
+		*aa_out = aa;
+
+	if (ies_out && ies_len) {
+		*ies_out = frame + 16;
+		*ies_len = frame_len - 16;
+	}
 
 	return 0;
 }

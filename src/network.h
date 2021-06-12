@@ -81,3 +81,6 @@ const struct iovec *network_get_extra_ies(struct network *network,
 						size_t *num_elems);
 
 bool network_has_erp_identity(struct network *network);
+
+const struct l_queue_entry *network_bss_list_get_entries(
+						struct network *network);

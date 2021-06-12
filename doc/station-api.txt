@@ -171,7 +171,7 @@ Service		unique name
 Interface	net.connman.iwd.SignalLevelAgent
 Object path	freely definable
 
-Methods		void Release(object device)
+Methods		void Release(object device) [noreply]
 
 			This method gets called when the service daemon
 			unregisters the agent. An agent can use it to do
@@ -179,7 +179,7 @@ Methods		void Release(object device)
 			agent, because when this method gets called it has
 			already been unregistered.
 
-		string Changed(object device, uint8 level)
+		void Changed(object device, uint8 level) [noreply]
 
 			This method gets called when the signal strength
 			measurement for the device's connected network
