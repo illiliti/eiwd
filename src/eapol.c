@@ -1142,7 +1142,8 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 			goto error_unspecified;
 
 		for (i = 0; i < rsn_info.num_pmkids; i++)
-			if (!memcmp(rsn_info.pmkids + i * 16, pmkid, 16)) {
+			if (!l_secure_memcmp(rsn_info.pmkids + i * 16,
+						pmkid, 16)) {
 				found = true;
 				break;
 			}
@@ -1155,7 +1156,7 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 		if (!handshake_state_get_pmkid(sm->handshake, own_pmkid))
 			goto error_unspecified;
 
-		if (memcmp(pmkid, own_pmkid, 16)) {
+		if (l_secure_memcmp(pmkid, own_pmkid, 16)) {
 			l_debug("Authenticator sent a PMKID that didn't match");
 
 			/*
