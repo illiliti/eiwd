@@ -1004,6 +1004,8 @@ bool netconfig_configure(struct netconfig *netconfig,
 				netconfig_notify_func_t notify, void *user_data)
 {
 	char *mdns;
+	char hostname[HOST_NAME_MAX + 1];
+	bool send_hostname;
 
 	netconfig->dns4_overrides = l_settings_get_string_list(active_settings,
 							"IPv4", "DNS", ' ');
@@ -1043,6 +1045,20 @@ bool netconfig_configure(struct netconfig *netconfig,
 							mac_address, ETH_ALEN);
 	l_dhcp6_client_set_address(netconfig->dhcp6_client, ARPHRD_ETHER,
 							mac_address, ETH_ALEN);
+
+	if (!l_settings_get_bool(active_settings,
+					"IPv4", "SendHostname", &send_hostname))
+		send_hostname = false;
+
+	if (send_hostname) {
+		if (gethostname(hostname, sizeof(hostname)) == 0) {
+			l_dhcp_client_set_hostname(
+				netconfig->dhcp_client, hostname);
+		} else {
+			l_warn("netconfig: Unable to get hostname. "
+					"Error %d: %s", errno, strerror(errno));
+		}
+	}
 
 	netconfig_ipv4_select_and_install(netconfig);
 

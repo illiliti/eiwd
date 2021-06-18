@@ -322,6 +322,12 @@ network configuration with the static addresses.
        `optional`. DomainName setting can be used to override the DomainName
        value obtained from the DHCP server.
 
+   * - SendHostname
+     - Values: true, **false**
+
+       Configures DHCP to include the hostname in the request. This setting
+       is disabled by default.
+
 The group ``[IPv6]`` contains settings for Internet Protocol version 6 (IPv6)
 network configuration.
 
