@@ -1211,9 +1211,6 @@ static void station_enter_state(struct station *station,
 		periodic_scan_stop(station);
 		break;
 	case STATION_STATE_DISCONNECTING:
-		l_dbus_object_remove_interface(dbus_get_bus(),
-					netdev_get_path(station->netdev),
-					IWD_STATION_DIAGNOSTIC_INTERFACE);
 		break;
 	case STATION_STATE_ROAMING:
 		break;
@@ -1317,6 +1314,8 @@ static void station_reset_connection_state(struct station *station)
 				IWD_STATION_INTERFACE, "ConnectedNetwork");
 	l_dbus_property_changed(dbus, network_get_path(network),
 				IWD_NETWORK_INTERFACE, "Connected");
+	l_dbus_object_remove_interface(dbus, netdev_get_path(station->netdev),
+				IWD_STATION_DIAGNOSTIC_INTERFACE);
 }
 
 static void station_disassociated(struct station *station)
