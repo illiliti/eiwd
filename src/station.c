@@ -3769,6 +3769,9 @@ static struct l_dbus_message *station_get_diagnostics(struct l_dbus *dbus,
 	struct station *station = user_data;
 	int ret;
 
+	if (station->get_station_pending)
+		return dbus_error_busy(message);
+
 	ret = netdev_get_current_station(station->netdev,
 				station_get_diagnostic_cb, station,
 				station_get_diagnostic_destroy);
