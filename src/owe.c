@@ -193,8 +193,7 @@ static bool owe_compute_keys(struct owe_sm *owe, const void *public_key,
 		goto failed;
 
 	/* PMK = HKDF-expand(prk, "OWE Key Generation", n) */
-	if (!hkdf_expand(type, prk, nbytes, "OWE Key Generation",
-				strlen("OWE Key Generation"), pmk, nbytes))
+	if (!hkdf_expand(type, prk, nbytes, "OWE Key Generation", pmk, nbytes))
 		goto failed;
 
 	sha = l_checksum_new(type);

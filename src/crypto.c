@@ -610,6 +610,79 @@ bool prf_sha1(const void *key, size_t key_len,
 	return true;
 }
 
+/* PRF+ from RFC 5295 Section 3.1.2 (also RFC 4306 Section 2.13) */
+bool prf_plus(enum l_checksum_type type, const void *key, size_t key_len,
+		const char *label, void *out, size_t out_len,
+		size_t n_extra, ...)
+{
+	struct iovec iov[n_extra + 3];
+	uint8_t *t = out;
+	size_t t_len = 0;
+	uint8_t count = 1;
+	uint8_t *out_ptr = out;
+	va_list va;
+	struct l_checksum *hmac;
+	ssize_t ret;
+	size_t i;
+
+	iov[1].iov_base = (void *) label;
+	iov[1].iov_len = strlen(label);
+
+	/* Include the '\0' from the label in S if extra arguments provided */
+	if (n_extra)
+		iov[1].iov_len += 1;
+
+	va_start(va, n_extra);
+
+	for (i = 0; i < n_extra; i++) {
+		iov[i + 2].iov_base = va_arg(va, void *);
+		iov[i + 2].iov_len = va_arg(va, size_t);
+	}
+
+	va_end(va);
+
+	iov[n_extra + 2].iov_base = &count;
+	iov[n_extra + 2].iov_len = 1;
+
+	hmac = l_checksum_new_hmac(type, key, key_len);
+	if (!hmac)
+		return false;
+
+	while (out_len > 0) {
+		iov[0].iov_base = t;
+		iov[0].iov_len = t_len;
+
+		if (!l_checksum_updatev(hmac, iov, n_extra + 3)) {
+			l_checksum_free(hmac);
+			return false;
+		}
+
+		ret = l_checksum_get_digest(hmac, out_ptr, out_len);
+		if (ret < 0) {
+			l_checksum_free(hmac);
+			return false;
+		}
+
+		/*
+		 * RFC specifies that T(0) = empty string, so after the first
+		 * iteration we update the length for T(1)...T(N)
+		 */
+		t_len = ret;
+		t = out_ptr;
+		count++;
+
+		out_len -= ret;
+		out_ptr += ret;
+
+		if (out_len)
+			l_checksum_reset(hmac);
+	}
+
+	l_checksum_free(hmac);
+
+	return true;
+}
+
 bool prf_plus_sha1(const void *key, size_t key_len,
 					const void *label, size_t label_len,
 					const void *seed, size_t seed_len,
@@ -812,59 +885,9 @@ bool hkdf_extract(enum l_checksum_type type, const void *key,
 }
 
 bool hkdf_expand(enum l_checksum_type type, const uint8_t *key, size_t key_len,
-			const char *info, size_t info_len, void *out,
-			size_t out_len)
+			const char *info, void *out, size_t out_len)
 {
-	uint8_t *t = out;
-	size_t t_len = 0;
-	struct l_checksum *hmac;
-	uint8_t count = 1;
-	uint8_t *out_ptr = out;
-
-	hmac = l_checksum_new_hmac(type, key, key_len);
-	if (!hmac)
-		return false;
-
-	while (out_len > 0) {
-		ssize_t ret;
-		struct iovec iov[3];
-
-		iov[0].iov_base = t;
-		iov[0].iov_len = t_len;
-		iov[1].iov_base = (void *) info;
-		iov[1].iov_len = info_len;
-		iov[2].iov_base = &count;
-		iov[2].iov_len = 1;
-
-		if (!l_checksum_updatev(hmac, iov, 3)) {
-			l_checksum_free(hmac);
-			return false;
-		}
-
-		ret = l_checksum_get_digest(hmac, out_ptr, out_len);
-		if (ret < 0) {
-			l_checksum_free(hmac);
-			return false;
-		}
-
-		/*
-		 * RFC specifies that T(0) = empty string, so after the first
-		 * iteration we update the length for T(1)...T(N)
-		 */
-		t_len = ret;
-		t = out_ptr;
-		count++;
-
-		out_len -= ret;
-		out_ptr += ret;
-
-		if (out_len)
-			l_checksum_reset(hmac);
-	}
-
-	l_checksum_free(hmac);
-
-	return true;
+	return prf_plus(type, key, key_len, info, out, out_len, 0);
 }
 
 /*

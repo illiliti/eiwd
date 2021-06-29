@@ -278,17 +278,15 @@ static bool erp_derive_emsk_name(const uint8_t *session_id, size_t session_len,
 					char buf[static 17])
 {
 	uint8_t hex[8];
-	char info[7] = { 'E', 'M', 'S', 'K', '\0', 0x0, 0x8};
+	uint16_t eight = L_CPU_TO_BE16(8);
 	char *ascii;
 
-	if (!hkdf_expand(L_CHECKSUM_SHA256, session_id, session_len, info,
-				sizeof(info), hex, 8))
+	if (!prf_plus(L_CHECKSUM_SHA256, session_id, session_len, "EMSK",
+				hex, 8, 1, &eight, sizeof(eight)))
 		return false;
 
 	ascii = l_util_hexstring(hex, 8);
-
 	strcpy(buf, ascii);
-
 	l_free(ascii);
 
 	return true;
@@ -308,26 +306,17 @@ static bool erp_derive_emsk_name(const uint8_t *session_id, size_t session_len,
 static bool erp_derive_reauth_keys(const uint8_t *emsk, size_t emsk_len,
 					void *r_rk, void *r_ik)
 {
-	char info[256];
-	char *ptr;
+	uint16_t len = L_CPU_TO_BE16(emsk_len);
+	uint8_t cryptosuite = ERP_CRYPTOSUITE_SHA256_128;
 
-	ptr = info + l_strlcpy(info, ERP_RRK_LABEL, sizeof(info)) + 1;
-
-	l_put_be16(emsk_len, ptr);
-	ptr += 2;
-
-	if (!hkdf_expand(L_CHECKSUM_SHA256, emsk, emsk_len, (const char *)info,
-				ptr - info, r_rk, emsk_len))
+	if (!prf_plus(L_CHECKSUM_SHA256, emsk, emsk_len, ERP_RRK_LABEL,
+				r_rk, emsk_len, 1,
+				&len, sizeof(len)))
 		return false;
 
-	ptr = info + l_strlcpy(info, ERP_RIK_LABEL, sizeof(info)) + 1;
-
-	*ptr++ = ERP_CRYPTOSUITE_SHA256_128;
-	l_put_be16(emsk_len, ptr);
-	ptr += 2;
-
-	if (!hkdf_expand(L_CHECKSUM_SHA256, r_rk, emsk_len, (const char *) info,
-				ptr - info, r_ik, emsk_len))
+	if (!prf_plus(L_CHECKSUM_SHA256, r_rk, emsk_len, ERP_RIK_LABEL,
+				r_ik, emsk_len, 2
+				&cryptosuite, 1, &len, sizeof(len)))
 		return false;
 
 	return true;
@@ -411,11 +400,10 @@ int erp_rx_packet(struct erp_state *erp, const uint8_t *pkt, size_t len)
 	struct erp_tlv_iter iter;
 	enum eap_erp_cryptosuite cs;
 	uint8_t hash[16];
-	char info[256];
-	char *ptr = info;
 	const uint8_t *nai = NULL;
 	uint8_t type;
 	uint16_t seq;
+	uint16_t length;
 	bool r;
 
 	/*
@@ -503,16 +491,14 @@ int erp_rx_packet(struct erp_state *erp, const uint8_t *pkt, size_t len)
 	/*
 	 * RFC 6696 Section 4.6 - rMSK Derivation
 	 */
-	strcpy(ptr, ERP_RMSK_LABEL);
-	ptr += strlen(ERP_RMSK_LABEL);
-	*ptr++ = '\0';
-	l_put_be16(erp->seq, ptr);
-	ptr += 2;
-	l_put_be16(64, ptr);
-	ptr += 2;
+	seq = L_CPU_TO_BE16(erp->seq);
+	length = L_CPU_TO_BE16(64);
 
-	if (!hkdf_expand(L_CHECKSUM_SHA256, erp->r_rk, erp->cache->emsk_len,
-			info, ptr - info, erp->rmsk, erp->cache->emsk_len))
+	if (!prf_plus(L_CHECKSUM_SHA256, erp->r_rk, erp->cache->emsk_len,
+				ERP_RMSK_LABEL,
+				erp->rmsk, erp->cache->emsk_len, 2,
+				&seq, sizeof(seq),
+				&length, sizeof(length)))
 		goto eap_failed;
 
 	return 0;
