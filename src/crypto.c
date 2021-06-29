@@ -770,9 +770,9 @@ bool kdf_sha384(const void *key, size_t key_len,
  *
  * Null key equates to a zero key (makes calls in EAP-PWD more convenient)
  */
-bool hkdf_extract(enum l_checksum_type type, const uint8_t *key,
+bool hkdf_extract(enum l_checksum_type type, const void *key,
 				size_t key_len, uint8_t num_args,
-				uint8_t *out, ...)
+				void *out, ...)
 {
 	struct l_checksum *hmac;
 	struct iovec iov[num_args];

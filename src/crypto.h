@@ -109,8 +109,8 @@ bool prf_sha1(const void *key, size_t key_len,
 bool prf_plus_sha1(const void *key, size_t key_len,
 		const void *prefix, size_t prefix_len,
 		const void *data, size_t data_len, void *output, size_t size);
-bool hkdf_extract(enum l_checksum_type type, const uint8_t *key, size_t key_len,
-				uint8_t num_args, uint8_t *out, ...);
+bool hkdf_extract(enum l_checksum_type type, const void *key, size_t key_len,
+				uint8_t num_args, void *out, ...);
 
 bool hkdf_expand(enum l_checksum_type type, const uint8_t *key, size_t key_len,
 				const char *info, size_t info_len, void *out,
