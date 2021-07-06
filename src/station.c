@@ -704,8 +704,8 @@ static void station_handshake_event(struct handshake_state *hs,
 	case HANDSHAKE_EVENT_SETTING_KEYS:
 		l_debug("Setting keys");
 
-		/* If we got here, then our PSK works.  Save if required */
-		network_sync_psk(network);
+		/* If we got here, then our settings work.  Update if needed */
+		network_sync_settings(network);
 		break;
 	case HANDSHAKE_EVENT_FAILED:
 		netdev_handshake_failed(hs, va_arg(args, int));

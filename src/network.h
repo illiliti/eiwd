@@ -47,7 +47,7 @@ int network_get_signal_strength(const struct network *network);
 struct l_settings *network_get_settings(const struct network *network);
 
 bool network_set_psk(struct network *network, const uint8_t *psk);
-void network_sync_psk(struct network *network);
+void network_sync_settings(struct network *network);
 
 const struct network_info *network_get_info(const struct network *network);
 void network_set_info(struct network *network, struct network_info *info);

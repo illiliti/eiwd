@@ -73,7 +73,7 @@ struct network {
 	uint8_t hessid[6];
 	char **nai_realms;
 	uint8_t *rc_ie;
-	bool update_psk:1;  /* Whether PSK should be written to storage */
+	bool sync_settings:1;  /* should settings be synced on connect? */
 	bool ask_passphrase:1; /* Whether we should force-ask agent */
 	bool is_hs20:1;
 	bool anqp_pending:1;	/* Set if there is a pending ANQP request */
@@ -420,7 +420,7 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 	r = crypto_psk_from_passphrase(network->passphrase, (uint8_t *) ssid,
 					strlen(ssid), network->psk);
 	if (!r) {
-		network->update_psk = true;
+		network->sync_settings = true;
 		return 0;
 	}
 
@@ -432,15 +432,15 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 	return r;
 }
 
-void network_sync_psk(struct network *network)
+void network_sync_settings(struct network *network)
 {
 	struct l_settings *fs_settings;
 	const char *ssid = network_get_ssid(network);
 
-	if (!network->update_psk)
+	if (!network->sync_settings)
 		return;
 
-	network->update_psk = false;
+	network->sync_settings = false;
 
 	fs_settings = storage_network_open(SECURITY_PSK, ssid);
 
@@ -607,7 +607,7 @@ void network_connect_failed(struct network *network, bool in_handshake)
 	 * for the passphrase once more
 	 */
 	if (network_get_security(network) == SECURITY_PSK && in_handshake) {
-		network->update_psk = false;
+		network->sync_settings = false;
 		network->ask_passphrase = true;
 	}
 
@@ -891,7 +891,7 @@ static void passphrase_callback(enum agent_result result,
 	 * we do that, make sure the PSK works.  We write to the store only
 	 * when we are connected
 	 */
-	network->update_psk = true;
+	network->sync_settings = true;
 
 	station_connect_network(station, network, bss, message);
 	l_dbus_message_unref(message);
