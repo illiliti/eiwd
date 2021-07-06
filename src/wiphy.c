@@ -131,6 +131,24 @@ enum ie_rsn_cipher_suite wiphy_select_cipher(struct wiphy *wiphy, uint16_t mask)
 static bool wiphy_can_connect_sae(struct wiphy *wiphy)
 {
 	/*
+	 * WPA3 Specification version 3, Section 2.2:
+	 * A STA shall not enable WEP and TKIP
+	 */
+	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_CCMP)) {
+		l_debug("HW not CCMP capable, can't use SAE");
+		return false;
+	}
+
+	/*
+	 * WPA3 Specification version 3, Section 2.3:
+	 * A STA shall negotiate PMF when associating to an AP using SAE
+	 */
+	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP)) {
+		l_debug("HW not MFP capable, can't use SAE");
+		return false;
+	}
+
+	/*
 	 * SAE support in the kernel is a complete mess in that there are 3
 	 * different ways the hardware can support SAE:
 	 *
@@ -231,12 +249,6 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 		 */
 		if (ie_rsne_is_wpa3_personal(&info)) {
 			l_debug("Network is WPA3-Personal...");
-
-			if (!(wiphy->supported_ciphers &
-						IE_RSN_CIPHER_SUITE_BIP)) {
-				l_debug("HW not MFP capable, trying WPA2");
-				goto wpa2_personal;
-			}
 
 			if (!wiphy_can_connect_sae(wiphy))
 				goto wpa2_personal;
