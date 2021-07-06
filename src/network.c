@@ -104,12 +104,13 @@ static void network_reset_psk(struct network *network)
 
 static void network_reset_passphrase(struct network *network)
 {
-	if (network->passphrase)
+	if (network->passphrase) {
 		explicit_bzero(network->passphrase,
 				strlen(network->passphrase));
+		l_free(network->passphrase);
+		network->passphrase = NULL;
+	}
 
-	l_free(network->passphrase);
-	network->passphrase = NULL;
 }
 
 static void network_settings_close(struct network *network)
@@ -260,18 +261,22 @@ enum security network_get_security(const struct network *network)
 
 const uint8_t *network_get_psk(struct network *network)
 {
+	int r;
+
 	if (network->psk)
 		return network->psk;
 
 	network->psk = l_malloc(32);
 
-	if (crypto_psk_from_passphrase(network->passphrase,
+	if ((r = crypto_psk_from_passphrase(network->passphrase,
 					(unsigned char *)network->ssid,
 					strlen(network->ssid),
-					network->psk) < 0) {
+					network->psk)) < 0) {
 		l_free(network->psk);
 		network->psk = NULL;
-	}
+		l_error("PSK generation failed: %s.", strerror(-r));
+	} else
+		network->sync_settings = true;
 
 	return network->psk;
 }
@@ -281,21 +286,29 @@ const char *network_get_passphrase(const struct network *network)
 	return network->passphrase;
 }
 
+static bool __network_set_passphrase(struct network *network,
+							const char *passphrase)
+{
+	if (!passphrase || !crypto_passphrase_is_valid(passphrase))
+		return false;
+
+	network_reset_passphrase(network);
+	network->passphrase = l_strdup(passphrase);
+
+	network->sync_settings = true;
+
+	return true;
+}
+
 bool network_set_passphrase(struct network *network, const char *passphrase)
 {
 	if (network_get_security(network) != SECURITY_PSK)
 		return false;
 
-	if (!crypto_passphrase_is_valid(passphrase))
-		return false;
-
 	if (!network_settings_load(network))
 		network->settings = l_settings_new();
 
-	network_reset_passphrase(network);
-	network->passphrase = l_strdup(passphrase);
-
-	return true;
+	return __network_set_passphrase(network, passphrase);
 }
 
 struct l_queue *network_get_secrets(const struct network *network)
@@ -380,14 +393,14 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 	const char *ssid = network_get_ssid(network);
 	enum security security = network_get_security(network);
 	size_t psk_len;
-	uint8_t *psk = l_settings_get_bytes(network->settings, "Security",
+	_auto_(l_free) uint8_t *psk =
+			l_settings_get_bytes(network->settings, "Security",
 						"PreSharedKey", &psk_len);
 	_auto_(l_free) char *passphrase =
 			l_settings_get_string(network->settings,
 						"Security", "Passphrase");
 	_auto_(l_free) char *path =
 		storage_get_network_file_path(security, ssid);
-	int r;
 
 	if (psk && psk_len != 32) {
 		l_error("%s: invalid PreSharedKey format", path);
@@ -411,25 +424,9 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 	network_reset_psk(network);
 	network->passphrase = l_steal_ptr(passphrase);
 
-	if (psk) {
-		network->psk = psk;
-		return 0;
-	}
+	network->psk = l_steal_ptr(psk);
 
-	network->psk = l_malloc(32);
-	r = crypto_psk_from_passphrase(network->passphrase, (uint8_t *) ssid,
-					strlen(ssid), network->psk);
-	if (!r) {
-		network->sync_settings = true;
-		return 0;
-	}
-
-	l_error("PSK generation failed: %s", strerror(-r));
-
-	network_reset_passphrase(network);
-	network_reset_psk(network);
-
-	return r;
+	return 0;
 }
 
 void network_sync_settings(struct network *network)
@@ -831,9 +828,7 @@ static void passphrase_callback(enum agent_result result,
 {
 	struct network *network = user_data;
 	struct station *station = network->station;
-	const char *ssid = network_get_ssid(network);
 	struct scan_bss *bss;
-	int r;
 
 	l_debug("result %d", result);
 
@@ -860,38 +855,12 @@ static void passphrase_callback(enum agent_result result,
 	}
 
 	network_reset_psk(network);
-	network->psk = l_malloc(32);
-	r = crypto_psk_from_passphrase(passphrase,
-					(uint8_t *) ssid, strlen(ssid),
-					network->psk);
-	if (r) {
-		struct l_dbus_message *error;
 
-		l_free(network->psk);
-		network->psk = NULL;
-
-		if (r == -ERANGE || r == -EINVAL)
-			error = dbus_error_invalid_format(message);
-		else {
-			l_error("PSK generation failed: %s.  "
-				"Ensure Crypto Engine is properly configured",
-				strerror(-r));
-			error = dbus_error_failed(message);
-		}
-
-		dbus_pending_reply(&message, error);
+	if (!__network_set_passphrase(network, passphrase)) {
+		dbus_pending_reply(&message,
+				dbus_error_invalid_format(message));
 		goto err;
 	}
-
-	network_reset_passphrase(network);
-	network->passphrase = l_strdup(passphrase);
-
-	/*
-	 * We need to store the PSK in our permanent store.  However, before
-	 * we do that, make sure the PSK works.  We write to the store only
-	 * when we are connected
-	 */
-	network->sync_settings = true;
 
 	station_connect_network(station, network, bss, message);
 	l_dbus_message_unref(message);
