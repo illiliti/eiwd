@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "src/missing.h"
 #include "src/module.h"
 #include "src/dbus.h"
@@ -40,7 +41,6 @@
 #include "src/util.h"
 #include "src/handshake.h"
 #include "src/eap-wsc.h"
-#include "src/crypto.h"
 #include "src/common.h"
 #include "src/storage.h"
 #include "src/iwd.h"
@@ -525,21 +525,40 @@ static void wsc_store_credentials(struct wsc_credentials_info *creds,
 {
 	unsigned int i;
 
+	/* We don't store any non-open/psk credentials */
 	for (i = 0; i < n_creds; i++) {
 		enum security security = creds[i].security;
 		const char *ssid = creds[i].ssid;
-		struct l_settings *settings = l_settings_new();
+		_auto_(l_settings_free) struct l_settings *settings =
+							l_settings_new();
+		_auto_(l_free) char *path =
+				storage_get_network_file_path(security, ssid);
+
+		if (l_settings_load_from_file(settings, path)) {
+			/*
+			 * Nothing to do,
+			 * so don't overwrite any existing settings
+			 */
+			if (security == SECURITY_NONE)
+				continue;
+
+			/* Remove any existing Security keys */
+			l_settings_remove_group(settings, "Security");
+		}
+
+		if (security == SECURITY_PSK) {
+			if (creds[i].has_passphrase)
+				l_settings_set_string(settings, "Security",
+					"Passphrase", creds[i].passphrase);
+			else
+				l_settings_set_bytes(settings, "Security",
+						"PreSharedKey", creds[i].psk,
+                                                sizeof(creds[i].psk));
+		}
 
 		l_debug("Storing credential for '%s(%s)'", ssid,
 						security_to_str(security));
-
-		if (security == SECURITY_PSK)
-			l_settings_set_bytes(settings, "Security",
-						"PreSharedKey", creds[i].psk,
-                                                sizeof(creds[i].psk));
-
 		storage_network_sync(security, ssid, settings);
-		l_settings_free(settings);
 	}
 }
 
