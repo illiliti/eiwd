@@ -431,6 +431,7 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 
 void network_sync_settings(struct network *network)
 {
+	struct l_settings *settings = network->settings;
 	struct l_settings *fs_settings;
 	const char *ssid = network_get_ssid(network);
 
@@ -439,35 +440,29 @@ void network_sync_settings(struct network *network)
 
 	network->sync_settings = false;
 
+	/*
+	 * Re-open the settings from Disk, in case they were updated
+	 * since we last opened them.  We only update the [Security]
+	 * bits here
+	 */
 	fs_settings = storage_network_open(SECURITY_PSK, ssid);
+	if (fs_settings)
+		settings = fs_settings;
 
-	if (network->psk) {
-		l_settings_set_bytes(network->settings, "Security",
-						"PreSharedKey",
-						network->psk, 32);
+	l_settings_remove_group(settings, "Security");
 
-		if (fs_settings)
-			l_settings_set_bytes(fs_settings, "Security",
-						"PreSharedKey",
-						network->psk, 32);
-	}
+	if (network->psk)
+		l_settings_set_bytes(settings, "Security", "PreSharedKey",
+					network->psk, 32);
 
-	if (network->passphrase) {
-		l_settings_set_string(network->settings, "Security",
-							"Passphrase",
-							network->passphrase);
+	if (network->passphrase)
+		l_settings_set_string(settings, "Security", "Passphrase",
+					network->passphrase);
 
-		if (fs_settings)
-			l_settings_set_string(fs_settings, "Security",
-							"Passphrase",
-							network->passphrase);
-	}
+	storage_network_sync(SECURITY_PSK, ssid, settings);
 
-	if (fs_settings) {
-		storage_network_sync(SECURITY_PSK, ssid, fs_settings);
+	if (fs_settings)
 		l_settings_free(fs_settings);
-	} else
-		storage_network_sync(SECURITY_PSK, ssid, network->settings);
 }
 
 const struct network_info *network_get_info(const struct network *network)
