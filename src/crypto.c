@@ -33,6 +33,7 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "src/missing.h"
 #include "src/crypto.h"
 
@@ -1143,4 +1144,71 @@ bool crypto_derive_pmkid(const uint8_t *pmk,
 		return hmac_sha256(pmk, 32, data, 20, out_pmkid, 16);
 	else
 		return hmac_sha1(pmk, 32, data, 20, out_pmkid, 16);
+}
+
+/* 802.11-2020, Table 12-1 Hash algorithm based on length of prime */
+static enum l_checksum_type ecc_hash_from_prime_len(size_t prime_len)
+{
+	if (prime_len <= 256 / 8)
+		return L_CHECKSUM_SHA256;
+
+	if (prime_len <= 384 / 8)
+		return L_CHECKSUM_SHA384;
+
+	return L_CHECKSUM_SHA512;
+}
+
+struct l_ecc_point *crypto_derive_sae_pt_ecc(unsigned int group,
+						const char *ssid,
+						const char *password,
+						const char *identifier)
+{
+	const struct l_ecc_curve *curve = l_ecc_curve_from_ike_group(group);
+	enum l_checksum_type hash;
+	size_t hash_len;
+	uint8_t pwd_seed[64]; /* SHA512 is the biggest possible right now */
+	uint8_t pwd_value[128];
+	size_t pwd_value_len;
+	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *u1 = NULL;
+	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *u2 = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *p1 = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *p2 = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *pt = NULL;
+
+	if (!curve)
+		return NULL;
+
+	hash = ecc_hash_from_prime_len(l_ecc_curve_get_scalar_bytes(curve));
+	hash_len = l_checksum_digest_length(hash);
+
+	/* pwd-seed = HKDF-Extract(ssid, password [|| identifier]) */
+	hkdf_extract(hash, ssid, strlen(ssid), 2, pwd_seed,
+			password, strlen(password),
+			identifier, identifier ? strlen(identifier) : 0);
+
+	/* len = olen(p) + floor(olen(p)/2) */
+	pwd_value_len = l_ecc_curve_get_scalar_bytes(curve);
+	pwd_value_len += pwd_value_len / 2;
+
+	/*
+	 * pwd-value = HKDF-Expand(pwd-seed, "SAE Hash to Element u1 P1", len)
+	 */
+	hkdf_expand(hash, pwd_seed, hash_len, "SAE Hash to Element u1 P1",
+				pwd_value, pwd_value_len);
+	u1 = l_ecc_scalar_new_modp(curve, pwd_value, pwd_value_len);
+
+	/*
+	 * pwd-value = HKDF-Expand(pwd-seed, "SAE Hash to Element u2 P2", len)
+	 */
+	hkdf_expand(hash, pwd_seed, hash_len, "SAE Hash to Element u2 P2",
+				pwd_value, pwd_value_len);
+	u2 = l_ecc_scalar_new_modp(curve, pwd_value, pwd_value_len);
+
+	p1 = l_ecc_point_from_sswu(u1);
+	p2 = l_ecc_point_from_sswu(u2);
+
+	pt = l_ecc_point_new(curve);
+	l_ecc_point_add(pt, p1, p2);
+
+	return l_steal_ptr(pt);
 }

@@ -23,6 +23,8 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+struct l_ecc_point;
+
 enum crypto_cipher {
 	CRYPTO_CIPHER_WEP40 = 0x000fac01,
 	CRYPTO_CIPHER_WEP104 = 0x000fac05,
@@ -146,3 +148,8 @@ bool crypto_derive_ft_ptk(const uint8_t *pmk_r1, const uint8_t *pmk_r1_name,
 bool crypto_derive_pmkid(const uint8_t *pmk,
 				const uint8_t *addr1, const uint8_t *addr2,
 				uint8_t *out_pmkid, bool use_sha256);
+
+struct l_ecc_point *crypto_derive_sae_pt_ecc(unsigned int group,
+						const char *ssid,
+						const char *password,
+						const char *identifier);
