@@ -67,6 +67,7 @@ struct network {
 	struct network_info *info;
 	unsigned char *psk;
 	char *passphrase;
+	struct l_ecc_point *sae_pt_19; /* SAE PT for Group 19 */
 	unsigned int agent_request;
 	struct l_queue *bss_list;
 	struct l_settings *settings;
@@ -113,6 +114,10 @@ static void network_reset_passphrase(struct network *network)
 		network->passphrase = NULL;
 	}
 
+	if (network->sae_pt_19) {
+		l_ecc_point_free(network->sae_pt_19);
+		network->sae_pt_19 = NULL;
+	}
 }
 
 static void network_settings_close(struct network *network)
@@ -283,6 +288,20 @@ static const uint8_t *network_get_psk(struct network *network)
 	return network->psk;
 }
 
+static void network_generate_sae_pt_19(struct network *network)
+{
+	l_debug("Generating PT for Group 19");
+
+	network->sae_pt_19 = crypto_derive_sae_pt_ecc(19, network->ssid,
+						network->passphrase, NULL);
+	if (!network->sae_pt_19) {
+		l_warn("SAE PT generation for Group 19 failed");
+		return;
+	}
+
+	network->sync_settings = true;
+}
+
 static bool __network_set_passphrase(struct network *network,
 							const char *passphrase)
 {
@@ -292,6 +311,7 @@ static bool __network_set_passphrase(struct network *network,
 	network_reset_passphrase(network);
 	network->passphrase = l_strdup(passphrase);
 
+	network_generate_sae_pt_19(network);
 	network->sync_settings = true;
 
 	return true;
@@ -503,6 +523,10 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 	_auto_(l_free) char *passphrase =
 			l_settings_get_string(network->settings,
 						"Security", "Passphrase");
+	size_t pt19_len;
+	_auto_(l_free) uint8_t *pt19 =
+			l_settings_get_bytes(network->settings, "Security",
+						"SAE-PT-Group19", &pt19_len);
 	_auto_(l_free) char *path =
 		storage_get_network_file_path(security, ssid);
 
@@ -528,9 +552,39 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 	network_reset_psk(network);
 	network->passphrase = l_steal_ptr(passphrase);
 
+	if (pt19) {
+		const struct l_ecc_curve *curve =
+					l_ecc_curve_from_ike_group(19);
+
+		network->sae_pt_19 = l_ecc_point_from_data(curve,
+							L_ECC_POINT_TYPE_FULL,
+							pt19, pt19_len);
+		if (!network->sae_pt_19)
+			l_error("%s: invalid SAE-PT-Group19 format", path);
+	}
+
+	if (network->passphrase && !network->sae_pt_19)
+		network_generate_sae_pt_19(network);
+
 	network->psk = l_steal_ptr(psk);
 
 	return 0;
+}
+
+static void network_settings_save_sae_pt(struct l_settings *settings,
+					struct l_ecc_point *pt,
+					const char *key)
+{
+	uint8_t buf[256];
+	ssize_t len;
+
+	len = l_ecc_point_get_data(pt, buf, sizeof(buf));
+	if (len < 0) {
+		l_warn("Unable to serialize '%s'", key);
+		return;
+	}
+
+	l_settings_set_bytes(settings, "Security", key, buf, len);
 }
 
 void network_sync_settings(struct network *network)
@@ -562,6 +616,10 @@ void network_sync_settings(struct network *network)
 	if (network->passphrase)
 		l_settings_set_string(settings, "Security", "Passphrase",
 					network->passphrase);
+
+	if (network->sae_pt_19)
+		network_settings_save_sae_pt(settings, network->sae_pt_19,
+						"SAE-PT-Group19");
 
 	storage_network_sync(SECURITY_PSK, ssid, settings);
 
