@@ -835,6 +835,11 @@ static void test_pt_pwe(const void *data)
 	l_ecc_scalar_free(u1);
 	l_ecc_scalar_free(u2);
 
+	p1 = crypto_derive_sae_pt_ecc(19, ssid, password, identifier);
+	assert(p1);
+	assert(l_ecc_points_are_equal(p1, pt));
+	l_ecc_point_free(p1);
+
 	if (memcmp(mac1, mac2, 6) > 0) {
 		memcpy(sorted_macs, mac1, 6);
 		memcpy(sorted_macs + 6, mac2, 6);
