@@ -1283,7 +1283,7 @@ struct l_dbus_message *network_connect_new_hidden_network(
 
 	/*
 	 * This is not a Known Network.  If connection succeeds, either
-	 * network_sync_psk or network_connected will save this network
+	 * network_sync_settings or network_connected will save this network
 	 * as hidden and trigger an update to the hidden networks count.
 	 */
 
