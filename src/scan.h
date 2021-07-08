@@ -51,6 +51,7 @@ struct scan_bss {
 	int32_t signal_strength;
 	uint16_t capability;
 	uint8_t *rsne;
+	uint8_t *rsnxe;
 	uint8_t *wpa;
 	uint8_t *osen;
 	uint8_t *wsc;		/* Concatenated WSC IEs */

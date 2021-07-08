@@ -1004,6 +1004,11 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 				bss->rsne = l_memdup(iter.data - 2,
 								iter.len + 2);
 			break;
+		case IE_TYPE_RSNX:
+			if (!bss->rsnxe)
+				bss->rsnxe = l_memdup(iter.data - 2,
+								iter.len + 2);
+			break;
 		case IE_TYPE_BSS_LOAD:
 			if (ie_parse_bss_load(&iter, NULL, &bss->utilization,
 						NULL) < 0)
@@ -1351,6 +1356,7 @@ fail:
 void scan_bss_free(struct scan_bss *bss)
 {
 	l_free(bss->rsne);
+	l_free(bss->rsnxe);
 	l_free(bss->wpa);
 	l_free(bss->wsc);
 	l_free(bss->osen);
