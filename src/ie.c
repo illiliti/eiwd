@@ -2083,3 +2083,23 @@ int ie_build_hs20_indication(uint8_t version, uint8_t *to)
 
 	return 0;
 }
+
+bool ie_rsnxe_capable(const uint8_t *rsnxe, unsigned int bit)
+{
+	unsigned int field_len;
+
+	if (!rsnxe)
+		return false;
+
+	if (rsnxe[1] == 0)
+		return false;
+
+	field_len = bit_field(rsnxe[2], 0, 4);
+	if (field_len + 1 != rsnxe[1])
+		return false;
+
+	if ((bit / 8) > field_len)
+		return false;
+
+	return test_bit(rsnxe + 2, bit);
+}

@@ -567,3 +567,10 @@ int ie_parse_hs20_indication_from_data(const uint8_t *data, size_t len,
 					uint8_t *version, uint16_t *pps_mo_id,
 					uint8_t *domain_id);
 int ie_build_hs20_indication(uint8_t version, uint8_t *to);
+
+enum ie_rsnx_capability {
+	IE_RSNX_PROTECTED_TWT                                = 4,
+	IE_RSNX_SAE_H2E                                      = 5,
+};
+
+bool ie_rsnxe_capable(const uint8_t *rsnxe, unsigned int bit);
