@@ -57,7 +57,7 @@ static bool owe_reset(struct owe_sm *owe)
 		return false;
 
 	owe->group = owe->ecc_groups[owe->retry];
-	owe->curve = l_ecc_curve_get_ike_group(owe->group);
+	owe->curve = l_ecc_curve_from_ike_group(owe->group);
 
 	if (owe->private)
 		l_ecc_scalar_free(owe->private);
@@ -342,7 +342,7 @@ struct auth_proto *owe_sm_new(struct handshake_state *hs,
 	owe->auth_tx = auth;
 	owe->assoc_tx = assoc;
 	owe->user_data = user_data;
-	owe->ecc_groups = l_ecc_curve_get_supported_ike_groups();
+	owe->ecc_groups = l_ecc_supported_ike_groups();
 
 	owe->ap.start = owe_start;
 	owe->ap.free = owe_free;

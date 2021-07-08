@@ -848,7 +848,7 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 		sae_reset_state(sm);
 
 		sm->group = sm->ecc_groups[sm->group_retry];
-		sm->curve = l_ecc_curve_get_ike_group(sm->group);
+		sm->curve = l_ecc_curve_from_ike_group(sm->group);
 
 		sm->sync = 0;
 
@@ -862,7 +862,7 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 		if (l_get_le16(frame) == sm->group)
 			return 0;
 
-		if (!l_ecc_curve_get_ike_group(l_get_le16(frame))) {
+		if (!l_ecc_curve_from_ike_group(l_get_le16(frame))) {
 			if (sm->sync > SAE_SYNC_MAX)
 				return -EBADMSG;
 
@@ -909,7 +909,7 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 		sm->sync = 0;
 		sm->sc++;
 		sm->group = l_get_le16(frame);
-		sm->curve = l_ecc_curve_get_ike_group(sm->group);
+		sm->curve = l_ecc_curve_from_ike_group(sm->group);
 
 		sae_send_commit(sm, false);
 
@@ -1157,9 +1157,9 @@ struct auth_proto *sae_sm_new(struct handshake_state *hs,
 	sm->user_data = user_data;
 	sm->handshake = hs;
 	sm->state = SAE_STATE_NOTHING;
-	sm->ecc_groups = l_ecc_curve_get_supported_ike_groups();
+	sm->ecc_groups = l_ecc_supported_ike_groups();
 	sm->group = sm->ecc_groups[sm->group_retry];
-	sm->curve = l_ecc_curve_get_ike_group(sm->group);
+	sm->curve = l_ecc_curve_from_ike_group(sm->group);
 
 	sm->ap.start = sae_start;
 	sm->ap.free = sae_free;
