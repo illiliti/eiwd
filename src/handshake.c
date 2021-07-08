@@ -101,6 +101,8 @@ void handshake_state_free(struct handshake_state *s)
 
 	l_free(s->authenticator_ie);
 	l_free(s->supplicant_ie);
+	l_free(s->authenticator_rsnxe);
+	l_free(s->supplicant_rsnxe);
 	l_free(s->mde);
 	l_free(s->fte);
 
@@ -259,6 +261,19 @@ static void replace_ie(uint8_t **old, const uint8_t *new)
 
 	l_free(*old);
 	*old = l_memdup(new, new[1] + 2);
+}
+
+void handshake_state_set_authenticator_rsnxe(struct handshake_state *s,
+						const uint8_t *ie)
+{
+	l_free(s->authenticator_rsnxe);
+	s->authenticator_rsnxe = ie ? l_memdup(ie, ie[1] + 2) : NULL;
+}
+
+void handshake_state_set_supplicant_rsnxe(struct handshake_state *s,
+						const uint8_t *ie)
+{
+	replace_ie(&s->supplicant_rsnxe, ie);
 }
 
 void handshake_state_set_ssid(struct handshake_state *s, const uint8_t *ssid,

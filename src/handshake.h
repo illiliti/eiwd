@@ -85,6 +85,8 @@ struct handshake_state {
 	uint8_t aa[6];
 	uint8_t *authenticator_ie;
 	uint8_t *supplicant_ie;
+	uint8_t *authenticator_rsnxe;
+	uint8_t *supplicant_rsnxe;
 	uint8_t *mde;
 	uint8_t *fte;
 	enum ie_rsn_cipher_suite pairwise_cipher;
@@ -163,6 +165,10 @@ void handshake_state_set_8021x_config(struct handshake_state *s,
 bool handshake_state_set_authenticator_ie(struct handshake_state *s,
 						const uint8_t *ie);
 bool handshake_state_set_supplicant_ie(struct handshake_state *s,
+						const uint8_t *ie);
+void handshake_state_set_authenticator_rsnxe(struct handshake_state *s,
+						const uint8_t *ie);
+void handshake_state_set_supplicant_rsnxe(struct handshake_state *s,
 						const uint8_t *ie);
 void handshake_state_set_ssid(struct handshake_state *s,
 					const uint8_t *ssid, size_t ssid_len);
