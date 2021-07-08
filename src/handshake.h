@@ -104,6 +104,7 @@ struct handshake_state {
 	uint8_t fils_ft[48];
 	uint8_t fils_ft_len;
 	struct l_settings *settings_8021x;
+	struct l_ecc_point **ecc_sae_pts;
 	bool have_snonce : 1;
 	bool ptk_complete : 1;
 	bool wpa_ie : 1;
@@ -178,6 +179,8 @@ void handshake_state_set_event_func(struct handshake_state *s,
 					void *user_data);
 void handshake_state_set_passphrase(struct handshake_state *s,
 					const char *passphrase);
+bool handshake_state_add_ecc_sae_pt(struct handshake_state *s,
+					const struct l_ecc_point *pt);
 void handshake_state_set_no_rekey(struct handshake_state *s, bool no_rekey);
 
 void handshake_state_set_fils_ft(struct handshake_state *s,

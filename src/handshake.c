@@ -42,6 +42,29 @@
 #include "src/util.h"
 #include "src/handshake.h"
 
+static inline unsigned int n_ecc_groups()
+{
+	const unsigned int *groups = l_ecc_supported_ike_groups();
+	unsigned int j = 0;
+
+	while (groups[j])
+		j += 1;
+
+	return j;
+}
+
+static inline int ecc_group_index(unsigned int group)
+{
+	const unsigned int *groups = l_ecc_supported_ike_groups();
+	int j;
+
+	for (j = 0; groups[j]; j++)
+		if (groups[j] == group)
+			return j;
+
+	return -ENOENT;
+}
+
 static bool handshake_get_nonce(uint8_t nonce[])
 {
 	return l_getrandom(nonce, 32);
@@ -84,6 +107,15 @@ void handshake_state_free(struct handshake_state *s)
 	if (s->passphrase) {
 		explicit_bzero(s->passphrase, strlen(s->passphrase));
 		l_free(s->passphrase);
+	}
+
+	if (s->ecc_sae_pts) {
+		unsigned int i;
+
+		for (i = 0; i < n_ecc_groups(); i++)
+			l_ecc_point_free(s->ecc_sae_pts[i]);
+
+		l_free(s->ecc_sae_pts);
 	}
 
 	explicit_bzero(s, sizeof(*s));
@@ -919,5 +951,30 @@ bool handshake_decode_fte_key(struct handshake_state *s, const uint8_t *wrapped,
 		if (key_out[key_len++] != 0x00)
 			return false;
 
+	return true;
+}
+
+/* Add SAE-PT for ECC groups.  The group is carried by the point itself */
+bool handshake_state_add_ecc_sae_pt(struct handshake_state *s,
+						const struct l_ecc_point *pt)
+{
+	const struct l_ecc_curve *curve;
+	int i;
+
+	if (!pt)
+		return false;
+
+	curve = l_ecc_point_get_curve(pt);
+
+	if (!s->ecc_sae_pts)
+		s->ecc_sae_pts = l_new(struct l_ecc_point *, n_ecc_groups());
+
+	if ((i = ecc_group_index(l_ecc_curve_get_ike_group(curve))) < 0)
+		return false;
+
+	if (s->ecc_sae_pts[i])
+		return false;
+
+	s->ecc_sae_pts[i] = l_ecc_point_clone(pt);
 	return true;
 }
