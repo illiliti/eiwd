@@ -875,6 +875,8 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 	if (station_build_handshake_rsn(hs, wiphy, network, bss) < 0)
 		goto not_supported;
 
+	handshake_state_set_authenticator_rsnxe(hs, bss->rsnxe);
+
 	if (network_handshake_setup(network, hs) < 0)
 		goto not_supported;
 
