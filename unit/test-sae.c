@@ -754,7 +754,7 @@ static void test_pt_pwe(const void *data)
 	uint8_t val_buf[32];
 	uint8_t sorted_macs[12];
 
-	curve = l_ecc_curve_get_ike_group(19);
+	curve = l_ecc_curve_from_ike_group(19);
 	assert(curve);
 
 	hash = ecc_hash_from_prime_len(l_ecc_curve_get_scalar_bytes(curve));
