@@ -865,16 +865,8 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 							struct network *network,
 							struct scan_bss *bss)
 {
-	enum security security = network_get_security(network);
-	struct l_settings *settings = network_get_settings(network);
 	struct wiphy *wiphy = station->wiphy;
 	struct handshake_state *hs;
-	const char *ssid;
-	uint32_t eapol_proto_version;
-	const char *value;
-	bool full_random;
-	bool override = false;
-	uint8_t new_addr[ETH_ALEN];
 
 	hs = netdev_handshake_state_new(station->netdev);
 
@@ -883,45 +875,8 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 	if (station_build_handshake_rsn(hs, wiphy, network, bss) < 0)
 		goto not_supported;
 
-	ssid = network_get_ssid(network);
-	handshake_state_set_ssid(hs, (void *) ssid, strlen(ssid));
-
-	if (settings && l_settings_get_uint(settings, "EAPoL",
-						"ProtocolVersion",
-						&eapol_proto_version)) {
-		if (eapol_proto_version > 3) {
-			l_warn("Invalid ProtocolVersion value - should be 0-3");
-			eapol_proto_version = 0;
-		}
-
-		if (eapol_proto_version)
-			l_debug("Overriding EAPoL protocol version to: %u",
-					eapol_proto_version);
-
-		handshake_state_set_protocol_version(hs, eapol_proto_version);
-	}
-
-	if (security == SECURITY_PSK) {
-		/* SAE will generate/set the PMK */
-		if (IE_AKM_IS_SAE(hs->akm_suite)) {
-			const char *passphrase =
-				network_get_passphrase(network);
-
-			if (!passphrase)
-				goto no_psk;
-
-			handshake_state_set_passphrase(hs, passphrase);
-		} else {
-			const uint8_t *psk = network_get_psk(network);
-
-			if (!psk)
-				goto no_psk;
-
-			handshake_state_set_pmk(hs, psk, 32);
-		}
-	} else if (security == SECURITY_8021X)
-		handshake_state_set_8021x_config(hs,
-					network_get_settings(network));
+	if (network_handshake_setup(network, hs) < 0)
+		goto not_supported;
 
 	/*
 	 * If FILS was chosen, the ERP cache has been verified to exist. We
@@ -934,49 +889,10 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
 		hs->erp_cache = erp_cache_get(network_get_ssid(network));
 
-	/*
-	 * We have three possible options here:
-	 * 1. per-network MAC generation (default, no option in network config)
-	 * 2. per-network full MAC randomization
-	 * 3. per-network MAC override
-	 */
-
-	if (!l_settings_get_bool(settings, "Settings",
-					"AlwaysRandomizeAddress",
-					&full_random))
-		full_random = false;
-
-	value = l_settings_get_value(settings, "Settings",
-					"AddressOverride");
-	if (value) {
-		if (util_string_to_address(value, new_addr) &&
-					util_is_valid_sta_address(new_addr))
-			override = true;
-		else
-			l_warn("[Network].AddressOverride is not a valid "
-				"MAC address");
-	}
-
-	if (override && full_random) {
-		l_warn("Cannot use both AlwaysRandomizeAddress and "
-			"AddressOverride concurrently, defaulting to override");
-		full_random = false;
-	}
-
-	if (override)
-		handshake_state_set_supplicant_address(hs, new_addr);
-	else if (full_random) {
-		wiphy_generate_random_address(wiphy, new_addr);
-		handshake_state_set_supplicant_address(hs, new_addr);
-	}
-
 	return hs;
 
-no_psk:
-	l_warn("Missing network PSK/passphrase");
 not_supported:
 	handshake_state_free(hs);
-
 	return NULL;
 }
 

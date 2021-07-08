@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <alloca.h>
+#include <linux/if_ether.h>
 
 #include <ell/ell.h>
 
@@ -53,6 +54,7 @@
 #include "src/blacklist.h"
 #include "src/util.h"
 #include "src/erp.h"
+#include "src/handshake.h"
 
 static uint32_t known_networks_watch;
 static uint32_t anqp_watch;
@@ -259,7 +261,7 @@ enum security network_get_security(const struct network *network)
 	return network->security;
 }
 
-const uint8_t *network_get_psk(struct network *network)
+static const uint8_t *network_get_psk(struct network *network)
 {
 	int r;
 
@@ -279,11 +281,6 @@ const uint8_t *network_get_psk(struct network *network)
 		network->sync_settings = true;
 
 	return network->psk;
-}
-
-const char *network_get_passphrase(const struct network *network)
-{
-	return network->passphrase;
 }
 
 static bool __network_set_passphrase(struct network *network,
@@ -386,6 +383,113 @@ static bool network_set_8021x_secrets(struct network *network)
 	}
 
 	return true;
+}
+
+static int network_set_handshake_secrets_psk(struct network *network,
+						struct handshake_state *hs)
+{
+	/* SAE will generate/set the PMK */
+	if (IE_AKM_IS_SAE(hs->akm_suite)) {
+		if (!network->passphrase)
+			return -ENOKEY;
+
+		handshake_state_set_passphrase(hs, network->passphrase);
+	} else {
+		const uint8_t *psk = network_get_psk(network);
+
+		if (!psk)
+			return -ENOKEY;
+
+		handshake_state_set_pmk(hs, psk, 32);
+	}
+
+	return 0;
+}
+
+int network_handshake_setup(struct network *network,
+						struct handshake_state *hs)
+{
+	struct station *station = network->station;
+	struct wiphy *wiphy = station_get_wiphy(station);
+	struct l_settings *settings = network->settings;
+	uint32_t eapol_proto_version;
+	const char *value;
+	bool full_random;
+	bool override = false;
+	uint8_t new_addr[ETH_ALEN];
+	int r;
+
+	switch (network->security) {
+	case SECURITY_PSK:
+		r = network_set_handshake_secrets_psk(network, hs);
+		if (r < 0)
+			return r;
+
+		break;
+	case SECURITY_8021X:
+		handshake_state_set_8021x_config(hs, settings);
+		break;
+	case SECURITY_NONE:
+		break;
+	case SECURITY_WEP:
+		return -ENOTSUP;
+	}
+
+	handshake_state_set_ssid(hs, (void *) network->ssid,
+						strlen(network->ssid));
+
+	if (settings && l_settings_get_uint(settings, "EAPoL",
+						"ProtocolVersion",
+						&eapol_proto_version)) {
+		if (eapol_proto_version > 3) {
+			l_warn("Invalid ProtocolVersion value - should be 0-3");
+			eapol_proto_version = 0;
+		}
+
+		if (eapol_proto_version)
+			l_debug("Overriding EAPoL protocol version to: %u",
+					eapol_proto_version);
+
+		handshake_state_set_protocol_version(hs, eapol_proto_version);
+	}
+
+	/*
+	 * We have three possible options here:
+	 * 1. per-network MAC generation (default, no option in network config)
+	 * 2. per-network full MAC randomization
+	 * 3. per-network MAC override
+	 */
+
+	if (!l_settings_get_bool(settings, "Settings",
+					"AlwaysRandomizeAddress",
+					&full_random))
+		full_random = false;
+
+	value = l_settings_get_value(settings, "Settings",
+					"AddressOverride");
+	if (value) {
+		if (util_string_to_address(value, new_addr) &&
+					util_is_valid_sta_address(new_addr))
+			override = true;
+		else
+			l_warn("[Network].AddressOverride is not a valid "
+				"MAC address");
+	}
+
+	if (override && full_random) {
+		l_warn("Cannot use both AlwaysRandomizeAddress and "
+			"AddressOverride concurrently, defaulting to override");
+		full_random = false;
+	}
+
+	if (override)
+		handshake_state_set_supplicant_address(hs, new_addr);
+	else if (full_random) {
+		wiphy_generate_random_address(wiphy, new_addr);
+		handshake_state_set_supplicant_address(hs, new_addr);
+	}
+
+	return 0;
 }
 
 static int network_load_psk(struct network *network, bool need_passphrase)
