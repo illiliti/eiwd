@@ -1098,6 +1098,15 @@ static void eapol_ptk_1_of_4_retry(struct l_timeout *timeout, void *user_data)
 	eapol_set_key_timeout(sm, eapol_ptk_1_of_4_retry);
 }
 
+static inline size_t append_ie(uint8_t *ies, const uint8_t *ie)
+{
+	if (!ie)
+		return 0;
+
+	memcpy(ies, ie, ie[1] + 2);
+	return ie[1] + 2;
+}
+
 static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 					const struct eapol_key *ek,
 					bool unencrypted)
@@ -1105,7 +1114,7 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 	const uint8_t *kck;
 	struct eapol_key *step2;
 	uint8_t mic[MIC_MAXLEN];
-	uint8_t ies[512];
+	uint8_t ies[1024];
 	size_t ies_len;
 	const uint8_t *own_ie = sm->handshake->supplicant_ie;
 	const uint8_t *pmkid;
@@ -1210,9 +1219,6 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 			(IE_RSN_AKM_SUITE_FT_OVER_8021X |
 			 IE_RSN_AKM_SUITE_FT_USING_PSK |
 			 IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256)) {
-		const uint8_t *mde = sm->handshake->mde;
-		const uint8_t *fte = sm->handshake->fte;
-
 		/*
 		 * Rebuild the RSNE to include the PMKR1Name and append
 		 * MDE + FTE.
@@ -1223,14 +1229,10 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 		ie_build_rsne(&rsn_info, ies);
 		ies_len = ies[1] + 2;
 
-		memcpy(ies + ies_len, mde, mde[1] + 2);
-		ies_len += mde[1] + 2;
-
-		memcpy(ies + ies_len, fte, fte[1] + 2);
-		ies_len += fte[1] + 2;
+		ies_len += append_ie(ies + ies_len, sm->handshake->mde);
+		ies_len += append_ie(ies + ies_len, sm->handshake->fte);
 	} else {
-		ies_len = own_ie[1] + 2;
-		memcpy(ies, own_ie, ies_len);
+		ies_len = append_ie(ies, own_ie);
 	}
 
 	if (sm->handshake->support_ip_allocation) {
@@ -1241,6 +1243,14 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 		ies_len += 4;
 		ies[ies_len++] = 0x01;
 	}
+
+	/*
+	 * 802.11-2020, Section 12.7.6.3:
+	 * "The RSNXE that the Supplicant sent in its (Re)Association Request
+	 * frame, if this element is present in the (Re)Association Request
+	 * frame that the Supplicant sent."
+	 */
+	ies_len += append_ie(ies + ies_len, sm->handshake->supplicant_rsnxe);
 
 	step2 = eapol_create_ptk_2_of_4(sm->protocol_version,
 					ek->key_descriptor_version,
@@ -1552,6 +1562,33 @@ static bool eapol_check_ip_mask(const uint8_t *mask,
 		(uint32_t) (mask_uint << __builtin_popcountl(mask_uint)) == 0;
 }
 
+static int eapol_ie_matches(const void *ies, size_t ies_len,
+					enum ie_type type, uint8_t *target_ie)
+{
+	struct ie_tlv_iter iter;
+
+	ie_tlv_iter_init(&iter, ies, ies_len);
+
+	while (ie_tlv_iter_next(&iter)) {
+		if (ie_tlv_iter_get_tag(&iter) != type)
+			continue;
+
+		if (!target_ie)
+			return -EINVAL;
+
+		if (memcmp(ie_tlv_iter_get_data(&iter) - 2,
+						target_ie, target_ie[1] + 2))
+			return -EBADMSG;
+
+		return 0;
+	}
+
+	if (!target_ie)
+		return 0;
+
+	return -ENOENT;
+}
+
 static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 					const struct eapol_key *ek,
 					const uint8_t *decrypted_key_data,
@@ -1618,10 +1655,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 			(IE_RSN_AKM_SUITE_FT_OVER_8021X |
 			 IE_RSN_AKM_SUITE_FT_USING_PSK |
 			 IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256)) {
-		struct ie_tlv_iter iter;
 		struct ie_rsn_info ie_info;
-		const uint8_t *mde = hs->mde;
-		const uint8_t *fte = hs->fte;
 
 		if (ie_parse_rsne_from_data(rsne, rsne[1] + 2, &ie_info) < 0)
 			goto error_ie_different;
@@ -1630,26 +1664,33 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 						hs->pmk_r1_name, 16))
 			goto error_ie_different;
 
-		ie_tlv_iter_init(&iter, decrypted_key_data,
-					decrypted_key_data_size);
+		if (eapol_ie_matches(decrypted_key_data,
+					decrypted_key_data_size,
+					IE_TYPE_MOBILITY_DOMAIN,
+					hs->mde) < 0)
+			goto error_ie_different;
 
-		while (ie_tlv_iter_next(&iter))
-			switch (ie_tlv_iter_get_tag(&iter)) {
-			case IE_TYPE_MOBILITY_DOMAIN:
-				if (memcmp(ie_tlv_iter_get_data(&iter) - 2,
-						mde, mde[1] + 2))
-					goto error_ie_different;
-
-				break;
-
-			case IE_TYPE_FAST_BSS_TRANSITION:
-				if (memcmp(ie_tlv_iter_get_data(&iter) - 2,
-						fte, fte[1] + 2))
-					goto error_ie_different;
-
-				break;
-			}
+		if (eapol_ie_matches(decrypted_key_data,
+					decrypted_key_data_size,
+					IE_TYPE_FAST_BSS_TRANSITION,
+					hs->fte) < 0)
+			goto error_ie_different;
 	}
+
+	/*
+	 * 802.11-2020, Section 12.7.6.4:
+	 * "If the RSNXE is present, the Supplicant verifies that the RSNXE is
+	 * identical to that the STA received in the Beacon or Probe Response
+	 * frame."
+	 *
+	 * Verify only if RSN is used
+	 */
+	if (!hs->osen_ie && !hs->wpa_ie &&
+			eapol_ie_matches(decrypted_key_data,
+					decrypted_key_data_size,
+					IE_TYPE_RSNX,
+					hs->authenticator_rsnxe) < 0)
+		goto error_ie_different;
 
 	/*
 	 * If ptk_complete is set, then we are receiving Message 3 again.
