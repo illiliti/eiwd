@@ -628,17 +628,6 @@ static void test_end_to_end(const void *arg)
 	l_free(td2);
 }
 
-static enum l_checksum_type ecc_hash_from_prime_len(size_t prime_len)
-{
-	if (prime_len <= 256 / 8)
-		return L_CHECKSUM_SHA256;
-
-	if (prime_len <= 384 / 8)
-		return L_CHECKSUM_SHA384;
-
-	return L_CHECKSUM_SHA512;
-}
-
 static void test_pt_pwe(const void *data)
 {
 	static const char *ssid = "byteme";
@@ -757,7 +746,8 @@ static void test_pt_pwe(const void *data)
 	curve = l_ecc_curve_from_ike_group(19);
 	assert(curve);
 
-	hash = ecc_hash_from_prime_len(l_ecc_curve_get_scalar_bytes(curve));
+	hash = crypto_sae_hash_from_ecc_prime_len(CRYPTO_SAE_HASH_TO_ELEMENT,
+					l_ecc_curve_get_scalar_bytes(curve));
 	hash_len = l_checksum_digest_length(hash);
 
 	assert(hash_len == 32);
@@ -866,9 +856,15 @@ static void test_pt_pwe(const void *data)
 	assert(l_ecc_point_get_y(pwe, num, sizeof(num)) > 0);
 	assert(!memcmp(num, pwey_data, sizeof(pwey_data)));
 
-	l_ecc_point_free(pt);
 	l_ecc_scalar_free(val);
+
+	p1 = crypto_derive_sae_pwe_from_pt_ecc(mac1, mac2, pt);
+	assert(p1);
+	assert(l_ecc_points_are_equal(p1, pwe));
+	l_ecc_point_free(p1);
+
 	l_ecc_point_free(pwe);
+	l_ecc_point_free(pt);
 }
 
 int main(int argc, char *argv[])
