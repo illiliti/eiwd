@@ -497,7 +497,7 @@ bool ie_tlv_builder_set_data(struct ie_tlv_builder *builder,
 bool ie_tlv_builder_recurse(struct ie_tlv_builder *builder,
 			struct ie_tlv_builder *recurse);
 unsigned char *ie_tlv_builder_finalize(struct ie_tlv_builder *builder,
-			unsigned int *out_len);
+					size_t *out_len);
 
 uint32_t ie_rsn_cipher_suite_to_cipher(enum ie_rsn_cipher_suite suite);
 

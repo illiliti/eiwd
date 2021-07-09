@@ -393,7 +393,7 @@ bool ie_tlv_builder_recurse(struct ie_tlv_builder *builder,
 }
 
 unsigned char *ie_tlv_builder_finalize(struct ie_tlv_builder *builder,
-			unsigned int *out_len)
+					size_t *out_len)
 {
 	unsigned int len = 0;
 

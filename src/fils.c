@@ -91,7 +91,6 @@ static void fils_erp_tx_func(const uint8_t *eap_data, size_t len,
 	struct ie_tlv_builder builder;
 	uint8_t data[256];
 	uint8_t *ptr = data;
-	unsigned int tlv_len;
 	struct ie_rsn_info rsn_info;
 	uint8_t *rsne;
 
@@ -133,9 +132,9 @@ static void fils_erp_tx_func(const uint8_t *eap_data, size_t len,
 						fils->hs->mde[1]);
 	}
 
-	ie_tlv_builder_finalize(&builder, &tlv_len);
+	ie_tlv_builder_finalize(&builder, &len);
 
-	fils->auth(data, ptr - data + tlv_len, fils->user_data);
+	fils->auth(data, ptr - data + len, fils->user_data);
 }
 
 static int fils_derive_key_data(struct fils_sm *fils)
@@ -153,7 +152,7 @@ static int fils_derive_key_data(struct fils_sm *fils)
 	size_t iov_elems = 0;
 	size_t fils_ft_len = 0;
 	bool sha384;
-	unsigned int ie_len;
+	size_t ie_len;
 	uint8_t *rsne = NULL;
 
 	rmsk = erp_get_rmsk(fils->erp, &rmsk_len);
