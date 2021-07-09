@@ -153,3 +153,6 @@ struct l_ecc_point *crypto_derive_sae_pt_ecc(unsigned int group,
 						const char *ssid,
 						const char *password,
 						const char *identifier);
+struct l_ecc_point *crypto_derive_sae_pwe_from_pt_ecc(const uint8_t *mac1,
+						const uint8_t *mac2,
+						const struct l_ecc_point *pt);

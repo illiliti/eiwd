@@ -1212,3 +1212,42 @@ struct l_ecc_point *crypto_derive_sae_pt_ecc(unsigned int group,
 
 	return l_steal_ptr(pt);
 }
+
+struct l_ecc_point *crypto_derive_sae_pwe_from_pt_ecc(const uint8_t *mac1,
+						const uint8_t *mac2,
+						const struct l_ecc_point *pt)
+{
+	const struct l_ecc_curve *curve = l_ecc_point_get_curve(pt);
+	enum l_checksum_type hash;
+	size_t hash_len;
+	uint8_t sorted_macs[12];
+	uint8_t val_buf[64]; /* Max for SHA-512 */
+	struct l_ecc_scalar *val;
+	struct l_ecc_point *pwe;
+
+	if (!pt || !curve)
+		return false;
+
+	hash = ecc_hash_from_prime_len(l_ecc_curve_get_scalar_bytes(curve));
+	hash_len = l_checksum_digest_length(hash);
+
+	/*
+	 * val = H(0n, MAX(STA-A-MAC, STA-B-MAC) || MIN(STA-A-MAC, STA-B-MAC))
+	 */
+	if (memcmp(mac1, mac2, 6) > 0) {
+		memcpy(sorted_macs, mac1, 6);
+		memcpy(sorted_macs + 6, mac2, 6);
+	} else {
+		memcpy(sorted_macs, mac2, 6);
+		memcpy(sorted_macs + 6, mac1, 6);
+	}
+
+	hkdf_extract(hash, NULL, 0, 1, val_buf,
+					sorted_macs, sizeof(sorted_macs));
+	val = l_ecc_scalar_new_reduced_1_to_n(curve, val_buf, hash_len);
+	pwe = l_ecc_point_new(curve);
+	l_ecc_point_multiply(pwe, val, pt);
+	l_ecc_scalar_free(val);
+
+	return pwe;
+}
