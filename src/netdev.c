@@ -1988,6 +1988,7 @@ static void parse_request_ies(struct netdev *netdev, const uint8_t *ies,
 {
 	struct ie_tlv_iter iter;
 	const void *data;
+	const uint8_t *rsnxe = NULL;
 
 	/*
 	 * The driver may have modified the IEs we passed to CMD_CONNECT
@@ -2004,6 +2005,10 @@ static void parse_request_ies(struct netdev *netdev, const uint8_t *ies,
 			handshake_state_set_supplicant_ie(netdev->handshake,
 								data - 2);
 			break;
+		case IE_TYPE_RSNX:
+			if (!rsnxe)
+				rsnxe = data - 2;
+			break;
 		case IE_TYPE_VENDOR_SPECIFIC:
 			if (!is_ie_wpa_ie(data, ie_tlv_iter_get_length(&iter)))
 				break;
@@ -2016,6 +2021,9 @@ static void parse_request_ies(struct netdev *netdev, const uint8_t *ies,
 			break;
 		}
 	}
+
+	/* RSNXE element might be omitted when FTing */
+	handshake_state_set_supplicant_rsnxe(netdev->handshake, rsnxe);
 }
 
 static void netdev_driver_connected(struct netdev *netdev)
