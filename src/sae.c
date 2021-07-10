@@ -268,8 +268,10 @@ static uint8_t sae_is_quadradic_residue(const struct l_ecc_curve *curve,
  * IEEE 802.11-2016 Section 12.4.4.2.2
  * Generation of the password element with ECC groups
  */
-static bool sae_compute_pwe(struct sae_sm *sm, char *password,
-				const uint8_t *addr1, const uint8_t *addr2)
+static struct l_ecc_point *sae_compute_pwe(const struct l_ecc_curve *curve,
+						const char *password,
+						const uint8_t *addr1,
+						const uint8_t *addr2)
 {
 	uint8_t found = 0;
 	uint8_t is_residue;
@@ -285,10 +287,11 @@ static bool sae_compute_pwe(struct sae_sm *sm, char *password,
 	struct l_ecc_scalar *qr;
 	struct l_ecc_scalar *qnr;
 	uint8_t qnr_bin[L_ECC_SCALAR_MAX_BYTES] = {0};
+	struct l_ecc_point *pwe;
 
 	/* create qr/qnr prior to beginning hunting-and-pecking loop */
-	qr = sae_new_residue(sm->curve, true);
-	qnr = sae_new_residue(sm->curve, false);
+	qr = sae_new_residue(curve, true);
+	qnr = sae_new_residue(curve, false);
 	l_ecc_scalar_get_data(qnr, qnr_bin, sizeof(qnr_bin));
 
 	/*
@@ -326,13 +329,13 @@ static bool sae_compute_pwe(struct sae_sm *sm, char *password,
 		 * execution can continue whatever the result is, without
 		 * changing the outcome.
 		 */
-		pwd_value = sae_pwd_value(sm->curve, pwd_seed, qnr_bin);
+		pwd_value = sae_pwd_value(curve, pwd_seed, qnr_bin);
 
 		/*
 		 * Check if the candidate is a valid x-coordinate on our curve,
 		 * and convert it from scalar to binary.
 		 */
-		is_residue = sae_is_quadradic_residue(sm->curve, pwd_value,
+		is_residue = sae_is_quadradic_residue(curve, pwd_value,
 								qr, qnr);
 		l_ecc_scalar_get_data(pwd_value, x_cand, sizeof(x_cand));
 
@@ -362,16 +365,14 @@ static bool sae_compute_pwe(struct sae_sm *sm, char *password,
 
 	if (!found) {
 		l_error("max PWE iterations reached!");
-		return false;
+		return NULL;
 	}
 
-	sm->pwe = l_ecc_point_from_data(sm->curve, !is_odd + 2, x, sizeof(x));
-	if (!sm->pwe) {
+	pwe = l_ecc_point_from_data(curve, !is_odd + 2, x, sizeof(x));
+	if (!pwe)
 		l_error("computing y failed, was x quadratic residue?");
-		return false;
-	}
 
-	return true;
+	return pwe;
 }
 
 static bool sae_build_commit(struct sae_sm *sm, const uint8_t *addr1,
@@ -390,7 +391,10 @@ static bool sae_build_commit(struct sae_sm *sm, const uint8_t *addr1,
 		return false;
 	}
 
-	if (!sae_compute_pwe(sm, sm->handshake->passphrase, addr1, addr2)) {
+	sm->pwe = sae_compute_pwe(sm->curve, sm->handshake->passphrase,
+						addr1, addr2);
+
+	if (!sm->pwe) {
 		l_error("could not compute PWE");
 		return false;
 	}
