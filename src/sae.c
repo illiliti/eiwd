@@ -469,8 +469,6 @@ static void sae_send_confirm(struct sae_sm *sm)
 	memcpy(ptr, confirm, 32);
 	ptr += 32;
 
-	sm->state = SAE_STATE_CONFIRMED;
-
 	sm->tx_auth(body, 38, sm->user_data);
 }
 
@@ -584,6 +582,7 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	memcpy(sm->pmkid, tmp, 16);
 
 	sae_send_confirm(sm);
+	sm->state = SAE_STATE_CONFIRMED;
 
 	return 0;
 
@@ -654,8 +653,6 @@ static bool sae_send_commit(struct sae_sm *sm, bool retry)
 
 	if (!sae_build_commit(sm, hs->spa, hs->aa, commit, &len, retry))
 		return false;
-
-	sm->state = SAE_STATE_COMMITTED;
 
 	sm->tx_auth(commit, len, sm->user_data);
 
@@ -1062,6 +1059,7 @@ static bool sae_start(struct auth_proto *ap)
 	else
 		memcpy(sm->peer, sm->handshake->aa, 6);
 
+	sm->state = SAE_STATE_COMMITTED;
 	return sae_send_commit(sm, false);
 }
 
