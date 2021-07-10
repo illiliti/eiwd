@@ -898,6 +898,7 @@ static int sae_process_anti_clogging(struct sae_sm *sm, const uint8_t *ptr,
 		return -EBADMSG;
 	}
 
+	l_free(sm->token);
 	sm->token = l_memdup(ptr, len);
 	sm->token_len = len;
 	sm->sync = 0;
