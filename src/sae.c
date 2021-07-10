@@ -120,9 +120,6 @@ static void sae_rejected_groups_append(struct sae_sm *sm, uint16_t group)
 
 static void sae_reset_state(struct sae_sm *sm)
 {
-	l_free(sm->token);
-	sm->token = NULL;
-
 	l_ecc_scalar_free(sm->scalar);
 	sm->scalar = NULL;
 	l_ecc_scalar_free(sm->p_scalar);
@@ -1313,6 +1310,9 @@ static void sae_free(struct auth_proto *ap)
 	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
 
 	sae_reset_state(sm);
+
+	l_free(sm->token);
+	sm->token = NULL;
 
 	if (sm->rejected_groups)
 		free(sm->rejected_groups);
