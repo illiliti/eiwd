@@ -495,12 +495,6 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 		goto reject;
 	}
 
-	/* Scalar + Point + group */
-	if (len < nbytes + nbytes * 2 + 2) {
-		l_error("bad packet length");
-		goto reject;
-	}
-
 	ptr += 2;
 
 	sm->p_scalar = l_ecc_scalar_new(sm->curve, ptr, nbytes);
@@ -859,6 +853,11 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 			l_error("SAE: Peer tried to change group -- Reject");
 			return -EPROTO;
 		}
+
+		len -= 2;
+
+		if (len < l_ecc_curve_get_scalar_bytes(sm->curve) * 3)
+			return -EBADMSG;
 
 		return 0;
 	default:
