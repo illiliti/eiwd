@@ -35,6 +35,9 @@
 #include "src/sae.h"
 #include "src/auth-proto.h"
 
+/* SHA-512 is the highest supported hashing function as of 802.11-2020 */
+#define SAE_MAX_HASH_LEN 64
+
 #define SAE_RETRANSMIT_TIMEOUT	2
 #define SAE_SYNC_MAX		3
 #define SAE_MAX_ASSOC_RETRY	3
@@ -53,15 +56,15 @@ struct sae_sm {
 	enum sae_state state;
 	const struct l_ecc_curve *curve;
 	unsigned int group;
-	uint8_t group_retry;
-	const unsigned int *ecc_groups;
+	int group_retry;
+	uint16_t *rejected_groups;
 	struct l_ecc_scalar *rand;
 	struct l_ecc_scalar *scalar;
 	struct l_ecc_scalar *p_scalar;
 	struct l_ecc_point *element;
 	struct l_ecc_point *p_element;
 	uint16_t send_confirm;
-	uint8_t kck[32];
+	uint8_t kck[SAE_MAX_HASH_LEN];
 	uint8_t pmk[32];
 	uint8_t pmkid[16];
 	uint8_t *token;
@@ -79,7 +82,82 @@ struct sae_sm {
 	sae_tx_authenticate_func_t tx_auth;
 	sae_tx_associate_func_t tx_assoc;
 	void *user_data;
+	enum crypto_sae sae_type;
 };
+
+static enum mmpdu_status_code sae_status_code(struct sae_sm *sm)
+{
+	switch (sm->sae_type) {
+	case CRYPTO_SAE_LOOPING:
+		return MMPDU_STATUS_CODE_SUCCESS;
+	case CRYPTO_SAE_HASH_TO_ELEMENT:
+		return MMPDU_STATUS_CODE_SAE_HASH_TO_ELEMENT;
+	}
+
+	return MMPDU_STATUS_CODE_UNSPECIFIED;
+}
+
+static void sae_rejected_groups_append(struct sae_sm *sm, uint16_t group)
+{
+	uint16_t i;
+
+	if (!sm->rejected_groups) {
+		sm->rejected_groups = reallocarray(NULL, 2, sizeof(uint16_t));
+		sm->rejected_groups[0] = 1;
+		sm->rejected_groups[1] = group;
+		return;
+	}
+
+	for (i = 1; i <= sm->rejected_groups[0]; i++)
+		if (sm->rejected_groups[i] == group)
+			return;
+
+	sm->rejected_groups = reallocarray(sm->rejected_groups,
+						i + 1, sizeof(uint16_t));
+	sm->rejected_groups[0] += 1;
+	sm->rejected_groups[i] = group;
+}
+
+static void sae_reset_state(struct sae_sm *sm)
+{
+	l_free(sm->token);
+	sm->token = NULL;
+
+	l_ecc_scalar_free(sm->scalar);
+	sm->scalar = NULL;
+	l_ecc_scalar_free(sm->p_scalar);
+	sm->p_scalar = NULL;
+	l_ecc_scalar_free(sm->rand);
+	sm->rand = NULL;
+	l_ecc_point_free(sm->element);
+	sm->element = NULL;
+	l_ecc_point_free(sm->p_element);
+	sm->p_element = NULL;
+	l_ecc_point_free(sm->pwe);
+	sm->pwe = NULL;
+}
+
+static int sae_choose_next_group(struct sae_sm *sm)
+{
+	const unsigned int *ecc_groups = l_ecc_supported_ike_groups();
+	bool reset = sm->group_retry >= 0;
+
+	do {
+		sm->group_retry++;
+
+		if (ecc_groups[sm->group_retry] == 0)
+			return -ENOENT;
+	} while (sm->sae_type != CRYPTO_SAE_LOOPING &&
+			!sm->handshake->ecc_sae_pts[sm->group_retry]);
+
+	if (reset)
+		sae_reset_state(sm);
+
+	sm->group = ecc_groups[sm->group_retry];
+	sm->curve = l_ecc_curve_from_ike_group(sm->group);
+
+	return 0;
+}
 
 static bool sae_pwd_seed(const uint8_t *addr1, const uint8_t *addr2,
 				uint8_t *base, size_t base_len,
@@ -145,22 +223,26 @@ static struct l_ecc_scalar *sae_pwd_value(const struct l_ecc_curve *curve,
 }
 
 /* IEEE 802.11-2016 - Section 12.4.2 Assumptions on SAE */
-static bool sae_cn(const uint8_t *kck, uint16_t send_confirm,
+static ssize_t sae_cn(struct sae_sm *sm, uint16_t send_confirm,
 			struct l_ecc_scalar *scalar1,
 			struct l_ecc_point *element1,
 			struct l_ecc_scalar *scalar2,
 			struct l_ecc_point *element2,
 			uint8_t *confirm)
 {
+	enum l_checksum_type hash =
+		crypto_sae_hash_from_ecc_prime_len(sm->sae_type,
+				l_ecc_curve_get_scalar_bytes(sm->curve));
+	size_t hash_len = l_checksum_digest_length(hash);
 	uint8_t s1[L_ECC_SCALAR_MAX_BYTES];
 	uint8_t s2[L_ECC_SCALAR_MAX_BYTES];
 	uint8_t e1[L_ECC_POINT_MAX_BYTES];
 	uint8_t e2[L_ECC_POINT_MAX_BYTES];
 	struct l_checksum *hmac;
 	struct iovec iov[5];
-	int ret;
+	ssize_t ret;
 
-	hmac = l_checksum_new_hmac(L_CHECKSUM_SHA256, kck, 32);
+	hmac = l_checksum_new_hmac(hash, sm->kck, hash_len);
 	if (!hmac)
 		return false;
 
@@ -178,12 +260,10 @@ static bool sae_cn(const uint8_t *kck, uint16_t send_confirm,
 	iov[4].iov_len = l_ecc_point_get_data(element2, e2, sizeof(e2));
 
 	l_checksum_updatev(hmac, iov, 5);
-
-	ret = l_checksum_get_digest(hmac, confirm, 32);
-
+	ret = l_checksum_get_digest(hmac, confirm, hash_len);
 	l_checksum_free(hmac);
 
-	return (ret == 32);
+	return ret;
 }
 
 static int sae_reject(struct sae_sm *sm, uint16_t transaction, uint16_t status)
@@ -382,28 +462,36 @@ static struct l_ecc_point *sae_compute_pwe(const struct l_ecc_curve *curve,
 	return pwe;
 }
 
-static bool sae_build_commit(struct sae_sm *sm, const uint8_t *addr1,
+static int sae_build_commit(struct sae_sm *sm, const uint8_t *addr1,
 				const uint8_t *addr2, uint8_t *commit,
-				size_t *len, bool retry)
+				size_t len, bool retry)
 {
 	struct l_ecc_scalar *mask;
 	uint8_t *ptr = commit;
 	struct l_ecc_scalar *order;
+	struct ie_tlv_builder builder;
 
 	if (retry)
 		goto old_commit;
 
-	if (!sm->handshake->passphrase) {
-		l_error("no handshake passphrase found");
-		return false;
-	}
+	switch (sm->sae_type) {
+	case CRYPTO_SAE_HASH_TO_ELEMENT:
+	{
+		const struct l_ecc_point *pt =
+			sm->handshake->ecc_sae_pts[sm->group_retry];
 
-	sm->pwe = sae_compute_pwe(sm->curve, sm->handshake->passphrase,
+		sm->pwe = crypto_derive_sae_pwe_from_pt_ecc(addr1, addr2, pt);
+		break;
+	}
+	case CRYPTO_SAE_LOOPING:
+		sm->pwe = sae_compute_pwe(sm->curve, sm->handshake->passphrase,
 						addr1, addr2);
+		break;
+	}
 
 	if (!sm->pwe) {
 		l_error("could not compute PWE");
-		return false;
+		return -EIO;
 	}
 
 	sm->scalar = l_ecc_scalar_new(sm->curve, NULL, 0);
@@ -431,17 +519,25 @@ static bool sae_build_commit(struct sae_sm *sm, const uint8_t *addr1,
 	 */
 old_commit:
 
-	/* transaction */
+	/*
+	 * 12.4.7.4 Encoding and decoding of SAE Commit messages
+	 * Refer to Table 9-40 for order and Table 9-41 for presence
+	 * of elements
+	 */
+
+	/* "a Transaction Sequence Number of 1" */
 	l_put_le16(1, ptr);
 	ptr += 2;
-	/* status success */
-	l_put_le16(0, ptr);
+
+	/* "a Status Code of SUCCESS or SAE_HASH_TO_ELEMENT" */
+	l_put_le16(sae_status_code(sm), ptr);
 	ptr += 2;
+
 	/* group */
 	l_put_le16(sm->group, ptr);
 	ptr += 2;
 
-	if (sm->token) {
+	if (sm->sae_type == CRYPTO_SAE_LOOPING && sm->token) {
 		memcpy(ptr, sm->token, sm->token_len);
 		ptr += sm->token_len;
 	}
@@ -449,23 +545,40 @@ old_commit:
 	ptr += l_ecc_scalar_get_data(sm->scalar, ptr, L_ECC_SCALAR_MAX_BYTES);
 	ptr += l_ecc_point_get_data(sm->element, ptr, L_ECC_POINT_MAX_BYTES);
 
-	*len = ptr - commit;
+	ie_tlv_builder_init(&builder, ptr, len - (ptr - commit));
 
-	return true;
+	if (sm->sae_type != CRYPTO_SAE_LOOPING && sm->rejected_groups) {
+		ie_tlv_builder_next(&builder, IE_TYPE_REJECTED_GROUPS);
+		ie_tlv_builder_set_data(&builder, sm->rejected_groups + 1,
+				sm->rejected_groups[0] * sizeof(uint16_t));
+	}
+
+	if (sm->sae_type != CRYPTO_SAE_LOOPING && sm->token) {
+		ie_tlv_builder_next(&builder,
+					IE_TYPE_ANTI_CLOGGING_TOKEN_CONTAINER);
+		ie_tlv_builder_set_data(&builder, sm->token, sm->token_len);
+	}
+
+	ie_tlv_builder_finalize(&builder, &len);
+
+	return ptr - commit + len;
 }
 
-static void sae_send_confirm(struct sae_sm *sm)
+static bool sae_send_confirm(struct sae_sm *sm)
 {
-	uint8_t confirm[32];
-	uint8_t body[38];
+	uint8_t confirm[SAE_MAX_HASH_LEN];
+	uint8_t body[sizeof(confirm) + 6];
 	uint8_t *ptr = body;
+	ssize_t r;
 
 	/*
 	 * confirm = CN(KCK, send-confirm, commit-scalar, COMMIT-ELEMENT,
 	 *			peer-commit-scalar, PEER-COMMIT-ELEMENT)
 	 */
-	sae_cn(sm->kck, sm->sc, sm->scalar, sm->element, sm->p_scalar,
+	r = sae_cn(sm, sm->sc, sm->scalar, sm->element, sm->p_scalar,
 			sm->p_element, confirm);
+	if (r < 0)
+		return false;
 
 	l_put_le16(2, ptr);
 	ptr += 2;
@@ -473,26 +586,31 @@ static void sae_send_confirm(struct sae_sm *sm)
 	ptr += 2;
 	l_put_le16(sm->sc, ptr);
 	ptr += 2;
-	memcpy(ptr, confirm, 32);
-	ptr += 32;
+	memcpy(ptr, confirm, r);
+	ptr += r;
 
-	sm->tx_auth(body, 38, sm->user_data);
+	sm->tx_auth(body, ptr - body, sm->user_data);
+	return true;
 }
 
 static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 					const uint8_t *frame, size_t len)
 {
 	uint8_t *ptr = (uint8_t *) frame;
-	uint8_t k[L_ECC_SCALAR_MAX_BYTES];
+	unsigned int nbytes = l_ecc_curve_get_scalar_bytes(sm->curve);
+	enum l_checksum_type hash =
+		crypto_sae_hash_from_ecc_prime_len(sm->sae_type, nbytes);
+	size_t hash_len = l_checksum_digest_length(hash);
 	struct l_ecc_point *k_point;
-	uint8_t zero_key[32] = { 0 };
-	uint8_t keyseed[32];
-	uint8_t kck_and_pmk[2][32];
+	uint8_t k[L_ECC_SCALAR_MAX_BYTES];
+	ssize_t klen;
+	const void *salt = NULL;
+	size_t salt_len = 0;
+	uint8_t keyseed[SAE_MAX_HASH_LEN];
+	uint8_t kck_and_pmk[SAE_MAX_HASH_LEN + 32];
 	uint8_t tmp[L_ECC_SCALAR_MAX_BYTES];
 	struct l_ecc_scalar *tmp_scalar;
-	ssize_t klen;
 	struct l_ecc_scalar *order;
-	unsigned int nbytes = l_ecc_curve_get_scalar_bytes(sm->curve);
 
 	ptr += 2;
 
@@ -549,19 +667,46 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	 * i.e., if P = (x, y) then F(P) = x.
 	 */
 	klen = l_ecc_point_get_x(k_point, k, sizeof(k));
-
 	l_ecc_point_free(k_point);
 
 	if (klen < 0)
 		return sae_reject(sm, SAE_STATE_COMMITTED,
 				MMPDU_STATUS_CODE_UNSPECIFIED);
 
-	/* keyseed = H(<0>32, k) */
-	hmac_sha256(zero_key, 32, k, klen, keyseed, 32);
+	/*
+	 * keyseed = H(salt, k)
+	 *
+	 * 802.11-2020 12.4.5.4:
+	 * Hash to Element case:
+	 * "... a salt consisting of the concatenation of the rejected groups
+	 * from each peer's Rejected Groups element shall be
+	 * passed to the KDF; those of the peer with the highest MAC address go
+	 * first (if only one sent a Rejected Groups element then the salt will
+	 * consist of that list). "
+	 *
+	 * Looping case:
+	 * "...the salt shall consist of a series of octets of the value zero
+	 * whose length equals the length of the digest of the hash function
+	 * used to instantiate H()."
+	 *
+	 * NOTE: We use hkdf_extract here since it is just an hmac invocation
+	 * and it handles the case of the zero key for us.
+	*/
+	if (sm->sae_type != CRYPTO_SAE_LOOPING && sm->rejected_groups) {
+		salt = sm->rejected_groups + 1;
+		salt_len = sm->rejected_groups[0] * sizeof(uint16_t);
+	}
+
+	hkdf_extract(hash, salt, salt_len, 1, keyseed, k, klen);
 
 	/*
-	 * kck_and_pmk = KDF-Hash-512(keyseed, "SAE KCK and PMK",
-				(commit-scalar + peer-commit-scalar) mod r)
+	 * context = (commit-scalar + peer-commit-scalar) mod r
+	 * Length = Q + 256
+	 * kck_and_pmk = KDF-Hash-Length(keyseed, "SAE KCK and PMK", context)
+	 * KCK = L(kck_and_pmk, 0, Q)
+	 * PMK = L(kck_and_pmk, Q, 256)
+	 *
+	 * Q is the length of the digest of the H(), the hash function used
 	 */
 	tmp_scalar = l_ecc_scalar_new(sm->curve, NULL, 0);
 	order = l_ecc_curve_get_order(sm->curve);
@@ -569,11 +714,12 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	l_ecc_scalar_add(tmp_scalar, sm->p_scalar, sm->scalar, order);
 	l_ecc_scalar_get_data(tmp_scalar, tmp, sizeof(tmp));
 
-	kdf_sha256(keyseed, 32, "SAE KCK and PMK", strlen("SAE KCK and PMK"),
-			tmp, nbytes, kck_and_pmk, 64);
+	crypto_kdf(hash, keyseed, hash_len,
+			"SAE KCK and PMK", strlen("SAE KCK and PMK"),
+			tmp, nbytes, kck_and_pmk, hash_len + 32);
 
-	memcpy(sm->kck, kck_and_pmk[0], 32);
-	memcpy(sm->pmk, kck_and_pmk[1], 32);
+	memcpy(sm->kck, kck_and_pmk, hash_len);
+	memcpy(sm->pmk, kck_and_pmk + hash_len, 32);
 
 	/*
 	 * PMKID = L((commit-scalar + peer-commit-scalar) mod r, 0, 128)
@@ -587,7 +733,9 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	/* don't set the handshakes pmkid until confirm is verified */
 	memcpy(sm->pmkid, tmp, 16);
 
-	sae_send_confirm(sm);
+	if (!sae_send_confirm(sm))
+		return -EPROTO;
+
 	sm->state = SAE_STATE_CONFIRMED;
 
 	return 0;
@@ -595,13 +743,16 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 
 static bool sae_verify_confirm(struct sae_sm *sm, const uint8_t *frame)
 {
-	uint8_t check[32];
+	uint8_t check[SAE_MAX_HASH_LEN];
 	uint16_t rc = l_get_le16(frame);
+	ssize_t r;
 
-	sae_cn(sm->kck, rc, sm->p_scalar, sm->p_element, sm->scalar,
+	r = sae_cn(sm, rc, sm->p_scalar, sm->p_element, sm->scalar,
 			sm->element, check);
+	if (r < 0)
+		return false;
 
-	if (memcmp(frame + 2, check, 32))
+	if (memcmp(frame + 2, check, r))
 		return false;
 
 	sm->rc = rc;
@@ -613,11 +764,6 @@ static int sae_process_confirm(struct sae_sm *sm, const uint8_t *from,
 				const uint8_t *frame, size_t len)
 {
 	const uint8_t *ptr = frame;
-
-	if (len < 34) {
-		l_error("bad length");
-		return -EBADMSG;
-	}
 
 	/*
 	 * If processing is unsuccessful and the SAE Confirm message is not
@@ -647,14 +793,16 @@ static int sae_process_confirm(struct sae_sm *sm, const uint8_t *from,
 static bool sae_send_commit(struct sae_sm *sm, bool retry)
 {
 	struct handshake_state *hs = sm->handshake;
-	/* regular commit + possible 256 byte token + 6 bytes header */
-	uint8_t commit[L_ECC_SCALAR_MAX_BYTES + L_ECC_POINT_MAX_BYTES + 262];
-	size_t len;
+	/* regular commit + 3x IEs (257 bytes) + 6 bytes header */
+	uint8_t commit[L_ECC_SCALAR_MAX_BYTES + L_ECC_POINT_MAX_BYTES + 777];
+	int r;
 
-	if (!sae_build_commit(sm, hs->spa, hs->aa, commit, &len, retry))
+	r = sae_build_commit(sm, hs->spa, hs->aa,
+					commit, sizeof(commit), retry);
+	if (r < 0)
 		return false;
 
-	sm->tx_auth(commit, len, sm->user_data);
+	sm->tx_auth(commit, r, sm->user_data);
 
 	return true;
 }
@@ -681,9 +829,33 @@ static bool sae_assoc_timeout(struct auth_proto *ap)
  * sent. The new SAE Commit message shall be transmitted to the peer, Sync shall
  * be zeroed, and the t0 (retransmission) timer shall be set.
  */
-static void sae_process_anti_clogging(struct sae_sm *sm, const uint8_t *ptr,
+static int sae_process_anti_clogging(struct sae_sm *sm, const uint8_t *ptr,
 					size_t len)
 {
+	if (len < 2)
+		return -EBADMSG;
+
+	len -= 2;
+	ptr += 2;
+
+	/*
+	 * 802.11-2020, Table 9-41:
+	 * When the hash-to-element method is used to derive the PWE, the
+	 * Anti-Clogging Token Container element is present if the
+	 * Status Code field is ANTI_CLOGGING_TOKEN_REQUIRED
+	 */
+	if (sm->sae_type != CRYPTO_SAE_LOOPING) {
+		if (len < 3)
+			return -EBADMSG;
+
+		if (ptr[0] != IE_TYPE_EXTENSION || ptr[2] != 93 ||
+				ptr[1] < 2 || len < ptr[1] + 2u)
+			return -EBADMSG;
+
+		len = ptr[1] - 1;
+		ptr += 3;
+	}
+
 	/*
 	 * IEEE 802.11-2016 - Section 12.4.6 Anti-clogging tokens
 	 *
@@ -694,16 +866,18 @@ static void sae_process_anti_clogging(struct sae_sm *sm, const uint8_t *ptr,
 	 * going to be 2 bytes less than the passed in length. This is why we
 	 * are checking 3 > len > 258.
 	 */
-	if (len < 3 || len > 258) {
+	if (len < 1 || len > 256) {
 		l_error("anti-clogging token size invalid %zu", len);
-		return;
+		return -EBADMSG;
 	}
 
-	sm->token = l_memdup(ptr + 2, len - 2);
-	sm->token_len = len - 2;
+	sm->token = l_memdup(ptr, len);
+	sm->token_len = len;
 	sm->sync = 0;
 
 	sae_send_commit(sm, true);
+
+	return -EAGAIN;
 }
 
 /*
@@ -736,25 +910,6 @@ static int sae_verify_nothing(struct sae_sm *sm, uint16_t transaction,
 	return 0;
 }
 
-static void sae_reset_state(struct sae_sm *sm)
-{
-	l_free(sm->token);
-	sm->token = NULL;
-
-	l_ecc_scalar_free(sm->scalar);
-	sm->scalar = NULL;
-	l_ecc_scalar_free(sm->p_scalar);
-	sm->p_scalar = NULL;
-	l_ecc_scalar_free(sm->rand);
-	sm->rand = NULL;
-	l_ecc_point_free(sm->element);
-	sm->element = NULL;
-	l_ecc_point_free(sm->p_element);
-	sm->p_element = NULL;
-	l_ecc_point_free(sm->pwe);
-	sm->pwe = NULL;
-}
-
 /*
  * 802.11-2016 - 12.4.8.6.4 Protocol instance behavior - Committed state
  */
@@ -762,6 +917,9 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 					uint16_t status, const uint8_t *frame,
 					size_t len)
 {
+	unsigned int skip;
+	struct ie_tlv_iter iter;
+
 	/*
 	 * Upon receipt of a Con event...
 	 * Then the protocol instance checks the value of Sync. If it
@@ -781,11 +939,10 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 		return -EAGAIN;
 	}
 
-	switch (status) {
-	case MMPDU_STATUS_CODE_ANTI_CLOGGING_TOKEN_REQ:
-		sae_process_anti_clogging(sm, frame, len);
-		return -EAGAIN;
-	case MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP:
+	if (status == MMPDU_STATUS_CODE_ANTI_CLOGGING_TOKEN_REQ)
+		return sae_process_anti_clogging(sm, frame, len);
+
+	if (status == MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP) {
 		/*
 		 * TODO: hostapd in its current state does not include the
 		 * group number as it should. This is a violation of the spec,
@@ -808,17 +965,7 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 		else if (len >= 2 && (l_get_le16(frame) != sm->group))
 			return -ENOMSG;
 
-		sm->group_retry++;
-
-		if (sm->ecc_groups[sm->group_retry] == 0) {
-			/*
-			 * "If there are no other groups to choose, the protocol
-			 * instance shall send a Del event to the parent process
-			 * and transitions back to Nothing state"
-			 */
-			sm->state = SAE_STATE_NOTHING;
-			goto reject_unsupp_group;
-		}
+		sae_rejected_groups_append(sm, L_CPU_TO_LE16(sm->group));
 
 		/*
 		 * "If the rejected group matches the last offered group, the
@@ -828,39 +975,84 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 		 * zeros Sync, sets the t0 (retransmission) timer, and remains
 		 * in Committed state"
 		 */
-
-		sae_reset_state(sm);
-
-		sm->group = sm->ecc_groups[sm->group_retry];
-		sm->curve = l_ecc_curve_from_ike_group(sm->group);
+		if (sae_choose_next_group(sm) < 0) {
+			/*
+			 * "If there are no other groups to choose, the protocol
+			 * instance shall send a Del event to the parent process
+			 * and transitions back to Nothing state"
+			 */
+			sm->state = SAE_STATE_NOTHING;
+			goto reject_unsupp_group;
+		}
 
 		sm->sync = 0;
 		sae_send_commit(sm, false);
 
 		return -EAGAIN;
-	case 0:
-		if (len < 2)
-			return -EBADMSG;
-
-		if (l_get_le16(frame) != sm->group) {
-			l_error("SAE: Peer tried to change group -- Reject");
-			goto reject_unsupp_group;
-		}
-
-		len -= 2;
-
-		if (len < l_ecc_curve_get_scalar_bytes(sm->curve) * 3)
-			return -EBADMSG;
-
-		return 0;
-	default:
-		/*
-		 * If the Status is some other nonzero value, the frame shall
-		 * be silently discarded and the t0 (retransmission) timer
-		 * shall be set.
-		 */
-		return -ENOMSG;
 	}
+
+	/*
+	 * If the Status is some other nonzero value, the frame shall be
+	 * silently discarded and the t0 (retransmission) timer shall be set.
+	 */
+	if (status != 0 && status != MMPDU_STATUS_CODE_SAE_HASH_TO_ELEMENT)
+		return -ENOMSG;
+
+	if (status != sae_status_code(sm))
+		return -EBADMSG;
+
+	if (len < 2)
+		return -EBADMSG;
+
+	if (l_get_le16(frame) != sm->group) {
+		l_error("SAE: Peer tried to change group -- Reject");
+		goto reject_unsupp_group;
+	}
+
+	len -= 2;
+	frame += 2;
+
+	skip = l_ecc_curve_get_scalar_bytes(sm->curve) * 3;
+	if (len < skip)
+		return -EBADMSG;
+
+	/* If H2E isn't being used, there should be no IEs in use */
+	if (status == 0)
+		return 0;
+
+	len -= skip;
+	frame += skip;
+
+	ie_tlv_iter_init(&iter, frame, len);
+
+	while (ie_tlv_iter_next(&iter)) {
+		switch (ie_tlv_iter_get_tag(&iter)) {
+		/*
+		 * If the peer's SAE Commit message contains a Rejected Groups
+		 * element, the list of rejected groups shall be checked to
+		 * ensure that all of the groups in the list are groups that
+		 * would be rejected. If any groups in the list would not be
+		 * rejected then processing of the SAE Commit message
+		 * terminates and the STA shall reject the peer's
+		 * authentication.
+		 *
+		 * NOTE: We currently only support the Initiator role, and so
+		 * do not reject any groups.  We should never receive this
+		 * element
+		 */
+		case IE_TYPE_REJECTED_GROUPS:
+			l_error("SAE: Unexpected Rejected Groups IE");
+			return sae_reject(sm, SAE_STATE_COMMITTED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
+		/* We don't request tokens, so we shouldn't get any */
+		case IE_TYPE_ANTI_CLOGGING_TOKEN_CONTAINER:
+			l_error("SAE: Unexpected Anti-Clogging Container IE");
+			return sae_reject(sm, SAE_STATE_COMMITTED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
+		}
+	}
+
+	return 0;
 
 reject_unsupp_group:
 	return sae_reject(sm, SAE_STATE_COMMITTED,
@@ -874,8 +1066,26 @@ static int sae_verify_confirmed(struct sae_sm *sm, uint16_t trans,
 					uint16_t status, const uint8_t *frame,
 					size_t len)
 {
-	if (trans == SAE_STATE_CONFIRMED)
+	if (trans == SAE_STATE_CONFIRMED) {
+		enum l_checksum_type hash =
+			crypto_sae_hash_from_ecc_prime_len(sm->sae_type,
+				l_ecc_curve_get_scalar_bytes(sm->curve));
+		size_t hash_len = l_checksum_digest_length(hash);
+
+		/* Most likely the password is wrong */
+		if (status == MMPDU_STATUS_CODE_UNSPECIFIED && len == 0)
+			return -ENOKEY;
+
+		if (status != MMPDU_STATUS_CODE_SUCCESS)
+			return -EPROTO;
+
+		if (len < hash_len + 2) {
+			l_error("SAE: Confirm packet too short");
+			return -EBADMSG;
+		}
+
 		return 0;
+	}
 
 	/*
 	 * Upon receipt of a Com event, the t0 (retransmission) timer shall be
@@ -909,7 +1119,9 @@ static int sae_verify_confirmed(struct sae_sm *sm, uint16_t trans,
 	sm->sc++;
 
 	sae_send_commit(sm, true);
-	sae_send_confirm(sm);
+
+	if (!sae_send_confirm(sm))
+		return -EPROTO;
 
 	return -EAGAIN;
 }
@@ -961,7 +1173,8 @@ static int sae_verify_accepted(struct sae_sm *sm, uint16_t trans,
 	sm->sync++;
 	sm->sc = 0xffff;
 
-	sae_send_confirm(sm);
+	if (!sae_send_confirm(sm))
+		return -EPROTO;
 
 	return -EAGAIN;
 }
@@ -1055,6 +1268,14 @@ static bool sae_start(struct auth_proto *ap)
 	else
 		memcpy(sm->peer, sm->handshake->aa, 6);
 
+	if (sm->sae_type == CRYPTO_SAE_LOOPING && !sm->handshake->passphrase) {
+		l_error("SAE: No passphrase set");
+		return false;
+	}
+
+	if (sae_choose_next_group(sm) < 0)
+		return false;
+
 	sm->state = SAE_STATE_COMMITTED;
 	return sae_send_commit(sm, false);
 }
@@ -1064,6 +1285,9 @@ static void sae_free(struct auth_proto *ap)
 	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
 
 	sae_reset_state(sm);
+
+	if (sm->rejected_groups)
+		free(sm->rejected_groups);
 
 	/* zero out whole structure, including keys */
 	explicit_bzero(sm, sizeof(struct sae_sm));
@@ -1077,26 +1301,34 @@ struct auth_proto *sae_sm_new(struct handshake_state *hs,
 				void *user_data)
 {
 	struct sae_sm *sm;
+	const void *rsnxe;
 
 	sm = l_new(struct sae_sm, 1);
 
-	if (!sm)
-		return NULL;
+	sm->group_retry = -1;
 
 	sm->tx_auth = tx_auth;
 	sm->tx_assoc = tx_assoc;
 	sm->user_data = user_data;
 	sm->handshake = hs;
 	sm->state = SAE_STATE_NOTHING;
-	sm->ecc_groups = l_ecc_supported_ike_groups();
-	sm->group = sm->ecc_groups[sm->group_retry];
-	sm->curve = l_ecc_curve_from_ike_group(sm->group);
 
 	sm->ap.start = sae_start;
 	sm->ap.free = sae_free;
 	sm->ap.rx_authenticate = sae_rx_authenticate;
 	sm->ap.rx_associate = sae_rx_associate;
 	sm->ap.assoc_timeout = sae_assoc_timeout;
+
+	rsnxe = hs->authenticator ? hs->supplicant_rsnxe :
+						hs->authenticator_rsnxe;
+
+	if (ie_rsnxe_capable(rsnxe, IE_RSNX_SAE_H2E) && hs->ecc_sae_pts) {
+		l_debug("Using SAE H2E");
+		sm->sae_type = CRYPTO_SAE_HASH_TO_ELEMENT;
+	} else {
+		l_debug("Using SAE Hunting and Pecking");
+		sm->sae_type = CRYPTO_SAE_LOOPING;
+	}
 
 	return &sm->ap;
 }
