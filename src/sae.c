@@ -485,7 +485,6 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	uint8_t kck_and_pmk[2][32];
 	uint8_t tmp[L_ECC_SCALAR_MAX_BYTES];
 	struct l_ecc_scalar *tmp_scalar;
-	uint16_t group;
 	uint16_t reason = MMPDU_REASON_CODE_UNSPECIFIED;
 	ssize_t klen;
 	struct l_ecc_scalar *order;
@@ -502,14 +501,7 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 		goto reject;
 	}
 
-	group = l_get_le16(ptr);
 	ptr += 2;
-
-	if (group != sm->group) {
-		sae_reject_authentication(sm,
-				MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP);
-		return 0;
-	}
 
 	sm->p_scalar = l_ecc_scalar_new(sm->curve, ptr, nbytes);
 	if (!sm->p_scalar) {
@@ -863,68 +855,10 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 		if (len < 2)
 			return -EBADMSG;
 
-		if (l_get_le16(frame) == sm->group)
-			return 0;
-
-		if (!l_ecc_curve_from_ike_group(l_get_le16(frame))) {
-			if (sm->sync > SAE_SYNC_MAX)
-				return -EBADMSG;
-
-			sm->sync++;
-
-			goto reject_unsupp_group;
+		if (l_get_le16(frame) != sm->group) {
+			l_error("SAE: Peer tried to change group -- Reject");
+			return -EPROTO;
 		}
-
-		/*
-		 * If we get here we know that the groups do not match, but the
-		 * group provided in the frame is supported. From section
-		 * 12.4.8.6.4 we see:
-		 *
-		 * "If the group is supported but does not match that used when
-		 * the protocol instance constructed its SAE Commit message,
-		 * DiffGrp shall be set and the local identity and peer identity
-		 * shall be checked"
-		 */
-
-		if (memcmp(sm->handshake->spa, sm->handshake->aa, 6) > 0) {
-			/*
-			 * "The mesh STA, with the numerically greater of the two
-			 * MAC addresses, drops the received SAE Commit message,
-			 * retransmits its last SAE Commit message, and shall
-			 * set the t0 (retransmission) timer and remain in
-			 * Committed state"
-			 */
-			sae_send_commit(sm, true);
-
-			return 0;
-		}
-
-		/*
-		 * "The mesh STA, with the numerically lesser of the two
-		 * MAC addresses, zeros Sync, shall increment Sc, choose
-		 * the group from the received SAE Commit message,
-		 * generate new PWE and new secret values according to
-		 * 12.4.5.2, process the received SAE Commit message
-		 * according to 12.4.5.4, generate a new SAE Commit
-		 * message and SAE Confirm message, and shall transmit
-		 * the new Commit and Confirm to the peer. It shall then
-		 * transition to Confirmed state."
-		 */
-		sm->sync = 0;
-		sm->sc++;
-		sm->group = l_get_le16(frame);
-		sm->curve = l_ecc_curve_from_ike_group(sm->group);
-
-		sae_send_commit(sm, false);
-
-		sm->state = SAE_STATE_CONFIRMED;
-
-		/*
-		 * The processing and sending of the confirm message
-		 * will happen after we return. Since we have set the
-		 * state to CONFIRMED, our confirm handler will get
-		 * called.
-		 */
 
 		return 0;
 	default:
