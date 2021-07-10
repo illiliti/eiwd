@@ -159,6 +159,25 @@ static int sae_choose_next_group(struct sae_sm *sm)
 	return 0;
 }
 
+static int sae_valid_group(struct sae_sm *sm, unsigned int group)
+{
+	const unsigned int *ecc_groups = l_ecc_supported_ike_groups();
+	unsigned int i;
+
+	for (i = sm->group_retry; ecc_groups[i]; i++) {
+		if (ecc_groups[i] != group)
+			continue;
+
+		if (sm->sae_type != CRYPTO_SAE_LOOPING &&
+				!sm->handshake->ecc_sae_pts[i])
+			continue;
+
+		return i;
+	}
+
+	return -ENOENT;
+}
+
 static bool sae_pwd_seed(const uint8_t *addr1, const uint8_t *addr2,
 				uint8_t *base, size_t base_len,
 				uint8_t counter, uint8_t *out)
@@ -832,7 +851,15 @@ static bool sae_assoc_timeout(struct auth_proto *ap)
 static int sae_process_anti_clogging(struct sae_sm *sm, const uint8_t *ptr,
 					size_t len)
 {
+	/*
+	 * 802.11 doesn't talk about validating the group of the Anti-Clogging
+	 * Request message.  We assume here that the group is something that
+	 * we would have potentially sent
+	 */
 	if (len < 2)
+		return -EBADMSG;
+
+	if (sae_valid_group(sm, l_get_le16(ptr)) < 0)
 		return -EBADMSG;
 
 	len -= 2;
