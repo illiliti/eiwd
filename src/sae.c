@@ -860,9 +860,10 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 	default:
 		/*
 		 * If the Status is some other nonzero value, the frame shall
-		 * be silently discarded...
+		 * be silently discarded and the t0 (retransmission) timer
+		 * shall be set.
 		 */
-		return 0;
+		return -ENOMSG;
 	}
 
 reject_unsupp_group:
@@ -882,10 +883,13 @@ static int sae_verify_confirmed(struct sae_sm *sm, uint16_t trans,
 		return 0;
 
 	/*
-	 * If the Status is nonzero, the frame shall be silently discarded...
+	 * Upon receipt of a Com event, the t0 (retransmission) timer shall be
+	 * canceled. If the Status is nonzero, the frame shall be silently
+	 * discarded, the t0 (retransmission) timer set, and the protocol
+	 * instance shall remain in the Confirmed state.
 	 */
 	if (status != 0)
-		return 0;
+		return -ENOMSG;
 
 	/*
 	 * If Sync is greater than dot11RSNASAESync, the protocol instance
@@ -900,7 +904,7 @@ static int sae_verify_confirmed(struct sae_sm *sm, uint16_t trans,
 
 	/* frame shall be silently discarded */
 	if (l_get_le16(frame) != sm->group)
-		return 0;
+		return -EBADMSG;
 
 	/*
 	 * the protocol instance shall increment Sync, increment Sc, and
