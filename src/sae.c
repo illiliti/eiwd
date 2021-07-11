@@ -184,24 +184,29 @@ static bool sae_cn(const uint8_t *kck, uint16_t send_confirm,
 	return (ret == 32);
 }
 
-static void sae_reject_authentication(struct sae_sm *sm, uint16_t reason)
+static int sae_reject(struct sae_sm *sm, uint16_t transaction, uint16_t status)
 {
 	uint8_t reject[6];
 	uint8_t *ptr = reject;
 
+	if (!sm->handshake->authenticator)
+		return -EPROTO;
+
 	/* transaction */
-	l_put_u16(1, ptr);
-	ptr += 2;
-	/* status success */
-	l_put_u16(reason, ptr);
+	l_put_u16(transaction, ptr);
 	ptr += 2;
 
-	if (reason == MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP) {
+	l_put_u16(status, ptr);
+	ptr += 2;
+
+	if (status == MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP) {
 		l_put_u16(sm->group, ptr);
 		ptr += 2;
 	}
 
 	sm->tx_auth(reject, ptr - reject, sm->user_data);
+
+	return status;
 }
 
 static struct l_ecc_scalar *sae_new_residue(const struct l_ecc_curve *curve,
@@ -483,7 +488,6 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	uint8_t kck_and_pmk[2][32];
 	uint8_t tmp[L_ECC_SCALAR_MAX_BYTES];
 	struct l_ecc_scalar *tmp_scalar;
-	uint16_t reason = MMPDU_REASON_CODE_UNSPECIFIED;
 	ssize_t klen;
 	struct l_ecc_scalar *order;
 	unsigned int nbytes = l_ecc_curve_get_scalar_bytes(sm->curve);
@@ -493,8 +497,8 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	sm->p_scalar = l_ecc_scalar_new(sm->curve, ptr, nbytes);
 	if (!sm->p_scalar) {
 		l_error("Server sent invalid P_Scalar during commit");
-		reason = MMPDU_REASON_CODE_UNSPECIFIED;
-		goto reject;
+		return sae_reject(sm, SAE_STATE_COMMITTED,
+				MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP);
 	}
 
 	ptr += nbytes;
@@ -503,16 +507,20 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 						ptr, nbytes * 2);
 	if (!sm->p_element) {
 		l_error("Server sent invalid P_Element during commit");
-		reason = MMPDU_REASON_CODE_UNSPECIFIED;
-		goto reject;
+		return sae_reject(sm, SAE_STATE_COMMITTED,
+				MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP);
 	}
 
+	/*
+	 * If they match those sent as part of the protocol instance's own
+	 * SAE Commit message, the frame shall be silently discarded (because
+	 * it is evidence of a reflection attack) and the t0 (retransmission)
+	 * timer shall be set.
+	 */
 	if (l_ecc_scalars_are_equal(sm->p_scalar, sm->scalar) ||
 			l_ecc_points_are_equal(sm->p_element, sm->element)) {
-		/* possible reflection attack, silently discard message */
 		l_warn("peer scalar or element matched own, discarding frame");
-
-		return 0;
+		return -ENOMSG;
 	}
 
 	sm->sc++;
@@ -543,7 +551,8 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	l_ecc_point_free(k_point);
 
 	if (klen < 0)
-		goto reject;
+		return sae_reject(sm, SAE_STATE_COMMITTED,
+				MMPDU_STATUS_CODE_UNSPECIFIED);
 
 	/* keyseed = H(<0>32, k) */
 	hmac_sha256(zero_key, 32, k, klen, keyseed, 32);
@@ -580,10 +589,6 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	sm->state = SAE_STATE_CONFIRMED;
 
 	return 0;
-
-reject:
-	sae_reject_authentication(sm, reason);
-	return -EBADMSG;
 }
 
 static bool sae_verify_confirm(struct sae_sm *sm, const uint8_t *frame)
@@ -594,10 +599,8 @@ static bool sae_verify_confirm(struct sae_sm *sm, const uint8_t *frame)
 	sae_cn(sm->kck, rc, sm->p_scalar, sm->p_element, sm->scalar,
 			sm->element, check);
 
-	if (memcmp(frame + 2, check, 32)) {
-		l_error("confirm did not match");
+	if (memcmp(frame + 2, check, 32))
 		return false;
-	}
 
 	sm->rc = rc;
 
@@ -611,11 +614,20 @@ static int sae_process_confirm(struct sae_sm *sm, const uint8_t *from,
 
 	if (len < 34) {
 		l_error("bad length");
-		goto reject;
+		return -EBADMSG;
 	}
 
-	if (!sae_verify_confirm(sm, ptr))
-		goto reject;
+	/*
+	 * If processing is unsuccessful and the SAE Confirm message is not
+	 * verified, protocol instance shall remain in Confirmed state.
+	 *
+	 * NOTE: We diverge from the protocol here and bail out early
+	 */
+	if (!sae_verify_confirm(sm, ptr)) {
+		l_error("SAE: Confirm could not be verified");
+		return sae_reject(sm, SAE_STATE_CONFIRMED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
+	}
 
 	/* Sc shall be set to the value 2^16 - 1 */
 	sm->sc = 0xffff;
@@ -628,10 +640,6 @@ static int sae_process_confirm(struct sae_sm *sm, const uint8_t *from,
 	sm->tx_assoc(sm->user_data);
 
 	return 0;
-
-reject:
-	sae_reject_authentication(sm, MMPDU_REASON_CODE_UNSPECIFIED);
-	return -EBADMSG;
 }
 
 static bool sae_send_commit(struct sae_sm *sm, bool retry)
@@ -719,11 +727,9 @@ static int sae_verify_nothing(struct sae_sm *sm, uint16_t transaction,
 		return -EBADMSG;
 
 	/* reject with unsupported group */
-	if (l_get_le16(frame) != sm->group) {
-		sae_reject_authentication(sm,
+	if (l_get_le16(frame) != sm->group)
+		return sae_reject(sm, SAE_STATE_COMMITTED,
 				MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP);
-		return -EBADMSG;
-	}
 
 	return 0;
 }
@@ -765,10 +771,9 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 	 */
 	if (transaction == SAE_STATE_CONFIRMED) {
 		if (sm->sync > SAE_SYNC_MAX)
-			return -EBADMSG;
+			return -ETIMEDOUT;
 
 		sm->sync++;
-
 		sae_send_commit(sm, true);
 
 		return -EAGAIN;
@@ -799,7 +804,7 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 		if (len == 0)
 			l_warn("AP did not include group number in response!");
 		else if (len >= 2 && (l_get_le16(frame) != sm->group))
-			return -EBADMSG;
+			return -ENOMSG;
 
 		sm->group_retry++;
 
@@ -828,7 +833,6 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 		sm->curve = l_ecc_curve_from_ike_group(sm->group);
 
 		sm->sync = 0;
-
 		sae_send_commit(sm, false);
 
 		return -EAGAIN;
@@ -838,7 +842,7 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 
 		if (l_get_le16(frame) != sm->group) {
 			l_error("SAE: Peer tried to change group -- Reject");
-			return -EPROTO;
+			goto reject_unsupp_group;
 		}
 
 		len -= 2;
@@ -857,9 +861,8 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 	}
 
 reject_unsupp_group:
-	sae_reject_authentication(sm,
+	return sae_reject(sm, SAE_STATE_COMMITTED,
 			MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP);
-	return MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP;
 }
 
 /*
@@ -887,7 +890,7 @@ static int sae_verify_confirmed(struct sae_sm *sm, uint16_t trans,
 	 * Nothing state.
 	 */
 	if (sm->sync > SAE_SYNC_MAX)
-		return -EBADMSG;
+		return -ETIMEDOUT;
 
 	if (len < 2)
 		return -EBADMSG;
@@ -925,7 +928,7 @@ static int sae_verify_accepted(struct sae_sm *sm, uint16_t trans,
 	}
 
 	if (sm->sync > SAE_SYNC_MAX)
-		return -EBADMSG;
+		return -ETIMEDOUT;
 
 	if (len < 2)
 		return -EBADMSG;
@@ -980,7 +983,7 @@ static int sae_verify_packet(struct sae_sm *sm, uint16_t trans,
 	}
 
 	/* should never get here */
-	return -1;
+	return -EPROTO;
 }
 
 static int sae_rx_authenticate(struct auth_proto *ap,
@@ -993,11 +996,10 @@ static int sae_rx_authenticate(struct auth_proto *ap,
 
 	if (!hdr) {
 		l_debug("Auth frame header did not validate");
-		goto reject;
+		return -EBADMSG;
 	}
 
 	auth = mmpdu_body(hdr);
-
 	len -= mmpdu_header_len(hdr);
 
 	ret = sae_verify_packet(sm, L_LE16_TO_CPU(auth->transaction_sequence),
@@ -1018,10 +1020,8 @@ static int sae_rx_authenticate(struct auth_proto *ap,
 				L_LE16_TO_CPU(auth->transaction_sequence));
 	}
 
-reject:
-	sae_reject_authentication(sm, MMPDU_REASON_CODE_UNSPECIFIED);
-
-	return -EBADMSG;
+	/* should never get here */
+	return -EPROTO;
 }
 
 static int sae_rx_associate(struct auth_proto *ap, const uint8_t *frame,
@@ -1039,7 +1039,7 @@ static int sae_rx_associate(struct auth_proto *ap, const uint8_t *frame,
 	body = mmpdu_body(mpdu);
 
 	if (body->status_code != 0)
-		return L_LE16_TO_CPU(body->status_code);
+		return -EPROTO;
 
 	return 0;
 }
