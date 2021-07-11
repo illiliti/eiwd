@@ -912,7 +912,7 @@ static int sae_verify_confirmed(struct sae_sm *sm, uint16_t trans,
 	sae_send_commit(sm, true);
 	sae_send_confirm(sm);
 
-	return 0;
+	return -EAGAIN;
 }
 
 /*
@@ -964,7 +964,7 @@ static int sae_verify_accepted(struct sae_sm *sm, uint16_t trans,
 
 	sae_send_confirm(sm);
 
-	return 0;
+	return -EAGAIN;
 }
 
 static int sae_verify_packet(struct sae_sm *sm, uint16_t trans,
