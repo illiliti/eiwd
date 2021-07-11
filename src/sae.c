@@ -488,11 +488,6 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	struct l_ecc_scalar *order;
 	unsigned int nbytes = l_ecc_curve_get_scalar_bytes(sm->curve);
 
-	if (sm->state != SAE_STATE_COMMITTED) {
-		l_error("bad state %u", sm->state);
-		goto reject;
-	}
-
 	ptr += 2;
 
 	sm->p_scalar = l_ecc_scalar_new(sm->curve, ptr, nbytes);
@@ -613,11 +608,6 @@ static int sae_process_confirm(struct sae_sm *sm, const uint8_t *from,
 				const uint8_t *frame, size_t len)
 {
 	const uint8_t *ptr = frame;
-
-	if (sm->state != SAE_STATE_CONFIRMED) {
-		l_error("bad state %u", sm->state);
-		goto reject;
-	}
 
 	if (len < 34) {
 		l_error("bad length");
