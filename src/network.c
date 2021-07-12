@@ -425,6 +425,13 @@ static int network_set_handshake_secrets_psk(struct network *network,
 			return -ENOKEY;
 
 		handshake_state_set_passphrase(hs, network->passphrase);
+
+		if (ie_rsnxe_capable(hs->authenticator_rsnxe,
+							IE_RSNX_SAE_H2E)) {
+			l_debug("Authenticator is SAE H2E capable");
+			handshake_state_add_ecc_sae_pt(hs, network->sae_pt_19);
+			handshake_state_add_ecc_sae_pt(hs, network->sae_pt_20);
+		}
 	} else {
 		const uint8_t *psk = network_get_psk(network);
 
