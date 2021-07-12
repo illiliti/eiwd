@@ -375,9 +375,7 @@ static void test_bad_group(const void *arg)
 				sizeof(aa_commit_bad_group));
 
 	assert(auth_proto_rx_authenticate(ap, (uint8_t *)frame, len) ==
-			MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP);
-
-	assert(td->tx_reject_occurred);
+			-EPROTO);
 
 	test_destruct(td);
 	auth_proto_free(ap);
