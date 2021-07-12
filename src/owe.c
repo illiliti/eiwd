@@ -240,22 +240,14 @@ static int owe_rx_associate(struct auth_proto *ap, const uint8_t *frame,
 {
 	struct owe_sm *owe = l_container_of(ap, struct owe_sm, ap);
 
-	const struct mmpdu_header *mpdu = NULL;
-	const struct mmpdu_association_response *body;
+	const struct mmpdu_header *mpdu = (const struct mmpdu_header *) frame;
+	const struct mmpdu_association_response *body = mmpdu_body(mpdu);
 	struct ie_tlv_iter iter;
 	size_t owe_dh_len = 0;
 	const uint8_t *owe_dh = NULL;
 	struct ie_rsn_info info;
 	bool akm_found = false;
 	const void *data;
-
-	mpdu = mpdu_validate(frame, len);
-	if (!mpdu) {
-		l_error("could not process frame");
-		return -EBADMSG;
-	}
-
-	body = mmpdu_body(mpdu);
 
 	if (L_LE16_TO_CPU(body->status_code) ==
 				MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP) {

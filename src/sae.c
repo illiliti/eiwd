@@ -1230,16 +1230,10 @@ static int sae_rx_authenticate(struct auth_proto *ap,
 				const uint8_t *frame, size_t len)
 {
 	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
-	const struct mmpdu_header *hdr = mpdu_validate(frame, len);
-	const struct mmpdu_authentication *auth;
+	const struct mmpdu_header *hdr = (const struct mmpdu_header *) frame;
+	const struct mmpdu_authentication *auth = mmpdu_body(hdr);
 	int ret;
 
-	if (!hdr) {
-		l_debug("Auth frame header did not validate");
-		return -EBADMSG;
-	}
-
-	auth = mmpdu_body(hdr);
 	len -= mmpdu_header_len(hdr);
 
 	ret = sae_verify_packet(sm, L_LE16_TO_CPU(auth->transaction_sequence),
@@ -1267,16 +1261,8 @@ static int sae_rx_authenticate(struct auth_proto *ap,
 static int sae_rx_associate(struct auth_proto *ap, const uint8_t *frame,
 				size_t len)
 {
-	const struct mmpdu_header *mpdu = NULL;
-	const struct mmpdu_association_response *body;
-
-	mpdu = mpdu_validate(frame, len);
-	if (!mpdu) {
-		l_error("could not process frame");
-		return -EBADMSG;
-	}
-
-	body = mmpdu_body(mpdu);
+	const struct mmpdu_header *mpdu = (const struct mmpdu_header *)frame;
+	const struct mmpdu_association_response *body = mmpdu_body(mpdu);
 
 	if (body->status_code != 0)
 		return -EPROTO;

@@ -2400,10 +2400,19 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 		}
 	}
 
-	if (!frame)
+	if (L_WARN_ON(!frame))
 		goto auth_error;
 
 	if (netdev->ap) {
+		const struct mmpdu_header *hdr;
+		const struct mmpdu_authentication *auth;
+
+		if (L_WARN_ON(!(hdr = mpdu_validate(frame, frame_len))))
+			goto auth_error;
+
+		auth = mmpdu_body(hdr);
+		status_code = L_CPU_TO_LE16(auth->status);
+
 		ret = auth_proto_rx_authenticate(netdev->ap, frame, frame_len);
 		if (ret == 0 || ret == -EAGAIN)
 			return;
@@ -2468,10 +2477,19 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 		}
 	}
 
-	if (!frame)
+	if (L_WARN_ON(!frame))
 		goto assoc_failed;
 
 	if (netdev->ap) {
+		const struct mmpdu_header *hdr;
+		const struct mmpdu_association_response *assoc;
+
+		if (L_WARN_ON(!(hdr = mpdu_validate(frame, frame_len))))
+			goto assoc_failed;
+
+		assoc = mmpdu_body(hdr);
+		status_code = L_CPU_TO_LE16(assoc->status_code);
+
 		ret = auth_proto_rx_associate(netdev->ap, frame, frame_len);
 		if (ret == 0) {
 			bool fils = !!(netdev->handshake->akm_suite &
