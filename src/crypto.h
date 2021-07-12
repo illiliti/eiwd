@@ -149,6 +149,13 @@ bool crypto_derive_pmkid(const uint8_t *pmk,
 				const uint8_t *addr1, const uint8_t *addr2,
 				uint8_t *out_pmkid, bool use_sha256);
 
+enum crypto_sae {
+	CRYPTO_SAE_LOOPING,
+	CRYPTO_SAE_HASH_TO_ELEMENT,
+};
+
+enum l_checksum_type crypto_sae_hash_from_ecc_prime_len(enum crypto_sae type,
+							size_t prime_len);
 struct l_ecc_point *crypto_derive_sae_pt_ecc(unsigned int group,
 						const char *ssid,
 						const char *password,

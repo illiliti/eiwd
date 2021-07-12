@@ -1146,9 +1146,17 @@ bool crypto_derive_pmkid(const uint8_t *pmk,
 		return hmac_sha1(pmk, 32, data, 20, out_pmkid, 16);
 }
 
-/* 802.11-2020, Table 12-1 Hash algorithm based on length of prime */
-static enum l_checksum_type ecc_hash_from_prime_len(size_t prime_len)
+enum l_checksum_type crypto_sae_hash_from_ecc_prime_len(enum crypto_sae type,
+							size_t prime_len)
 {
+	/*
+	 * If used with the looping technique described in 12.4.4.2.2 and
+	 * 12.4.4.3.2, H and CN are instantiated with SHA-256.
+	 */
+	if (type == CRYPTO_SAE_LOOPING)
+		return L_CHECKSUM_SHA256;
+
+	/* 802.11-2020, Table 12-1 Hash algorithm based on length of prime */
 	if (prime_len <= 256 / 8)
 		return L_CHECKSUM_SHA256;
 
@@ -1178,7 +1186,8 @@ struct l_ecc_point *crypto_derive_sae_pt_ecc(unsigned int group,
 	if (!curve)
 		return NULL;
 
-	hash = ecc_hash_from_prime_len(l_ecc_curve_get_scalar_bytes(curve));
+	hash = crypto_sae_hash_from_ecc_prime_len(CRYPTO_SAE_HASH_TO_ELEMENT,
+					l_ecc_curve_get_scalar_bytes(curve));
 	hash_len = l_checksum_digest_length(hash);
 
 	/* pwd-seed = HKDF-Extract(ssid, password [|| identifier]) */
@@ -1228,7 +1237,8 @@ struct l_ecc_point *crypto_derive_sae_pwe_from_pt_ecc(const uint8_t *mac1,
 	if (!pt || !curve)
 		return false;
 
-	hash = ecc_hash_from_prime_len(l_ecc_curve_get_scalar_bytes(curve));
+	hash = crypto_sae_hash_from_ecc_prime_len(CRYPTO_SAE_HASH_TO_ELEMENT,
+					l_ecc_curve_get_scalar_bytes(curve));
 	hash_len = l_checksum_digest_length(hash);
 
 	/*
