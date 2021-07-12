@@ -164,6 +164,8 @@ static bool sae_cn(const uint8_t *kck, uint16_t send_confirm,
 	if (!hmac)
 		return false;
 
+	send_confirm = L_CPU_TO_LE16(send_confirm);
+
 	iov[0].iov_base = &send_confirm;
 	iov[0].iov_len = 2;
 	iov[1].iov_base = (void *) s1;
