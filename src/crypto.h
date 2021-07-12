@@ -99,6 +99,9 @@ int crypto_psk_from_passphrase(const char *passphrase,
 				const unsigned char *ssid, size_t ssid_len,
 				unsigned char *out_psk);
 
+bool crypto_kdf(enum l_checksum_type type, const void *key, size_t key_len,
+		const void *prefix, size_t prefix_len,
+		const void *data, size_t data_len, void *output, size_t size);
 bool kdf_sha256(const void *key, size_t key_len,
 		const void *prefix, size_t prefix_len,
 		const void *data, size_t data_len, void *output, size_t size);
