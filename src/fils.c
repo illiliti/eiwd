@@ -357,11 +357,6 @@ static int fils_rx_authenticate(struct auth_proto *driver, const uint8_t *frame,
 
 	auth = mmpdu_body(hdr);
 
-	if (!auth) {
-		l_debug("Auth frame body did not validate");
-		return -EBADMSG;
-	}
-
 	if (auth->status != 0) {
 		l_debug("invalid status %u", auth->status);
 		return L_LE16_TO_CPU(auth->status);
@@ -481,11 +476,6 @@ static int fils_rx_associate(struct auth_proto *driver, const uint8_t *frame,
 	}
 
 	assoc = mmpdu_body(hdr);
-
-	if (!assoc) {
-		l_debug("Assoc frame body did not validate");
-		return -EBADMSG;
-	}
 
 	if (assoc->status_code != 0)
 		return L_CPU_TO_LE16(assoc->status_code);
