@@ -1558,6 +1558,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 					size_t decrypted_key_data_size,
 					bool unencrypted)
 {
+	struct handshake_state *hs = sm->handshake;
 	const uint8_t *kck;
 	const uint8_t *kek;
 	struct eapol_key *step4;
@@ -1571,9 +1572,9 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	uint8_t gtk_key_index;
 	uint16_t igtk_key_index;
 
-	l_debug("ifindex=%u", sm->handshake->ifindex);
+	l_debug("ifindex=%u", hs->ifindex);
 
-	if (!eapol_verify_ptk_3_of_4(ek, sm->handshake->wpa_ie, sm->mic_len)) {
+	if (!eapol_verify_ptk_3_of_4(ek, hs->wpa_ie, sm->mic_len)) {
 		handshake_failed(sm, MMPDU_REASON_CODE_UNSPECIFIED);
 		return;
 	}
@@ -1585,7 +1586,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	 * or if the ANonce value in message 3 differs from the ANonce value
 	 * in message 1."
 	 */
-	if (memcmp(sm->handshake->anonce, ek->key_nonce, sizeof(ek->key_nonce)))
+	if (memcmp(hs->anonce, ek->key_nonce, sizeof(ek->key_nonce)))
 		return;
 
 	/*
@@ -1594,10 +1595,10 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	 * not identical to that the STA received in the Beacon or Probe
 	 * Response frame, the STA shall disassociate.
 	 */
-	if (sm->handshake->wpa_ie)
+	if (hs->wpa_ie)
 		rsne = eapol_find_wpa_ie(decrypted_key_data,
 					decrypted_key_data_size);
-	else if (sm->handshake->osen_ie)
+	else if (hs->osen_ie)
 		rsne = eapol_find_wfa_kde(decrypted_key_data,
 					decrypted_key_data_size,
 					IE_WFA_OI_OSEN);
@@ -1609,24 +1610,24 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	if (!rsne)
 		goto error_ie_different;
 
-	if (!handshake_util_ap_ie_matches(rsne, sm->handshake->authenticator_ie,
-						sm->handshake->wpa_ie))
+	if (!handshake_util_ap_ie_matches(rsne, hs->authenticator_ie,
+						hs->wpa_ie))
 		goto error_ie_different;
 
-	if (sm->handshake->akm_suite &
+	if (hs->akm_suite &
 			(IE_RSN_AKM_SUITE_FT_OVER_8021X |
 			 IE_RSN_AKM_SUITE_FT_USING_PSK |
 			 IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256)) {
 		struct ie_tlv_iter iter;
 		struct ie_rsn_info ie_info;
-		const uint8_t *mde = sm->handshake->mde;
-		const uint8_t *fte = sm->handshake->fte;
+		const uint8_t *mde = hs->mde;
+		const uint8_t *fte = hs->fte;
 
 		if (ie_parse_rsne_from_data(rsne, rsne[1] + 2, &ie_info) < 0)
 			goto error_ie_different;
 
 		if (ie_info.num_pmkids != 1 || memcmp(ie_info.pmkids,
-						sm->handshake->pmk_r1_name, 16))
+						hs->pmk_r1_name, 16))
 			goto error_ie_different;
 
 		ie_tlv_iter_init(&iter, decrypted_key_data,
@@ -1656,7 +1657,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	 * and we wouldn't get here.  Skip processing the rest of the message
 	 * and send our reply.  Do not install the keys again.
 	 */
-	if (sm->handshake->ptk_complete)
+	if (hs->ptk_complete)
 		goto retransmit;
 
 	/*
@@ -1709,12 +1710,11 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 			return;
 		}
 
-		handshake_state_override_pairwise_cipher(sm->handshake,
-								override);
+		handshake_state_override_pairwise_cipher(hs, override);
 	}
 
-	if (!sm->handshake->wpa_ie && sm->handshake->group_cipher !=
-			IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC) {
+	if (!hs->wpa_ie && hs->group_cipher !=
+				IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC) {
 		gtk = handshake_util_find_gtk_kde(decrypted_key_data,
 							decrypted_key_data_size,
 							&gtk_len);
@@ -1731,7 +1731,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	} else
 		gtk = NULL;
 
-	if (sm->handshake->mfp) {
+	if (hs->mfp) {
 		igtk = handshake_util_find_igtk_kde(decrypted_key_data,
 							decrypted_key_data_size,
 							&igtk_len);
@@ -1746,7 +1746,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	} else
 		igtk = NULL;
 
-	if (sm->handshake->support_ip_allocation) {
+	if (hs->support_ip_allocation) {
 		const uint8_t *ip_alloc_kde =
 			eapol_find_wfa_kde(decrypted_key_data,
 					decrypted_key_data_size,
@@ -1762,15 +1762,12 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 			return;
 		}
 
-		sm->handshake->support_ip_allocation = ip_alloc_kde != NULL;
+		hs->support_ip_allocation = ip_alloc_kde != NULL;
 
 		if (ip_alloc_kde) {
-			sm->handshake->client_ip_addr =
-				l_get_be32(ip_alloc_kde + 6);
-			sm->handshake->subnet_mask =
-				l_get_be32(ip_alloc_kde + 10);
-			sm->handshake->go_ip_addr =
-				l_get_be32(ip_alloc_kde + 14);
+			hs->client_ip_addr = l_get_be32(ip_alloc_kde + 6);
+			hs->subnet_mask = l_get_be32(ip_alloc_kde + 10);
+			hs->go_ip_addr = l_get_be32(ip_alloc_kde + 14);
 		} else
 			l_debug("Authenticator ignored our IP Address Request");
 	}
@@ -1791,14 +1788,14 @@ retransmit:
 	step4 = eapol_create_ptk_4_of_4(sm->protocol_version,
 					ek->key_descriptor_version,
 					sm->replay_counter,
-					sm->handshake->wpa_ie, sm->mic_len);
+					hs->wpa_ie, sm->mic_len);
 
-	kck = handshake_state_get_kck(sm->handshake);
-	kek = handshake_state_get_kek(sm->handshake);
+	kck = handshake_state_get_kck(hs);
+	kek = handshake_state_get_kek(hs);
 
 	if (sm->mic_len) {
-		if (!eapol_calculate_mic(sm->handshake->akm_suite, kck,
-				step4, mic, sm->mic_len)) {
+		if (!eapol_calculate_mic(hs->akm_suite, kck,
+						step4, mic, sm->mic_len)) {
 			l_debug("MIC Calculation failed");
 			l_free(step4);
 			handshake_failed(sm, MMPDU_REASON_CODE_UNSPECIFIED);
@@ -1807,10 +1804,9 @@ retransmit:
 
 		memcpy(EAPOL_KEY_MIC(step4), mic, sm->mic_len);
 	} else {
-		if (!eapol_aes_siv_encrypt(
-				handshake_state_get_kek(sm->handshake),
-				handshake_state_get_kek_len(sm->handshake),
-				step4, NULL, 0)) {
+		if (!eapol_aes_siv_encrypt(handshake_state_get_kek(hs),
+						handshake_state_get_kek_len(hs),
+						step4, NULL, 0)) {
 			l_debug("AES-SIV encryption failed");
 			l_free(step4);
 			handshake_failed(sm, MMPDU_REASON_CODE_UNSPECIFIED);
@@ -1821,7 +1817,7 @@ retransmit:
 	eapol_sm_write(sm, (struct eapol_frame *) step4, unencrypted);
 	l_free(step4);
 
-	if (sm->handshake->ptk_complete)
+	if (hs->ptk_complete)
 		return;
 
 	/*
@@ -1829,9 +1825,8 @@ retransmit:
 	 * ptk, this flag tells netdev to wait for the gtk/igtk before
 	 * completing the connection.
 	 */
-	if (!gtk && sm->handshake->group_cipher !=
-			IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC)
-		sm->handshake->wait_for_gtk = true;
+	if (!gtk && hs->group_cipher != IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC)
+		hs->wait_for_gtk = true;
 
 	if (gtk)
 		eapol_install_gtk(sm, gtk_key_index, gtk, gtk_len, ek->key_rsc);
@@ -1839,10 +1834,10 @@ retransmit:
 	if (igtk)
 		eapol_install_igtk(sm, igtk_key_index, igtk, igtk_len);
 
-	handshake_state_install_ptk(sm->handshake);
+	handshake_state_install_ptk(hs);
 
 	if (rekey_offload)
-		rekey_offload(sm->handshake->ifindex, kek, kck,
+		rekey_offload(hs->ifindex, kek, kck,
 				sm->replay_counter, sm->user_data);
 
 	l_timeout_remove(sm->timeout);
