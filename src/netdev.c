@@ -39,6 +39,8 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
+
 #include "linux/nl80211.h"
 
 #include "src/iwd.h"
@@ -200,6 +202,22 @@ static struct l_queue *netdev_list;
 static struct watchlist netdev_watches;
 static bool pae_over_nl80211;
 static bool mac_per_ssid;
+
+static unsigned int iov_ie_append(struct iovec *iov,
+					unsigned int n_iov, unsigned int c,
+					const uint8_t *ie)
+{
+	if (L_WARN_ON(c >= n_iov))
+		return n_iov;
+
+	if (!ie)
+		return c;
+
+	iov[c].iov_base = (void *) ie;
+	iov[c].iov_len = ie[1] + 2;
+
+	return c + 1u;
+}
 
 const char *netdev_iftype_to_string(uint32_t iftype)
 {
@@ -2684,23 +2702,19 @@ static void netdev_sae_tx_authenticate(const uint8_t *body,
 static void netdev_sae_tx_associate(void *user_data)
 {
 	struct netdev *netdev = user_data;
+	struct handshake_state *hs = netdev->handshake;
 	struct l_genl_msg *msg;
-	struct iovec iov[2];
-	int iov_elems = 0;
+	struct iovec iov[3];
+	unsigned int n_iov = L_ARRAY_SIZE(iov);
+	unsigned int n_used = 0;
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
-	iov[iov_elems].iov_base = netdev->handshake->supplicant_ie;
-	iov[iov_elems].iov_len = netdev->handshake->supplicant_ie[1] + 2;
-	iov_elems++;
+	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_ie);
+	n_used = iov_ie_append(iov, n_iov, n_used, hs->mde);
+	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_rsnxe);
 
-	if (netdev->handshake->mde) {
-		iov[iov_elems].iov_base = netdev->handshake->mde;
-		iov[iov_elems].iov_len = netdev->handshake->mde[1] + 2;
-		iov_elems++;
-	}
-
-	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, iov_elems);
+	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, n_used);
 
 	if (!l_genl_family_send(nl80211, msg, netdev_assoc_cb, netdev, NULL)) {
 		l_genl_msg_unref(msg);
@@ -3347,6 +3361,18 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 		netdev->ap = sae_sm_new(hs, netdev_sae_tx_authenticate,
 						netdev_sae_tx_associate,
 						netdev);
+
+		if (sae_sm_is_h2e(netdev->ap)) {
+			uint8_t own_rsnxe[20];
+
+			if (wiphy_get_rsnxe(netdev->wiphy,
+					own_rsnxe, sizeof(own_rsnxe))) {
+				set_bit(own_rsnxe + 2, IE_RSNX_SAE_H2E);
+				handshake_state_set_supplicant_rsnxe(hs,
+								own_rsnxe);
+			}
+		}
+
 		break;
 	case IE_RSN_AKM_SUITE_OWE:
 		netdev->ap = owe_sm_new(hs, netdev_owe_tx_authenticate,
