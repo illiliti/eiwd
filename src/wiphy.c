@@ -551,6 +551,26 @@ const uint8_t *wiphy_get_rm_enabled_capabilities(struct wiphy *wiphy)
 	return wiphy->rm_enabled_capabilities;
 }
 
+bool wiphy_get_rsnxe(const struct wiphy *wiphy, uint8_t *buf, size_t len)
+{
+	if (len < 3)
+		return false;
+
+	buf[0] = IE_TYPE_RSNX;
+	buf[1] = 1;
+
+	/*
+	 * Lower 4 bits of the first octet:
+	 * The length of the Extended RSN Capabilities field, in octets,
+	 * minus 1, i.e., n - 1.
+	 */
+	buf[2] = 0;
+
+	/* No other bits set for now */
+
+	return true;
+}
+
 static void wiphy_address_constrain(struct wiphy *wiphy, uint8_t addr[static 6])
 {
 	switch (mac_randomize_bytes) {

@@ -101,6 +101,7 @@ const uint8_t *wiphy_get_permanent_address(struct wiphy *wiphy);
 const uint8_t *wiphy_get_extended_capabilities(struct wiphy *wiphy,
 							uint32_t iftype);
 const uint8_t *wiphy_get_rm_enabled_capabilities(struct wiphy *wiphy);
+bool wiphy_get_rsnxe(const struct wiphy *wiphy, uint8_t *buf, size_t len);
 void wiphy_get_reg_domain_country(struct wiphy *wiphy, char *out);
 
 void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6]);
