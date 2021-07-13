@@ -117,7 +117,6 @@ struct netdev {
 	netdev_command_cb_t adhoc_cb;
 	void *user_data;
 	struct eapol_sm *sm;
-	struct sae_sm *sae_sm;
 	struct auth_proto *ap;
 	struct handshake_state *handshake;
 	uint32_t connect_cmd_id;
