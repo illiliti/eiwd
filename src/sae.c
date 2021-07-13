@@ -32,8 +32,8 @@
 #include "src/handshake.h"
 #include "src/crypto.h"
 #include "src/mpdu.h"
-#include "src/sae.h"
 #include "src/auth-proto.h"
+#include "src/sae.h"
 
 /* SHA-512 is the highest supported hashing function as of 802.11-2020 */
 #define SAE_MAX_HASH_LEN 64
@@ -1289,6 +1289,13 @@ static bool sae_start(struct auth_proto *ap)
 
 	sm->state = SAE_STATE_COMMITTED;
 	return sae_send_commit(sm, false);
+}
+
+bool sae_sm_is_h2e(struct auth_proto *ap)
+{
+	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
+
+	return sm->sae_type != CRYPTO_SAE_LOOPING;
 }
 
 static void sae_free(struct auth_proto *ap)
