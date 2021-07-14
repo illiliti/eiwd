@@ -3340,9 +3340,6 @@ build_cmd_connect:
 		cmd_connect = netdev_build_cmd_connect(netdev, bss, hs,
 					NULL, vendor_ies, num_vendor_ies);
 
-		if (!cmd_connect)
-			return -EINVAL;
-
 		if (!is_offload(hs) && (is_rsn || hs->settings_8021x)) {
 			sm = eapol_sm_new(hs);
 
@@ -3457,8 +3454,6 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 
 	cmd_connect = netdev_build_cmd_connect(netdev, target_bss, hs,
 						orig_bss->addr, NULL, 0);
-	if (!cmd_connect)
-		return -EINVAL;
 
 	if (is_rsn)
 		sm = eapol_sm_new(hs);
