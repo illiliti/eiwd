@@ -3649,9 +3649,6 @@ static void netdev_ft_tx_authenticate(struct iovec *iov,
 
 	cmd_authenticate = netdev_build_cmd_authenticate(netdev,
 							NL80211_AUTHTYPE_FT);
-	if (!cmd_authenticate)
-		goto restore_snonce;
-
 	l_genl_msg_append_attrv(cmd_authenticate, NL80211_ATTR_IE, iov,
 					iov_len);
 
