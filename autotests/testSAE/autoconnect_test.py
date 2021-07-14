@@ -8,20 +8,15 @@ import iwd
 from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
+from hostapd import HostapdCLI
 
 class Test(unittest.TestCase):
 
     def validate_connection(self, wd):
 
-        devices = wd.list_devices(4)
+        devices = wd.list_devices(1)
         self.assertIsNotNone(devices)
         device = devices[0]
-
-        # These devices aren't used in this test, this makes logs a bit nicer
-        # since these devices would presumably start autoconnecting.
-        devices[1].disconnect()
-        devices[2].disconnect()
-        devices[3].disconnect()
 
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
@@ -38,13 +33,26 @@ class Test(unittest.TestCase):
         condition = 'not obj.connected'
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
-    def test_connection_success(self):
-        wd = IWD(True)
+    def test_SAE(self):
+        self.hostapd.set_value('sae_pwe', '0');
+        self.hostapd.set_value('sae_groups', '19');
+        self.hostapd.reload()
+        self.hostapd.wait_for_event("AP-ENABLED")
 
+        wd = IWD(True)
+        self.validate_connection(wd)
+
+    def test_SAE_H2E(self):
+        self.hostapd.set_value('sae_pwe', '1');
+        self.hostapd.set_value('sae_groups', '20');
+        self.hostapd.reload()
+        self.hostapd.wait_for_event("AP-ENABLED")
+        wd = IWD(True)
         self.validate_connection(wd)
 
     @classmethod
     def setUpClass(cls):
+        cls.hostapd = HostapdCLI(config='ssidSAE.conf')
         IWD.copy_to_storage('ssidSAE.psk')
         pass
 

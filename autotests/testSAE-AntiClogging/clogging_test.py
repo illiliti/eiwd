@@ -8,6 +8,7 @@ import iwd
 from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
+from hostapd import HostapdCLI
 
 class Test(unittest.TestCase):
 
@@ -21,20 +22,16 @@ class Test(unittest.TestCase):
         self.assertIsNotNone(devices)
 
         for d in devices:
-            condition = 'not obj.scanning'
-            wd.wait_for_object_condition(d, condition)
-
+            d.disconnect()
             d.scan()
+            wd.wait_for_object_condition(d, 'obj.scanning')
 
         for d in devices:
-            condition = 'not obj.scanning'
-            wd.wait_for_object_condition(d, condition)
+            wd.wait_for_object_condition(d, 'not obj.scanning')
 
         for i in range(len(devices)):
             network = devices[i].get_ordered_network('ssidSAE-Clogging')
-
             self.assertEqual(network.type, NetworkType.psk)
-
             networks.append(network)
 
             condition = 'not obj.connected'
@@ -42,10 +39,6 @@ class Test(unittest.TestCase):
 
         for n in networks:
             n.network_object.connect(wait=False)
-
-        for d in devices:
-            condition = 'obj.state == DeviceState.connected'
-            wd.wait_for_object_condition(d, condition)
 
         for d in devices:
             condition = 'obj.state == DeviceState.connected'
@@ -60,14 +53,27 @@ class Test(unittest.TestCase):
 
         wd.unregister_psk_agent(psk_agent)
 
-    def test_connection_success(self):
+    def test_SAE_H2E_Group20(self):
+        self.hostapd.set_value('sae_pwe', '1');
+        self.hostapd.set_value('sae_groups', '20');
+        self.hostapd.reload()
+        self.hostapd.wait_for_event("AP-ENABLED")
         wd = IWD(True)
-
         self.validate_connection(wd)
+        wd.clear_storage()
+
+    def test_SAE(self):
+        self.hostapd.set_value('sae_pwe', '0');
+        self.hostapd.set_value('sae_groups', '19');
+        self.hostapd.reload()
+        self.hostapd.wait_for_event("AP-ENABLED")
+        wd = IWD(True)
+        self.validate_connection(wd)
+        wd.clear_storage()
 
     @classmethod
     def setUpClass(cls):
-        pass
+        cls.hostapd = HostapdCLI(config='ssidSAE-Clogging.conf')
 
     @classmethod
     def tearDownClass(cls):
