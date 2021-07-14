@@ -241,6 +241,26 @@ bool handshake_state_set_supplicant_ie(struct handshake_state *s,
 	return handshake_state_setup_own_ciphers(s, &info);
 }
 
+static void replace_ie(uint8_t **old, const uint8_t *new)
+{
+	if (*old == NULL) {
+		*old = new ? l_memdup(new, new[1] + 2) : NULL;
+		return;
+	}
+
+	if (!new) {
+		l_free(*old);
+		*old = NULL;
+		return;
+	}
+
+	if ((*old)[1] == new[1] && !memcmp(*old, new, new[1] + 2))
+		return;
+
+	l_free(*old);
+	*old = l_memdup(new, new[1] + 2);
+}
+
 void handshake_state_set_ssid(struct handshake_state *s, const uint8_t *ssid,
 				size_t ssid_len)
 {
@@ -250,18 +270,12 @@ void handshake_state_set_ssid(struct handshake_state *s, const uint8_t *ssid,
 
 void handshake_state_set_mde(struct handshake_state *s, const uint8_t *mde)
 {
-	if (s->mde)
-		l_free(s->mde);
-
-	s->mde = mde ? l_memdup(mde, mde[1] + 2) : NULL;
+	replace_ie(&s->mde, mde);
 }
 
 void handshake_state_set_fte(struct handshake_state *s, const uint8_t *fte)
 {
-	if (s->fte)
-		l_free(s->fte);
-
-	s->fte = fte ? l_memdup(fte, fte[1] + 2) : NULL;
+	replace_ie(&s->fte, fte);
 }
 
 void handshake_state_set_kh_ids(struct handshake_state *s,
