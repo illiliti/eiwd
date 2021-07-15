@@ -1498,13 +1498,14 @@ static void eapol_handle_ptk_2_of_4(struct eapol_sm *sm,
 	}
 
 	if (sm->handshake->support_ip_allocation) {
+		size_t len;
 		const uint8_t *ip_req_kde =
-			eapol_find_wfa_kde(EAPOL_KEY_DATA(ek, sm->mic_len),
+			handshake_util_find_kde(HANDSHAKE_KDE_IP_ADDRESS_REQ,
+					EAPOL_KEY_DATA(ek, sm->mic_len),
 					EAPOL_KEY_DATA_LEN(ek, sm->mic_len),
-					HANDSHAKE_KDE_IP_ADDRESS_REQ & 255);
+					&len);
 
-		if (ip_req_kde &&
-				(ip_req_kde[1] < 5 || ip_req_kde[6] != 0x01)) {
+		if (ip_req_kde && (len < 1 || ip_req_kde[0] != 0x01)) {
 			l_debug("Invalid IP Address Request KDE in frame 2/4");
 			handshake_failed(sm, MMPDU_REASON_CODE_INVALID_IE);
 			return;
@@ -1788,16 +1789,17 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 		igtk = NULL;
 
 	if (hs->support_ip_allocation) {
+		size_t len;
 		const uint8_t *ip_alloc_kde =
-			eapol_find_wfa_kde(decrypted_key_data,
-					decrypted_key_data_size,
-					HANDSHAKE_KDE_IP_ADDRESS_ALLOC & 255);
+			handshake_util_find_kde(HANDSHAKE_KDE_IP_ADDRESS_ALLOC,
+						decrypted_key_data,
+						decrypted_key_data_size,
+						&len);
 
-		if (ip_alloc_kde &&
-				(ip_alloc_kde[1] < 16 ||
-				 !eapol_check_ip_mask(ip_alloc_kde + 10,
-							ip_alloc_kde + 6,
-							ip_alloc_kde + 14))) {
+		if (ip_alloc_kde && (len < 12 ||
+				!eapol_check_ip_mask(ip_alloc_kde + 4,
+							ip_alloc_kde,
+							ip_alloc_kde + 8))) {
 			l_debug("Invalid IP Allocation KDE in frame 3/4");
 			handshake_failed(sm, MMPDU_REASON_CODE_INVALID_IE);
 			return;
@@ -1806,9 +1808,9 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 		hs->support_ip_allocation = ip_alloc_kde != NULL;
 
 		if (ip_alloc_kde) {
-			hs->client_ip_addr = l_get_be32(ip_alloc_kde + 6);
-			hs->subnet_mask = l_get_be32(ip_alloc_kde + 10);
-			hs->go_ip_addr = l_get_be32(ip_alloc_kde + 14);
+			hs->client_ip_addr = l_get_be32(ip_alloc_kde);
+			hs->subnet_mask = l_get_be32(ip_alloc_kde + 4);
+			hs->go_ip_addr = l_get_be32(ip_alloc_kde + 8);
 		} else
 			l_debug("Authenticator ignored our IP Address Request");
 	}
