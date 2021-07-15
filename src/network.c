@@ -339,11 +339,6 @@ bool network_set_passphrase(struct network *network, const char *passphrase)
 	return __network_set_passphrase(network, passphrase);
 }
 
-struct l_queue *network_get_secrets(const struct network *network)
-{
-	return network->secrets;
-}
-
 bool network_set_psk(struct network *network, const uint8_t *psk)
 {
 	if (network_get_security(network) != SECURITY_PSK)

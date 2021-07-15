@@ -41,7 +41,6 @@ const char *network_get_ssid(const struct network *network);
 const char *network_get_path(const struct network *network);
 enum security network_get_security(const struct network *network);
 bool network_set_passphrase(struct network *network, const char *passphrase);
-struct l_queue *network_get_secrets(const struct network *network);
 int network_get_signal_strength(const struct network *network);
 struct l_settings *network_get_settings(const struct network *network);
 
