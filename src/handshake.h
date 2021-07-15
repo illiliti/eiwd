@@ -233,6 +233,9 @@ void handshake_state_set_gtk(struct handshake_state *s, const uint8_t *key,
 bool handshake_util_ap_ie_matches(const uint8_t *msg_ie,
 					const uint8_t *scan_ie, bool is_wpa);
 
+const uint8_t *handshake_util_find_kde(enum handshake_kde selector,
+					const uint8_t *data, size_t data_len,
+					size_t *out_kde_len);
 const uint8_t *handshake_util_find_gtk_kde(const uint8_t *data, size_t data_len,
 					size_t *out_gtk_len);
 const uint8_t *handshake_util_find_igtk_kde(const uint8_t *data,
