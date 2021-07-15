@@ -83,6 +83,8 @@ struct network {
 	bool ask_passphrase:1; /* Whether we should force-ask agent */
 	bool is_hs20:1;
 	bool anqp_pending:1;	/* Set if there is a pending ANQP request */
+	uint8_t transition_disable; /* Temporary cache until info is set */
+	bool have_transition_disable:1;
 	int rank;
 	/* Holds DBus Connect() message if it comes in before ANQP finishes */
 	struct l_dbus_message *connect_after_anqp;
@@ -353,6 +355,29 @@ bool network_set_psk(struct network *network, const uint8_t *psk)
 	return true;
 }
 
+int network_set_transition_disable(struct network *network,
+					const uint8_t *td, size_t len)
+{
+	struct network_info *info = network->info;
+	/* We only recognize bits 0, 2, 3 */
+	uint8_t supported_bitmask = 0x0d;
+
+	if (len < 1)
+		return -EBADMSG;
+
+	network->have_transition_disable = true;
+	network->transition_disable = td[0] & supported_bitmask;
+
+	if (info && info->config.have_transition_disable &&
+			info->config.transition_disable ==
+					network->transition_disable)
+		return 0;
+
+	network->sync_settings = true;
+
+	return 0;
+}
+
 int network_get_signal_strength(const struct network *network)
 {
 	struct scan_bss *best_bss = l_queue_peek_head(network->bss_list);
@@ -608,26 +633,35 @@ static void network_settings_save_sae_pt_ecc(struct l_settings *settings,
 	l_settings_set_bytes(settings, "Security", key, buf, len);
 }
 
-void network_sync_settings(struct network *network)
+static void network_settings_save(struct network *network,
+						struct l_settings *settings)
 {
-	struct l_settings *settings = network->settings;
-	struct l_settings *fs_settings;
-	const char *ssid = network_get_ssid(network);
+	if (network->have_transition_disable) {
+		char *modes[4];
+		unsigned int i = 0;
 
-	if (!network->sync_settings)
+		l_settings_set_bool(settings, NET_TRANSITION_DISABLE, true);
+
+		if (test_bit(&network->transition_disable, 0))
+			modes[i++] = "personal";
+
+		if (test_bit(&network->transition_disable, 2))
+			modes[i++] = "enterprise";
+
+		if (test_bit(&network->transition_disable, 3))
+			modes[i++] = "open";
+
+		modes[i] = NULL;
+
+		l_settings_set_string_list(settings,
+					NET_TRANSITION_DISABLE_MODES,
+					modes, ' ');
+	}
+
+	if (network->security != SECURITY_PSK)
 		return;
 
-	network->sync_settings = false;
-
-	/*
-	 * Re-open the settings from Disk, in case they were updated
-	 * since we last opened them.  We only update the [Security]
-	 * bits here
-	 */
-	fs_settings = storage_network_open(SECURITY_PSK, ssid);
-	if (fs_settings)
-		settings = fs_settings;
-
+	/* We only update the [Security] bits here, wipe the group first */
 	l_settings_remove_group(settings, "Security");
 
 	if (network->psk)
@@ -643,11 +677,38 @@ void network_sync_settings(struct network *network)
 
 	if (network->sae_pt_20)
 		network_settings_save_sae_pt_ecc(settings, network->sae_pt_20);
+}
 
-	storage_network_sync(SECURITY_PSK, ssid, settings);
+void network_sync_settings(struct network *network)
+{
+	struct network_info *info = network->info;
 
-	if (fs_settings)
+	if (!network->sync_settings)
+		return;
+
+	l_debug("");
+
+	network->sync_settings = false;
+
+	/*
+	 * Re-open the settings from Disk, in case they were updated
+	 * since we last opened them.
+	 */
+	if (network->info) {
+		struct l_settings *fs_settings = info->ops->open(info);
+
+		if (L_WARN_ON(!fs_settings))
+			return;
+
+		network_settings_save(network, fs_settings);
+		info->ops->sync(info, fs_settings);
 		l_settings_free(fs_settings);
+		return;
+	}
+
+	network_settings_save(network, network->settings);
+	storage_network_sync(network->security, network->ssid,
+				network->settings);
 }
 
 const struct network_info *network_get_info(const struct network *network)

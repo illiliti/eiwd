@@ -25,6 +25,8 @@
 #define NET_AUTOCONNECT SETTINGS, "AutoConnect"
 #define NET_ALWAYS_RANDOMIZE_ADDRESS SETTINGS, "AlwaysRandomizeAddress"
 #define NET_ADDRESS_OVERRIDE SETTINGS, "AddressOverride"
+#define NET_TRANSITION_DISABLE SETTINGS, "TransitionDisable"
+#define NET_TRANSITION_DISABLE_MODES SETTINGS, "DisabledTransitionModes"
 
 enum security;
 struct scan_freq_set;
@@ -67,6 +69,8 @@ struct network_config {
 	bool override_addr:1;
 	bool always_random_addr:1;
 	uint8_t sta_addr[6];
+	bool have_transition_disable : 1;
+	uint8_t transition_disable;
 };
 
 struct network_info {

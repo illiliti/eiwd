@@ -714,6 +714,14 @@ static void station_handshake_event(struct handshake_state *hs,
 		l_warn("Unable to securely rekey on this hw/kernel...");
 		station_reconnect(station);
 		break;
+	case HANDSHAKE_EVENT_TRANSITION_DISABLE:
+	{
+		const uint8_t *td = va_arg(args, const uint8_t *);
+		size_t len = va_arg(args, size_t);
+
+		network_set_transition_disable(network, td, len);
+		break;
+	}
 	case HANDSHAKE_EVENT_COMPLETE:
 	case HANDSHAKE_EVENT_SETTING_KEYS_FAILED:
 	case HANDSHAKE_EVENT_EAP_NOTIFY:

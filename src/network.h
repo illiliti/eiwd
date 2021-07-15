@@ -46,6 +46,9 @@ struct l_settings *network_get_settings(const struct network *network);
 
 bool network_set_psk(struct network *network, const uint8_t *psk);
 
+int network_set_transition_disable(struct network *network,
+					const uint8_t *td, size_t len);
+
 int network_handshake_setup(struct network *network,
 						struct handshake_state *hs);
 
