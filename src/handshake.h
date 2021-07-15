@@ -44,6 +44,8 @@ enum handshake_kde {
 	/* Wi-Fi P2P Technical Specification v1.7 4.2.8 */
 	HANDSHAKE_KDE_IP_ADDRESS_REQ	= 0x506f9a04,
 	HANDSHAKE_KDE_IP_ADDRESS_ALLOC	= 0x506f9a05,
+	/* Wi-Fi WPA3 Specification v3.0 Table 4 */
+	HANDSHAKE_KDE_TRANSITION_DISABLE = 0x506f9a20,
 };
 
 enum handshake_event {

@@ -1607,6 +1607,8 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	size_t igtk_len;
 	const uint8_t *rsne;
 	const uint8_t *optional_rsne = NULL;
+	const uint8_t *transition_disable;
+	size_t transition_disable_len;
 	uint8_t gtk_key_index;
 	uint16_t igtk_key_index;
 
@@ -1814,6 +1816,15 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 		} else
 			l_debug("Authenticator ignored our IP Address Request");
 	}
+
+	transition_disable =
+		handshake_util_find_kde(HANDSHAKE_KDE_TRANSITION_DISABLE,
+					decrypted_key_data,
+					decrypted_key_data_size,
+					&transition_disable_len);
+	if (transition_disable)
+		handshake_event(hs, HANDSHAKE_EVENT_TRANSITION_DISABLE,
+				transition_disable, transition_disable_len);
 
 retransmit:
 	/*
