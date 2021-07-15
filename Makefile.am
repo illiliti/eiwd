@@ -523,6 +523,7 @@ unit_test_sae_SOURCES = unit/test-sae.c \
 				src/util.h src/util.c \
 				src/mpdu.h src/mpdu.c
 unit_test_sae_LDADD = $(ell_ldadd)
+unit_test_sae_LDFLAGS = -Wl,-wrap,l_ecc_supported_ike_groups
 
 unit_test_p2p_SOURCES = unit/test-p2p.c src/wscutil.h src/wscutil.c \
 				src/crypto.h src/crypto.c \

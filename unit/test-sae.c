@@ -36,6 +36,14 @@
 #include "src/auth-proto.h"
 #include "src/crypto.h"
 
+const unsigned int *__wrap_l_ecc_supported_ike_groups(void);
+
+const unsigned int *__wrap_l_ecc_supported_ike_groups(void)
+{
+	static unsigned int supported_ike_groups[2] = { 19, 0 };
+	return supported_ike_groups;
+}
+
 struct test_handshake_state {
 	struct handshake_state super;
 };
