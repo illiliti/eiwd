@@ -490,7 +490,7 @@ static bool scan_cmds_add_hidden(const struct network_info *network,
 {
 	struct scan_cmds_add_data *data = user_data;
 
-	if (!network->is_hidden)
+	if (!network->config.is_hidden)
 		return true;
 
 	l_genl_msg_append_attr(*data->cmd, NL80211_ATTR_SSID,

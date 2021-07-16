@@ -214,6 +214,7 @@ static const double rankmod_table[] = {
 
 bool network_rankmod(const struct network *network, double *rankmod)
 {
+	struct network_info *info = network->info;
 	int n;
 	int nmax;
 
@@ -222,7 +223,7 @@ bool network_rankmod(const struct network *network, double *rankmod)
 	 * to at least once are autoconnectable.  Known Networks that
 	 * we have never connected to are not.
 	 */
-	if (!network->info || !network->info->connected_time)
+	if (!info || !info->config.connected_time)
 		return false;
 
 	n = known_network_offset(network->info);
@@ -493,25 +494,24 @@ int network_handshake_setup(struct network *network,
 	 * 3. per-network MAC override
 	 */
 
-	if (!l_settings_get_bool(settings, "Settings",
-					"AlwaysRandomizeAddress",
+	if (!l_settings_get_bool(settings, NET_ALWAYS_RANDOMIZE_ADDRESS,
 					&full_random))
 		full_random = false;
 
-	value = l_settings_get_value(settings, "Settings",
-					"AddressOverride");
+	value = l_settings_get_value(settings, NET_ADDRESS_OVERRIDE);
 	if (value) {
 		if (util_string_to_address(value, new_addr) &&
 					util_is_valid_sta_address(new_addr))
 			override = true;
 		else
-			l_warn("[Network].AddressOverride is not a valid "
-				"MAC address");
+			l_warn("[%s].%s is not a valid MAC address",
+					NET_ADDRESS_OVERRIDE);
 	}
 
 	if (override && full_random) {
-		l_warn("Cannot use both AlwaysRandomizeAddress and "
-			"AddressOverride concurrently, defaulting to override");
+		l_warn("Cannot use both [%s].%s and [%s].%s, using latter",
+				NET_ALWAYS_RANDOMIZE_ADDRESS,
+				NET_ADDRESS_OVERRIDE);
 		full_random = false;
 	}
 
@@ -726,6 +726,7 @@ int network_autoconnect(struct network *network, struct scan_bss *bss)
 	struct station *station = network->station;
 	struct wiphy *wiphy = station_get_wiphy(station);
 	enum security security = network_get_security(network);
+	struct network_info *info = network->info;
 	struct ie_rsn_info rsn;
 	bool is_rsn;
 	int ret;
@@ -750,11 +751,11 @@ int network_autoconnect(struct network *network, struct scan_bss *bss)
 		return -ENOTSUP;
 	}
 
-	if (!network_settings_load(network))
+	if (!info || !network_settings_load(network))
 		return -ENOKEY;
 
 	ret = -EPERM;
-	if (!network->info->is_autoconnectable)
+	if (!info->config.is_autoconnectable)
 		goto close_settings;
 
 	if (!is_rsn)
@@ -1465,7 +1466,7 @@ struct l_dbus_message *network_connect_new_hidden_network(
 		return dbus_error_not_supported(message);
 
 	network->settings = l_settings_new();
-	l_settings_set_bool(network->settings, "Settings", "Hidden", true);
+	l_settings_set_bool(network->settings, NET_HIDDEN, true);
 
 	switch (network_get_security(network)) {
 	case SECURITY_PSK:
@@ -1639,6 +1640,7 @@ void network_rank_update(struct network *network, bool connected)
 	 * here and in network_bss_select but those should be rare cases.
 	 */
 	struct scan_bss *best_bss = l_queue_peek_head(network->bss_list);
+	struct network_info *info = network->info;
 
 	/*
 	 * The rank should separate networks into four groups that use
@@ -1657,13 +1659,13 @@ void network_rank_update(struct network *network, bool connected)
 		return;
 	}
 
-	if (!network->info) { /* Not known, assign negative rank */
+	if (!info) { /* Not known, assign negative rank */
 		network->rank = (int) best_bss->rank - USHRT_MAX;
 		return;
 	}
 
-	if (network->info->connected_time != 0) {
-		int n = known_network_offset(network->info);
+	if (info->config.connected_time != 0) {
+		int n = known_network_offset(info);
 
 		L_WARN_ON(n < 0);
 
@@ -1703,7 +1705,7 @@ static void network_unset_hotspot(struct network *network, void *user_data)
 static void emit_known_network_removed(struct station *station, void *user_data)
 {
 	struct network_info *info = user_data;
-	bool was_hidden = info->is_hidden;
+	bool was_hidden = info->config.is_hidden;
 	struct network *connected_network;
 	struct network *network = NULL;
 

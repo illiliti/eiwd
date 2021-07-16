@@ -314,7 +314,8 @@ static struct network_info_ops hotspot_ops = {
 };
 
 static struct hs20_config *hs20_config_new(struct l_settings *settings,
-						char *filename)
+						char *filename,
+						struct network_config *c)
 {
 	struct hs20_config *config;
 	char *hessid_str;
@@ -322,20 +323,13 @@ static struct hs20_config *hs20_config_new(struct l_settings *settings,
 	size_t rc_len;
 	uint8_t *rc;
 	char *name;
-	bool autoconnect;
 
 	/* One of HESSID, NAI realms, or Roaming Consortium must be included */
 	hessid_str = l_settings_get_string(settings, "Hotspot", "HESSID");
-
 	nai_realms = l_settings_get_string_list(settings, "Hotspot",
 						"NAIRealmNames", ',');
-
 	rc = l_settings_get_bytes(settings, "Hotspot", "RoamingConsortium",
 								&rc_len);
-
-	if (!l_settings_get_bool(settings, "Settings", "AutoConnect",
-								&autoconnect))
-		autoconnect = true;
 
 	name = l_settings_get_string(settings, "Hotspot", "Name");
 
@@ -376,14 +370,11 @@ static struct hs20_config *hs20_config_new(struct l_settings *settings,
 		config->rc_len = rc_len;
 	}
 
-	config->super.is_autoconnectable = autoconnect;
+	__network_info_init(&config->super, NULL, SECURITY_8021X, c);
 	config->super.is_hotspot = true;
-	config->super.type = SECURITY_8021X;
-	config->super.ops = &hotspot_ops;
-	config->super.connected_time = l_path_get_mtime(filename);
 	config->name = name;
-
 	config->filename = l_strdup(filename);
+	config->super.ops = &hotspot_ops;
 
 	known_networks_add(&config->super);
 
@@ -404,7 +395,8 @@ static void hs20_dir_watch_cb(const char *filename,
 {
 	struct l_settings *new;
 	uint64_t connected_time;
-	struct hs20_config *config;
+	struct hs20_config *hs20;
+	struct network_config config;
 
 	L_AUTO_FREE_VAR(char *, full_path) = NULL;
 
@@ -427,33 +419,28 @@ static void hs20_dir_watch_cb(const char *filename,
 			return;
 		}
 
-		config = hs20_config_new(new, full_path);
+		__network_config_parse(new, full_path, &config);
+
+		hs20 = hs20_config_new(new, full_path, &config);
 		l_settings_free(new);
 
-		if (!config)
+		if (!hs20)
 			return;
 
-		l_queue_push_head(hs20_settings, config);
+		l_queue_push_head(hs20_settings, hs20);
 		break;
 	case L_DIR_WATCH_EVENT_REMOVED:
-		config = l_queue_remove_if(hs20_settings, match_filename,
+		hs20 = l_queue_remove_if(hs20_settings, match_filename,
 						full_path);
-		if (!config)
+		if (!hs20)
 			return;
 
-		known_networks_remove(&config->super);
-
-		/*
-		 * TODO: Disconnect any networks using this provisioning file
-		 */
-
+		known_networks_remove(&hs20->super);
 		break;
 	case L_DIR_WATCH_EVENT_MODIFIED:
-		config = l_queue_find(hs20_settings, match_filename, full_path);
-		if (!config)
+		hs20 = l_queue_find(hs20_settings, match_filename, full_path);
+		if (!hs20)
 			return;
-
-		connected_time = l_path_get_mtime(full_path);
 
 		new = l_settings_new();
 
@@ -462,9 +449,10 @@ static void hs20_dir_watch_cb(const char *filename,
 			return;
 		}
 
-		known_network_set_connected_time(&config->super,
-							connected_time);
-		known_network_update(&config->super, new);
+		__network_config_parse(new, full_path, &config);
+		known_network_update(&hs20->super, &config);
+
+		/* TODO: Update hotspot specific settings */
 
 		l_settings_free(new);
 
@@ -472,14 +460,13 @@ static void hs20_dir_watch_cb(const char *filename,
 	case L_DIR_WATCH_EVENT_ACCESSED:
 		break;
 	case L_DIR_WATCH_EVENT_ATTRIB:
-		config = l_queue_find(hs20_settings, match_filename, full_path);
-		if (!config)
+		hs20 = l_queue_find(hs20_settings, match_filename, full_path);
+		if (!hs20)
 			return;
 
 		connected_time = l_path_get_mtime(full_path);
-		known_network_set_connected_time(&config->super,
+		known_network_set_connected_time(&hs20->super,
 							connected_time);
-
 		break;
 	}
 }
@@ -503,9 +490,10 @@ static int hotspot_init(void)
 	hs20_settings = l_queue_new();
 
 	while ((dirent = readdir(dir))) {
-		struct hs20_config *config;
+		struct hs20_config *hs20;
 		struct l_settings *s;
 		char *filename;
+		struct network_config config;
 
 		if (dirent->d_type != DT_REG && dirent->d_type != DT_LNK)
 			continue;
@@ -516,10 +504,11 @@ static int hotspot_init(void)
 		if (!l_settings_load_from_file(s, filename))
 			goto next;
 
-		config = hs20_config_new(s, filename);
+		__network_config_parse(s, filename, &config);
 
-		if (config)
-			l_queue_push_head(hs20_settings, config);
+		hs20 = hs20_config_new(s, filename, &config);
+		if (hs20)
+			l_queue_push_head(hs20_settings, hs20);
 
 next:
 		l_free(filename);
