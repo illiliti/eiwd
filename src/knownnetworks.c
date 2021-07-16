@@ -57,6 +57,8 @@ void __network_config_parse(const struct l_settings *settings,
 					struct network_config *config)
 {
 	bool b;
+	const char *value;
+	uint8_t new_addr[6];
 
 	memset(config, 0, sizeof(struct network_config));
 
@@ -72,6 +74,29 @@ void __network_config_parse(const struct l_settings *settings,
 		b = false;
 
 	config->is_hidden = b;
+
+	if (!l_settings_get_bool(settings, NET_ALWAYS_RANDOMIZE_ADDRESS, &b))
+		b = false;
+
+	config->always_random_addr = b;
+
+	value = l_settings_get_value(settings, NET_ADDRESS_OVERRIDE);
+	if (value) {
+		if (util_string_to_address(value, new_addr) &&
+					util_is_valid_sta_address(new_addr)) {
+			config->override_addr = true;
+			memcpy(config->sta_addr, new_addr, sizeof(new_addr));
+		} else
+			l_warn("[%s].%s is not a valid MAC address",
+					NET_ADDRESS_OVERRIDE);
+	}
+
+	if (config->override_addr && config->always_random_addr) {
+		l_warn("Cannot use both [%s].%s and [%s].%s, using latter",
+				NET_ALWAYS_RANDOMIZE_ADDRESS,
+				NET_ADDRESS_OVERRIDE);
+		config->always_random_addr = false;
+	}
 }
 
 void __network_info_init(struct network_info *info,

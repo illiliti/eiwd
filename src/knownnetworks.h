@@ -64,6 +64,9 @@ struct network_config {
 	uint64_t connected_time;	/* Time last connected */
 	bool is_hidden:1;
 	bool is_autoconnectable:1;
+	bool override_addr:1;
+	bool always_random_addr:1;
+	uint8_t sta_addr[6];
 };
 
 struct network_info {

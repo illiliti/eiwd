@@ -446,10 +446,8 @@ int network_handshake_setup(struct network *network,
 	struct station *station = network->station;
 	struct wiphy *wiphy = station_get_wiphy(station);
 	struct l_settings *settings = network->settings;
+	struct network_info *info = network->info;
 	uint32_t eapol_proto_version;
-	const char *value;
-	bool full_random;
-	bool override = false;
 	uint8_t new_addr[ETH_ALEN];
 	int r;
 
@@ -493,31 +491,10 @@ int network_handshake_setup(struct network *network,
 	 * 2. per-network full MAC randomization
 	 * 3. per-network MAC override
 	 */
-
-	if (!l_settings_get_bool(settings, NET_ALWAYS_RANDOMIZE_ADDRESS,
-					&full_random))
-		full_random = false;
-
-	value = l_settings_get_value(settings, NET_ADDRESS_OVERRIDE);
-	if (value) {
-		if (util_string_to_address(value, new_addr) &&
-					util_is_valid_sta_address(new_addr))
-			override = true;
-		else
-			l_warn("[%s].%s is not a valid MAC address",
-					NET_ADDRESS_OVERRIDE);
-	}
-
-	if (override && full_random) {
-		l_warn("Cannot use both [%s].%s and [%s].%s, using latter",
-				NET_ALWAYS_RANDOMIZE_ADDRESS,
-				NET_ADDRESS_OVERRIDE);
-		full_random = false;
-	}
-
-	if (override)
-		handshake_state_set_supplicant_address(hs, new_addr);
-	else if (full_random) {
+	if (info && info->config.override_addr)
+		handshake_state_set_supplicant_address(hs,
+							info->config.sta_addr);
+	else if (info && info->config.always_random_addr) {
 		wiphy_generate_random_address(wiphy, new_addr);
 		handshake_state_set_supplicant_address(hs, new_addr);
 	}
