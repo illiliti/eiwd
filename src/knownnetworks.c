@@ -97,6 +97,31 @@ void __network_config_parse(const struct l_settings *settings,
 				NET_ADDRESS_OVERRIDE);
 		config->always_random_addr = false;
 	}
+
+	if (!l_settings_get_bool(settings, NET_TRANSITION_DISABLE, &b))
+		b = false;
+
+	config->have_transition_disable = b;
+	if (config->have_transition_disable) {
+		unsigned int i;
+		char **modes = l_settings_get_string_list(settings,
+					NET_TRANSITION_DISABLE_MODES, ' ');
+
+		for (i = 0; modes && modes[i]; i++) {
+			if (!strcmp(modes[i], "personal"))
+				set_bit(&config->transition_disable, 0);
+			else if (!strcmp(modes[i], "enterprise"))
+				set_bit(&config->transition_disable, 2);
+			else if (!strcmp(modes[i], "open"))
+				set_bit(&config->transition_disable, 3);
+			else
+				l_warn("[%s].%s: Unrecognized value: %s",
+						NET_TRANSITION_DISABLE_MODES,
+						modes[i]);
+		}
+
+		l_strfreev(modes);
+	}
 }
 
 void __network_info_init(struct network_info *info,
