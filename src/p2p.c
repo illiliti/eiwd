@@ -1513,7 +1513,8 @@ static void p2p_try_connect_group(struct p2p_device *dev)
 
 	scan_bss_get_rsn_info(bss, &bss_info);
 
-	rsn_info.akm_suites = wiphy_select_akm(dev->wiphy, bss, false);
+	rsn_info.akm_suites = wiphy_select_akm(dev->wiphy, bss, SECURITY_PSK,
+						&bss_info, false);
 	if (!rsn_info.akm_suites)
 		goto not_supported;
 

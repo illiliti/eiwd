@@ -759,61 +759,144 @@ static bool bss_is_sae(const struct scan_bss *bss)
 	return __bss_is_sae(bss, &rsn);
 }
 
-int network_autoconnect(struct network *network, struct scan_bss *bss)
+int network_can_connect_bss(struct network *network, const struct scan_bss *bss)
 {
 	struct station *station = network->station;
 	struct wiphy *wiphy = station_get_wiphy(station);
 	enum security security = network_get_security(network);
 	struct network_info *info = network->info;
+	struct network_config *config = info ? &info->config : NULL;
+	bool can_transition_disable = wiphy_can_transition_disable(wiphy);
 	struct ie_rsn_info rsn;
-	bool is_rsn;
+	int ret;
+
+	switch (security) {
+	case SECURITY_NONE:
+	case SECURITY_PSK:
+	case SECURITY_8021X:
+		break;
+	default:
+		return -ENOSYS;
+	}
+
+	memset(&rsn, 0, sizeof(rsn));
+	ret = scan_bss_get_rsn_info(bss, &rsn);
+	if (ret < 0) {
+		/*
+		 * WPA3 Specification Version 3, Section 8
+		 * Transition Disable implies PMF, no TKIP, yet
+		 * Bit 3 is specified as 'Open system authentication without
+		 * encryption'.
+		 *
+		 * We assume the spec means us to check bit 3 here
+		 */
+		if (ret == -ENOENT && security == SECURITY_NONE) {
+			if (!config)
+				return 0;
+
+			if (!config->have_transition_disable ||
+					!test_bit(&config->transition_disable,
+							3))
+				return 0;
+
+			if (!can_transition_disable) {
+				l_debug("HW not capable of Transition Disable");
+				return 0;
+			}
+		}
+
+		return ret;
+	}
+
+	if (!config || !config->have_transition_disable)
+		goto no_transition_disable;
+
+	if (!can_transition_disable) {
+		l_debug("HW not capable of Transition Disable, skip");
+		goto no_transition_disable;
+	}
+
+	/*
+	 * WPA3 Specification, v3, Section 8:
+	 * - Disable use of WEP and TKIP
+	 * - Disallow association without negotiation of PMF
+	 */
+	rsn.pairwise_ciphers &= ~IE_RSN_CIPHER_SUITE_TKIP;
+
+	if (!rsn.group_management_cipher)
+		return -EPERM;
+
+	rsn.mfpr = true;
+
+	/* WPA3-Personal */
+	if (test_bit(&config->transition_disable, 0)) {
+		rsn.akm_suites &= ~IE_RSN_AKM_SUITE_PSK;
+		rsn.akm_suites &= ~IE_RSN_AKM_SUITE_PSK_SHA256;
+		rsn.akm_suites &= ~IE_RSN_AKM_SUITE_FT_USING_PSK;
+	}
+
+	/* WPA3-Enterprise */
+	if (test_bit(&config->transition_disable, 2))
+		rsn.akm_suites &= ~IE_RSN_AKM_SUITE_8021X;
+
+	/* Enhanced Open */
+	if (test_bit(&config->transition_disable, 3)) {
+		if (!(rsn.akm_suites & IE_RSN_AKM_SUITE_OWE))
+			return -EPERM;
+	}
+
+no_transition_disable:
+	if (!wiphy_select_cipher(wiphy, rsn.pairwise_ciphers))
+		return -ENOTSUP;
+
+	if (!wiphy_select_cipher(wiphy, rsn.group_cipher))
+		return -ENOTSUP;
+
+	if (rsn.mfpr && !wiphy_select_cipher(wiphy,
+				rsn.group_management_cipher))
+		return -EPERM;
+
+	if (!wiphy_select_akm(wiphy, bss, security, &rsn, false))
+		return -ENOTSUP;
+
+	return 0;
+}
+
+int network_autoconnect(struct network *network, struct scan_bss *bss)
+{
+	struct station *station = network->station;
+	enum security security = network_get_security(network);
+	struct network_info *info = network->info;
+	struct network_config *config;
 	int ret;
 
 	/* already waiting for an agent request, connect in progress */
 	if (network->agent_request)
 		return -EALREADY;
 
-	switch (security) {
-	case SECURITY_NONE:
-		is_rsn = false;
-		break;
-	case SECURITY_PSK:
-		if (network->ask_passphrase)
-			return -ENOKEY;
-
-		/* Fall through */
-	case SECURITY_8021X:
-		is_rsn = true;
-		break;
-	default:
-		return -ENOTSUP;
-	}
-
-	if (!info || !network_settings_load(network))
+	if (network->ask_passphrase)
 		return -ENOKEY;
 
-	ret = -EPERM;
-	if (!info->config.is_autoconnectable)
-		goto close_settings;
+	if (!info)
+		return -ENOENT;
 
-	if (!is_rsn)
-		goto done;
+	config = &info->config;
 
-	memset(&rsn, 0, sizeof(rsn));
-	scan_bss_get_rsn_info(bss, &rsn);
+	if (!config->is_autoconnectable)
+		return -EPERM;
 
-	if (!wiphy_select_cipher(wiphy, rsn.pairwise_ciphers) ||
-			!wiphy_select_cipher(wiphy, rsn.group_cipher)) {
-		l_debug("Cipher mismatch");
-		ret = -ENETUNREACH;
-		goto close_settings;
-	}
+	if (!network_settings_load(network))
+		return -ENOKEY;
 
-	if (security == SECURITY_PSK) {
-		ret = network_load_psk(network, __bss_is_sae(bss, &rsn));
+	switch (security) {
+	case SECURITY_PSK:
+		ret = network_load_psk(network, bss_is_sae(bss));
 		if (ret < 0)
 			goto close_settings;
-	} else if (security == SECURITY_8021X) {
+
+		break;
+	case SECURITY_8021X:
+	{
 		struct l_queue *missing_secrets = NULL;
 
 		ret = eap_check_settings(network->settings, network->secrets,
@@ -829,9 +912,16 @@ int network_autoconnect(struct network *network, struct scan_bss *bss)
 
 		if (!network_set_8021x_secrets(network))
 			goto close_settings;
+
+		break;
 	}
 
-done:
+	case SECURITY_NONE:
+		break;
+	default:
+		return -ENOTSUP;
+	}
+
 	return __station_connect_network(station, network, bss);
 
 close_settings:
@@ -1016,26 +1106,18 @@ struct scan_bss *network_bss_select(struct network *network,
 						bool fallback_to_blacklist)
 {
 	struct l_queue *bss_list = network->bss_list;
-	struct wiphy *wiphy = station_get_wiphy(network->station);
 	const struct l_queue_entry *bss_entry;
 	struct scan_bss *candidate = NULL;
-	bool fils_hint = network_has_erp_identity(network);
 
 	for (bss_entry = l_queue_get_entries(bss_list); bss_entry;
 			bss_entry = bss_entry->next) {
 		struct scan_bss *bss = bss_entry->data;
+		int ret = network_can_connect_bss(network, bss);
 
-		switch (network_get_security(network)) {
-		case SECURITY_PSK:
-		case SECURITY_8021X:
-			if (!wiphy_can_connect(wiphy, bss, fils_hint))
-				continue;
-			/* fall through */
-		case SECURITY_NONE:
-			break;
-		default:
+		if (ret == -ENOSYS)
 			return NULL;
-		}
+		else if (ret < 0)
+			continue;
 
 		/*
 		 * We only want to record the first (best) candidate. In case

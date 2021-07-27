@@ -57,6 +57,8 @@ void network_sync_settings(struct network *network);
 const struct network_info *network_get_info(const struct network *network);
 void network_set_info(struct network *network, struct network_info *info);
 
+int network_can_connect_bss(struct network *network,
+						const struct scan_bss *bss);
 int network_autoconnect(struct network *network, struct scan_bss *bss);
 void network_connect_failed(struct network *network, bool in_handshake);
 bool network_bss_add(struct network *network, struct scan_bss *bss);

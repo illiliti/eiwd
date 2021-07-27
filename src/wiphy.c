@@ -193,18 +193,13 @@ static bool wiphy_can_connect_sae(struct wiphy *wiphy)
 }
 
 enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
-					struct scan_bss *bss,
+					const struct scan_bss *bss,
+					enum security security,
+					const struct ie_rsn_info *info,
 					bool fils_capable_hint)
 {
-	struct ie_rsn_info info;
-	enum security security;
 	bool psk_offload = wiphy_has_ext_feature(wiphy,
 				NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK);
-
-	memset(&info, 0, sizeof(info));
-	scan_bss_get_rsn_info(bss, &info);
-
-	security = security_determine(bss->capability, &info);
 
 	/*
 	 * If FT is available, use FT authentication to keep the door open
@@ -213,32 +208,32 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 	if (security == SECURITY_8021X) {
 		if (wiphy_has_feature(wiphy, NL80211_EXT_FEATURE_FILS_STA) &&
 				fils_capable_hint) {
-			if ((info.akm_suites &
+			if ((info->akm_suites &
 					IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384) &&
 					bss->rsne && bss->mde_present)
 				return IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384;
 
-			if ((info.akm_suites &
+			if ((info->akm_suites &
 					IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256) &&
 					bss->rsne && bss->mde_present)
 				return IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256;
 
-			if (info.akm_suites & IE_RSN_AKM_SUITE_FILS_SHA384)
+			if (info->akm_suites & IE_RSN_AKM_SUITE_FILS_SHA384)
 				return IE_RSN_AKM_SUITE_FILS_SHA384;
 
-			if (info.akm_suites & IE_RSN_AKM_SUITE_FILS_SHA256)
+			if (info->akm_suites & IE_RSN_AKM_SUITE_FILS_SHA256)
 				return IE_RSN_AKM_SUITE_FILS_SHA256;
 		}
 
-		if ((info.akm_suites & IE_RSN_AKM_SUITE_FT_OVER_8021X) &&
+		if ((info->akm_suites & IE_RSN_AKM_SUITE_FT_OVER_8021X) &&
 				bss->rsne && bss->mde_present &&
 				wiphy->support_cmds_auth_assoc)
 			return IE_RSN_AKM_SUITE_FT_OVER_8021X;
 
-		if (info.akm_suites & IE_RSN_AKM_SUITE_8021X_SHA256)
+		if (info->akm_suites & IE_RSN_AKM_SUITE_8021X_SHA256)
 			return IE_RSN_AKM_SUITE_8021X_SHA256;
 
-		if (info.akm_suites & IE_RSN_AKM_SUITE_8021X)
+		if (info->akm_suites & IE_RSN_AKM_SUITE_8021X)
 			return IE_RSN_AKM_SUITE_8021X;
 	} else if (security == SECURITY_PSK) {
 		/*
@@ -247,17 +242,17 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 		 * MFPR/MFPC bits correctly. If any of these conditions are not
 		 * met, we can fallback to WPA2 (if the AKM is present).
 		 */
-		if (ie_rsne_is_wpa3_personal(&info)) {
+		if (ie_rsne_is_wpa3_personal(info)) {
 			l_debug("Network is WPA3-Personal...");
 
 			if (!wiphy_can_connect_sae(wiphy))
 				goto wpa2_personal;
 
-			if (info.akm_suites &
+			if (info->akm_suites &
 					IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256)
 				return IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256;
 
-			if (info.akm_suites & IE_RSN_AKM_SUITE_SAE_SHA256)
+			if (info->akm_suites & IE_RSN_AKM_SUITE_SAE_SHA256)
 				return IE_RSN_AKM_SUITE_SAE_SHA256;
 		}
 
@@ -267,20 +262,20 @@ wpa2_personal:
 		 * supports PSK offload. Without Auth/Assoc, PSK offload is the
 		 * only mechanism to allow FT on these cards.
 		 */
-		if ((info.akm_suites & IE_RSN_AKM_SUITE_FT_USING_PSK) &&
+		if ((info->akm_suites & IE_RSN_AKM_SUITE_FT_USING_PSK) &&
 					bss->rsne && bss->mde_present) {
 			if (wiphy->support_cmds_auth_assoc ||
 					(psk_offload && wiphy->support_fw_roam))
 				return IE_RSN_AKM_SUITE_FT_USING_PSK;
 		}
 
-		if (info.akm_suites & IE_RSN_AKM_SUITE_PSK_SHA256)
+		if (info->akm_suites & IE_RSN_AKM_SUITE_PSK_SHA256)
 			return IE_RSN_AKM_SUITE_PSK_SHA256;
 
-		if (info.akm_suites & IE_RSN_AKM_SUITE_PSK)
+		if (info->akm_suites & IE_RSN_AKM_SUITE_PSK)
 			return IE_RSN_AKM_SUITE_PSK;
 	} else if (security == SECURITY_NONE) {
-		if (info.akm_suites & IE_RSN_AKM_SUITE_OWE)
+		if (info->akm_suites & IE_RSN_AKM_SUITE_OWE)
 			return IE_RSN_AKM_SUITE_OWE;
 	}
 
@@ -421,33 +416,6 @@ const struct scan_freq_set *wiphy_get_supported_freqs(
 						const struct wiphy *wiphy)
 {
 	return wiphy->supported_freqs;
-}
-
-bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss,
-			bool fils_hint)
-{
-	struct ie_rsn_info rsn_info;
-	int r;
-
-	memset(&rsn_info, 0, sizeof(rsn_info));
-	r = scan_bss_get_rsn_info(bss, &rsn_info);
-
-	if (r == 0) {
-		if (!wiphy_select_cipher(wiphy, rsn_info.pairwise_ciphers))
-			return false;
-
-		if (!wiphy_select_cipher(wiphy, rsn_info.group_cipher))
-			return false;
-
-		if (rsn_info.mfpr && !wiphy_select_cipher(wiphy,
-					rsn_info.group_management_cipher))
-			return false;
-
-		return wiphy_select_akm(wiphy, bss, fils_hint);
-	} else if (r != -ENOENT)
-		return false;
-
-	return true;
 }
 
 bool wiphy_can_transition_disable(struct wiphy *wiphy)

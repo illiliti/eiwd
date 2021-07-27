@@ -766,7 +766,8 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 	if (security == SECURITY_8021X && hs->support_fils)
 		fils_hint = network_has_erp_identity(network);
 
-	info.akm_suites = wiphy_select_akm(wiphy, bss, fils_hint);
+	info.akm_suites = wiphy_select_akm(wiphy, bss, security,
+							&bss_info, fils_hint);
 
 	/*
 	 * Special case for OWE. With OWE we still need to build up the
@@ -1823,7 +1824,6 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 	uint16_t mdid;
 	enum security orig_security, security;
 	bool seen = false;
-	bool fils_hint = network_has_erp_identity(network);
 
 	if (err) {
 		station_roam_failed(station);
@@ -1880,7 +1880,7 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 
 		seen = true;
 
-		if (!wiphy_can_connect(station->wiphy, bss, fils_hint))
+		if (network_can_connect_bss(network, bss) < 0)
 			goto next;
 
 		if (blacklist_contains_bss(bss->addr))
