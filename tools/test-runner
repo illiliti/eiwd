@@ -1364,7 +1364,7 @@ def run_tests():
 	config.ctx = TestContext(args)
 
 	if args.log:
-		mount('logdir', args.log, '9p', 0, 'trans=virtio,version=9p2000.L')
+		mount('logdir', args.log, '9p', 0, 'trans=virtio,version=9p2000.L,msize=10240')
 		# Clear out any log files from other test runs
 		for f in glob('%s/*' % args.log):
 			print("removing %s" % f)
