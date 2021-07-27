@@ -143,6 +143,37 @@ The group ``[Settings]`` contains general settings.
        iwd.config. This setting should not be used with
        [Settings].AlwaysRandomizeAddress, if both are set AddressOverride will
        be used.
+   * - TransitionDisable
+     - Values: true, **false**
+
+       If enabled, the use of TKIP pairwise cipher and connections without
+       Management Frame Protection are disallowed.  This will make certain
+       legacy access points unavailable for use.  Additional security hardening
+       can also be applied via the [Settings].DisabledTransitionModes setting.
+
+       Properly configured Access Points will typically update this setting
+       appropriately via Transition Disable indications.  User customization
+       of this value is thus typically not required.
+   * - DisabledTransitionModes
+     - Comma-separated list of disabled transition modes:
+
+       * personal
+       * enterprise
+       * open
+
+       If 'personal' mode is disabled, then legacy WPA2-Personal access points
+       are no longer available to be connected to or roamed to.  Only access
+       points utilizing WPA3-Personal will be considered.
+
+       If 'enterprise' mode is disabled, then legacy WPA2-Enterprise access
+       points are no longer available to be connected to or roamed to.
+
+       If 'open' mode is disabled, then non-OWE enabled access points will
+       not be connected to.
+
+       Properly configured Access Points will typically update this setting
+       appropriately via Transition Disable indications.  User customization
+       of this value is thus typically not required.
 
 Network Authentication Settings
 -------------------------------
