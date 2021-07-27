@@ -450,6 +450,21 @@ bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss,
 	return true;
 }
 
+bool wiphy_can_transition_disable(struct wiphy *wiphy)
+{
+	/*
+	 * WPA3 Specification version 3, Section 2.2:
+	 * A STA shall not enable WEP and TKIP
+	 */
+	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_CCMP))
+		return false;
+
+	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP))
+		return false;
+
+	return true;
+}
+
 bool wiphy_supports_cmds_auth_assoc(struct wiphy *wiphy)
 {
 	return wiphy->support_cmds_auth_assoc;
