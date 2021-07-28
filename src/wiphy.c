@@ -771,13 +771,10 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 					out_data_rate))
 		return 0;
 
-	if (!band_estimate_nonht_rate(bandp, supported_rates,
+	return band_estimate_nonht_rate(bandp, supported_rates,
 						ext_supported_rates,
 						bss->signal_strength / 100,
-						out_data_rate))
-		return 0;
-
-	return -ENOTSUP;
+						out_data_rate);
 }
 
 uint32_t wiphy_state_watch_add(struct wiphy *wiphy,

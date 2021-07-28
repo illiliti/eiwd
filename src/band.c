@@ -115,7 +115,7 @@ int band_estimate_nonht_rate(const struct band *band,
 	}
 
 	if (!max_rate)
-		return -EINVAL;
+		return -ENETUNREACH;
 
 	*out_data_rate = max_rate * 500000;
 	return 0;
@@ -306,7 +306,7 @@ int band_estimate_ht_rx_rate(const struct band *band,
 				rssi, sgi, out_data_rate))
 		return 0;
 
-	return -EINVAL;
+	return -ENETUNREACH;
 }
 
 static bool find_best_mcs_vht(uint8_t max_index, enum ofdm_channel_width width,
@@ -463,5 +463,5 @@ try_vht80:
 				rssi, nss, sgi, out_data_rate))
 		return 0;
 
-	return -EINVAL;
+	return -ENETUNREACH;
 }

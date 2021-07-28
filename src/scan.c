@@ -1235,11 +1235,15 @@ static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr,
 	bss->data_rate = 2000000;
 
 	if (ies) {
+		int ret;
+
 		if (!scan_parse_bss_information_elements(bss, ies, ies_len))
 			goto fail;
 
-		L_WARN_ON(wiphy_estimate_data_rate(wiphy, ies, ies_len, bss,
-						&bss->data_rate) < 0);
+		ret = wiphy_estimate_data_rate(wiphy, ies, ies_len, bss,
+						&bss->data_rate);
+		if (ret < 0 && ret != -ENETUNREACH)
+			l_warn("wiphy_estimate_data_rate() failed");
 	}
 
 	return bss;
