@@ -1727,7 +1727,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 		 * pairwise cipher suite which is advertised by an AP, but
 		 * which policy disallows for this particular STA. An
 		 * Authenticator may, therefore, insert a second RSNE to
-		 * overrule the STA's selection. An Authenticator’s SME shall
+		 * overrule the STA's selection. An Authenticator's SME shall
 		 * insert the second RSNE, after the first RSNE, only for this
 		 * purpose. The pairwise cipher suite in the second RSNE
 		 * included shall be one of the ciphers advertised by the
@@ -2263,12 +2263,12 @@ static void eapol_eap_results_cb(const uint8_t *msk_data, size_t msk_len,
 	/*
 	 * 802.11i 8.5.1.2:
 	 *    "When not using a PSK, the PMK is derived from the AAA key.
-	 *    The PMK shall be computed as the first 256 bits (bits 0–255)
-	 *    of the AAA key: PMK ← L(PTK, 0, 256)."
+	 *    The PMK shall be computed as the first 256 bits (bits 0-255)
+	 *    of the AAA key: PMK = L(PTK, 0, 256)."
 	 * 802.11-2016 12.7.1.3:
 	 *    "When not using a PSK, the PMK is derived from the MSK.
 	 *    The PMK shall be computed as the first PMK_bits bits
-	 *    (bits 0 to PMK_bits–1) of the MSK: PMK = L(MSK, 0, PMK_bits)."
+	 *    (bits 0 to PMK_bits-1) of the MSK: PMK = L(MSK, 0, PMK_bits)."
 	 * RFC5247 explains AAA-Key refers to the MSK and confirms the
 	 * first 32 bytes of the MSK are used.  MSK is at least 64 octets
 	 * long per RFC3748.  Note WEP derives the PTK from MSK differently.

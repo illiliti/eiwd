@@ -190,10 +190,10 @@ static int fils_derive_key_data(struct fils_sm *fils)
 
 	/*
 	 * IEEE 802.11ai - 12.12.2.5.3 PTKSA key derivation with FILS
-	 * 			authentication
+	 *                             authentication
 	 *
-	 * FILS-Key-Data = PRF-X(PMK, “FILS PTK Derivation”, SPA || AA ||
-	 * 					SNonce || ANonce)
+	 * FILS-Key-Data = PRF-X(PMK, "FILS PTK Derivation", SPA || AA ||
+	 *                                                   SNonce || ANonce)
 	 */
 	memcpy(ptr, fils->hs->spa, 6);
 	ptr += 6;

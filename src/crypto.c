@@ -873,7 +873,7 @@ bool hkdf_expand(enum l_checksum_type type, const uint8_t *key, size_t key_len,
  *
  * 802.11, Section 11.6.1.3:
  * The PTK shall be derived from the PMK by
- *  PTK ← PRF-X(PMK, “Pairwise key expansion”, Min(AA,SPA) || Max(AA,SPA) ||
+ *  PTK = PRF-X(PMK, "Pairwise key expansion", Min(AA,SPA) || Max(AA,SPA) ||
  *		Min(ANonce,SNonce) || Max(ANonce,SNonce))
  * where X = 256 + TK_bits. The value of TK_bits is cipher-suite dependent and
  * is defined in Table 11-4. The Min and Max operations for IEEE 802 addresses
