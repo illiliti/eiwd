@@ -118,7 +118,11 @@ class HostapdCLI:
             return
 
         self.ctrl_sock.close()
-        os.remove(self.local_ctrl)
+
+        try:
+            os.remove(self.local_ctrl)
+        except:
+            pass
 
         if self._hostapd_restarted:
             ctx.stop_process(ctx.hostapd.process, force)
