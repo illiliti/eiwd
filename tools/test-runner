@@ -1192,6 +1192,10 @@ def post_test(ctx, to_copy):
 				dbg("\n")
 				os.remove('/tmp/' + f)
 
+	# Special case for when logging is enabled
+	if os.path.isfile('/tmp/iwd-tls-debug-server-cert.pem'):
+		os.remove('/tmp/iwd-tls-debug-server-cert.pem')
+
 	allowed = ['phonesim.conf', 'certs', 'secrets', 'iwd']
 	for f in [f for f in os.listdir('/tmp') if f not in allowed]:
 		dbg("File %s was not cleaned up!" % f)
