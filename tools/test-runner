@@ -1379,7 +1379,7 @@ def run_tests():
 				os.remove(f)
 	elif args.monitor:
 		parent = os.path.abspath(os.path.join(args.monitor, os.pardir))
-		mount('mondir', parent, '9p', 0, 'trans=virtio,version=9p2000.L')
+		mount('mondir', parent, '9p', 0, 'trans=virtio,version=9p2000.L,msize=10240')
 
 	if config.ctx.args.unit_tests is None:
 		run_auto_tests(config.ctx, args)
