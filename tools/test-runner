@@ -1585,7 +1585,7 @@ class Main:
 		if self.args.valgrind:
 			ram = 512
 		else:
-			ram = 256
+			ram = 384
 
 		print("Using %d cores, %d RAM for VM" % (smp, ram))
 
