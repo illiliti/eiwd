@@ -464,6 +464,8 @@ void known_network_update(struct network_info *network,
 	}
 
 	known_network_set_autoconnect(network, new->is_autoconnectable);
+
+	memcpy(&network->config, new, sizeof(struct network_config));
 }
 
 bool known_networks_foreach(known_networks_foreach_func_t function,
