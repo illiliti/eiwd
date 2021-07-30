@@ -1817,6 +1817,8 @@ static bool p2p_provision_scan_notify(int err, struct l_queue *bss_list,
 		struct p2p_capability_attr *capability;
 		enum wsc_device_password_id device_password_id;
 		const uint8_t *amacs;
+		struct wsc_probe_response wsc_probe_info;
+		struct wsc_beacon wsc_beacon_info;
 
 		/*
 		 * Check if we found our target GO, some of these checks may
@@ -1844,15 +1846,13 @@ static bool p2p_provision_scan_notify(int err, struct l_queue *bss_list,
 		}
 
 		if (bss->source_frame == SCAN_BSS_PROBE_RESP) {
-			struct wsc_probe_response wsc_info;
-
 			if (!bss->p2p_probe_resp_info) {
 				l_error("SSID matched but no valid P2P IE");
 				continue;
 			}
 
 			if (wsc_parse_probe_response(bss->wsc, bss->wsc_size,
-							&wsc_info) < 0) {
+							&wsc_probe_info) < 0) {
 				l_error("SSID matched but can't parse WSC "
 					"Probe Response info");
 				continue;
@@ -1860,30 +1860,28 @@ static bool p2p_provision_scan_notify(int err, struct l_queue *bss_list,
 
 			group_id = bss->p2p_probe_resp_info->
 				device_info.device_addr;
-			selected_reg = wsc_info.selected_registrar;
+			selected_reg = wsc_probe_info.selected_registrar;
 			capability = &bss->p2p_probe_resp_info->capability;
-			device_password_id = wsc_info.device_password_id;
-			amacs = wsc_info.authorized_macs;
+			device_password_id = wsc_probe_info.device_password_id;
+			amacs = wsc_probe_info.authorized_macs;
 		} else if (bss->source_frame == SCAN_BSS_BEACON) {
-			struct wsc_beacon wsc_info;
-
 			if (!bss->p2p_beacon_info) {
 				l_error("SSID matched but no valid P2P IE");
 				continue;
 			}
 
 			if (wsc_parse_beacon(bss->wsc, bss->wsc_size,
-						&wsc_info) < 0) {
+						&wsc_beacon_info) < 0) {
 				l_error("SSID matched but can't parse WSC "
 					"Beacon info");
 				continue;
 			}
 
 			group_id = bss->p2p_beacon_info->device_addr;
-			selected_reg = wsc_info.selected_registrar;
+			selected_reg = wsc_beacon_info.selected_registrar;
 			capability = &bss->p2p_beacon_info->capability;
-			device_password_id = wsc_info.device_password_id;
-			amacs = wsc_info.authorized_macs;
+			device_password_id = wsc_beacon_info.device_password_id;
+			amacs = wsc_beacon_info.authorized_macs;
 		} else
 			continue;
 
