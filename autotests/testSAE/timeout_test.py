@@ -19,14 +19,7 @@ class Test(unittest.TestCase):
         psk_agent = PSKAgent(["secret123", "secret123"])
         wd.register_psk_agent(psk_agent)
 
-        devices = wd.list_devices(4)
-
-        # These devices aren't used in this test, this makes logs a bit nicer
-        # since these devices would presumably start autoconnecting.
-        devices[1].disconnect()
-        devices[2].disconnect()
-        devices[3].disconnect()
-
+        devices = wd.list_devices(1)
         self.assertIsNotNone(devices)
         device = devices[0]
 
@@ -68,7 +61,6 @@ class Test(unittest.TestCase):
 
     def test_connection_success(self):
         wd = IWD(True)
-
         self.validate_connection(wd)
 
     @classmethod

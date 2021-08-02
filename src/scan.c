@@ -490,7 +490,7 @@ static bool scan_cmds_add_hidden(const struct network_info *network,
 {
 	struct scan_cmds_add_data *data = user_data;
 
-	if (!network->is_hidden)
+	if (!network->config.is_hidden)
 		return true;
 
 	l_genl_msg_append_attr(*data->cmd, NL80211_ATTR_SSID,
@@ -1004,6 +1004,11 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 				bss->rsne = l_memdup(iter.data - 2,
 								iter.len + 2);
 			break;
+		case IE_TYPE_RSNX:
+			if (!bss->rsnxe)
+				bss->rsnxe = l_memdup(iter.data - 2,
+								iter.len + 2);
+			break;
 		case IE_TYPE_BSS_LOAD:
 			if (ie_parse_bss_load(&iter, NULL, &bss->utilization,
 						NULL) < 0)
@@ -1230,11 +1235,15 @@ static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr,
 	bss->data_rate = 2000000;
 
 	if (ies) {
+		int ret;
+
 		if (!scan_parse_bss_information_elements(bss, ies, ies_len))
 			goto fail;
 
-		L_WARN_ON(wiphy_estimate_data_rate(wiphy, ies, ies_len, bss,
-						&bss->data_rate) < 0);
+		ret = wiphy_estimate_data_rate(wiphy, ies, ies_len, bss,
+						&bss->data_rate);
+		if (ret < 0 && ret != -ENETUNREACH)
+			l_warn("wiphy_estimate_data_rate() failed");
 	}
 
 	return bss;
@@ -1351,6 +1360,7 @@ fail:
 void scan_bss_free(struct scan_bss *bss)
 {
 	l_free(bss->rsne);
+	l_free(bss->rsnxe);
 	l_free(bss->wpa);
 	l_free(bss->wsc);
 	l_free(bss->osen);

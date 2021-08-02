@@ -20,12 +20,15 @@
  *
  */
 
+struct auth_proto;
 struct sae_sm;
 struct handshake_state;
 
 typedef void (*sae_tx_authenticate_func_t)(const uint8_t *data, size_t len,
 						void *user_data);
 typedef void (*sae_tx_associate_func_t)(void *user_data);
+
+bool sae_sm_is_h2e(struct auth_proto *ap);
 
 struct auth_proto *sae_sm_new(struct handshake_state *hs,
 				sae_tx_authenticate_func_t tx_auth,

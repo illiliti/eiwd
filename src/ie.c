@@ -393,7 +393,7 @@ bool ie_tlv_builder_recurse(struct ie_tlv_builder *builder,
 }
 
 unsigned char *ie_tlv_builder_finalize(struct ie_tlv_builder *builder,
-			unsigned int *out_len)
+					size_t *out_len)
 {
 	unsigned int len = 0;
 
@@ -2082,4 +2082,24 @@ int ie_build_hs20_indication(uint8_t version, uint8_t *to)
 	*to++ = (version << 4) & 0xf0;
 
 	return 0;
+}
+
+bool ie_rsnxe_capable(const uint8_t *rsnxe, unsigned int bit)
+{
+	unsigned int field_len;
+
+	if (!rsnxe)
+		return false;
+
+	if (rsnxe[1] == 0)
+		return false;
+
+	field_len = bit_field(rsnxe[2], 0, 4);
+	if (field_len + 1 != rsnxe[1])
+		return false;
+
+	if ((bit / 8) > field_len)
+		return false;
+
+	return test_bit(rsnxe + 2, bit);
 }

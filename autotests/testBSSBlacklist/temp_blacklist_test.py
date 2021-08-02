@@ -32,7 +32,7 @@ class Test(unittest.TestCase):
         rule1 = hwsim.rules.create()
         rule1.source = bss_radio[1].addresses[0]
         rule1.bidirectional = True
-        rule1.signal = -2500
+        rule1.signal = -7000
 
         rule2 = hwsim.rules.create()
         rule2.source = bss_radio[2].addresses[0]

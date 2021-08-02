@@ -23,6 +23,8 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+struct l_ecc_point;
+
 enum crypto_cipher {
 	CRYPTO_CIPHER_WEP40 = 0x000fac01,
 	CRYPTO_CIPHER_WEP104 = 0x000fac05,
@@ -97,6 +99,9 @@ int crypto_psk_from_passphrase(const char *passphrase,
 				const unsigned char *ssid, size_t ssid_len,
 				unsigned char *out_psk);
 
+bool crypto_kdf(enum l_checksum_type type, const void *key, size_t key_len,
+		const void *prefix, size_t prefix_len,
+		const void *data, size_t data_len, void *output, size_t size);
 bool kdf_sha256(const void *key, size_t key_len,
 		const void *prefix, size_t prefix_len,
 		const void *data, size_t data_len, void *output, size_t size);
@@ -109,12 +114,16 @@ bool prf_sha1(const void *key, size_t key_len,
 bool prf_plus_sha1(const void *key, size_t key_len,
 		const void *prefix, size_t prefix_len,
 		const void *data, size_t data_len, void *output, size_t size);
-bool hkdf_extract(enum l_checksum_type type, const uint8_t *key, size_t key_len,
-				uint8_t num_args, uint8_t *out, ...);
+
+bool prf_plus(enum l_checksum_type type, const void *key, size_t key_len,
+		const char *label, void *out, size_t out_len,
+		size_t n_extra, ...);
+
+bool hkdf_extract(enum l_checksum_type type, const void *key, size_t key_len,
+				uint8_t num_args, void *out, ...);
 
 bool hkdf_expand(enum l_checksum_type type, const uint8_t *key, size_t key_len,
-				const char *info, size_t info_len, void *out,
-				size_t out_len);
+				const char *info, void *out, size_t out_len);
 
 bool crypto_derive_pairwise_ptk(const uint8_t *pmk, size_t pmk_len,
 				const uint8_t *addr1, const uint8_t *addr2,
@@ -142,3 +151,18 @@ bool crypto_derive_ft_ptk(const uint8_t *pmk_r1, const uint8_t *pmk_r1_name,
 bool crypto_derive_pmkid(const uint8_t *pmk,
 				const uint8_t *addr1, const uint8_t *addr2,
 				uint8_t *out_pmkid, bool use_sha256);
+
+enum crypto_sae {
+	CRYPTO_SAE_LOOPING,
+	CRYPTO_SAE_HASH_TO_ELEMENT,
+};
+
+enum l_checksum_type crypto_sae_hash_from_ecc_prime_len(enum crypto_sae type,
+							size_t prime_len);
+struct l_ecc_point *crypto_derive_sae_pt_ecc(unsigned int group,
+						const char *ssid,
+						const char *password,
+						const char *identifier);
+struct l_ecc_point *crypto_derive_sae_pwe_from_pt_ecc(const uint8_t *mac1,
+						const uint8_t *mac2,
+						const struct l_ecc_point *pt);

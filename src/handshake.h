@@ -44,6 +44,8 @@ enum handshake_kde {
 	/* Wi-Fi P2P Technical Specification v1.7 4.2.8 */
 	HANDSHAKE_KDE_IP_ADDRESS_REQ	= 0x506f9a04,
 	HANDSHAKE_KDE_IP_ADDRESS_ALLOC	= 0x506f9a05,
+	/* Wi-Fi WPA3 Specification v3.0 Table 4 */
+	HANDSHAKE_KDE_TRANSITION_DISABLE = 0x506f9a20,
 };
 
 enum handshake_event {
@@ -54,6 +56,7 @@ enum handshake_event {
 	HANDSHAKE_EVENT_FAILED,
 	HANDSHAKE_EVENT_REKEY_FAILED,
 	HANDSHAKE_EVENT_EAP_NOTIFY,
+	HANDSHAKE_EVENT_TRANSITION_DISABLE,
 };
 
 typedef void (*handshake_event_func_t)(struct handshake_state *hs,
@@ -85,6 +88,8 @@ struct handshake_state {
 	uint8_t aa[6];
 	uint8_t *authenticator_ie;
 	uint8_t *supplicant_ie;
+	uint8_t *authenticator_rsnxe;
+	uint8_t *supplicant_rsnxe;
 	uint8_t *mde;
 	uint8_t *fte;
 	enum ie_rsn_cipher_suite pairwise_cipher;
@@ -104,6 +109,7 @@ struct handshake_state {
 	uint8_t fils_ft[48];
 	uint8_t fils_ft_len;
 	struct l_settings *settings_8021x;
+	struct l_ecc_point **ecc_sae_pts;
 	bool have_snonce : 1;
 	bool ptk_complete : 1;
 	bool wpa_ie : 1;
@@ -163,6 +169,10 @@ bool handshake_state_set_authenticator_ie(struct handshake_state *s,
 						const uint8_t *ie);
 bool handshake_state_set_supplicant_ie(struct handshake_state *s,
 						const uint8_t *ie);
+void handshake_state_set_authenticator_rsnxe(struct handshake_state *s,
+						const uint8_t *ie);
+void handshake_state_set_supplicant_rsnxe(struct handshake_state *s,
+						const uint8_t *ie);
 void handshake_state_set_ssid(struct handshake_state *s,
 					const uint8_t *ssid, size_t ssid_len);
 void handshake_state_set_mde(struct handshake_state *s,
@@ -178,6 +188,8 @@ void handshake_state_set_event_func(struct handshake_state *s,
 					void *user_data);
 void handshake_state_set_passphrase(struct handshake_state *s,
 					const char *passphrase);
+bool handshake_state_add_ecc_sae_pt(struct handshake_state *s,
+					const struct l_ecc_point *pt);
 void handshake_state_set_no_rekey(struct handshake_state *s, bool no_rekey);
 
 void handshake_state_set_fils_ft(struct handshake_state *s,
@@ -224,6 +236,9 @@ void handshake_state_set_gtk(struct handshake_state *s, const uint8_t *key,
 bool handshake_util_ap_ie_matches(const uint8_t *msg_ie,
 					const uint8_t *scan_ie, bool is_wpa);
 
+const uint8_t *handshake_util_find_kde(enum handshake_kde selector,
+					const uint8_t *data, size_t data_len,
+					size_t *out_kde_len);
 const uint8_t *handshake_util_find_gtk_kde(const uint8_t *data, size_t data_len,
 					size_t *out_gtk_len);
 const uint8_t *handshake_util_find_igtk_kde(const uint8_t *data,

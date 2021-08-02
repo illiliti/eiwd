@@ -27,6 +27,8 @@ struct wiphy;
 struct scan_bss;
 struct scan_freq_set;
 struct wiphy_radio_work_item;
+struct ie_rsn_info;
+enum security;
 
 typedef bool (*wiphy_radio_work_func_t)(struct wiphy_radio_work_item *item);
 typedef void (*wiphy_radio_work_destroy_func_t)(
@@ -56,7 +58,9 @@ typedef void (*wiphy_destroy_func_t)(void *user_data);
 enum ie_rsn_cipher_suite wiphy_select_cipher(struct wiphy *wiphy,
 							uint16_t mask);
 enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
-					struct scan_bss *bss,
+					const struct scan_bss *bss,
+					enum security security,
+					const struct ie_rsn_info *info,
 					bool fils_capable_hint);
 
 struct wiphy *wiphy_find(int wiphy_id);
@@ -78,8 +82,7 @@ const char *wiphy_get_path(struct wiphy *wiphy);
 uint32_t wiphy_get_supported_bands(struct wiphy *wiphy);
 const struct scan_freq_set *wiphy_get_supported_freqs(
 						const struct wiphy *wiphy);
-bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss,
-				bool fils_hint);
+bool wiphy_can_transition_disable(struct wiphy *wiphy);
 bool wiphy_supports_cmds_auth_assoc(struct wiphy *wiphy);
 bool wiphy_can_randomize_mac_addr(struct wiphy *wiphy);
 bool wiphy_rrm_capable(struct wiphy *wiphy);
@@ -101,6 +104,7 @@ const uint8_t *wiphy_get_permanent_address(struct wiphy *wiphy);
 const uint8_t *wiphy_get_extended_capabilities(struct wiphy *wiphy,
 							uint32_t iftype);
 const uint8_t *wiphy_get_rm_enabled_capabilities(struct wiphy *wiphy);
+bool wiphy_get_rsnxe(const struct wiphy *wiphy, uint8_t *buf, size_t len);
 void wiphy_get_reg_domain_country(struct wiphy *wiphy, char *out);
 
 void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6]);

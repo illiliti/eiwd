@@ -1098,6 +1098,15 @@ static void eapol_ptk_1_of_4_retry(struct l_timeout *timeout, void *user_data)
 	eapol_set_key_timeout(sm, eapol_ptk_1_of_4_retry);
 }
 
+static inline size_t append_ie(uint8_t *ies, const uint8_t *ie)
+{
+	if (!ie)
+		return 0;
+
+	memcpy(ies, ie, ie[1] + 2);
+	return ie[1] + 2;
+}
+
 static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 					const struct eapol_key *ek,
 					bool unencrypted)
@@ -1105,7 +1114,7 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 	const uint8_t *kck;
 	struct eapol_key *step2;
 	uint8_t mic[MIC_MAXLEN];
-	uint8_t ies[512];
+	uint8_t ies[1024];
 	size_t ies_len;
 	const uint8_t *own_ie = sm->handshake->supplicant_ie;
 	const uint8_t *pmkid;
@@ -1142,7 +1151,8 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 			goto error_unspecified;
 
 		for (i = 0; i < rsn_info.num_pmkids; i++)
-			if (!memcmp(rsn_info.pmkids + i * 16, pmkid, 16)) {
+			if (!l_secure_memcmp(rsn_info.pmkids + i * 16,
+						pmkid, 16)) {
 				found = true;
 				break;
 			}
@@ -1155,7 +1165,7 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 		if (!handshake_state_get_pmkid(sm->handshake, own_pmkid))
 			goto error_unspecified;
 
-		if (memcmp(pmkid, own_pmkid, 16)) {
+		if (l_secure_memcmp(pmkid, own_pmkid, 16)) {
 			l_debug("Authenticator sent a PMKID that didn't match");
 
 			/*
@@ -1209,9 +1219,6 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 			(IE_RSN_AKM_SUITE_FT_OVER_8021X |
 			 IE_RSN_AKM_SUITE_FT_USING_PSK |
 			 IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256)) {
-		const uint8_t *mde = sm->handshake->mde;
-		const uint8_t *fte = sm->handshake->fte;
-
 		/*
 		 * Rebuild the RSNE to include the PMKR1Name and append
 		 * MDE + FTE.
@@ -1222,14 +1229,10 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 		ie_build_rsne(&rsn_info, ies);
 		ies_len = ies[1] + 2;
 
-		memcpy(ies + ies_len, mde, mde[1] + 2);
-		ies_len += mde[1] + 2;
-
-		memcpy(ies + ies_len, fte, fte[1] + 2);
-		ies_len += fte[1] + 2;
+		ies_len += append_ie(ies + ies_len, sm->handshake->mde);
+		ies_len += append_ie(ies + ies_len, sm->handshake->fte);
 	} else {
-		ies_len = own_ie[1] + 2;
-		memcpy(ies, own_ie, ies_len);
+		ies_len = append_ie(ies, own_ie);
 	}
 
 	if (sm->handshake->support_ip_allocation) {
@@ -1240,6 +1243,14 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 		ies_len += 4;
 		ies[ies_len++] = 0x01;
 	}
+
+	/*
+	 * 802.11-2020, Section 12.7.6.3:
+	 * "The RSNXE that the Supplicant sent in its (Re)Association Request
+	 * frame, if this element is present in the (Re)Association Request
+	 * frame that the Supplicant sent."
+	 */
+	ies_len += append_ie(ies + ies_len, sm->handshake->supplicant_rsnxe);
 
 	step2 = eapol_create_ptk_2_of_4(sm->protocol_version,
 					ek->key_descriptor_version,
@@ -1487,13 +1498,14 @@ static void eapol_handle_ptk_2_of_4(struct eapol_sm *sm,
 	}
 
 	if (sm->handshake->support_ip_allocation) {
+		size_t len;
 		const uint8_t *ip_req_kde =
-			eapol_find_wfa_kde(EAPOL_KEY_DATA(ek, sm->mic_len),
+			handshake_util_find_kde(HANDSHAKE_KDE_IP_ADDRESS_REQ,
+					EAPOL_KEY_DATA(ek, sm->mic_len),
 					EAPOL_KEY_DATA_LEN(ek, sm->mic_len),
-					HANDSHAKE_KDE_IP_ADDRESS_REQ & 255);
+					&len);
 
-		if (ip_req_kde &&
-				(ip_req_kde[1] < 5 || ip_req_kde[6] != 0x01)) {
+		if (ip_req_kde && (len < 1 || ip_req_kde[0] != 0x01)) {
 			l_debug("Invalid IP Address Request KDE in frame 2/4");
 			handshake_failed(sm, MMPDU_REASON_CODE_INVALID_IE);
 			return;
@@ -1551,12 +1563,40 @@ static bool eapol_check_ip_mask(const uint8_t *mask,
 		(uint32_t) (mask_uint << __builtin_popcountl(mask_uint)) == 0;
 }
 
+static int eapol_ie_matches(const void *ies, size_t ies_len,
+					enum ie_type type, uint8_t *target_ie)
+{
+	struct ie_tlv_iter iter;
+
+	ie_tlv_iter_init(&iter, ies, ies_len);
+
+	while (ie_tlv_iter_next(&iter)) {
+		if (ie_tlv_iter_get_tag(&iter) != type)
+			continue;
+
+		if (!target_ie)
+			return -EINVAL;
+
+		if (memcmp(ie_tlv_iter_get_data(&iter) - 2,
+						target_ie, target_ie[1] + 2))
+			return -EBADMSG;
+
+		return 0;
+	}
+
+	if (!target_ie)
+		return 0;
+
+	return -ENOENT;
+}
+
 static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 					const struct eapol_key *ek,
 					const uint8_t *decrypted_key_data,
 					size_t decrypted_key_data_size,
 					bool unencrypted)
 {
+	struct handshake_state *hs = sm->handshake;
 	const uint8_t *kck;
 	const uint8_t *kek;
 	struct eapol_key *step4;
@@ -1567,12 +1607,14 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	size_t igtk_len;
 	const uint8_t *rsne;
 	const uint8_t *optional_rsne = NULL;
+	const uint8_t *transition_disable;
+	size_t transition_disable_len;
 	uint8_t gtk_key_index;
 	uint16_t igtk_key_index;
 
-	l_debug("ifindex=%u", sm->handshake->ifindex);
+	l_debug("ifindex=%u", hs->ifindex);
 
-	if (!eapol_verify_ptk_3_of_4(ek, sm->handshake->wpa_ie, sm->mic_len)) {
+	if (!eapol_verify_ptk_3_of_4(ek, hs->wpa_ie, sm->mic_len)) {
 		handshake_failed(sm, MMPDU_REASON_CODE_UNSPECIFIED);
 		return;
 	}
@@ -1584,7 +1626,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	 * or if the ANonce value in message 3 differs from the ANonce value
 	 * in message 1."
 	 */
-	if (memcmp(sm->handshake->anonce, ek->key_nonce, sizeof(ek->key_nonce)))
+	if (memcmp(hs->anonce, ek->key_nonce, sizeof(ek->key_nonce)))
 		return;
 
 	/*
@@ -1593,10 +1635,10 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	 * not identical to that the STA received in the Beacon or Probe
 	 * Response frame, the STA shall disassociate.
 	 */
-	if (sm->handshake->wpa_ie)
+	if (hs->wpa_ie)
 		rsne = eapol_find_wpa_ie(decrypted_key_data,
 					decrypted_key_data_size);
-	else if (sm->handshake->osen_ie)
+	else if (hs->osen_ie)
 		rsne = eapol_find_wfa_kde(decrypted_key_data,
 					decrypted_key_data_size,
 					IE_WFA_OI_OSEN);
@@ -1608,46 +1650,50 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	if (!rsne)
 		goto error_ie_different;
 
-	if (!handshake_util_ap_ie_matches(rsne, sm->handshake->authenticator_ie,
-						sm->handshake->wpa_ie))
+	if (!handshake_util_ap_ie_matches(rsne, hs->authenticator_ie,
+						hs->wpa_ie))
 		goto error_ie_different;
 
-	if (sm->handshake->akm_suite &
+	if (hs->akm_suite &
 			(IE_RSN_AKM_SUITE_FT_OVER_8021X |
 			 IE_RSN_AKM_SUITE_FT_USING_PSK |
 			 IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256)) {
-		struct ie_tlv_iter iter;
 		struct ie_rsn_info ie_info;
-		const uint8_t *mde = sm->handshake->mde;
-		const uint8_t *fte = sm->handshake->fte;
 
 		if (ie_parse_rsne_from_data(rsne, rsne[1] + 2, &ie_info) < 0)
 			goto error_ie_different;
 
 		if (ie_info.num_pmkids != 1 || memcmp(ie_info.pmkids,
-						sm->handshake->pmk_r1_name, 16))
+						hs->pmk_r1_name, 16))
 			goto error_ie_different;
 
-		ie_tlv_iter_init(&iter, decrypted_key_data,
-					decrypted_key_data_size);
+		if (eapol_ie_matches(decrypted_key_data,
+					decrypted_key_data_size,
+					IE_TYPE_MOBILITY_DOMAIN,
+					hs->mde) < 0)
+			goto error_ie_different;
 
-		while (ie_tlv_iter_next(&iter))
-			switch (ie_tlv_iter_get_tag(&iter)) {
-			case IE_TYPE_MOBILITY_DOMAIN:
-				if (memcmp(ie_tlv_iter_get_data(&iter) - 2,
-						mde, mde[1] + 2))
-					goto error_ie_different;
-
-				break;
-
-			case IE_TYPE_FAST_BSS_TRANSITION:
-				if (memcmp(ie_tlv_iter_get_data(&iter) - 2,
-						fte, fte[1] + 2))
-					goto error_ie_different;
-
-				break;
-			}
+		if (eapol_ie_matches(decrypted_key_data,
+					decrypted_key_data_size,
+					IE_TYPE_FAST_BSS_TRANSITION,
+					hs->fte) < 0)
+			goto error_ie_different;
 	}
+
+	/*
+	 * 802.11-2020, Section 12.7.6.4:
+	 * "If the RSNXE is present, the Supplicant verifies that the RSNXE is
+	 * identical to that the STA received in the Beacon or Probe Response
+	 * frame."
+	 *
+	 * Verify only if RSN is used
+	 */
+	if (!hs->osen_ie && !hs->wpa_ie &&
+			eapol_ie_matches(decrypted_key_data,
+					decrypted_key_data_size,
+					IE_TYPE_RSNX,
+					hs->authenticator_rsnxe) < 0)
+		goto error_ie_different;
 
 	/*
 	 * If ptk_complete is set, then we are receiving Message 3 again.
@@ -1655,7 +1701,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	 * and we wouldn't get here.  Skip processing the rest of the message
 	 * and send our reply.  Do not install the keys again.
 	 */
-	if (sm->handshake->ptk_complete)
+	if (hs->ptk_complete)
 		goto retransmit;
 
 	/*
@@ -1681,7 +1727,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 		 * pairwise cipher suite which is advertised by an AP, but
 		 * which policy disallows for this particular STA. An
 		 * Authenticator may, therefore, insert a second RSNE to
-		 * overrule the STA's selection. An Authenticator’s SME shall
+		 * overrule the STA's selection. An Authenticator's SME shall
 		 * insert the second RSNE, after the first RSNE, only for this
 		 * purpose. The pairwise cipher suite in the second RSNE
 		 * included shall be one of the ciphers advertised by the
@@ -1708,12 +1754,11 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 			return;
 		}
 
-		handshake_state_override_pairwise_cipher(sm->handshake,
-								override);
+		handshake_state_override_pairwise_cipher(hs, override);
 	}
 
-	if (!sm->handshake->wpa_ie && sm->handshake->group_cipher !=
-			IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC) {
+	if (!hs->wpa_ie && hs->group_cipher !=
+				IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC) {
 		gtk = handshake_util_find_gtk_kde(decrypted_key_data,
 							decrypted_key_data_size,
 							&gtk_len);
@@ -1730,7 +1775,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	} else
 		gtk = NULL;
 
-	if (sm->handshake->mfp) {
+	if (hs->mfp) {
 		igtk = handshake_util_find_igtk_kde(decrypted_key_data,
 							decrypted_key_data_size,
 							&igtk_len);
@@ -1745,34 +1790,41 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	} else
 		igtk = NULL;
 
-	if (sm->handshake->support_ip_allocation) {
+	if (hs->support_ip_allocation) {
+		size_t len;
 		const uint8_t *ip_alloc_kde =
-			eapol_find_wfa_kde(decrypted_key_data,
-					decrypted_key_data_size,
-					HANDSHAKE_KDE_IP_ADDRESS_ALLOC & 255);
+			handshake_util_find_kde(HANDSHAKE_KDE_IP_ADDRESS_ALLOC,
+						decrypted_key_data,
+						decrypted_key_data_size,
+						&len);
 
-		if (ip_alloc_kde &&
-				(ip_alloc_kde[1] < 16 ||
-				 !eapol_check_ip_mask(ip_alloc_kde + 10,
-							ip_alloc_kde + 6,
-							ip_alloc_kde + 14))) {
+		if (ip_alloc_kde && (len < 12 ||
+				!eapol_check_ip_mask(ip_alloc_kde + 4,
+							ip_alloc_kde,
+							ip_alloc_kde + 8))) {
 			l_debug("Invalid IP Allocation KDE in frame 3/4");
 			handshake_failed(sm, MMPDU_REASON_CODE_INVALID_IE);
 			return;
 		}
 
-		sm->handshake->support_ip_allocation = ip_alloc_kde != NULL;
+		hs->support_ip_allocation = ip_alloc_kde != NULL;
 
 		if (ip_alloc_kde) {
-			sm->handshake->client_ip_addr =
-				l_get_be32(ip_alloc_kde + 6);
-			sm->handshake->subnet_mask =
-				l_get_be32(ip_alloc_kde + 10);
-			sm->handshake->go_ip_addr =
-				l_get_be32(ip_alloc_kde + 14);
+			hs->client_ip_addr = l_get_be32(ip_alloc_kde);
+			hs->subnet_mask = l_get_be32(ip_alloc_kde + 4);
+			hs->go_ip_addr = l_get_be32(ip_alloc_kde + 8);
 		} else
 			l_debug("Authenticator ignored our IP Address Request");
 	}
+
+	transition_disable =
+		handshake_util_find_kde(HANDSHAKE_KDE_TRANSITION_DISABLE,
+					decrypted_key_data,
+					decrypted_key_data_size,
+					&transition_disable_len);
+	if (transition_disable)
+		handshake_event(hs, HANDSHAKE_EVENT_TRANSITION_DISABLE,
+				transition_disable, transition_disable_len);
 
 retransmit:
 	/*
@@ -1790,14 +1842,14 @@ retransmit:
 	step4 = eapol_create_ptk_4_of_4(sm->protocol_version,
 					ek->key_descriptor_version,
 					sm->replay_counter,
-					sm->handshake->wpa_ie, sm->mic_len);
+					hs->wpa_ie, sm->mic_len);
 
-	kck = handshake_state_get_kck(sm->handshake);
-	kek = handshake_state_get_kek(sm->handshake);
+	kck = handshake_state_get_kck(hs);
+	kek = handshake_state_get_kek(hs);
 
 	if (sm->mic_len) {
-		if (!eapol_calculate_mic(sm->handshake->akm_suite, kck,
-				step4, mic, sm->mic_len)) {
+		if (!eapol_calculate_mic(hs->akm_suite, kck,
+						step4, mic, sm->mic_len)) {
 			l_debug("MIC Calculation failed");
 			l_free(step4);
 			handshake_failed(sm, MMPDU_REASON_CODE_UNSPECIFIED);
@@ -1806,10 +1858,9 @@ retransmit:
 
 		memcpy(EAPOL_KEY_MIC(step4), mic, sm->mic_len);
 	} else {
-		if (!eapol_aes_siv_encrypt(
-				handshake_state_get_kek(sm->handshake),
-				handshake_state_get_kek_len(sm->handshake),
-				step4, NULL, 0)) {
+		if (!eapol_aes_siv_encrypt(handshake_state_get_kek(hs),
+						handshake_state_get_kek_len(hs),
+						step4, NULL, 0)) {
 			l_debug("AES-SIV encryption failed");
 			l_free(step4);
 			handshake_failed(sm, MMPDU_REASON_CODE_UNSPECIFIED);
@@ -1820,7 +1871,7 @@ retransmit:
 	eapol_sm_write(sm, (struct eapol_frame *) step4, unencrypted);
 	l_free(step4);
 
-	if (sm->handshake->ptk_complete)
+	if (hs->ptk_complete)
 		return;
 
 	/*
@@ -1828,9 +1879,8 @@ retransmit:
 	 * ptk, this flag tells netdev to wait for the gtk/igtk before
 	 * completing the connection.
 	 */
-	if (!gtk && sm->handshake->group_cipher !=
-			IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC)
-		sm->handshake->wait_for_gtk = true;
+	if (!gtk && hs->group_cipher != IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC)
+		hs->wait_for_gtk = true;
 
 	if (gtk)
 		eapol_install_gtk(sm, gtk_key_index, gtk, gtk_len, ek->key_rsc);
@@ -1838,10 +1888,10 @@ retransmit:
 	if (igtk)
 		eapol_install_igtk(sm, igtk_key_index, igtk, igtk_len);
 
-	handshake_state_install_ptk(sm->handshake);
+	handshake_state_install_ptk(hs);
 
 	if (rekey_offload)
-		rekey_offload(sm->handshake->ifindex, kek, kck,
+		rekey_offload(hs->ifindex, kek, kck,
 				sm->replay_counter, sm->user_data);
 
 	l_timeout_remove(sm->timeout);
@@ -2213,12 +2263,12 @@ static void eapol_eap_results_cb(const uint8_t *msk_data, size_t msk_len,
 	/*
 	 * 802.11i 8.5.1.2:
 	 *    "When not using a PSK, the PMK is derived from the AAA key.
-	 *    The PMK shall be computed as the first 256 bits (bits 0–255)
-	 *    of the AAA key: PMK ← L(PTK, 0, 256)."
+	 *    The PMK shall be computed as the first 256 bits (bits 0-255)
+	 *    of the AAA key: PMK = L(PTK, 0, 256)."
 	 * 802.11-2016 12.7.1.3:
 	 *    "When not using a PSK, the PMK is derived from the MSK.
 	 *    The PMK shall be computed as the first PMK_bits bits
-	 *    (bits 0 to PMK_bits–1) of the MSK: PMK = L(MSK, 0, PMK_bits)."
+	 *    (bits 0 to PMK_bits-1) of the MSK: PMK = L(MSK, 0, PMK_bits)."
 	 * RFC5247 explains AAA-Key refers to the MSK and confirms the
 	 * first 32 bytes of the MSK are used.  MSK is at least 64 octets
 	 * long per RFC3748.  Note WEP derives the PTK from MSK differently.

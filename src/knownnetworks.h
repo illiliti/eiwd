@@ -20,6 +20,14 @@
  *
  */
 
+#define SETTINGS "Settings"
+#define NET_HIDDEN SETTINGS, "Hidden"
+#define NET_AUTOCONNECT SETTINGS, "AutoConnect"
+#define NET_ALWAYS_RANDOMIZE_ADDRESS SETTINGS, "AlwaysRandomizeAddress"
+#define NET_ADDRESS_OVERRIDE SETTINGS, "AddressOverride"
+#define NET_TRANSITION_DISABLE SETTINGS, "TransitionDisable"
+#define NET_TRANSITION_DISABLE_MODES SETTINGS, "DisabledTransitionModes"
+
 enum security;
 struct scan_freq_set;
 struct network_info;
@@ -54,18 +62,27 @@ struct network_info_ops {
 						const char **nai_realms);
 };
 
+struct network_config {
+	uint64_t connected_time;	/* Time last connected */
+	bool is_hidden:1;
+	bool is_autoconnectable:1;
+	bool override_addr:1;
+	bool always_random_addr:1;
+	uint8_t sta_addr[6];
+	bool have_transition_disable : 1;
+	uint8_t transition_disable;
+};
+
 struct network_info {
 	const struct network_info_ops *ops;
 	char ssid[33];
 	enum security type;
 	struct l_queue *known_frequencies;
-	uint64_t connected_time;	/* Time last connected */
 	int seen_count;			/* Ref count for network.info */
 	uint8_t uuid[16];
-	bool is_hidden:1;
-	bool is_autoconnectable:1;
 	bool is_hotspot:1;
 	bool has_uuid:1;
+	struct network_config config;
 };
 
 typedef bool (*known_networks_foreach_func_t)(const struct network_info *info,
@@ -79,6 +96,13 @@ typedef void (*known_networks_destroy_func_t)(void *user_data);
 struct known_frequency {
 	uint32_t frequency;
 };
+
+void __network_config_parse(const struct l_settings *settings,
+					const char *path,
+					struct network_config *config);
+void __network_info_init(struct network_info *info,
+				const char *ssid, enum security security,
+				struct network_config *config);
 
 int known_network_offset(const struct network_info *target);
 bool known_networks_foreach(known_networks_foreach_func_t function,
@@ -125,7 +149,7 @@ bool network_info_match_nai_realm(const struct network_info *info,
 
 void known_networks_add(struct network_info *info);
 void known_network_update(struct network_info *info,
-					struct l_settings *settings);
+					struct network_config *new_config);
 void known_network_set_connected_time(struct network_info *network,
 					uint64_t connected_time);
 void known_networks_remove(struct network_info *info);

@@ -42,6 +42,29 @@
 #include "src/util.h"
 #include "src/handshake.h"
 
+static inline unsigned int n_ecc_groups()
+{
+	const unsigned int *groups = l_ecc_supported_ike_groups();
+	unsigned int j = 0;
+
+	while (groups[j])
+		j += 1;
+
+	return j;
+}
+
+static inline int ecc_group_index(unsigned int group)
+{
+	const unsigned int *groups = l_ecc_supported_ike_groups();
+	int j;
+
+	for (j = 0; groups[j]; j++)
+		if (groups[j] == group)
+			return j;
+
+	return -ENOENT;
+}
+
 static bool handshake_get_nonce(uint8_t nonce[])
 {
 	return l_getrandom(nonce, 32);
@@ -78,12 +101,23 @@ void handshake_state_free(struct handshake_state *s)
 
 	l_free(s->authenticator_ie);
 	l_free(s->supplicant_ie);
+	l_free(s->authenticator_rsnxe);
+	l_free(s->supplicant_rsnxe);
 	l_free(s->mde);
 	l_free(s->fte);
 
 	if (s->passphrase) {
 		explicit_bzero(s->passphrase, strlen(s->passphrase));
 		l_free(s->passphrase);
+	}
+
+	if (s->ecc_sae_pts) {
+		unsigned int i;
+
+		for (i = 0; i < n_ecc_groups(); i++)
+			l_ecc_point_free(s->ecc_sae_pts[i]);
+
+		l_free(s->ecc_sae_pts);
 	}
 
 	explicit_bzero(s, sizeof(*s));
@@ -209,6 +243,39 @@ bool handshake_state_set_supplicant_ie(struct handshake_state *s,
 	return handshake_state_setup_own_ciphers(s, &info);
 }
 
+static void replace_ie(uint8_t **old, const uint8_t *new)
+{
+	if (*old == NULL) {
+		*old = new ? l_memdup(new, new[1] + 2) : NULL;
+		return;
+	}
+
+	if (!new) {
+		l_free(*old);
+		*old = NULL;
+		return;
+	}
+
+	if ((*old)[1] == new[1] && !memcmp(*old, new, new[1] + 2))
+		return;
+
+	l_free(*old);
+	*old = l_memdup(new, new[1] + 2);
+}
+
+void handshake_state_set_authenticator_rsnxe(struct handshake_state *s,
+						const uint8_t *ie)
+{
+	l_free(s->authenticator_rsnxe);
+	s->authenticator_rsnxe = ie ? l_memdup(ie, ie[1] + 2) : NULL;
+}
+
+void handshake_state_set_supplicant_rsnxe(struct handshake_state *s,
+						const uint8_t *ie)
+{
+	replace_ie(&s->supplicant_rsnxe, ie);
+}
+
 void handshake_state_set_ssid(struct handshake_state *s, const uint8_t *ssid,
 				size_t ssid_len)
 {
@@ -218,18 +285,12 @@ void handshake_state_set_ssid(struct handshake_state *s, const uint8_t *ssid,
 
 void handshake_state_set_mde(struct handshake_state *s, const uint8_t *mde)
 {
-	if (s->mde)
-		l_free(s->mde);
-
-	s->mde = mde ? l_memdup(mde, mde[1] + 2) : NULL;
+	replace_ie(&s->mde, mde);
 }
 
 void handshake_state_set_fte(struct handshake_state *s, const uint8_t *fte)
 {
-	if (s->fte)
-		l_free(s->fte);
-
-	s->fte = fte ? l_memdup(fte, fte[1] + 2) : NULL;
+	replace_ie(&s->fte, fte);
 }
 
 void handshake_state_set_kh_ids(struct handshake_state *s,
@@ -752,8 +813,9 @@ bool handshake_util_ap_ie_matches(const uint8_t *msg_ie,
 	return true;
 }
 
-static const uint8_t *find_kde(const uint8_t *data, size_t data_len,
-				size_t *out_len, enum handshake_kde selector)
+const uint8_t *handshake_util_find_kde(enum handshake_kde selector,
+				const uint8_t *data, size_t data_len,
+				size_t *out_kde_len)
 {
 	struct ie_tlv_iter iter;
 	const uint8_t *result;
@@ -774,8 +836,8 @@ static const uint8_t *find_kde(const uint8_t *data, size_t data_len,
 		if (l_get_be32(result) != selector)
 			continue;
 
-		if (out_len)
-			*out_len = len - 4;
+		if (out_kde_len)
+			*out_kde_len = len - 4;
 
 		return result + 4;
 	}
@@ -787,8 +849,8 @@ const uint8_t *handshake_util_find_gtk_kde(const uint8_t *data, size_t data_len,
 						size_t *out_gtk_len)
 {
 	size_t gtk_len;
-	const uint8_t *gtk = find_kde(data, data_len, &gtk_len,
-					HANDSHAKE_KDE_GTK);
+	const uint8_t *gtk = handshake_util_find_kde(HANDSHAKE_KDE_GTK,
+						data, data_len, &gtk_len);
 
 	if (!gtk)
 		return NULL;
@@ -814,8 +876,8 @@ const uint8_t *handshake_util_find_igtk_kde(const uint8_t *data,
 						size_t *out_igtk_len)
 {
 	size_t igtk_len;
-	const uint8_t *igtk = find_kde(data, data_len, &igtk_len,
-					HANDSHAKE_KDE_IGTK);
+	const uint8_t *igtk = handshake_util_find_kde(HANDSHAKE_KDE_IGTK,
+						data, data_len, &igtk_len);
 
 	if (!igtk)
 		return NULL;
@@ -842,7 +904,8 @@ const uint8_t *handshake_util_find_pmkid_kde(const uint8_t *data,
 	const uint8_t *pmkid;
 	size_t pmkid_len;
 
-	pmkid = find_kde(data, data_len, &pmkid_len, HANDSHAKE_KDE_PMKID);
+	pmkid = handshake_util_find_kde(HANDSHAKE_KDE_PMKID, data, data_len,
+					&pmkid_len);
 
 	if (pmkid && pmkid_len != 16)
 		return NULL;
@@ -919,5 +982,30 @@ bool handshake_decode_fte_key(struct handshake_state *s, const uint8_t *wrapped,
 		if (key_out[key_len++] != 0x00)
 			return false;
 
+	return true;
+}
+
+/* Add SAE-PT for ECC groups.  The group is carried by the point itself */
+bool handshake_state_add_ecc_sae_pt(struct handshake_state *s,
+						const struct l_ecc_point *pt)
+{
+	const struct l_ecc_curve *curve;
+	int i;
+
+	if (!pt)
+		return false;
+
+	curve = l_ecc_point_get_curve(pt);
+
+	if (!s->ecc_sae_pts)
+		s->ecc_sae_pts = l_new(struct l_ecc_point *, n_ecc_groups());
+
+	if ((i = ecc_group_index(l_ecc_curve_get_ike_group(curve))) < 0)
+		return false;
+
+	if (s->ecc_sae_pts[i])
+		return false;
+
+	s->ecc_sae_pts[i] = l_ecc_point_clone(pt);
 	return true;
 }

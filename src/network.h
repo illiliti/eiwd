@@ -28,6 +28,7 @@ struct device;
 struct station;
 struct network;
 struct scan_bss;
+struct handshake_state;
 
 void network_connected(struct network *network);
 void network_disconnected(struct network *network);
@@ -39,19 +40,25 @@ struct network *network_create(struct station *station, const char *ssid,
 const char *network_get_ssid(const struct network *network);
 const char *network_get_path(const struct network *network);
 enum security network_get_security(const struct network *network);
-const uint8_t *network_get_psk(struct network *network);
-const char *network_get_passphrase(const struct network *network);
 bool network_set_passphrase(struct network *network, const char *passphrase);
-struct l_queue *network_get_secrets(const struct network *network);
 int network_get_signal_strength(const struct network *network);
 struct l_settings *network_get_settings(const struct network *network);
 
 bool network_set_psk(struct network *network, const uint8_t *psk);
-void network_sync_psk(struct network *network);
+
+int network_set_transition_disable(struct network *network,
+					const uint8_t *td, size_t len);
+
+int network_handshake_setup(struct network *network,
+						struct handshake_state *hs);
+
+void network_sync_settings(struct network *network);
 
 const struct network_info *network_get_info(const struct network *network);
 void network_set_info(struct network *network, struct network_info *info);
 
+int network_can_connect_bss(struct network *network,
+						const struct scan_bss *bss);
 int network_autoconnect(struct network *network, struct scan_bss *bss);
 void network_connect_failed(struct network *network, bool in_handshake);
 bool network_bss_add(struct network *network, struct scan_bss *bss);

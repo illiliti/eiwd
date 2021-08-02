@@ -33,6 +33,7 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "src/missing.h"
 #include "src/crypto.h"
 
@@ -610,6 +611,79 @@ bool prf_sha1(const void *key, size_t key_len,
 	return true;
 }
 
+/* PRF+ from RFC 5295 Section 3.1.2 (also RFC 4306 Section 2.13) */
+bool prf_plus(enum l_checksum_type type, const void *key, size_t key_len,
+		const char *label, void *out, size_t out_len,
+		size_t n_extra, ...)
+{
+	struct iovec iov[n_extra + 3];
+	uint8_t *t = out;
+	size_t t_len = 0;
+	uint8_t count = 1;
+	uint8_t *out_ptr = out;
+	va_list va;
+	struct l_checksum *hmac;
+	ssize_t ret;
+	size_t i;
+
+	iov[1].iov_base = (void *) label;
+	iov[1].iov_len = strlen(label);
+
+	/* Include the '\0' from the label in S if extra arguments provided */
+	if (n_extra)
+		iov[1].iov_len += 1;
+
+	va_start(va, n_extra);
+
+	for (i = 0; i < n_extra; i++) {
+		iov[i + 2].iov_base = va_arg(va, void *);
+		iov[i + 2].iov_len = va_arg(va, size_t);
+	}
+
+	va_end(va);
+
+	iov[n_extra + 2].iov_base = &count;
+	iov[n_extra + 2].iov_len = 1;
+
+	hmac = l_checksum_new_hmac(type, key, key_len);
+	if (!hmac)
+		return false;
+
+	while (out_len > 0) {
+		iov[0].iov_base = t;
+		iov[0].iov_len = t_len;
+
+		if (!l_checksum_updatev(hmac, iov, n_extra + 3)) {
+			l_checksum_free(hmac);
+			return false;
+		}
+
+		ret = l_checksum_get_digest(hmac, out_ptr, out_len);
+		if (ret < 0) {
+			l_checksum_free(hmac);
+			return false;
+		}
+
+		/*
+		 * RFC specifies that T(0) = empty string, so after the first
+		 * iteration we update the length for T(1)...T(N)
+		 */
+		t_len = ret;
+		t = out_ptr;
+		count++;
+
+		out_len -= ret;
+		out_ptr += ret;
+
+		if (out_len)
+			l_checksum_reset(hmac);
+	}
+
+	l_checksum_free(hmac);
+
+	return true;
+}
+
 bool prf_plus_sha1(const void *key, size_t key_len,
 					const void *label, size_t label_len,
 					const void *seed, size_t seed_len,
@@ -675,13 +749,15 @@ bool prf_plus_sha1(const void *key, size_t key_len,
 }
 
 /* Defined in 802.11-2012, Section 11.6.1.7.2 Key derivation function (KDF) */
-bool kdf_sha256(const void *key, size_t key_len,
+bool crypto_kdf(enum l_checksum_type type, const void *key, size_t key_len,
 		const void *prefix, size_t prefix_len,
 		const void *data, size_t data_len, void *output, size_t size)
 {
 	struct l_checksum *hmac;
 	unsigned int i, offset = 0;
 	unsigned int counter;
+	unsigned int chunk_size;
+	unsigned int n_iterations;
 	uint8_t counter_le[2];
 	uint8_t length_le[2];
 	struct iovec iov[4] = {
@@ -691,19 +767,21 @@ bool kdf_sha256(const void *key, size_t key_len,
 		[3] = { .iov_base = length_le, .iov_len = 2 },
 	};
 
-	hmac = l_checksum_new_hmac(L_CHECKSUM_SHA256, key, key_len);
+	hmac = l_checksum_new_hmac(type, key, key_len);
 	if (!hmac)
 		return false;
+
+	chunk_size = l_checksum_digest_length(type);
+	n_iterations = (size + chunk_size - 1) / chunk_size;
 
 	/* Length is denominated in bits, not bytes */
 	l_put_le16(size * 8, length_le);
 
-	/* KDF processes in 256-bit chunks (32 bytes) */
-	for (i = 0, counter = 1; i < (size + 31) / 32; i++, counter++) {
+	for (i = 0, counter = 1; i < n_iterations; i++, counter++) {
 		size_t len;
 
-		if (size - offset > 32)
-			len = 32;
+		if (size - offset > chunk_size)
+			len = chunk_size;
 		else
 			len = size - offset;
 
@@ -720,49 +798,20 @@ bool kdf_sha256(const void *key, size_t key_len,
 	return true;
 }
 
+bool kdf_sha256(const void *key, size_t key_len,
+		const void *prefix, size_t prefix_len,
+		const void *data, size_t data_len, void *output, size_t size)
+{
+	return crypto_kdf(L_CHECKSUM_SHA256, key, key_len, prefix, prefix_len,
+				data, data_len, output, size);
+}
+
 bool kdf_sha384(const void *key, size_t key_len,
 		const void *prefix, size_t prefix_len,
 		const void *data, size_t data_len, void *output, size_t size)
 {
-	struct l_checksum *hmac;
-	unsigned int i, offset = 0;
-	unsigned int counter;
-	uint8_t counter_le[2];
-	uint8_t length_le[2];
-	struct iovec iov[4] = {
-		[0] = { .iov_base = counter_le, .iov_len = 2 },
-		[1] = { .iov_base = (void *) prefix, .iov_len = prefix_len },
-		[2] = { .iov_base = (void *) data, .iov_len = data_len },
-		[3] = { .iov_base = length_le, .iov_len = 2 },
-	};
-
-	hmac = l_checksum_new_hmac(L_CHECKSUM_SHA384, key, key_len);
-	if (!hmac)
-		return false;
-
-	/* Length is denominated in bits, not bytes */
-	l_put_le16(size * 8, length_le);
-
-	/* KDF processes in 384-bit chunks (48 bytes) */
-	for (i = 0, counter = 1; i < (size + 47) / 48; i++, counter++) {
-		size_t len;
-
-		if (size - offset > 48)
-			len = 48;
-		else
-			len = size - offset;
-
-		l_put_le16(counter, counter_le);
-
-		l_checksum_updatev(hmac, iov, 4);
-		l_checksum_get_digest(hmac, output + offset, len);
-
-		offset += len;
-	}
-
-	l_checksum_free(hmac);
-
-	return true;
+	return crypto_kdf(L_CHECKSUM_SHA384, key, key_len, prefix, prefix_len,
+				data, data_len, output, size);
 }
 
 /*
@@ -770,9 +819,9 @@ bool kdf_sha384(const void *key, size_t key_len,
  *
  * Null key equates to a zero key (makes calls in EAP-PWD more convenient)
  */
-bool hkdf_extract(enum l_checksum_type type, const uint8_t *key,
+bool hkdf_extract(enum l_checksum_type type, const void *key,
 				size_t key_len, uint8_t num_args,
-				uint8_t *out, ...)
+				void *out, ...)
 {
 	struct l_checksum *hmac;
 	struct iovec iov[num_args];
@@ -812,59 +861,9 @@ bool hkdf_extract(enum l_checksum_type type, const uint8_t *key,
 }
 
 bool hkdf_expand(enum l_checksum_type type, const uint8_t *key, size_t key_len,
-			const char *info, size_t info_len, void *out,
-			size_t out_len)
+			const char *info, void *out, size_t out_len)
 {
-	uint8_t *t = out;
-	size_t t_len = 0;
-	struct l_checksum *hmac;
-	uint8_t count = 1;
-	uint8_t *out_ptr = out;
-
-	hmac = l_checksum_new_hmac(type, key, key_len);
-	if (!hmac)
-		return false;
-
-	while (out_len > 0) {
-		ssize_t ret;
-		struct iovec iov[3];
-
-		iov[0].iov_base = t;
-		iov[0].iov_len = t_len;
-		iov[1].iov_base = (void *) info;
-		iov[1].iov_len = info_len;
-		iov[2].iov_base = &count;
-		iov[2].iov_len = 1;
-
-		if (!l_checksum_updatev(hmac, iov, 3)) {
-			l_checksum_free(hmac);
-			return false;
-		}
-
-		ret = l_checksum_get_digest(hmac, out_ptr, out_len);
-		if (ret < 0) {
-			l_checksum_free(hmac);
-			return false;
-		}
-
-		/*
-		 * RFC specifies that T(0) = empty string, so after the first
-		 * iteration we update the length for T(1)...T(N)
-		 */
-		t_len = ret;
-		t = out_ptr;
-		count++;
-
-		out_len -= ret;
-		out_ptr += ret;
-
-		if (out_len)
-			l_checksum_reset(hmac);
-	}
-
-	l_checksum_free(hmac);
-
-	return true;
+	return prf_plus(type, key, key_len, info, out, out_len, 0);
 }
 
 /*
@@ -874,7 +873,7 @@ bool hkdf_expand(enum l_checksum_type type, const uint8_t *key, size_t key_len,
  *
  * 802.11, Section 11.6.1.3:
  * The PTK shall be derived from the PMK by
- *  PTK ← PRF-X(PMK, “Pairwise key expansion”, Min(AA,SPA) || Max(AA,SPA) ||
+ *  PTK = PRF-X(PMK, "Pairwise key expansion", Min(AA,SPA) || Max(AA,SPA) ||
  *		Min(ANonce,SNonce) || Max(ANonce,SNonce))
  * where X = 256 + TK_bits. The value of TK_bits is cipher-suite dependent and
  * is defined in Table 11-4. The Min and Max operations for IEEE 802 addresses
@@ -915,14 +914,12 @@ static bool crypto_derive_ptk(const uint8_t *pmk, size_t pmk_len,
 	}
 
 	pos += 64;
-	if (type == L_CHECKSUM_SHA384)
-		return kdf_sha384(pmk, pmk_len, label, strlen(label),
-					data, sizeof(data), out_ptk, ptk_len);
-	else if (type == L_CHECKSUM_SHA256)
-		return kdf_sha256(pmk, pmk_len, label, strlen(label),
+
+	if (type == L_CHECKSUM_SHA1)
+		return prf_sha1(pmk, pmk_len, label, strlen(label),
 					data, sizeof(data), out_ptk, ptk_len);
 	else
-		return prf_sha1(pmk, pmk_len, label, strlen(label),
+		return crypto_kdf(type, pmk, pmk_len, label, strlen(label),
 					data, sizeof(data), out_ptk, ptk_len);
 }
 
@@ -1120,4 +1117,120 @@ bool crypto_derive_pmkid(const uint8_t *pmk,
 		return hmac_sha256(pmk, 32, data, 20, out_pmkid, 16);
 	else
 		return hmac_sha1(pmk, 32, data, 20, out_pmkid, 16);
+}
+
+enum l_checksum_type crypto_sae_hash_from_ecc_prime_len(enum crypto_sae type,
+							size_t prime_len)
+{
+	/*
+	 * If used with the looping technique described in 12.4.4.2.2 and
+	 * 12.4.4.3.2, H and CN are instantiated with SHA-256.
+	 */
+	if (type == CRYPTO_SAE_LOOPING)
+		return L_CHECKSUM_SHA256;
+
+	/* 802.11-2020, Table 12-1 Hash algorithm based on length of prime */
+	if (prime_len <= 256 / 8)
+		return L_CHECKSUM_SHA256;
+
+	if (prime_len <= 384 / 8)
+		return L_CHECKSUM_SHA384;
+
+	return L_CHECKSUM_SHA512;
+}
+
+struct l_ecc_point *crypto_derive_sae_pt_ecc(unsigned int group,
+						const char *ssid,
+						const char *password,
+						const char *identifier)
+{
+	const struct l_ecc_curve *curve = l_ecc_curve_from_ike_group(group);
+	enum l_checksum_type hash;
+	size_t hash_len;
+	uint8_t pwd_seed[64]; /* SHA512 is the biggest possible right now */
+	uint8_t pwd_value[128];
+	size_t pwd_value_len;
+	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *u1 = NULL;
+	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *u2 = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *p1 = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *p2 = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *pt = NULL;
+
+	if (!curve)
+		return NULL;
+
+	hash = crypto_sae_hash_from_ecc_prime_len(CRYPTO_SAE_HASH_TO_ELEMENT,
+					l_ecc_curve_get_scalar_bytes(curve));
+	hash_len = l_checksum_digest_length(hash);
+
+	/* pwd-seed = HKDF-Extract(ssid, password [|| identifier]) */
+	hkdf_extract(hash, ssid, strlen(ssid), 2, pwd_seed,
+			password, strlen(password),
+			identifier, identifier ? strlen(identifier) : 0);
+
+	/* len = olen(p) + floor(olen(p)/2) */
+	pwd_value_len = l_ecc_curve_get_scalar_bytes(curve);
+	pwd_value_len += pwd_value_len / 2;
+
+	/*
+	 * pwd-value = HKDF-Expand(pwd-seed, "SAE Hash to Element u1 P1", len)
+	 */
+	hkdf_expand(hash, pwd_seed, hash_len, "SAE Hash to Element u1 P1",
+				pwd_value, pwd_value_len);
+	u1 = l_ecc_scalar_new_modp(curve, pwd_value, pwd_value_len);
+
+	/*
+	 * pwd-value = HKDF-Expand(pwd-seed, "SAE Hash to Element u2 P2", len)
+	 */
+	hkdf_expand(hash, pwd_seed, hash_len, "SAE Hash to Element u2 P2",
+				pwd_value, pwd_value_len);
+	u2 = l_ecc_scalar_new_modp(curve, pwd_value, pwd_value_len);
+
+	p1 = l_ecc_point_from_sswu(u1);
+	p2 = l_ecc_point_from_sswu(u2);
+
+	pt = l_ecc_point_new(curve);
+	l_ecc_point_add(pt, p1, p2);
+
+	return l_steal_ptr(pt);
+}
+
+struct l_ecc_point *crypto_derive_sae_pwe_from_pt_ecc(const uint8_t *mac1,
+						const uint8_t *mac2,
+						const struct l_ecc_point *pt)
+{
+	const struct l_ecc_curve *curve = l_ecc_point_get_curve(pt);
+	enum l_checksum_type hash;
+	size_t hash_len;
+	uint8_t sorted_macs[12];
+	uint8_t val_buf[64]; /* Max for SHA-512 */
+	struct l_ecc_scalar *val;
+	struct l_ecc_point *pwe;
+
+	if (!pt || !curve)
+		return false;
+
+	hash = crypto_sae_hash_from_ecc_prime_len(CRYPTO_SAE_HASH_TO_ELEMENT,
+					l_ecc_curve_get_scalar_bytes(curve));
+	hash_len = l_checksum_digest_length(hash);
+
+	/*
+	 * val = H(0n, MAX(STA-A-MAC, STA-B-MAC) || MIN(STA-A-MAC, STA-B-MAC))
+	 */
+	if (memcmp(mac1, mac2, 6) > 0) {
+		memcpy(sorted_macs, mac1, 6);
+		memcpy(sorted_macs + 6, mac2, 6);
+	} else {
+		memcpy(sorted_macs, mac2, 6);
+		memcpy(sorted_macs + 6, mac1, 6);
+	}
+
+	hkdf_extract(hash, NULL, 0, 1, val_buf,
+					sorted_macs, sizeof(sorted_macs));
+	val = l_ecc_scalar_new_reduced_1_to_n(curve, val_buf, hash_len);
+	pwe = l_ecc_point_new(curve);
+	l_ecc_point_multiply(pwe, val, pt);
+	l_ecc_scalar_free(val);
+
+	return pwe;
 }

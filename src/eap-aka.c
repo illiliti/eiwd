@@ -189,7 +189,7 @@ static void check_milenage_cb(const uint8_t *res, const uint8_t *ck,
 	struct eap_aka_handle *aka = eap_get_data(eap);
 
 	size_t resp_len = aka->protected ? 44 : 40;
-	uint8_t response[resp_len + 4];
+	uint8_t response[EAP_SIM_ROUND(resp_len + 4)];
 	uint8_t *pos = response;
 
 	if (auts) {
@@ -512,7 +512,7 @@ static void handle_notification(struct eap_state *eap, const uint8_t *pkt,
 	if (value == EAP_SIM_SUCCESS && aka->protected &&
 			aka->state == EAP_AKA_STATE_CHALLENGE) {
 		/* header + MAC + MAC header */
-		uint8_t response[8 + EAP_SIM_MAC_LEN + 4];
+		uint8_t response[EAP_SIM_ROUND(8 + EAP_SIM_MAC_LEN + 4)];
 		uint8_t *pos = response;
 
 		/*
@@ -564,7 +564,7 @@ static void handle_identity(struct eap_state *eap, const uint8_t *pkt,
 		size_t len)
 {
 	struct eap_aka_handle *aka = eap_get_data(eap);
-	uint8_t response[8 + strlen(aka->identity) + 4];
+	uint8_t response[EAP_SIM_ROUND(8 + strlen(aka->identity) + 4)];
 	uint8_t *pos = response;
 
 	if (aka->state != EAP_AKA_STATE_UNCONNECTED) {

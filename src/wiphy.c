@@ -131,6 +131,24 @@ enum ie_rsn_cipher_suite wiphy_select_cipher(struct wiphy *wiphy, uint16_t mask)
 static bool wiphy_can_connect_sae(struct wiphy *wiphy)
 {
 	/*
+	 * WPA3 Specification version 3, Section 2.2:
+	 * A STA shall not enable WEP and TKIP
+	 */
+	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_CCMP)) {
+		l_debug("HW not CCMP capable, can't use SAE");
+		return false;
+	}
+
+	/*
+	 * WPA3 Specification version 3, Section 2.3:
+	 * A STA shall negotiate PMF when associating to an AP using SAE
+	 */
+	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP)) {
+		l_debug("HW not MFP capable, can't use SAE");
+		return false;
+	}
+
+	/*
 	 * SAE support in the kernel is a complete mess in that there are 3
 	 * different ways the hardware can support SAE:
 	 *
@@ -175,18 +193,13 @@ static bool wiphy_can_connect_sae(struct wiphy *wiphy)
 }
 
 enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
-					struct scan_bss *bss,
+					const struct scan_bss *bss,
+					enum security security,
+					const struct ie_rsn_info *info,
 					bool fils_capable_hint)
 {
-	struct ie_rsn_info info;
-	enum security security;
 	bool psk_offload = wiphy_has_ext_feature(wiphy,
 				NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK);
-
-	memset(&info, 0, sizeof(info));
-	scan_bss_get_rsn_info(bss, &info);
-
-	security = security_determine(bss->capability, &info);
 
 	/*
 	 * If FT is available, use FT authentication to keep the door open
@@ -195,32 +208,32 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 	if (security == SECURITY_8021X) {
 		if (wiphy_has_feature(wiphy, NL80211_EXT_FEATURE_FILS_STA) &&
 				fils_capable_hint) {
-			if ((info.akm_suites &
+			if ((info->akm_suites &
 					IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384) &&
 					bss->rsne && bss->mde_present)
 				return IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384;
 
-			if ((info.akm_suites &
+			if ((info->akm_suites &
 					IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256) &&
 					bss->rsne && bss->mde_present)
 				return IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256;
 
-			if (info.akm_suites & IE_RSN_AKM_SUITE_FILS_SHA384)
+			if (info->akm_suites & IE_RSN_AKM_SUITE_FILS_SHA384)
 				return IE_RSN_AKM_SUITE_FILS_SHA384;
 
-			if (info.akm_suites & IE_RSN_AKM_SUITE_FILS_SHA256)
+			if (info->akm_suites & IE_RSN_AKM_SUITE_FILS_SHA256)
 				return IE_RSN_AKM_SUITE_FILS_SHA256;
 		}
 
-		if ((info.akm_suites & IE_RSN_AKM_SUITE_FT_OVER_8021X) &&
+		if ((info->akm_suites & IE_RSN_AKM_SUITE_FT_OVER_8021X) &&
 				bss->rsne && bss->mde_present &&
 				wiphy->support_cmds_auth_assoc)
 			return IE_RSN_AKM_SUITE_FT_OVER_8021X;
 
-		if (info.akm_suites & IE_RSN_AKM_SUITE_8021X_SHA256)
+		if (info->akm_suites & IE_RSN_AKM_SUITE_8021X_SHA256)
 			return IE_RSN_AKM_SUITE_8021X_SHA256;
 
-		if (info.akm_suites & IE_RSN_AKM_SUITE_8021X)
+		if (info->akm_suites & IE_RSN_AKM_SUITE_8021X)
 			return IE_RSN_AKM_SUITE_8021X;
 	} else if (security == SECURITY_PSK) {
 		/*
@@ -229,23 +242,17 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 		 * MFPR/MFPC bits correctly. If any of these conditions are not
 		 * met, we can fallback to WPA2 (if the AKM is present).
 		 */
-		if (ie_rsne_is_wpa3_personal(&info)) {
+		if (ie_rsne_is_wpa3_personal(info)) {
 			l_debug("Network is WPA3-Personal...");
-
-			if (!(wiphy->supported_ciphers &
-						IE_RSN_CIPHER_SUITE_BIP)) {
-				l_debug("HW not MFP capable, trying WPA2");
-				goto wpa2_personal;
-			}
 
 			if (!wiphy_can_connect_sae(wiphy))
 				goto wpa2_personal;
 
-			if (info.akm_suites &
+			if (info->akm_suites &
 					IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256)
 				return IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256;
 
-			if (info.akm_suites & IE_RSN_AKM_SUITE_SAE_SHA256)
+			if (info->akm_suites & IE_RSN_AKM_SUITE_SAE_SHA256)
 				return IE_RSN_AKM_SUITE_SAE_SHA256;
 		}
 
@@ -255,20 +262,20 @@ wpa2_personal:
 		 * supports PSK offload. Without Auth/Assoc, PSK offload is the
 		 * only mechanism to allow FT on these cards.
 		 */
-		if ((info.akm_suites & IE_RSN_AKM_SUITE_FT_USING_PSK) &&
+		if ((info->akm_suites & IE_RSN_AKM_SUITE_FT_USING_PSK) &&
 					bss->rsne && bss->mde_present) {
 			if (wiphy->support_cmds_auth_assoc ||
 					(psk_offload && wiphy->support_fw_roam))
 				return IE_RSN_AKM_SUITE_FT_USING_PSK;
 		}
 
-		if (info.akm_suites & IE_RSN_AKM_SUITE_PSK_SHA256)
+		if (info->akm_suites & IE_RSN_AKM_SUITE_PSK_SHA256)
 			return IE_RSN_AKM_SUITE_PSK_SHA256;
 
-		if (info.akm_suites & IE_RSN_AKM_SUITE_PSK)
+		if (info->akm_suites & IE_RSN_AKM_SUITE_PSK)
 			return IE_RSN_AKM_SUITE_PSK;
 	} else if (security == SECURITY_NONE) {
-		if (info.akm_suites & IE_RSN_AKM_SUITE_OWE)
+		if (info->akm_suites & IE_RSN_AKM_SUITE_OWE)
 			return IE_RSN_AKM_SUITE_OWE;
 	}
 
@@ -411,28 +418,16 @@ const struct scan_freq_set *wiphy_get_supported_freqs(
 	return wiphy->supported_freqs;
 }
 
-bool wiphy_can_connect(struct wiphy *wiphy, struct scan_bss *bss,
-			bool fils_hint)
+bool wiphy_can_transition_disable(struct wiphy *wiphy)
 {
-	struct ie_rsn_info rsn_info;
-	int r;
+	/*
+	 * WPA3 Specification version 3, Section 2.2:
+	 * A STA shall not enable WEP and TKIP
+	 */
+	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_CCMP))
+		return false;
 
-	memset(&rsn_info, 0, sizeof(rsn_info));
-	r = scan_bss_get_rsn_info(bss, &rsn_info);
-
-	if (r == 0) {
-		if (!wiphy_select_cipher(wiphy, rsn_info.pairwise_ciphers))
-			return false;
-
-		if (!wiphy_select_cipher(wiphy, rsn_info.group_cipher))
-			return false;
-
-		if (rsn_info.mfpr && !wiphy_select_cipher(wiphy,
-					rsn_info.group_management_cipher))
-			return false;
-
-		return wiphy_select_akm(wiphy, bss, fils_hint);
-	} else if (r != -ENOENT)
+	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP))
 		return false;
 
 	return true;
@@ -537,6 +532,26 @@ const uint8_t *wiphy_get_rm_enabled_capabilities(struct wiphy *wiphy)
 		return NULL;
 
 	return wiphy->rm_enabled_capabilities;
+}
+
+bool wiphy_get_rsnxe(const struct wiphy *wiphy, uint8_t *buf, size_t len)
+{
+	if (len < 3)
+		return false;
+
+	buf[0] = IE_TYPE_RSNX;
+	buf[1] = 1;
+
+	/*
+	 * Lower 4 bits of the first octet:
+	 * The length of the Extended RSN Capabilities field, in octets,
+	 * minus 1, i.e., n - 1.
+	 */
+	buf[2] = 0;
+
+	/* No other bits set for now */
+
+	return true;
 }
 
 static void wiphy_address_constrain(struct wiphy *wiphy, uint8_t addr[static 6])
@@ -756,13 +771,10 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 					out_data_rate))
 		return 0;
 
-	if (!band_estimate_nonht_rate(bandp, supported_rates,
+	return band_estimate_nonht_rate(bandp, supported_rates,
 						ext_supported_rates,
 						bss->signal_strength / 100,
-						out_data_rate))
-		return 0;
-
-	return -ENOTSUP;
+						out_data_rate);
 }
 
 uint32_t wiphy_state_watch_add(struct wiphy *wiphy,

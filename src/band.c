@@ -115,7 +115,7 @@ int band_estimate_nonht_rate(const struct band *band,
 	}
 
 	if (!max_rate)
-		return -EINVAL;
+		return -ENETUNREACH;
 
 	*out_data_rate = max_rate * 500000;
 	return 0;
@@ -261,7 +261,7 @@ int band_estimate_ht_rx_rate(const struct band *band,
 	 * Number of Spatial Streams Supported' field at bits 98 and 99.
 	 *
 	 * Note 44 on page 1662 of 802.11-2016 states:
-	 * "How a non-AP STA determines an AP’s HT MCS transmission support,
+	 * "How a non-AP STA determines an AP's HT MCS transmission support,
 	 * if the Tx MCS Set subfield in the HT Capabilities element
 	 * advertised by the AP is equal to 0 or if he Tx Rx MCS Set Not Equal
 	 * subfield in that element is equal to 1, is implementation dependent.
@@ -306,7 +306,7 @@ int band_estimate_ht_rx_rate(const struct band *band,
 				rssi, sgi, out_data_rate))
 		return 0;
 
-	return -EINVAL;
+	return -ENETUNREACH;
 }
 
 static bool find_best_mcs_vht(uint8_t max_index, enum ofdm_channel_width width,
@@ -463,5 +463,5 @@ try_vht80:
 				rssi, nss, sgi, out_data_rate))
 		return 0;
 
-	return -EINVAL;
+	return -ENETUNREACH;
 }

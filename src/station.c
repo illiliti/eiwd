@@ -706,8 +706,8 @@ static void station_handshake_event(struct handshake_state *hs,
 	case HANDSHAKE_EVENT_SETTING_KEYS:
 		l_debug("Setting keys");
 
-		/* If we got here, then our PSK works.  Save if required */
-		network_sync_psk(network);
+		/* If we got here, then our settings work.  Update if needed */
+		network_sync_settings(network);
 		break;
 	case HANDSHAKE_EVENT_FAILED:
 		netdev_handshake_failed(hs, va_arg(args, int));
@@ -716,6 +716,14 @@ static void station_handshake_event(struct handshake_state *hs,
 		l_warn("Unable to securely rekey on this hw/kernel...");
 		station_reconnect(station);
 		break;
+	case HANDSHAKE_EVENT_TRANSITION_DISABLE:
+	{
+		const uint8_t *td = va_arg(args, const uint8_t *);
+		size_t len = va_arg(args, size_t);
+
+		network_set_transition_disable(network, td, len);
+		break;
+	}
 	case HANDSHAKE_EVENT_COMPLETE:
 	case HANDSHAKE_EVENT_SETTING_KEYS_FAILED:
 	case HANDSHAKE_EVENT_EAP_NOTIFY:
@@ -760,7 +768,8 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 	if (security == SECURITY_8021X && hs->support_fils)
 		fils_hint = network_has_erp_identity(network);
 
-	info.akm_suites = wiphy_select_akm(wiphy, bss, fils_hint);
+	info.akm_suites = wiphy_select_akm(wiphy, bss, security,
+							&bss_info, fils_hint);
 
 	/*
 	 * Special case for OWE. With OWE we still need to build up the
@@ -867,16 +876,8 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 							struct network *network,
 							struct scan_bss *bss)
 {
-	enum security security = network_get_security(network);
-	struct l_settings *settings = network_get_settings(network);
 	struct wiphy *wiphy = station->wiphy;
 	struct handshake_state *hs;
-	const char *ssid;
-	uint32_t eapol_proto_version;
-	const char *value;
-	bool full_random;
-	bool override = false;
-	uint8_t new_addr[ETH_ALEN];
 
 	hs = netdev_handshake_state_new(station->netdev);
 
@@ -885,45 +886,10 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 	if (station_build_handshake_rsn(hs, wiphy, network, bss) < 0)
 		goto not_supported;
 
-	ssid = network_get_ssid(network);
-	handshake_state_set_ssid(hs, (void *) ssid, strlen(ssid));
+	handshake_state_set_authenticator_rsnxe(hs, bss->rsnxe);
 
-	if (settings && l_settings_get_uint(settings, "EAPoL",
-						"ProtocolVersion",
-						&eapol_proto_version)) {
-		if (eapol_proto_version > 3) {
-			l_warn("Invalid ProtocolVersion value - should be 0-3");
-			eapol_proto_version = 0;
-		}
-
-		if (eapol_proto_version)
-			l_debug("Overriding EAPoL protocol version to: %u",
-					eapol_proto_version);
-
-		handshake_state_set_protocol_version(hs, eapol_proto_version);
-	}
-
-	if (security == SECURITY_PSK) {
-		/* SAE will generate/set the PMK */
-		if (IE_AKM_IS_SAE(hs->akm_suite)) {
-			const char *passphrase =
-				network_get_passphrase(network);
-
-			if (!passphrase)
-				goto no_psk;
-
-			handshake_state_set_passphrase(hs, passphrase);
-		} else {
-			const uint8_t *psk = network_get_psk(network);
-
-			if (!psk)
-				goto no_psk;
-
-			handshake_state_set_pmk(hs, psk, 32);
-		}
-	} else if (security == SECURITY_8021X)
-		handshake_state_set_8021x_config(hs,
-					network_get_settings(network));
+	if (network_handshake_setup(network, hs) < 0)
+		goto not_supported;
 
 	/*
 	 * If FILS was chosen, the ERP cache has been verified to exist. We
@@ -936,49 +902,10 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
 		hs->erp_cache = erp_cache_get(network_get_ssid(network));
 
-	/*
-	 * We have three possible options here:
-	 * 1. per-network MAC generation (default, no option in network config)
-	 * 2. per-network full MAC randomization
-	 * 3. per-network MAC override
-	 */
-
-	if (!l_settings_get_bool(settings, "Settings",
-					"AlwaysRandomizeAddress",
-					&full_random))
-		full_random = false;
-
-	value = l_settings_get_value(settings, "Settings",
-					"AddressOverride");
-	if (value) {
-		if (util_string_to_address(value, new_addr) &&
-					util_is_valid_sta_address(new_addr))
-			override = true;
-		else
-			l_warn("[Network].AddressOverride is not a valid "
-				"MAC address");
-	}
-
-	if (override && full_random) {
-		l_warn("Cannot use both AlwaysRandomizeAddress and "
-			"AddressOverride concurrently, defaulting to override");
-		full_random = false;
-	}
-
-	if (override)
-		handshake_state_set_supplicant_address(hs, new_addr);
-	else if (full_random) {
-		wiphy_generate_random_address(wiphy, new_addr);
-		handshake_state_set_supplicant_address(hs, new_addr);
-	}
-
 	return hs;
 
-no_psk:
-	l_warn("Missing network PSK/passphrase");
 not_supported:
 	handshake_state_free(hs);
-
 	return NULL;
 }
 
@@ -1221,9 +1148,6 @@ static void station_enter_state(struct station *station,
 		periodic_scan_stop(station);
 		break;
 	case STATION_STATE_DISCONNECTING:
-		l_dbus_object_remove_interface(dbus_get_bus(),
-					netdev_get_path(station->netdev),
-					IWD_STATION_DIAGNOSTIC_INTERFACE);
 		break;
 	case STATION_STATE_ROAMING:
 		break;
@@ -1330,6 +1254,8 @@ static void station_reset_connection_state(struct station *station)
 				IWD_STATION_INTERFACE, "ConnectedNetwork");
 	l_dbus_property_changed(dbus, network_get_path(network),
 				IWD_NETWORK_INTERFACE, "Connected");
+	l_dbus_object_remove_interface(dbus, netdev_get_path(station->netdev),
+				IWD_STATION_DIAGNOSTIC_INTERFACE);
 #endif
 }
 
@@ -1912,7 +1838,6 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 	uint16_t mdid;
 	enum security orig_security, security;
 	bool seen = false;
-	bool fils_hint = network_has_erp_identity(network);
 
 	if (err) {
 		station_roam_failed(station);
@@ -1969,7 +1894,7 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 
 		seen = true;
 
-		if (!wiphy_can_connect(station->wiphy, bss, fils_hint))
+		if (network_can_connect_bss(network, bss) < 0)
 			goto next;
 
 		if (blacklist_contains_bss(bss->addr))
@@ -3800,6 +3725,9 @@ static struct l_dbus_message *station_get_diagnostics(struct l_dbus *dbus,
 {
 	struct station *station = user_data;
 	int ret;
+
+	if (station->get_station_pending)
+		return dbus_error_busy(message);
 
 	ret = netdev_get_current_station(station->netdev,
 				station_get_diagnostic_cb, station,

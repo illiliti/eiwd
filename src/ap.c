@@ -688,7 +688,6 @@ static size_t ap_build_beacon_pr_head(struct ap_state *ap,
 					size_t out_len)
 {
 	struct mmpdu_header *mpdu = (void *) out_buf;
-	unsigned int len;
 	uint16_t capability = IE_BSS_CAP_ESS | IE_BSS_CAP_PRIVACY;
 	const uint8_t *bssid = netdev_get_address(ap->netdev);
 	uint32_t minr, maxr, count, r;
@@ -740,8 +739,8 @@ static size_t ap_build_beacon_pr_head(struct ap_state *ap,
 	ie_tlv_builder_next(&builder, IE_TYPE_DSSS_PARAMETER_SET);
 	ie_tlv_builder_set_data(&builder, &ap->channel, 1);
 
-	ie_tlv_builder_finalize(&builder, &len);
-	return 36 + len;
+	ie_tlv_builder_finalize(&builder, &out_len);
+	return 36 + out_len;
 }
 
 /* Beacon / Probe Response frame portion after the TIM IE */

@@ -156,8 +156,10 @@ static int create_ie(int ie_count, struct ie_tlv_builder *builder,
 static void ie_test_writer(const void *data)
 {
 	struct test_data *test = (struct test_data *)data;
+	size_t expected_len = test->len;
 	struct ie_tlv_builder builder;
-	unsigned int final_len = 0, builder_len, expected_len = test->len;
+	size_t final_len = 0;
+	size_t builder_len;
 	const unsigned char *expected_buf = test->buf;
 	unsigned int ie_count = 0;
 	char *str;
@@ -250,7 +252,7 @@ static void ie_test_writer(const void *data)
 		assert(!memcmp(test->buf, expected_buf, final_len));
 	}
 
-	printf("Wrote %d IE total len %d\n", ie_count, expected_len);
+	printf("Wrote %d IE total len %zu\n", ie_count, expected_len);
 }
 
 static void ie_test_writer_invalid_tag(const void *data)
@@ -291,7 +293,7 @@ static void ie_test_reader_extended(const void *data)
 static void ie_test_writer_extended(const void *data)
 {
 	struct ie_tlv_builder builder;
-	unsigned int builder_len;
+	size_t builder_len;
 	static const uint8_t expected[] = {
 		0xff, 0x05, 0x0a, 0xff, 0x01, 0x02, 0x03,
 	};

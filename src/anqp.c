@@ -53,8 +53,6 @@ struct anqp_request {
 	uint32_t id;
 };
 
-static uint8_t anqp_token = 0;
-
 static void anqp_destroy(void *user_data)
 {
 	struct anqp_request *request = user_data;
@@ -185,6 +183,7 @@ static void anqp_frame_timeout(int error, void *user_data)
 }
 
 static uint8_t *anqp_build_frame(const uint8_t *addr, struct scan_bss *bss,
+					uint8_t anqp_token,
 					const uint8_t *anqp, size_t len,
 					size_t *len_out)
 {
@@ -202,7 +201,7 @@ static uint8_t *anqp_build_frame(const uint8_t *addr, struct scan_bss *bss,
 
 	*ptr++ = 0x04;			/* Category: Public */
 	*ptr++ = 0x0a;			/* Action: GAS initial Request */
-	*ptr++ = anqp_token++;		/* Dialog Token */
+	*ptr++ = anqp_token;		/* Dialog Token */
 	*ptr++ = IE_TYPE_ADVERTISEMENT_PROTOCOL;
 	*ptr++ = 2;
 
@@ -233,10 +232,16 @@ uint32_t anqp_request(uint64_t wdev_id, const uint8_t *addr,
 	request->frequency = bss->frequency;
 	request->anqp_cb = cb;
 	request->anqp_destroy = destroy;
-	request->anqp_token = anqp_token;
+	/*
+	 * WPA3 Specificiation version 3, Section 9.4:
+	 * "A STA shall use a randomized dialog token for every new GAS
+	 * exchange."
+	 */
+	l_getrandom(&request->anqp_token, sizeof(request->anqp_token));
 	request->anqp_data = user_data;
 
-	request->frame = anqp_build_frame(addr, bss, anqp, len,
+	request->frame = anqp_build_frame(addr, bss, request->anqp_token,
+						anqp, len,
 						&request->frame_len);
 
 	iov[0].iov_base = request->frame;

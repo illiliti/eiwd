@@ -5631,6 +5631,7 @@ static const struct attr_entry control_port_attr_table[] = {
 			"Interface Index", ATTR_U32 },
 	{ NL80211_ATTR_WIPHY,
 			"Wiphy", ATTR_U32 },
+	{ }
 };
 
 static const struct attr_entry scan_flag_table[] = {

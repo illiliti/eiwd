@@ -91,7 +91,6 @@ static void fils_erp_tx_func(const uint8_t *eap_data, size_t len,
 	struct ie_tlv_builder builder;
 	uint8_t data[256];
 	uint8_t *ptr = data;
-	unsigned int tlv_len;
 	struct ie_rsn_info rsn_info;
 	uint8_t *rsne;
 
@@ -133,9 +132,9 @@ static void fils_erp_tx_func(const uint8_t *eap_data, size_t len,
 						fils->hs->mde[1]);
 	}
 
-	ie_tlv_builder_finalize(&builder, &tlv_len);
+	ie_tlv_builder_finalize(&builder, &len);
 
-	fils->auth(data, ptr - data + tlv_len, fils->user_data);
+	fils->auth(data, ptr - data + len, fils->user_data);
 }
 
 static int fils_derive_key_data(struct fils_sm *fils)
@@ -153,7 +152,7 @@ static int fils_derive_key_data(struct fils_sm *fils)
 	size_t iov_elems = 0;
 	size_t fils_ft_len = 0;
 	bool sha384;
-	unsigned int ie_len;
+	size_t ie_len;
 	uint8_t *rsne = NULL;
 
 	rmsk = erp_get_rmsk(fils->erp, &rmsk_len);
@@ -191,10 +190,10 @@ static int fils_derive_key_data(struct fils_sm *fils)
 
 	/*
 	 * IEEE 802.11ai - 12.12.2.5.3 PTKSA key derivation with FILS
-	 * 			authentication
+	 *                             authentication
 	 *
-	 * FILS-Key-Data = PRF-X(PMK, “FILS PTK Derivation”, SPA || AA ||
-	 * 					SNonce || ANonce)
+	 * FILS-Key-Data = PRF-X(PMK, "FILS PTK Derivation", SPA || AA ||
+	 *                                                   SNonce || ANonce)
 	 */
 	memcpy(ptr, fils->hs->spa, 6);
 	ptr += 6;
@@ -339,8 +338,8 @@ static int fils_rx_authenticate(struct auth_proto *driver, const uint8_t *frame,
 				size_t len)
 {
 	struct fils_sm *fils = l_container_of(driver, struct fils_sm, ap);
-	const struct mmpdu_header *hdr = mpdu_validate(frame, len);
-	const struct mmpdu_authentication *auth;
+	const struct mmpdu_header *hdr = (const struct mmpdu_header *) frame;
+	const struct mmpdu_authentication *auth = mmpdu_body(hdr);
 	uint16_t alg;
 	struct ie_tlv_iter iter;
 	const uint8_t *anonce = NULL;
@@ -350,18 +349,6 @@ static int fils_rx_authenticate(struct auth_proto *driver, const uint8_t *frame,
 	const uint8_t *rsne = NULL;
 	const uint8_t *mde = NULL;
 	const uint8_t *fte = NULL;
-
-	if (!hdr) {
-		l_debug("Auth frame header did not validate");
-		return -EBADMSG;
-	}
-
-	auth = mmpdu_body(hdr);
-
-	if (!auth) {
-		l_debug("Auth frame body did not validate");
-		return -EBADMSG;
-	}
 
 	if (auth->status != 0) {
 		l_debug("invalid status %u", auth->status);
@@ -459,8 +446,8 @@ static int fils_rx_associate(struct auth_proto *driver, const uint8_t *frame,
 				size_t len)
 {
 	struct fils_sm *fils = l_container_of(driver, struct fils_sm, ap);
-	const struct mmpdu_header *hdr = mpdu_validate(frame, len);
-	const struct mmpdu_association_response *assoc;
+	const struct mmpdu_header *hdr = (const struct mmpdu_header *) frame;
+	const struct mmpdu_association_response *assoc = mmpdu_body(hdr);
 	struct ie_tlv_iter iter;
 	uint8_t key_rsc[8];
 	const uint8_t *gtk = NULL;
@@ -475,18 +462,6 @@ static int fils_rx_associate(struct auth_proto *driver, const uint8_t *frame,
 			IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384));
 	uint8_t data[44];
 	uint8_t *ptr = data;
-
-	if (!hdr) {
-		l_debug("Assoc frame header did not validate");
-		return -EBADMSG;
-	}
-
-	assoc = mmpdu_body(hdr);
-
-	if (!assoc) {
-		l_debug("Assoc frame body did not validate");
-		return -EBADMSG;
-	}
 
 	if (assoc->status_code != 0)
 		return L_CPU_TO_LE16(assoc->status_code);

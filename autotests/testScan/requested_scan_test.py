@@ -15,10 +15,6 @@ class Test(unittest.TestCase):
         'ssid_psk': False,
         'ssid_8021x': False,
         'ssid_hidden_0': False,
-        'ssid_hidden_1': False,
-        'ssid_hidden_2': False,
-        'ssid_hidden_3': False,
-        'ssid_hidden_4': False,
     }
 
     def set_network(self, ssid):
@@ -63,10 +59,6 @@ class Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         IWD.copy_to_storage('ssid_hidden_0.open')
-        IWD.copy_to_storage('ssid_hidden_1.open')
-        IWD.copy_to_storage('ssid_hidden_2.open')
-        IWD.copy_to_storage('ssid_hidden_3.open')
-        IWD.copy_to_storage('ssid_hidden_4.open')
 
     @classmethod
     def tearDownClass(cls):

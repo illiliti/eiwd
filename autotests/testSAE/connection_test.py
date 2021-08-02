@@ -14,35 +14,25 @@ import testutil
 class Test(unittest.TestCase):
 
     def validate_connection(self, wd):
-        hostapd = HostapdCLI(config='ssidSAE.conf')
-
         psk_agent = PSKAgent("secret123")
         wd.register_psk_agent(psk_agent)
 
-        devices = wd.list_devices(4)
+        devices = wd.list_devices(1)
         self.assertIsNotNone(devices)
         device = devices[0]
 
-        # These devices aren't used in this test, this makes logs a bit nicer
-        # since these devices would presumably start autoconnecting.
-        devices[1].disconnect()
-        devices[2].disconnect()
-        devices[3].disconnect()
+        device.disconnect()
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
+        wd.wait_for_object_condition(device, 'not obj.scanning')
 
         device.scan()
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
+        wd.wait_for_object_condition(device, 'obj.scanning')
+        wd.wait_for_object_condition(device, 'not obj.scanning')
 
         network = device.get_ordered_network('ssidSAE')
 
         self.assertEqual(network.type, NetworkType.psk)
-
-        condition = 'not obj.connected'
-        wd.wait_for_object_condition(network.network_object, condition)
 
         network.network_object.connect()
 
@@ -52,7 +42,7 @@ class Test(unittest.TestCase):
         wd.wait(2)
 
         testutil.test_iface_operstate(intf=device.name)
-        testutil.test_ifaces_connected(if0=device.name, if1=hostapd.ifname)
+        testutil.test_ifaces_connected(if0=device.name, if1=self.hostapd.ifname)
 
         device.disconnect()
 
@@ -61,18 +51,49 @@ class Test(unittest.TestCase):
 
         wd.unregister_psk_agent(psk_agent)
 
-    def test_connection_success(self):
+    def test_SAE(self):
+        self.hostapd.set_value('sae_pwe', '0');
+        self.hostapd.set_value('sae_groups', '19');
+        self.hostapd.reload()
+        self.hostapd.wait_for_event("AP-ENABLED")
         wd = IWD(True)
-
         self.validate_connection(wd)
+        wd.clear_storage()
+
+    def test_SAE_Group20(self):
+        self.hostapd.set_value('sae_pwe', '0');
+        self.hostapd.set_value('sae_groups', '20');
+        self.hostapd.reload()
+        self.hostapd.wait_for_event("AP-ENABLED")
+        wd = IWD(True)
+        self.validate_connection(wd)
+        wd.clear_storage()
+
+    def test_SAE_H2E(self):
+        self.hostapd.set_value('sae_pwe', '1');
+        self.hostapd.set_value('sae_groups', '19');
+        self.hostapd.reload()
+        self.hostapd.wait_for_event("AP-ENABLED")
+        wd = IWD(True)
+        self.validate_connection(wd)
+        wd.clear_storage()
+
+    def test_SAE_H2E_Group20(self):
+        self.hostapd.set_value('sae_pwe', '1');
+        self.hostapd.set_value('sae_groups', '20');
+        self.hostapd.reload()
+        self.hostapd.wait_for_event("AP-ENABLED")
+        wd = IWD(True)
+        self.validate_connection(wd)
+        wd.clear_storage()
 
     @classmethod
     def setUpClass(cls):
-        pass
+        cls.hostapd = HostapdCLI(config='ssidSAE.conf')
 
     @classmethod
     def tearDownClass(cls):
-        IWD.clear_storage()
+        pass
 
 if __name__ == '__main__':
     unittest.main(exit=True)

@@ -118,7 +118,11 @@ class HostapdCLI:
             return
 
         self.ctrl_sock.close()
-        os.remove(self.local_ctrl)
+
+        try:
+            os.remove(self.local_ctrl)
+        except:
+            pass
 
         if self._hostapd_restarted:
             ctx.stop_process(ctx.hostapd.process, force)
@@ -128,6 +132,10 @@ class HostapdCLI:
 
     def __del__(self):
         self._del_hostapd()
+
+    def set_value(self, key, value):
+        cmd = self.cmdline + ['set', key, value]
+        ctx.start_process(cmd, wait=True)
 
     def wps_push_button(self):
         ctx.start_process(self.cmdline + ['wps_pbc'], wait=True)

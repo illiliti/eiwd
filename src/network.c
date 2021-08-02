@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <alloca.h>
+#include <linux/if_ether.h>
 
 #include <ell/ell.h>
 
@@ -53,6 +54,9 @@
 #include "src/blacklist.h"
 #include "src/util.h"
 #include "src/erp.h"
+#include "src/handshake.h"
+
+#define SAE_PT_SETTING "SAE-PT-Group%u"
 
 static uint32_t known_networks_watch;
 static uint32_t anqp_watch;
@@ -65,6 +69,8 @@ struct network {
 	struct network_info *info;
 	unsigned char *psk;
 	char *passphrase;
+	struct l_ecc_point *sae_pt_19; /* SAE PT for Group 19 */
+	struct l_ecc_point *sae_pt_20; /* SAE PT for Group 20 */
 	unsigned int agent_request;
 	struct l_queue *bss_list;
 	struct l_settings *settings;
@@ -73,10 +79,12 @@ struct network {
 	uint8_t hessid[6];
 	char **nai_realms;
 	uint8_t *rc_ie;
-	bool update_psk:1;  /* Whether PSK should be written to storage */
+	bool sync_settings:1;  /* should settings be synced on connect? */
 	bool ask_passphrase:1; /* Whether we should force-ask agent */
 	bool is_hs20:1;
 	bool anqp_pending:1;	/* Set if there is a pending ANQP request */
+	uint8_t transition_disable; /* Temporary cache until info is set */
+	bool have_transition_disable:1;
 	int rank;
 	/* Holds DBus Connect() message if it comes in before ANQP finishes */
 	struct l_dbus_message *connect_after_anqp;
@@ -104,12 +112,22 @@ static void network_reset_psk(struct network *network)
 
 static void network_reset_passphrase(struct network *network)
 {
-	if (network->passphrase)
+	if (network->passphrase) {
 		explicit_bzero(network->passphrase,
 				strlen(network->passphrase));
+		l_free(network->passphrase);
+		network->passphrase = NULL;
+	}
 
-	l_free(network->passphrase);
-	network->passphrase = NULL;
+	if (network->sae_pt_19) {
+		l_ecc_point_free(network->sae_pt_19);
+		network->sae_pt_19 = NULL;
+	}
+
+	if (network->sae_pt_20) {
+		l_ecc_point_free(network->sae_pt_20);
+		network->sae_pt_20 = NULL;
+	}
 }
 
 static void network_settings_close(struct network *network)
@@ -198,6 +216,7 @@ static const double rankmod_table[] = {
 
 bool network_rankmod(const struct network *network, double *rankmod)
 {
+	struct network_info *info = network->info;
 	int n;
 	int nmax;
 
@@ -206,7 +225,7 @@ bool network_rankmod(const struct network *network, double *rankmod)
 	 * to at least once are autoconnectable.  Known Networks that
 	 * we have never connected to are not.
 	 */
-	if (!network->info || !network->info->connected_time)
+	if (!info || !info->config.connected_time)
 		return false;
 
 	n = known_network_offset(network->info);
@@ -258,27 +277,58 @@ enum security network_get_security(const struct network *network)
 	return network->security;
 }
 
-const uint8_t *network_get_psk(struct network *network)
+static const uint8_t *network_get_psk(struct network *network)
 {
+	int r;
+
 	if (network->psk)
 		return network->psk;
 
 	network->psk = l_malloc(32);
 
-	if (crypto_psk_from_passphrase(network->passphrase,
+	if ((r = crypto_psk_from_passphrase(network->passphrase,
 					(unsigned char *)network->ssid,
 					strlen(network->ssid),
-					network->psk) < 0) {
+					network->psk)) < 0) {
 		l_free(network->psk);
 		network->psk = NULL;
-	}
+		l_error("PSK generation failed: %s.", strerror(-r));
+	} else
+		network->sync_settings = true;
 
 	return network->psk;
 }
 
-const char *network_get_passphrase(const struct network *network)
+static struct l_ecc_point *network_generate_sae_pt(struct network *network,
+							unsigned int group)
 {
-	return network->passphrase;
+	struct l_ecc_point *pt;
+
+	l_debug("Generating PT for Group %u", group);
+
+	pt = crypto_derive_sae_pt_ecc(group, network->ssid,
+						network->passphrase, NULL);
+	if (!pt)
+		l_warn("SAE PT generation for Group %u failed", group);
+
+	return pt;
+}
+
+static bool __network_set_passphrase(struct network *network,
+							const char *passphrase)
+{
+	if (!passphrase || !crypto_passphrase_is_valid(passphrase))
+		return false;
+
+	network_reset_passphrase(network);
+	network->passphrase = l_strdup(passphrase);
+
+	network->sae_pt_19 = network_generate_sae_pt(network, 19);
+	network->sae_pt_20 = network_generate_sae_pt(network, 20);
+
+	network->sync_settings = true;
+
+	return true;
 }
 
 bool network_set_passphrase(struct network *network, const char *passphrase)
@@ -286,21 +336,10 @@ bool network_set_passphrase(struct network *network, const char *passphrase)
 	if (network_get_security(network) != SECURITY_PSK)
 		return false;
 
-	if (!crypto_passphrase_is_valid(passphrase))
-		return false;
-
 	if (!network_settings_load(network))
 		network->settings = l_settings_new();
 
-	network_reset_passphrase(network);
-	network->passphrase = l_strdup(passphrase);
-
-	return true;
-}
-
-struct l_queue *network_get_secrets(const struct network *network)
-{
-	return network->secrets;
+	return __network_set_passphrase(network, passphrase);
 }
 
 bool network_set_psk(struct network *network, const uint8_t *psk)
@@ -314,6 +353,29 @@ bool network_set_psk(struct network *network, const uint8_t *psk)
 	network_reset_psk(network);
 	network->psk = l_memdup(psk, 32);
 	return true;
+}
+
+int network_set_transition_disable(struct network *network,
+					const uint8_t *td, size_t len)
+{
+	struct network_info *info = network->info;
+	/* We only recognize bits 0, 2, 3 */
+	uint8_t supported_bitmask = 0x0d;
+
+	if (len < 1)
+		return -EBADMSG;
+
+	network->have_transition_disable = true;
+	network->transition_disable = td[0] & supported_bitmask;
+
+	if (info && info->config.have_transition_disable &&
+			info->config.transition_disable ==
+					network->transition_disable)
+		return 0;
+
+	network->sync_settings = true;
+
+	return 0;
 }
 
 int network_get_signal_strength(const struct network *network)
@@ -375,19 +437,148 @@ static bool network_set_8021x_secrets(struct network *network)
 	return true;
 }
 
+static int network_set_handshake_secrets_psk(struct network *network,
+						struct handshake_state *hs)
+{
+	/* SAE will generate/set the PMK */
+	if (IE_AKM_IS_SAE(hs->akm_suite)) {
+		if (!network->passphrase)
+			return -ENOKEY;
+
+		handshake_state_set_passphrase(hs, network->passphrase);
+
+		if (ie_rsnxe_capable(hs->authenticator_rsnxe,
+							IE_RSNX_SAE_H2E)) {
+			l_debug("Authenticator is SAE H2E capable");
+			handshake_state_add_ecc_sae_pt(hs, network->sae_pt_19);
+			handshake_state_add_ecc_sae_pt(hs, network->sae_pt_20);
+		}
+	} else {
+		const uint8_t *psk = network_get_psk(network);
+
+		if (!psk)
+			return -ENOKEY;
+
+		handshake_state_set_pmk(hs, psk, 32);
+	}
+
+	return 0;
+}
+
+int network_handshake_setup(struct network *network,
+						struct handshake_state *hs)
+{
+	struct station *station = network->station;
+	struct wiphy *wiphy = station_get_wiphy(station);
+	struct l_settings *settings = network->settings;
+	struct network_info *info = network->info;
+	uint32_t eapol_proto_version;
+	uint8_t new_addr[ETH_ALEN];
+	int r;
+
+	switch (network->security) {
+	case SECURITY_PSK:
+		r = network_set_handshake_secrets_psk(network, hs);
+		if (r < 0)
+			return r;
+
+		break;
+	case SECURITY_8021X:
+		handshake_state_set_8021x_config(hs, settings);
+		break;
+	case SECURITY_NONE:
+		break;
+	case SECURITY_WEP:
+		return -ENOTSUP;
+	}
+
+	handshake_state_set_ssid(hs, (void *) network->ssid,
+						strlen(network->ssid));
+
+	if (settings && l_settings_get_uint(settings, "EAPoL",
+						"ProtocolVersion",
+						&eapol_proto_version)) {
+		if (eapol_proto_version > 3) {
+			l_warn("Invalid ProtocolVersion value - should be 0-3");
+			eapol_proto_version = 0;
+		}
+
+		if (eapol_proto_version)
+			l_debug("Overriding EAPoL protocol version to: %u",
+					eapol_proto_version);
+
+		handshake_state_set_protocol_version(hs, eapol_proto_version);
+	}
+
+	/*
+	 * We have three possible options here:
+	 * 1. per-network MAC generation (default, no option in network config)
+	 * 2. per-network full MAC randomization
+	 * 3. per-network MAC override
+	 */
+	if (info && info->config.override_addr)
+		handshake_state_set_supplicant_address(hs,
+							info->config.sta_addr);
+	else if (info && info->config.always_random_addr) {
+		wiphy_generate_random_address(wiphy, new_addr);
+		handshake_state_set_supplicant_address(hs, new_addr);
+	}
+
+	return 0;
+}
+
+static int network_settings_load_pt_ecc(struct network *network,
+					const char *path,
+					unsigned int group,
+					struct l_ecc_point **out_pt)
+{
+	_auto_(l_free) char *key = l_strdup_printf(SAE_PT_SETTING, group);
+	size_t pt_len;
+	_auto_(l_free) uint8_t *pt = l_settings_get_bytes(network->settings,
+						"Security", key, &pt_len);
+	const struct l_ecc_curve *curve = l_ecc_curve_from_ike_group((group));
+
+	if (!curve)
+		return -EINVAL;
+
+	if (!pt)
+		goto generate;
+
+	if (pt_len != l_ecc_curve_get_scalar_bytes(curve) * 2)
+		goto bad_format;
+
+	*out_pt = l_ecc_point_from_data(curve, L_ECC_POINT_TYPE_FULL,
+								pt, pt_len);
+	if (*out_pt)
+		return 0;
+
+bad_format:
+	l_error("%s: invalid %s format", path, key);
+
+generate:
+	if (!network->passphrase)
+		return -ENOKEY;
+
+	*out_pt = network_generate_sae_pt(network, group);
+	if (*out_pt)
+		return 1;
+
+	return -EIO;
+}
+
 static int network_load_psk(struct network *network, bool need_passphrase)
 {
 	const char *ssid = network_get_ssid(network);
 	enum security security = network_get_security(network);
 	size_t psk_len;
-	uint8_t *psk = l_settings_get_bytes(network->settings, "Security",
+	_auto_(l_free) uint8_t *psk =
+			l_settings_get_bytes(network->settings, "Security",
 						"PreSharedKey", &psk_len);
 	_auto_(l_free) char *passphrase =
 			l_settings_get_string(network->settings,
 						"Security", "Passphrase");
 	_auto_(l_free) char *path =
 		storage_get_network_file_path(security, ssid);
-	int r;
 
 	if (psk && psk_len != 32) {
 		l_error("%s: invalid PreSharedKey format", path);
@@ -411,66 +602,113 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 	network_reset_psk(network);
 	network->passphrase = l_steal_ptr(passphrase);
 
-	if (psk) {
-		network->psk = psk;
-		return 0;
-	}
+	if (network_settings_load_pt_ecc(network, path,
+						19, &network->sae_pt_19) > 0)
+		network->sync_settings = true;
 
-	network->psk = l_malloc(32);
-	r = crypto_psk_from_passphrase(network->passphrase, (uint8_t *) ssid,
-					strlen(ssid), network->psk);
-	if (!r) {
-		network->update_psk = true;
-		return 0;
-	}
+	if (network_settings_load_pt_ecc(network, path,
+						20, &network->sae_pt_20) > 0)
+		network->sync_settings = true;
 
-	l_error("PSK generation failed: %s", strerror(-r));
+	network->psk = l_steal_ptr(psk);
 
-	network_reset_passphrase(network);
-	network_reset_psk(network);
-
-	return r;
+	return 0;
 }
 
-void network_sync_psk(struct network *network)
+static void network_settings_save_sae_pt_ecc(struct l_settings *settings,
+						struct l_ecc_point *pt)
 {
-	struct l_settings *fs_settings;
-	const char *ssid = network_get_ssid(network);
+	const struct l_ecc_curve *curve = l_ecc_point_get_curve(pt);
+	unsigned int group = l_ecc_curve_get_ike_group(curve);
+	_auto_(l_free) char *key = l_strdup_printf(SAE_PT_SETTING, group);
+	uint8_t buf[256];
+	ssize_t len;
 
-	if (!network->update_psk)
+	len = l_ecc_point_get_data(pt, buf, sizeof(buf));
+	if (len < 0) {
+		l_warn("Unable to serialize '%s'", key);
+		return;
+	}
+
+	l_settings_set_bytes(settings, "Security", key, buf, len);
+}
+
+static void network_settings_save(struct network *network,
+						struct l_settings *settings)
+{
+	if (network->have_transition_disable) {
+		char *modes[4];
+		unsigned int i = 0;
+
+		l_settings_set_bool(settings, NET_TRANSITION_DISABLE, true);
+
+		if (test_bit(&network->transition_disable, 0))
+			modes[i++] = "personal";
+
+		if (test_bit(&network->transition_disable, 2))
+			modes[i++] = "enterprise";
+
+		if (test_bit(&network->transition_disable, 3))
+			modes[i++] = "open";
+
+		modes[i] = NULL;
+
+		l_settings_set_string_list(settings,
+					NET_TRANSITION_DISABLE_MODES,
+					modes, ' ');
+	}
+
+	if (network->security != SECURITY_PSK)
 		return;
 
-	network->update_psk = false;
+	/* We only update the [Security] bits here, wipe the group first */
+	l_settings_remove_group(settings, "Security");
 
-	fs_settings = storage_network_open(SECURITY_PSK, ssid);
+	if (network->psk)
+		l_settings_set_bytes(settings, "Security", "PreSharedKey",
+					network->psk, 32);
 
-	if (network->psk) {
-		l_settings_set_bytes(network->settings, "Security",
-						"PreSharedKey",
-						network->psk, 32);
+	if (network->passphrase)
+		l_settings_set_string(settings, "Security", "Passphrase",
+					network->passphrase);
 
-		if (fs_settings)
-			l_settings_set_bytes(fs_settings, "Security",
-						"PreSharedKey",
-						network->psk, 32);
-	}
+	if (network->sae_pt_19)
+		network_settings_save_sae_pt_ecc(settings, network->sae_pt_19);
 
-	if (network->passphrase) {
-		l_settings_set_string(network->settings, "Security",
-							"Passphrase",
-							network->passphrase);
+	if (network->sae_pt_20)
+		network_settings_save_sae_pt_ecc(settings, network->sae_pt_20);
+}
 
-		if (fs_settings)
-			l_settings_set_string(fs_settings, "Security",
-							"Passphrase",
-							network->passphrase);
-	}
+void network_sync_settings(struct network *network)
+{
+	struct network_info *info = network->info;
 
-	if (fs_settings) {
-		storage_network_sync(SECURITY_PSK, ssid, fs_settings);
+	if (!network->sync_settings)
+		return;
+
+	l_debug("");
+
+	network->sync_settings = false;
+
+	/*
+	 * Re-open the settings from Disk, in case they were updated
+	 * since we last opened them.
+	 */
+	if (network->info) {
+		struct l_settings *fs_settings = info->ops->open(info);
+
+		if (L_WARN_ON(!fs_settings))
+			return;
+
+		network_settings_save(network, fs_settings);
+		info->ops->sync(info, fs_settings);
 		l_settings_free(fs_settings);
-	} else
-		storage_network_sync(SECURITY_PSK, ssid, network->settings);
+		return;
+	}
+
+	network_settings_save(network, network->settings);
+	storage_network_sync(network->security, network->ssid,
+				network->settings);
 }
 
 const struct network_info *network_get_info(const struct network *network)
@@ -523,60 +761,144 @@ static bool bss_is_sae(const struct scan_bss *bss)
 	return __bss_is_sae(bss, &rsn);
 }
 
-int network_autoconnect(struct network *network, struct scan_bss *bss)
+int network_can_connect_bss(struct network *network, const struct scan_bss *bss)
 {
 	struct station *station = network->station;
 	struct wiphy *wiphy = station_get_wiphy(station);
 	enum security security = network_get_security(network);
+	struct network_info *info = network->info;
+	struct network_config *config = info ? &info->config : NULL;
+	bool can_transition_disable = wiphy_can_transition_disable(wiphy);
 	struct ie_rsn_info rsn;
-	bool is_rsn;
+	int ret;
+
+	switch (security) {
+	case SECURITY_NONE:
+	case SECURITY_PSK:
+	case SECURITY_8021X:
+		break;
+	default:
+		return -ENOSYS;
+	}
+
+	memset(&rsn, 0, sizeof(rsn));
+	ret = scan_bss_get_rsn_info(bss, &rsn);
+	if (ret < 0) {
+		/*
+		 * WPA3 Specification Version 3, Section 8
+		 * Transition Disable implies PMF, no TKIP, yet
+		 * Bit 3 is specified as 'Open system authentication without
+		 * encryption'.
+		 *
+		 * We assume the spec means us to check bit 3 here
+		 */
+		if (ret == -ENOENT && security == SECURITY_NONE) {
+			if (!config)
+				return 0;
+
+			if (!config->have_transition_disable ||
+					!test_bit(&config->transition_disable,
+							3))
+				return 0;
+
+			if (!can_transition_disable) {
+				l_debug("HW not capable of Transition Disable");
+				return 0;
+			}
+		}
+
+		return ret;
+	}
+
+	if (!config || !config->have_transition_disable)
+		goto no_transition_disable;
+
+	if (!can_transition_disable) {
+		l_debug("HW not capable of Transition Disable, skip");
+		goto no_transition_disable;
+	}
+
+	/*
+	 * WPA3 Specification, v3, Section 8:
+	 * - Disable use of WEP and TKIP
+	 * - Disallow association without negotiation of PMF
+	 */
+	rsn.pairwise_ciphers &= ~IE_RSN_CIPHER_SUITE_TKIP;
+
+	if (!rsn.group_management_cipher)
+		return -EPERM;
+
+	rsn.mfpr = true;
+
+	/* WPA3-Personal */
+	if (test_bit(&config->transition_disable, 0)) {
+		rsn.akm_suites &= ~IE_RSN_AKM_SUITE_PSK;
+		rsn.akm_suites &= ~IE_RSN_AKM_SUITE_PSK_SHA256;
+		rsn.akm_suites &= ~IE_RSN_AKM_SUITE_FT_USING_PSK;
+	}
+
+	/* WPA3-Enterprise */
+	if (test_bit(&config->transition_disable, 2))
+		rsn.akm_suites &= ~IE_RSN_AKM_SUITE_8021X;
+
+	/* Enhanced Open */
+	if (test_bit(&config->transition_disable, 3)) {
+		if (!(rsn.akm_suites & IE_RSN_AKM_SUITE_OWE))
+			return -EPERM;
+	}
+
+no_transition_disable:
+	if (!wiphy_select_cipher(wiphy, rsn.pairwise_ciphers))
+		return -ENOTSUP;
+
+	if (!wiphy_select_cipher(wiphy, rsn.group_cipher))
+		return -ENOTSUP;
+
+	if (rsn.mfpr && !wiphy_select_cipher(wiphy,
+				rsn.group_management_cipher))
+		return -EPERM;
+
+	if (!wiphy_select_akm(wiphy, bss, security, &rsn, false))
+		return -ENOTSUP;
+
+	return 0;
+}
+
+int network_autoconnect(struct network *network, struct scan_bss *bss)
+{
+	struct station *station = network->station;
+	enum security security = network_get_security(network);
+	struct network_info *info = network->info;
+	struct network_config *config;
 	int ret;
 
 	/* already waiting for an agent request, connect in progress */
 	if (network->agent_request)
 		return -EALREADY;
 
-	switch (security) {
-	case SECURITY_NONE:
-		is_rsn = false;
-		break;
-	case SECURITY_PSK:
-		if (network->ask_passphrase)
-			return -ENOKEY;
+	if (network->ask_passphrase)
+		return -ENOKEY;
 
-		/* Fall through */
-	case SECURITY_8021X:
-		is_rsn = true;
-		break;
-	default:
-		return -ENOTSUP;
-	}
+	if (!info)
+		return -ENOENT;
+
+	config = &info->config;
+
+	if (!config->is_autoconnectable)
+		return -EPERM;
 
 	if (!network_settings_load(network))
 		return -ENOKEY;
 
-	ret = -EPERM;
-	if (!network->info->is_autoconnectable)
-		goto close_settings;
-
-	if (!is_rsn)
-		goto done;
-
-	memset(&rsn, 0, sizeof(rsn));
-	scan_bss_get_rsn_info(bss, &rsn);
-
-	if (!wiphy_select_cipher(wiphy, rsn.pairwise_ciphers) ||
-			!wiphy_select_cipher(wiphy, rsn.group_cipher)) {
-		l_debug("Cipher mismatch");
-		ret = -ENETUNREACH;
-		goto close_settings;
-	}
-
-	if (security == SECURITY_PSK) {
-		ret = network_load_psk(network, __bss_is_sae(bss, &rsn));
+	switch (security) {
+	case SECURITY_PSK:
+		ret = network_load_psk(network, bss_is_sae(bss));
 		if (ret < 0)
 			goto close_settings;
-	} else if (security == SECURITY_8021X) {
+
+		break;
+	case SECURITY_8021X:
+	{
 		struct l_queue *missing_secrets = NULL;
 
 		ret = eap_check_settings(network->settings, network->secrets,
@@ -592,9 +914,16 @@ int network_autoconnect(struct network *network, struct scan_bss *bss)
 
 		if (!network_set_8021x_secrets(network))
 			goto close_settings;
+
+		break;
 	}
 
-done:
+	case SECURITY_NONE:
+		break;
+	default:
+		return -ENOTSUP;
+	}
+
 	return __station_connect_network(station, network, bss);
 
 close_settings:
@@ -609,7 +938,7 @@ void network_connect_failed(struct network *network, bool in_handshake)
 	 * for the passphrase once more
 	 */
 	if (network_get_security(network) == SECURITY_PSK && in_handshake) {
-		network->update_psk = false;
+		network->sync_settings = false;
 		network->ask_passphrase = true;
 	}
 
@@ -779,26 +1108,18 @@ struct scan_bss *network_bss_select(struct network *network,
 						bool fallback_to_blacklist)
 {
 	struct l_queue *bss_list = network->bss_list;
-	struct wiphy *wiphy = station_get_wiphy(network->station);
 	const struct l_queue_entry *bss_entry;
 	struct scan_bss *candidate = NULL;
-	bool fils_hint = network_has_erp_identity(network);
 
 	for (bss_entry = l_queue_get_entries(bss_list); bss_entry;
 			bss_entry = bss_entry->next) {
 		struct scan_bss *bss = bss_entry->data;
+		int ret = network_can_connect_bss(network, bss);
 
-		switch (network_get_security(network)) {
-		case SECURITY_PSK:
-		case SECURITY_8021X:
-			if (!wiphy_can_connect(wiphy, bss, fils_hint))
-				continue;
-			/* fall through */
-		case SECURITY_NONE:
-			break;
-		default:
+		if (ret == -ENOSYS)
 			return NULL;
-		}
+		else if (ret < 0)
+			continue;
 
 		/*
 		 * We only want to record the first (best) candidate. In case
@@ -833,9 +1154,7 @@ static void passphrase_callback(enum agent_result result,
 {
 	struct network *network = user_data;
 	struct station *station = network->station;
-	const char *ssid = network_get_ssid(network);
 	struct scan_bss *bss;
-	int r;
 
 	l_debug("result %d", result);
 
@@ -862,38 +1181,12 @@ static void passphrase_callback(enum agent_result result,
 	}
 
 	network_reset_psk(network);
-	network->psk = l_malloc(32);
-	r = crypto_psk_from_passphrase(passphrase,
-					(uint8_t *) ssid, strlen(ssid),
-					network->psk);
-	if (r) {
-		struct l_dbus_message *error;
 
-		l_free(network->psk);
-		network->psk = NULL;
-
-		if (r == -ERANGE || r == -EINVAL)
-			error = dbus_error_invalid_format(message);
-		else {
-			l_error("PSK generation failed: %s.  "
-				"Ensure Crypto Engine is properly configured",
-				strerror(-r));
-			error = dbus_error_failed(message);
-		}
-
-		dbus_pending_reply(&message, error);
+	if (!__network_set_passphrase(network, passphrase)) {
+		dbus_pending_reply(&message,
+				dbus_error_invalid_format(message));
 		goto err;
 	}
-
-	network_reset_passphrase(network);
-	network->passphrase = l_strdup(passphrase);
-
-	/*
-	 * We need to store the PSK in our permanent store.  However, before
-	 * we do that, make sure the PSK works.  We write to the store only
-	 * when we are connected
-	 */
-	network->update_psk = true;
 
 	station_connect_network(station, network, bss, message);
 	l_dbus_message_unref(message);
@@ -1291,7 +1584,7 @@ struct l_dbus_message *network_connect_new_hidden_network(
 
 	/*
 	 * This is not a Known Network.  If connection succeeds, either
-	 * network_sync_psk or network_connected will save this network
+	 * network_sync_settings or network_connected will save this network
 	 * as hidden and trigger an update to the hidden networks count.
 	 */
 
@@ -1301,7 +1594,7 @@ struct l_dbus_message *network_connect_new_hidden_network(
 		return dbus_error_not_supported(message);
 
 	network->settings = l_settings_new();
-	l_settings_set_bool(network->settings, "Settings", "Hidden", true);
+	l_settings_set_bool(network->settings, NET_HIDDEN, true);
 
 	switch (network_get_security(network)) {
 	case SECURITY_PSK:
@@ -1481,6 +1774,7 @@ void network_rank_update(struct network *network, bool connected)
 	 * here and in network_bss_select but those should be rare cases.
 	 */
 	struct scan_bss *best_bss = l_queue_peek_head(network->bss_list);
+	struct network_info *info = network->info;
 
 	/*
 	 * The rank should separate networks into four groups that use
@@ -1499,13 +1793,13 @@ void network_rank_update(struct network *network, bool connected)
 		return;
 	}
 
-	if (!network->info) { /* Not known, assign negative rank */
+	if (!info) { /* Not known, assign negative rank */
 		network->rank = (int) best_bss->rank - USHRT_MAX;
 		return;
 	}
 
-	if (network->info->connected_time != 0) {
-		int n = known_network_offset(network->info);
+	if (info->config.connected_time != 0) {
+		int n = known_network_offset(info);
 
 		L_WARN_ON(n < 0);
 
@@ -1545,7 +1839,7 @@ static void network_unset_hotspot(struct network *network, void *user_data)
 static void emit_known_network_removed(struct station *station, void *user_data)
 {
 	struct network_info *info = user_data;
-	bool was_hidden = info->is_hidden;
+	bool was_hidden = info->config.is_hidden;
 	struct network *connected_network;
 	struct network *network = NULL;
 

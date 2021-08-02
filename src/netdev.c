@@ -39,6 +39,8 @@
 
 #include <ell/ell.h>
 
+#include "ell/useful.h"
+
 #include "linux/nl80211.h"
 
 #include "src/iwd.h"
@@ -117,7 +119,6 @@ struct netdev {
 	netdev_command_cb_t adhoc_cb;
 	void *user_data;
 	struct eapol_sm *sm;
-	struct sae_sm *sae_sm;
 	struct auth_proto *ap;
 	struct handshake_state *handshake;
 	uint32_t connect_cmd_id;
@@ -201,6 +202,22 @@ static struct l_queue *netdev_list;
 static struct watchlist netdev_watches;
 static bool pae_over_nl80211;
 static bool mac_per_ssid;
+
+static unsigned int iov_ie_append(struct iovec *iov,
+					unsigned int n_iov, unsigned int c,
+					const uint8_t *ie)
+{
+	if (L_WARN_ON(c >= n_iov))
+		return n_iov;
+
+	if (!ie)
+		return c;
+
+	iov[c].iov_base = (void *) ie;
+	iov[c].iov_len = ie[1] + 2;
+
+	return c + 1u;
+}
 
 const char *netdev_iftype_to_string(uint32_t iftype)
 {
@@ -1989,6 +2006,7 @@ static void parse_request_ies(struct netdev *netdev, const uint8_t *ies,
 {
 	struct ie_tlv_iter iter;
 	const void *data;
+	const uint8_t *rsnxe = NULL;
 
 	/*
 	 * The driver may have modified the IEs we passed to CMD_CONNECT
@@ -2005,6 +2023,10 @@ static void parse_request_ies(struct netdev *netdev, const uint8_t *ies,
 			handshake_state_set_supplicant_ie(netdev->handshake,
 								data - 2);
 			break;
+		case IE_TYPE_RSNX:
+			if (!rsnxe)
+				rsnxe = data - 2;
+			break;
 		case IE_TYPE_VENDOR_SPECIFIC:
 			if (!is_ie_wpa_ie(data, ie_tlv_iter_get_length(&iter)))
 				break;
@@ -2017,6 +2039,9 @@ static void parse_request_ies(struct netdev *netdev, const uint8_t *ies,
 			break;
 		}
 	}
+
+	/* RSNXE element might be omitted when FTing */
+	handshake_state_set_supplicant_rsnxe(netdev->handshake, rsnxe);
 }
 
 static void netdev_driver_connected(struct netdev *netdev)
@@ -2393,10 +2418,19 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 		}
 	}
 
-	if (!frame)
+	if (L_WARN_ON(!frame))
 		goto auth_error;
 
 	if (netdev->ap) {
+		const struct mmpdu_header *hdr;
+		const struct mmpdu_authentication *auth;
+
+		if (L_WARN_ON(!(hdr = mpdu_validate(frame, frame_len))))
+			goto auth_error;
+
+		auth = mmpdu_body(hdr);
+		status_code = L_CPU_TO_LE16(auth->status);
+
 		ret = auth_proto_rx_authenticate(netdev->ap, frame, frame_len);
 		if (ret == 0 || ret == -EAGAIN)
 			return;
@@ -2461,10 +2495,19 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 		}
 	}
 
-	if (!frame)
+	if (L_WARN_ON(!frame))
 		goto assoc_failed;
 
 	if (netdev->ap) {
+		const struct mmpdu_header *hdr;
+		const struct mmpdu_association_response *assoc;
+
+		if (L_WARN_ON(!(hdr = mpdu_validate(frame, frame_len))))
+			goto assoc_failed;
+
+		assoc = mmpdu_body(hdr);
+		status_code = L_CPU_TO_LE16(assoc->status_code);
+
 		ret = auth_proto_rx_associate(netdev->ap, frame, frame_len);
 		if (ret == 0) {
 			bool fils = !!(netdev->handshake->akm_suite &
@@ -2659,23 +2702,19 @@ static void netdev_sae_tx_authenticate(const uint8_t *body,
 static void netdev_sae_tx_associate(void *user_data)
 {
 	struct netdev *netdev = user_data;
+	struct handshake_state *hs = netdev->handshake;
 	struct l_genl_msg *msg;
-	struct iovec iov[2];
-	int iov_elems = 0;
+	struct iovec iov[3];
+	unsigned int n_iov = L_ARRAY_SIZE(iov);
+	unsigned int n_used = 0;
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
-	iov[iov_elems].iov_base = netdev->handshake->supplicant_ie;
-	iov[iov_elems].iov_len = netdev->handshake->supplicant_ie[1] + 2;
-	iov_elems++;
+	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_ie);
+	n_used = iov_ie_append(iov, n_iov, n_used, hs->mde);
+	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_rsnxe);
 
-	if (netdev->handshake->mde) {
-		iov[iov_elems].iov_base = netdev->handshake->mde;
-		iov[iov_elems].iov_len = netdev->handshake->mde[1] + 2;
-		iov_elems++;
-	}
-
-	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, iov_elems);
+	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, n_used);
 
 	if (!l_genl_family_send(nl80211, msg, netdev_assoc_cb, netdev, NULL)) {
 		l_genl_msg_unref(msg);
@@ -3122,6 +3161,100 @@ static int netdev_start_powered_mac_change(struct netdev *netdev)
 	return 0;
 }
 
+static struct l_genl_msg *netdev_build_cmd_cqm_rssi_update(
+							struct netdev *netdev,
+							const int8_t *levels,
+							size_t levels_num)
+{
+	struct l_genl_msg *msg;
+	uint32_t hyst = 5;
+	int thold_count;
+	int32_t thold_list[levels_num + 2];
+	int threshold = netdev->frequency > 4000 ? LOW_SIGNAL_THRESHOLD_5GHZ :
+						LOW_SIGNAL_THRESHOLD;
+
+	if (levels_num == 0) {
+		thold_list[0] = threshold;
+		thold_count = 1;
+	} else {
+		/*
+		 * Build the list of all the threshold values we care about:
+		 *  - the low/high level threshold,
+		 *  - the value ranges requested by
+		 *    netdev_set_rssi_report_levels
+		 */
+		unsigned int i;
+		bool low_sig_added = false;
+
+		thold_count = 0;
+		for (i = 0; i < levels_num; i++) {
+			int32_t val = levels[levels_num - i - 1];
+
+			if (i && thold_list[thold_count - 1] >= val)
+				return NULL;
+
+			if (val >= threshold && !low_sig_added) {
+				thold_list[thold_count++] = threshold;
+				low_sig_added = true;
+
+				/* Duplicate values are not allowed */
+				if (val == threshold)
+					continue;
+			}
+
+			thold_list[thold_count++] = val;
+		}
+	}
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_SET_CQM, 32 + thold_count * 4);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
+	l_genl_msg_enter_nested(msg, NL80211_ATTR_CQM);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_CQM_RSSI_THOLD,
+				thold_count * 4, thold_list);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_CQM_RSSI_HYST, 4, &hyst);
+	l_genl_msg_leave_nested(msg);
+
+	return msg;
+}
+
+static void netdev_cmd_set_cqm_cb(struct l_genl_msg *msg, void *user_data)
+{
+	int err = l_genl_msg_get_error(msg);
+	const char *ext_error;
+
+	if (err >= 0)
+		return;
+
+	ext_error = l_genl_msg_get_extended_error(msg);
+	l_error("CMD_SET_CQM failed: %s",
+			ext_error ? ext_error : strerror(-err));
+}
+
+static int netdev_cqm_rssi_update(struct netdev *netdev)
+{
+	struct l_genl_msg *msg;
+
+	l_debug("");
+
+	if (!wiphy_has_ext_feature(netdev->wiphy,
+					NL80211_EXT_FEATURE_CQM_RSSI_LIST))
+		msg = netdev_build_cmd_cqm_rssi_update(netdev, NULL, 0);
+	else
+		msg = netdev_build_cmd_cqm_rssi_update(netdev,
+						netdev->rssi_levels,
+						netdev->rssi_levels_num);
+	if (!msg)
+		return -EINVAL;
+
+	if (!l_genl_family_send(nl80211, msg, netdev_cmd_set_cqm_cb,
+				NULL, NULL)) {
+		l_genl_msg_unref(msg);
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static bool netdev_connection_work_ready(struct wiphy_radio_work_item *item)
 {
 	struct netdev *netdev = l_container_of(item, struct netdev, work);
@@ -3270,6 +3403,7 @@ static int netdev_connect_common(struct netdev *netdev,
 	netdev->frequency = bss->frequency;
 	netdev->cur_rssi = bss->signal_strength / 100;
 	netdev_rssi_level_init(netdev);
+	netdev_cqm_rssi_update(netdev);
 
 	handshake_state_set_authenticator_address(hs, bss->addr);
 
@@ -3322,6 +3456,18 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 		netdev->ap = sae_sm_new(hs, netdev_sae_tx_authenticate,
 						netdev_sae_tx_associate,
 						netdev);
+
+		if (sae_sm_is_h2e(netdev->ap)) {
+			uint8_t own_rsnxe[20];
+
+			if (wiphy_get_rsnxe(netdev->wiphy,
+					own_rsnxe, sizeof(own_rsnxe))) {
+				set_bit(own_rsnxe + 2, IE_RSNX_SAE_H2E);
+				handshake_state_set_supplicant_rsnxe(hs,
+								own_rsnxe);
+			}
+		}
+
 		break;
 	case IE_RSN_AKM_SUITE_OWE:
 		netdev->ap = owe_sm_new(hs, netdev_owe_tx_authenticate,
@@ -3340,9 +3486,6 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 build_cmd_connect:
 		cmd_connect = netdev_build_cmd_connect(netdev, bss, hs,
 					NULL, vendor_ies, num_vendor_ies);
-
-		if (!cmd_connect)
-			return -EINVAL;
 
 		if (!is_offload(hs) && (is_rsn || hs->settings_8021x)) {
 			sm = eapol_sm_new(hs);
@@ -3458,8 +3601,6 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 
 	cmd_connect = netdev_build_cmd_connect(netdev, target_bss, hs,
 						orig_bss->addr, NULL, 0);
-	if (!cmd_connect)
-		return -EINVAL;
 
 	if (is_rsn)
 		sm = eapol_sm_new(hs);
@@ -3655,9 +3796,6 @@ static void netdev_ft_tx_authenticate(struct iovec *iov,
 
 	cmd_authenticate = netdev_build_cmd_authenticate(netdev,
 							NL80211_AUTHTYPE_FT);
-	if (!cmd_authenticate)
-		goto restore_snonce;
-
 	l_genl_msg_append_attrv(cmd_authenticate, NL80211_ATTR_IE, iov,
 					iov_len);
 
@@ -3761,6 +3899,7 @@ static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)
 	}
 
 	netdev_rssi_polling_update(netdev);
+	netdev_cqm_rssi_update(netdev);
 
 	if (netdev->sm) {
 		eapol_sm_free(netdev->sm);
@@ -4861,75 +5000,6 @@ static void netdev_unicast_notify(struct l_genl_msg *msg, void *user_data)
 	}
 }
 
-static struct l_genl_msg *netdev_build_cmd_cqm_rssi_update(
-							struct netdev *netdev,
-							const int8_t *levels,
-							size_t levels_num)
-{
-	struct l_genl_msg *msg;
-	uint32_t hyst = 5;
-	int thold_count;
-	int32_t thold_list[levels_num + 2];
-	int threshold = netdev->frequency > 4000 ? LOW_SIGNAL_THRESHOLD_5GHZ :
-						LOW_SIGNAL_THRESHOLD;
-
-	if (levels_num == 0) {
-		thold_list[0] = threshold;
-		thold_count = 1;
-	} else {
-		/*
-		 * Build the list of all the threshold values we care about:
-		 *  - the low/high level threshold,
-		 *  - the value ranges requested by
-		 *    netdev_set_rssi_report_levels
-		 */
-		unsigned int i;
-		bool low_sig_added = false;
-
-		thold_count = 0;
-		for (i = 0; i < levels_num; i++) {
-			int32_t val = levels[levels_num - i - 1];
-
-			if (i && thold_list[thold_count - 1] >= val)
-				return NULL;
-
-			if (val >= threshold && !low_sig_added) {
-				thold_list[thold_count++] = threshold;
-				low_sig_added = true;
-
-				/* Duplicate values are not allowed */
-				if (val == threshold)
-					continue;
-			}
-
-			thold_list[thold_count++] = val;
-		}
-	}
-
-	msg = l_genl_msg_new_sized(NL80211_CMD_SET_CQM, 32 + thold_count * 4);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
-	l_genl_msg_enter_nested(msg, NL80211_ATTR_CQM);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_CQM_RSSI_THOLD,
-				thold_count * 4, thold_list);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_CQM_RSSI_HYST, 4, &hyst);
-	l_genl_msg_leave_nested(msg);
-
-	return msg;
-}
-
-static void netdev_cmd_set_cqm_cb(struct l_genl_msg *msg, void *user_data)
-{
-	int err = l_genl_msg_get_error(msg);
-	const char *ext_error;
-
-	if (err >= 0)
-		return;
-
-	ext_error = l_genl_msg_get_extended_error(msg);
-	l_error("CMD_SET_CQM failed: %s",
-			ext_error ? ext_error : strerror(-err));
-}
-
 int netdev_set_rssi_report_levels(struct netdev *netdev, const int8_t *levels,
 					size_t levels_num)
 {
@@ -5088,31 +5158,6 @@ int netdev_get_all_stations(struct netdev *netdev, netdev_get_station_cb_t cb,
 	return 0;
 }
 
-static int netdev_cqm_rssi_update(struct netdev *netdev)
-{
-	struct l_genl_msg *msg;
-
-	l_debug("");
-
-	if (!wiphy_has_ext_feature(netdev->wiphy,
-					NL80211_EXT_FEATURE_CQM_RSSI_LIST))
-		msg = netdev_build_cmd_cqm_rssi_update(netdev, NULL, 0);
-	else
-		msg = netdev_build_cmd_cqm_rssi_update(netdev,
-						netdev->rssi_levels,
-						netdev->rssi_levels_num);
-	if (!msg)
-		return -EINVAL;
-
-	if (!l_genl_family_send(nl80211, msg, netdev_cmd_set_cqm_cb,
-				NULL, NULL)) {
-		l_genl_msg_unref(msg);
-		return -EIO;
-	}
-
-	return 0;
-}
-
 static void netdev_add_station_frame_watches(struct netdev *netdev)
 {
 	static const uint8_t action_neighbor_report_prefix[2] = { 0x05, 0x05 };
@@ -5149,8 +5194,6 @@ static void netdev_setup_interface(struct netdev *netdev)
 {
 	switch (netdev->type) {
 	case NL80211_IFTYPE_STATION:
-		/* Set RSSI threshold for CQM notifications */
-		netdev_cqm_rssi_update(netdev);
 		netdev_add_station_frame_watches(netdev);
 		break;
 	default:

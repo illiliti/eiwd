@@ -1,3 +1,9 @@
+ver 1.16:
+	Fix issue with writing provisioning files with a passphrase.
+	Add support for Authenticator & Supplicant RSN Extension elements.
+	Add support for handling Transition Disable info.
+	Add support for SAE Hash-to-Element feature.
+
 ver 1.15:
 	Add support for FT-over-DS procedure with multiple BSS.
 	Add support for estimation of VHT RX data rate.

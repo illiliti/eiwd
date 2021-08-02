@@ -212,10 +212,44 @@ enum ie_type {
 	IE_TYPE_DEVICE_LOCATION                      = 204,
 	IE_TYPE_WHITE_SPACE_MAP                      = 205,
 	IE_TYPE_FINE_TIMING_MEASUREMENT_PARAMETERS   = 206,
-	/* Reserved 207 - 220 */
+	IE_TYPE_S1G_OPEN_LOOP_LINK_MARGIN_INDEX      = 207,
+	IE_TYPE_RPS                                  = 208,
+	IE_TYPE_PAGE_SLICE                           = 209,
+	IE_TYPE_AID_REQUEST                          = 210,
+	IE_TYPE_AID_RESPONSE                         = 211,
+	IE_TYPE_S1G_SECTOR_OPERATION                 = 212,
+	IE_TYPE_S1G_BEACON_COMPATIBILITY             = 213,
+	IE_TYPE_SHORT_BEACON_INTERVAL                = 214,
+	IE_TYPE_CHANGE_SEQUENCE                      = 215,
+	IE_TYPE_TWT                                  = 216,
+	IE_TYPE_S1G_CAPABILITIES                     = 217,
+	/* Reserved 218 - 219 */
+	IE_TYPE_SUBCHANNEL_SELECTIVE_TRANSMISSION    = 220,
 	IE_TYPE_VENDOR_SPECIFIC                      = 221,
-	/* Reserved 222 - 254 */
+	IE_TYPE_AUTHENTICATION_CONTROL               = 222,
+	IE_TYPE_TSF_TIMER_ACCURACY                   = 223,
+	IE_TYPE_S1G_RELAY                            = 224,
+	IE_TYPE_REACHABLE_ADDRESS                    = 225,
+	IE_TYPE_S1G_RELAY_DISCOVERY                  = 226,
+	/* Reserved 227 */
+	IE_TYPE_AID_ANNOUNCEMENT                     = 228,
+	IE_TYPE_PV1_PROBE_RESPONSE_OPTION            = 229,
+	IE_TYPE_EL_OPERATION                         = 230,
+	IE_TYPE_SECTORIZED_GROUP_ID_LIST             = 231,
+	IE_TYPE_S1G_OPERATION                        = 232,
+	IE_TYPE_HEADER_COMPRESSION                   = 233,
+	IE_TYPE_SST_OPERATION                        = 234,
+	IE_TYPE_MAD                                  = 235,
+	IE_TYPE_S1G_RELAY_ACTIVATION                 = 236,
+	IE_TYPE_CAG_NUMBER                           = 237,
+	/* Reserved 238 */
+	IE_TYPE_AP_CSN                               = 239,
 	IE_TYPE_FILS_INDICATION                      = 240,
+	IE_TYPE_DILS                                 = 241,
+	IE_TYPE_FRAGMENT                             = 242,
+	/* Reserved 243 */
+	IE_TYPE_RSNX                                 = 244,
+	/* Reserved 245 - 254 */
 	IE_TYPE_EXTENSION                            = 255,
 
 	IE_TYPE_FILS_REQUEST_PARAMETERS              = 256 + 2,
@@ -232,6 +266,10 @@ enum ie_type {
 	IE_TYPE_FILS_NONCE                           = 256 + 13,
 	IE_TYPE_FUTURE_CHANNEL_GUIDANCE              = 256 + 14,
 	IE_TYPE_OWE_DH_PARAM                         = 256 + 32,
+	IE_TYPE_PASSWORD_IDENTIFIER                  = 256 + 33,
+	IE_TYPE_OCI                                  = 256 + 54,
+	IE_TYPE_REJECTED_GROUPS                      = 256 + 92,
+	IE_TYPE_ANTI_CLOGGING_TOKEN_CONTAINER        = 256 + 93,
 };
 
 /*
@@ -459,7 +497,7 @@ bool ie_tlv_builder_set_data(struct ie_tlv_builder *builder,
 bool ie_tlv_builder_recurse(struct ie_tlv_builder *builder,
 			struct ie_tlv_builder *recurse);
 unsigned char *ie_tlv_builder_finalize(struct ie_tlv_builder *builder,
-			unsigned int *out_len);
+					size_t *out_len);
 
 uint32_t ie_rsn_cipher_suite_to_cipher(enum ie_rsn_cipher_suite suite);
 
@@ -529,3 +567,10 @@ int ie_parse_hs20_indication_from_data(const uint8_t *data, size_t len,
 					uint8_t *version, uint16_t *pps_mo_id,
 					uint8_t *domain_id);
 int ie_build_hs20_indication(uint8_t version, uint8_t *to);
+
+enum ie_rsnx_capability {
+	IE_RSNX_PROTECTED_TWT                                = 4,
+	IE_RSNX_SAE_H2E                                      = 5,
+};
+
+bool ie_rsnxe_capable(const uint8_t *rsnxe, unsigned int bit);
