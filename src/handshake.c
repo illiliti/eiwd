@@ -41,6 +41,7 @@
 #include "src/ie.h"
 #include "src/util.h"
 #include "src/handshake.h"
+#include "src/erp.h"
 
 static inline unsigned int n_ecc_groups()
 {
@@ -105,6 +106,9 @@ void handshake_state_free(struct handshake_state *s)
 	l_free(s->supplicant_rsnxe);
 	l_free(s->mde);
 	l_free(s->fte);
+
+	if (s->erp_cache)
+		erp_cache_put(s->erp_cache);
 
 	if (s->passphrase) {
 		explicit_bzero(s->passphrase, strlen(s->passphrase));
