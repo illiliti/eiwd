@@ -743,7 +743,7 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 {
 	enum security security = network_get_security(network);
 	bool add_mde = false;
-	bool fils_hint = false;
+	struct erp_cache_entry *erp_cache = NULL;
 
 	struct ie_rsn_info bss_info;
 	uint8_t rsne_buf[256];
@@ -764,10 +764,10 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 	 * wiphy may select FILS if supported by the AP.
 	 */
 	if (security == SECURITY_8021X && hs->support_fils)
-		fils_hint = network_has_erp_identity(network);
+		erp_cache = network_get_erp_cache(network);
 
 	info.akm_suites = wiphy_select_akm(wiphy, bss, security,
-							&bss_info, fils_hint);
+						&bss_info, erp_cache != NULL);
 
 	/*
 	 * Special case for OWE. With OWE we still need to build up the
@@ -848,6 +848,19 @@ build_ie:
 	if (IE_AKM_IS_FT(info.akm_suites))
 		add_mde = true;
 
+	/*
+	 * If FILS was chosen, the ERP cache has been verified to exist. Take
+	 * a reference now so it remains valid (in case of expiration) until
+	 * FILS starts.
+	 */
+	if (hs->akm_suite & (IE_RSN_AKM_SUITE_FILS_SHA256 |
+				IE_RSN_AKM_SUITE_FILS_SHA384 |
+				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |
+				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
+		hs->erp_cache = erp_cache;
+	else if (erp_cache)
+		erp_cache_put(erp_cache);
+
 open_network:
 	if (security == SECURITY_NONE)
 		/* Perform FT association if available */
@@ -867,6 +880,9 @@ open_network:
 	return 0;
 
 not_supported:
+	if (erp_cache)
+		erp_cache_put(erp_cache);
+
 	return -ENOTSUP;
 }
 
@@ -888,17 +904,6 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 
 	if (network_handshake_setup(network, hs) < 0)
 		goto not_supported;
-
-	/*
-	 * If FILS was chosen, the ERP cache has been verified to exist. We
-	 * wait to get it until here because at this point so there are no
-	 * failure paths before fils_sm_new
-	 */
-	if (hs->akm_suite & (IE_RSN_AKM_SUITE_FILS_SHA256 |
-				IE_RSN_AKM_SUITE_FILS_SHA384 |
-				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |
-				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
-		hs->erp_cache = erp_cache_get(network_get_ssid(network));
 
 	return hs;
 

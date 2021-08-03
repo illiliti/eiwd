@@ -1056,7 +1056,7 @@ static bool match_bss(const void *a, const void *b)
 	return a == b;
 }
 
-bool network_has_erp_identity(struct network *network)
+struct erp_cache_entry *network_get_erp_cache(struct network *network)
 {
 	struct erp_cache_entry *cache;
 	struct l_settings *settings;
@@ -1066,16 +1066,16 @@ bool network_has_erp_identity(struct network *network)
 
 	settings = network_get_settings(network);
 	if (!settings)
-		return false;
+		return NULL;
 
 	check_id = l_settings_get_string(settings, "Security", "EAP-Identity");
 	if (!check_id)
-		return false;
+		return NULL;
 
 	cache = erp_cache_get(network_get_ssid(network));
 	if (!cache) {
 		l_free(check_id);
-		return false;
+		return NULL;
 	}
 
 	identity = erp_cache_entry_get_identity(cache);
@@ -1083,17 +1083,19 @@ bool network_has_erp_identity(struct network *network)
 	ret = strcmp(check_id, identity) == 0;
 
 	l_free(check_id);
-	erp_cache_put(cache);
 
 	/*
 	 * The settings file must have change out from under us. In this
 	 * case we want to remove the ERP entry because it is no longer
 	 * valid.
 	 */
-	if (!ret)
+	if (!ret) {
+		erp_cache_put(cache);
 		erp_cache_remove(identity);
+		return NULL;
+	}
 
-	return ret;
+	return cache;
 }
 
 const struct l_queue_entry *network_bss_list_get_entries(
