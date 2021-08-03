@@ -128,7 +128,8 @@ static bool validate_mgmt_ies(const uint8_t *ies, size_t ies_len,
 				tag != IE_TYPE_EMERGENCY_ALERT_IDENTIFIER &&
 				tag != IE_TYPE_MULTIPLE_BSSID &&
 				tag != IE_TYPE_NEIGHBOR_REPORT &&
-				tag != IE_TYPE_QUIET_CHANNEL) {
+				tag != IE_TYPE_QUIET_CHANNEL &&
+				tag != IE_TYPE_FILS_HLP_CONTAINER) {
 			struct ie_tlv_iter clone;
 
 			memcpy(&clone, &iter, sizeof(clone));
@@ -148,7 +149,7 @@ static bool validate_mgmt_ies(const uint8_t *ies, size_t ies_len,
 	return true;
 }
 
-/* 802.11-2016 section 9.3.3.6 */
+/* 802.11-2020 section 9.3.3.5 */
 static bool validate_association_request_mmpdu(const struct mmpdu_header *mpdu,
 						int len, int *offset)
 {
@@ -171,6 +172,33 @@ static bool validate_association_request_mmpdu(const struct mmpdu_header *mpdu,
 		IE_TYPE_QOS_TRAFFIC_CAPABILITY,
 		IE_TYPE_TIM_BROADCAST_REQUEST,
 		IE_TYPE_INTERWORKING,
+		IE_TYPE_MULTIBAND,
+		IE_TYPE_DMG_CAPABILITIES,
+		IE_TYPE_MULTIPLE_MAC_SUBLAYERS,
+		IE_TYPE_VHT_CAPABILITIES,
+		IE_TYPE_OPERATING_MODE_NOTIFICATION,
+		IE_TYPE_FILS_SESSION,
+		IE_TYPE_FILS_PUBLIC_KEY,
+		IE_TYPE_FILS_KEY_CONFIRMATION,
+		IE_TYPE_FILS_HLP_CONTAINER,
+		IE_TYPE_FILS_IP_ADDRESS,
+		IE_TYPE_TWT,
+		IE_TYPE_AID_REQUEST,
+		IE_TYPE_S1G_CAPABILITIES,
+		IE_TYPE_EL_OPERATION,
+		IE_TYPE_S1G_RELAY,
+		IE_TYPE_BSS_MAX_IDLE_PERIOD,
+		IE_TYPE_HEADER_COMPRESSION,
+		IE_TYPE_MAD,
+		IE_TYPE_REACHABLE_ADDRESS,
+		IE_TYPE_S1G_RELAY_ACTIVATION,
+		IE_TYPE_CDMG_CAPABILITIES,
+		IE_TYPE_CMMG_CAPABILITIES,
+		IE_TYPE_GLK_GCR_PARAMETER_SET,
+		IE_TYPE_FAST_BSS_TRANSITION,
+		IE_TYPE_RSNX,
+		IE_TYPE_SUPPLEMENTAL_CLASS_2_CAPABILITIES,
+		IE_TYPE_MSCS_DESCRIPTOR,
 		IE_TYPE_VENDOR_SPECIFIC,
 	};
 
@@ -183,19 +211,21 @@ static bool validate_association_request_mmpdu(const struct mmpdu_header *mpdu,
 					L_ARRAY_SIZE(ie_order));
 }
 
-/* 802.11-2016 section 9.3.3.7 */
+/* 802.11-2020 section 9.3.3.6 */
 static bool validate_association_response_mmpdu(const struct mmpdu_header *mpdu,
 						int len, int *offset)
 {
 	const struct mmpdu_association_response *body =
 		(const void *) mpdu + *offset;
 	static const enum ie_type ie_order[] = {
+		IE_TYPE_AID,
 		IE_TYPE_SUPPORTED_RATES,
 		IE_TYPE_EXTENDED_SUPPORTED_RATES,
 		IE_TYPE_EDCA_PARAMETER_SET,
 		IE_TYPE_RCPI,
 		IE_TYPE_RSNI,
 		IE_TYPE_RM_ENABLED_CAPABILITIES,
+		IE_TYPE_RSN,
 		IE_TYPE_MOBILITY_DOMAIN,
 		IE_TYPE_FAST_BSS_TRANSITION,
 		IE_TYPE_DSE_REGISTERED_LOCATION,
@@ -208,6 +238,40 @@ static bool validate_association_response_mmpdu(const struct mmpdu_header *mpdu,
 		IE_TYPE_BSS_MAX_IDLE_PERIOD,
 		IE_TYPE_TIM_BROADCAST_RESPONSE,
 		IE_TYPE_QOS_MAP_SET,
+		IE_TYPE_QMF_POLICY,
+		IE_TYPE_MULTIBAND,
+		IE_TYPE_DMG_CAPABILITIES,
+		IE_TYPE_DMG_OPERATION,
+		IE_TYPE_MULTIPLE_MAC_SUBLAYERS,
+		IE_TYPE_NEIGHBOR_REPORT,
+		IE_TYPE_VHT_CAPABILITIES,
+		IE_TYPE_VHT_OPERATION,
+		IE_TYPE_OPERATING_MODE_NOTIFICATION,
+		IE_TYPE_FUTURE_CHANNEL_GUIDANCE,
+		IE_TYPE_FILS_SESSION,
+		IE_TYPE_FILS_PUBLIC_KEY,
+		IE_TYPE_FILS_KEY_CONFIRMATION,
+		IE_TYPE_FILS_HLP_CONTAINER,
+		IE_TYPE_FILS_IP_ADDRESS,
+		IE_TYPE_KEY_DELIVERY,
+		IE_TYPE_S1G_SECTOR_OPERATION,
+		IE_TYPE_TWT,
+		IE_TYPE_TSF_TIMER_ACCURACY,
+		IE_TYPE_S1G_CAPABILITIES,
+		IE_TYPE_S1G_OPERATION,
+		IE_TYPE_AID_RESPONSE,
+		IE_TYPE_SECTORIZED_GROUP_ID_LIST,
+		IE_TYPE_S1G_RELAY,
+		IE_TYPE_HEADER_COMPRESSION,
+		IE_TYPE_SST_OPERATION,
+		IE_TYPE_MAD,
+		IE_TYPE_S1G_RELAY_ACTIVATION,
+		IE_TYPE_CDMG_CAPABILITIES,
+		IE_TYPE_CMMG_CAPABILITIES,
+		IE_TYPE_CMMG_OPERATION,
+		IE_TYPE_GLK_GCR_PARAMETER_SET,
+		IE_TYPE_RSNX,
+		IE_TYPE_MSCS_DESCRIPTOR,
 		IE_TYPE_VENDOR_SPECIFIC,
 	};
 
@@ -220,7 +284,7 @@ static bool validate_association_response_mmpdu(const struct mmpdu_header *mpdu,
 					L_ARRAY_SIZE(ie_order));
 }
 
-/* 802.11-2016 section 9.3.3.8 */
+/* 802.11-2020 section 9.3.3.7 */
 static bool validate_reassociation_request_mmpdu(
 						const struct mmpdu_header *mpdu,
 						int len, int *offset)
@@ -248,6 +312,33 @@ static bool validate_reassociation_request_mmpdu(
 		IE_TYPE_FMS_REQUEST,
 		IE_TYPE_DMS_REQUEST,
 		IE_TYPE_INTERWORKING,
+		IE_TYPE_MULTIBAND,
+		IE_TYPE_DMG_CAPABILITIES,
+		IE_TYPE_MULTIPLE_MAC_SUBLAYERS,
+		IE_TYPE_VHT_CAPABILITIES,
+		IE_TYPE_OPERATING_MODE_NOTIFICATION,
+		IE_TYPE_FILS_SESSION,
+		IE_TYPE_FILS_PUBLIC_KEY,
+		IE_TYPE_FILS_KEY_CONFIRMATION,
+		IE_TYPE_FILS_HLP_CONTAINER,
+		IE_TYPE_FILS_IP_ADDRESS,
+		IE_TYPE_TWT,
+		IE_TYPE_AID_REQUEST,
+		IE_TYPE_S1G_CAPABILITIES,
+		IE_TYPE_EL_OPERATION,
+		IE_TYPE_BSS_MAX_IDLE_PERIOD,
+		IE_TYPE_S1G_RELAY,
+		IE_TYPE_HEADER_COMPRESSION,
+		IE_TYPE_MAD,
+		IE_TYPE_REACHABLE_ADDRESS,
+		IE_TYPE_S1G_RELAY_ACTIVATION,
+		IE_TYPE_CDMG_CAPABILITIES,
+		IE_TYPE_CMMG_CAPABILITIES,
+		IE_TYPE_OCI,
+		IE_TYPE_GLK_GCR_PARAMETER_SET,
+		IE_TYPE_RSNX,
+		IE_TYPE_SUPPLEMENTAL_CLASS_2_CAPABILITIES,
+		IE_TYPE_MSCS_DESCRIPTOR,
 		IE_TYPE_VENDOR_SPECIFIC,
 	};
 
@@ -260,7 +351,7 @@ static bool validate_reassociation_request_mmpdu(
 					L_ARRAY_SIZE(ie_order));
 }
 
-/* 802.11-2016 section 9.3.3.9 */
+/* 802.11-2020 section 9.3.3.8 */
 static bool validate_reassociation_response_mmpdu(
 						const struct mmpdu_header *mpdu,
 						int len, int *offset)
@@ -268,6 +359,7 @@ static bool validate_reassociation_response_mmpdu(
 	const struct mmpdu_reassociation_response *body =
 		(const void *) mpdu + *offset;
 	static const enum ie_type ie_order[] = {
+		IE_TYPE_AID,
 		IE_TYPE_SUPPORTED_RATES,
 		IE_TYPE_EXTENDED_SUPPORTED_RATES,
 		IE_TYPE_EDCA_PARAMETER_SET,
@@ -290,6 +382,41 @@ static bool validate_reassociation_response_mmpdu(
 		IE_TYPE_FMS_RESPONSE,
 		IE_TYPE_DMS_RESPONSE,
 		IE_TYPE_QOS_MAP_SET,
+		IE_TYPE_QMF_POLICY,
+		IE_TYPE_MULTIBAND,
+		IE_TYPE_DMG_CAPABILITIES,
+		IE_TYPE_DMG_OPERATION,
+		IE_TYPE_MULTIPLE_MAC_SUBLAYERS,
+		IE_TYPE_NEIGHBOR_REPORT,
+		IE_TYPE_VHT_CAPABILITIES,
+		IE_TYPE_VHT_OPERATION,
+		IE_TYPE_OPERATING_MODE_NOTIFICATION,
+		IE_TYPE_FUTURE_CHANNEL_GUIDANCE,
+		IE_TYPE_FILS_SESSION,
+		IE_TYPE_FILS_PUBLIC_KEY,
+		IE_TYPE_FILS_KEY_CONFIRMATION,
+		IE_TYPE_FILS_HLP_CONTAINER,
+		IE_TYPE_FILS_IP_ADDRESS,
+		IE_TYPE_KEY_DELIVERY,
+		IE_TYPE_S1G_SECTOR_OPERATION,
+		IE_TYPE_TWT,
+		IE_TYPE_TSF_TIMER_ACCURACY,
+		IE_TYPE_S1G_CAPABILITIES,
+		IE_TYPE_S1G_OPERATION,
+		IE_TYPE_AID_RESPONSE,
+		IE_TYPE_SECTORIZED_GROUP_ID_LIST,
+		IE_TYPE_S1G_RELAY,
+		IE_TYPE_HEADER_COMPRESSION,
+		IE_TYPE_SST_OPERATION,
+		IE_TYPE_MAD,
+		IE_TYPE_S1G_RELAY_ACTIVATION,
+		IE_TYPE_CDMG_CAPABILITIES,
+		IE_TYPE_CMMG_CAPABILITIES,
+		IE_TYPE_CMMG_OPERATION,
+		IE_TYPE_OCI,
+		IE_TYPE_GLK_GCR_PARAMETER_SET,
+		IE_TYPE_RSNX,
+		IE_TYPE_MSCS_DESCRIPTOR,
 		IE_TYPE_VENDOR_SPECIFIC,
 	};
 
@@ -302,7 +429,7 @@ static bool validate_reassociation_response_mmpdu(
 					L_ARRAY_SIZE(ie_order));
 }
 
-/* 802.11-2016 section 9.3.3.10 */
+/* 802.11-2020 section 9.3.3.9 */
 static bool validate_probe_request_mmpdu(const struct mmpdu_header *mpdu,
 						int len, int *offset)
 {
@@ -327,6 +454,20 @@ static bool validate_probe_request_mmpdu(const struct mmpdu_header *mpdu,
 		IE_TYPE_VHT_CAPABILITIES,
 		IE_TYPE_ESTIMATED_SERVICE_PARAMETERS,
 		IE_TYPE_EXTENDED_REQUEST,
+		IE_TYPE_FILS_REQUEST_PARAMETERS,
+		IE_TYPE_AP_CSN,
+		IE_TYPE_CHANGE_SEQUENCE,
+		IE_TYPE_S1G_RELAY_DISCOVERY,
+		IE_TYPE_PV1_PROBE_RESPONSE_OPTION,
+		IE_TYPE_S1G_CAPABILITIES,
+		IE_TYPE_EL_OPERATION,
+		IE_TYPE_MAD,
+		IE_TYPE_VENDOR_SPECIFIC_REQUEST,
+		IE_TYPE_CDMG_CAPABILITIES,
+		IE_TYPE_CLUSTER_PROBE,
+		IE_TYPE_CMMG_CAPABILITIES,
+		IE_TYPE_ESTIMATED_SERVICE_PARAMETERS_OUT,
+		IE_TYPE_SUPPLEMENTAL_CLASS_2_CAPABILITIES,
 		IE_TYPE_VENDOR_SPECIFIC,
 	};
 
@@ -360,7 +501,7 @@ static bool validate_probe_response_mmpdu(const struct mmpdu_header *mpdu,
 	return true;
 }
 
-/* 802.11-2016 section 9.3.3.16 */
+/* 802.11-2020 section 9.3.3.15 */
 static bool validate_timing_advertisement_mmpdu(const struct mmpdu_header *mpdu,
 						int len, int *offset)
 {
@@ -383,7 +524,7 @@ static bool validate_timing_advertisement_mmpdu(const struct mmpdu_header *mpdu,
 					L_ARRAY_SIZE(ie_order));
 }
 
-/* 802.11-2016 section 9.3.3.3 */
+/* 802.11-2020 section 9.3.3.2 */
 static bool validate_beacon_mmpdu(const struct mmpdu_header *mpdu,
 					int len, int *offset)
 {
@@ -453,6 +594,15 @@ static bool validate_beacon_mmpdu(const struct mmpdu_header *mpdu,
 		IE_TYPE_TVHT_OPERATION,
 		IE_TYPE_ESTIMATED_SERVICE_PARAMETERS,
 		IE_TYPE_FUTURE_CHANNEL_GUIDANCE,
+		IE_TYPE_CAG_NUMBER,
+		IE_TYPE_FILS_INDICATION,
+		IE_TYPE_AP_CSN,
+		IE_TYPE_DILS,
+		IE_TYPE_MAX_CHANNEL_SWITCH_TIME,
+		IE_TYPE_ESTIMATED_SERVICE_PARAMETERS_OUT,
+		IE_TYPE_SERVICE_HINT,
+		IE_TYPE_SERVICE_HASH,
+		IE_TYPE_RSNX,
 		IE_TYPE_VENDOR_SPECIFIC,
 	};
 
