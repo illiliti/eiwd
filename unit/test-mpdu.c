@@ -175,6 +175,44 @@ static void ie_order_test(const void *data)
 	assert(!!mpdu_validate(frame->data, frame->len) == frame->good);
 }
 
+static void ie_sort_test(const void *data)
+{
+	static uint8_t ie_fils_session[] = { IE_TYPE_EXTENSION, 1, 4 };
+	static uint8_t ie_mde[] = { IE_TYPE_MOBILITY_DOMAIN, 0 };
+	static uint8_t ie_ssid[] = { IE_TYPE_SSID, 0 };
+	static uint8_t ie_rsn[] = { IE_TYPE_RSN, 0 };
+	struct iovec ies[64];
+	size_t n_ies = 0;
+	uint8_t *ie;
+
+	/* Make up some IEs, only the first 3 bytes matter */
+	ies[n_ies].iov_base = ie_fils_session;
+	ies[n_ies++].iov_len = sizeof(ie_fils_session);
+
+	ies[n_ies].iov_base = ie_mde;
+	ies[n_ies++].iov_len = sizeof(ie_mde);
+
+	ies[n_ies].iov_base = ie_ssid;
+	ies[n_ies++].iov_len = sizeof(ie_ssid);
+
+	ies[n_ies].iov_base = ie_rsn;
+	ies[n_ies++].iov_len = sizeof(ie_rsn);
+
+	mpdu_sort_ies(MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_REQUEST, ies, n_ies);
+
+	ie = ies[0].iov_base;
+	assert(ie[0] == IE_TYPE_SSID);
+
+	ie = ies[1].iov_base;
+	assert(ie[0] == IE_TYPE_RSN);
+
+	ie = ies[2].iov_base;
+	assert(ie[0] == IE_TYPE_MOBILITY_DOMAIN);
+
+	ie = ies[3].iov_base;
+	assert(ie[0] == IE_TYPE_EXTENSION && ie[2] == 4);
+}
+
 int main(int argc, char *argv[])
 {
 	l_test_init(&argc, &argv);
@@ -191,6 +229,8 @@ int main(int argc, char *argv[])
 				&probe_req_ie_duplicate1_data);
 	l_test_add("/IE order/Good (Out of Order IE) 2", ie_order_test,
 				&probe_req_ie_out_of_order2_data);
+
+	l_test_add("/IE order/Sorting", ie_sort_test, NULL);
 
 	return l_test_run();
 }
