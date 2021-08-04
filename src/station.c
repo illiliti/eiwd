@@ -1731,7 +1731,8 @@ static void station_transition_start(struct station *station,
 		/* FT-over-DS can be better suited for these situations */
 		if ((hs->mde[4] & 1) && station->signal_low) {
 			ret = netdev_fast_transition_over_ds(station->netdev,
-					bss, station_fast_transition_cb);
+					bss, station->connected_bss,
+					station_fast_transition_cb);
 			/* No action responses from this BSS, try over air */
 			if (ret == -ENOENT)
 				goto try_over_air;
@@ -1746,6 +1747,7 @@ static void station_transition_start(struct station *station,
 		} else {
 try_over_air:
 			if (netdev_fast_transition(station->netdev, bss,
+					station->connected_bss,
 					station_fast_transition_cb) < 0) {
 				station_roam_failed(station);
 				return;

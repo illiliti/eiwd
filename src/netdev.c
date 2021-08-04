@@ -134,7 +134,6 @@ struct netdev {
 	struct l_timeout *sa_query_timeout;
 	struct l_timeout *group_handshake_timeout;
 	uint16_t sa_query_id;
-	uint8_t prev_bssid[ETH_ALEN];
 	uint8_t prev_snonce[32];
 	int8_t rssi_levels[16];
 	uint8_t rssi_levels_num;
@@ -3609,8 +3608,6 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 	netdev_connect_common(netdev, cmd_connect, target_bss, hs, sm,
 					event_filter, cb, user_data);
 
-	memcpy(netdev->prev_bssid, orig_bss->addr, ETH_ALEN);
-
 	netdev->associated = false;
 	netdev->operational = false;
 	netdev->connected = false;
@@ -3817,12 +3814,13 @@ static int netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
 					void *user_data)
 {
 	struct netdev *netdev = user_data;
+	struct auth_proto *ap = netdev->ap;
 	struct l_genl_msg *msg;
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
 	l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, ETH_ALEN,
-				netdev->prev_bssid);
+				ap->prev_bssid);
 	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, ie_iov, iov_len);
 
 	netdev->connect_cmd_id = l_genl_family_send(nl80211, msg,
@@ -3837,7 +3835,7 @@ static int netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
 	return 0;
 }
 
-static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)
+static void prepare_ft(struct netdev *netdev, const struct scan_bss *target_bss)
 {
 	struct netdev_handshake_state *nhs;
 
@@ -3848,7 +3846,6 @@ static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)
 	 */
 	memcpy(netdev->prev_snonce, netdev->handshake->snonce, 32);
 
-	memcpy(netdev->prev_bssid, netdev->handshake->aa, 6);
 	netdev->frequency = target_bss->frequency;
 
 	handshake_state_set_authenticator_address(netdev->handshake,
@@ -4017,7 +4014,9 @@ static const struct wiphy_radio_work_item_ops ft_work_ops = {
 	.do_work = netdev_ft_work_ready,
 };
 
-int netdev_fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
+int netdev_fast_transition(struct netdev *netdev,
+				const struct scan_bss *target_bss,
+				const struct scan_bss *orig_bss,
 				netdev_connect_cb_t cb)
 {
 	if (!netdev->operational)
@@ -4037,6 +4036,7 @@ int netdev_fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 	netdev->ap = ft_over_air_sm_new(netdev->handshake,
 					netdev_ft_tx_authenticate,
 					netdev_ft_tx_associate, netdev);
+	memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
 
 	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
 				&ft_work_ops);
@@ -4045,7 +4045,8 @@ int netdev_fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 }
 
 int netdev_fast_transition_over_ds(struct netdev *netdev,
-					struct scan_bss *target_bss,
+					const struct scan_bss *target_bss,
+					const struct scan_bss *orig_bss,
 					netdev_connect_cb_t cb)
 {
 	struct netdev_ft_over_ds_info *info;
@@ -4076,6 +4077,7 @@ int netdev_fast_transition_over_ds(struct netdev *netdev,
 	netdev->ap = ft_over_ds_sm_new(netdev->handshake,
 					netdev_ft_tx_associate,
 					netdev);
+	memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
 
 	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
 				&ft_work_ops);
