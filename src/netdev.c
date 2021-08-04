@@ -110,7 +110,6 @@ struct netdev {
 	struct wiphy *wiphy;
 	unsigned int ifi_flags;
 	uint32_t frequency;
-	uint32_t prev_frequency;
 
 	netdev_event_func_t event_filter;
 	netdev_connect_cb_t connect_cb;
@@ -3850,7 +3849,6 @@ static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)
 	memcpy(netdev->prev_snonce, netdev->handshake->snonce, 32);
 
 	memcpy(netdev->prev_bssid, netdev->handshake->aa, 6);
-	netdev->prev_frequency = netdev->frequency;
 	netdev->frequency = target_bss->frequency;
 
 	handshake_state_set_authenticator_address(netdev->handshake,
