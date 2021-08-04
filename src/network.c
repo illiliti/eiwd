@@ -1608,14 +1608,6 @@ void network_blacklist_add(struct network *network, struct scan_bss *bss)
 	l_queue_push_head(network->blacklist, bss);
 }
 
-const struct iovec *network_get_extra_ies(struct network *network,
-						size_t *num_elems)
-{
-	struct scan_bss *bss = network_bss_select(network, false);
-
-	return network_info_get_extra_ies(network->info, bss, num_elems);
-}
-
 static bool network_property_get_name(struct l_dbus *dbus,
 					struct l_dbus_message *message,
 					struct l_dbus_message_builder *builder,

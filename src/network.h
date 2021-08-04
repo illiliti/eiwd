@@ -85,9 +85,6 @@ struct l_dbus_message *network_connect_new_hidden_network(
 
 void network_blacklist_add(struct network *network, struct scan_bss *bss);
 
-const struct iovec *network_get_extra_ies(struct network *network,
-						size_t *num_elems);
-
 struct erp_cache_entry *network_get_erp_cache(struct network *network);
 
 const struct l_queue_entry *network_bss_list_get_entries(

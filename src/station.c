@@ -891,7 +891,10 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 							struct scan_bss *bss)
 {
 	struct wiphy *wiphy = station->wiphy;
+	const struct network_info *info = network_get_info(network);
 	struct handshake_state *hs;
+	const struct iovec *vendor_ies;
+	size_t iov_elems = 0;
 
 	hs = netdev_handshake_state_new(station->netdev);
 
@@ -904,6 +907,9 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 
 	if (network_handshake_setup(network, hs) < 0)
 		goto not_supported;
+
+	vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
+	handshake_state_set_vendor_ies(hs, vendor_ies, iov_elems);
 
 	return hs;
 
@@ -1720,6 +1726,10 @@ static void station_transition_start(struct station *station,
 
 	/* Can we use Fast Transition? */
 	if (station_can_fast_transition(hs, bss)) {
+		const struct network_info *info = network_get_info(connected);
+		const struct iovec *vendor_ies;
+		size_t iov_elems = 0;
+
 		/* Rebuild handshake RSN for target AP */
 		if (station_build_handshake_rsn(hs, station->wiphy,
 				station->connected_network, bss) < 0) {
@@ -1727,6 +1737,10 @@ static void station_transition_start(struct station *station,
 			station_roam_failed(station);
 			return;
 		}
+
+		/* Reset the vendor_ies in case they're different */
+		vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
+		handshake_state_set_vendor_ies(hs, vendor_ies, iov_elems);
 
 		/* FT-over-DS can be better suited for these situations */
 		if ((hs->mde[4] & 1) && station->signal_low) {
@@ -2548,8 +2562,6 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 int __station_connect_network(struct station *station, struct network *network,
 				struct scan_bss *bss)
 {
-	const struct iovec *extra_ies;
-	size_t iov_elems = 0;
 	struct handshake_state *hs;
 	int r;
 
@@ -2557,10 +2569,8 @@ int __station_connect_network(struct station *station, struct network *network,
 	if (!hs)
 		return -ENOTSUP;
 
-	extra_ies = network_get_extra_ies(network, &iov_elems);
-
-	r = netdev_connect(station->netdev, bss, hs, extra_ies,
-				iov_elems, station_netdev_event,
+	r = netdev_connect(station->netdev, bss, hs, NULL, 0,
+				station_netdev_event,
 				station_connect_cb, station);
 	if (r < 0) {
 		handshake_state_free(hs);
