@@ -297,6 +297,33 @@ void handshake_state_set_fte(struct handshake_state *s, const uint8_t *fte)
 	replace_ie(&s->fte, fte);
 }
 
+void handshake_state_set_vendor_ies(struct handshake_state *s,
+					const struct iovec *iov,
+					size_t n_iovs)
+{
+	size_t i;
+	size_t len;
+
+	l_free(s->vendor_ies);
+	s->vendor_ies = NULL;
+
+	if (n_iovs == 0) {
+		s->vendor_ies_len = 0;
+		return;
+	}
+
+	for (i = 0, len = 0; i < n_iovs; i++)
+		len += iov[i].iov_len;
+
+	s->vendor_ies_len = len;
+	s->vendor_ies = l_malloc(len);
+
+	for (i = 0, len = 0; i < n_iovs; i++) {
+		memcpy(s->vendor_ies + len, iov[i].iov_base, iov[i].iov_len);
+		len += iov[i].iov_len;
+	}
+}
+
 void handshake_state_set_kh_ids(struct handshake_state *s,
 				const uint8_t *r0khid, size_t r0khid_len,
 				const uint8_t *r1khid)
