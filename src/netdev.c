@@ -3386,7 +3386,7 @@ offload_1x:
 	return 0;
 }
 
-static int netdev_connect_common(struct netdev *netdev,
+static void netdev_connect_common(struct netdev *netdev,
 					struct l_genl_msg *cmd_connect,
 					struct scan_bss *bss,
 					struct handshake_state *hs,
@@ -3413,7 +3413,6 @@ static int netdev_connect_common(struct netdev *netdev,
 
 	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
 				&connect_work_ops);
-	return 0;
 }
 
 int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
@@ -3495,8 +3494,9 @@ build_cmd_connect:
 		}
 	}
 
-	return netdev_connect_common(netdev, cmd_connect, bss, hs, sm,
+	netdev_connect_common(netdev, cmd_connect, bss, hs, sm,
 						event_filter, cb, user_data);
+	return 0;
 }
 
 static void disconnect_idle(struct l_idle *idle, void *user_data)
@@ -3589,7 +3589,6 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 	struct handshake_state *old_hs;
 	struct eapol_sm *sm = NULL, *old_sm;
 	bool is_rsn = hs->supplicant_ie != NULL;
-	int err;
 
 	if (netdev_handshake_state_setup_connection_type(hs) < 0)
 		return -ENOTSUP;
@@ -3608,10 +3607,8 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 	old_sm = netdev->sm;
 	old_hs = netdev->handshake;
 
-	err = netdev_connect_common(netdev, cmd_connect, target_bss, hs, sm,
+	netdev_connect_common(netdev, cmd_connect, target_bss, hs, sm,
 					event_filter, cb, user_data);
-	if (err < 0)
-		return err;
 
 	memcpy(netdev->prev_bssid, orig_bss->addr, ETH_ALEN);
 
@@ -3627,7 +3624,7 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 	if (old_hs)
 		handshake_state_free(old_hs);
 
-	return err;
+	return 0;
 }
 
 static void netdev_join_adhoc_cb(struct l_genl_msg *msg, void *user_data)
