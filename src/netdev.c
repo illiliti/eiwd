@@ -268,6 +268,29 @@ static inline bool is_offload(struct handshake_state *hs)
 	return false;
 }
 
+static unsigned int netdev_populate_common_ies(struct netdev *netdev,
+					struct l_genl_msg *msg,
+					struct iovec *iov,
+					unsigned int n_iov,
+					unsigned int c_iov)
+{
+	const uint8_t *extended_capabilities;
+	const uint8_t *rm_enabled_capabilities;
+
+	extended_capabilities = wiphy_get_extended_capabilities(netdev->wiphy,
+								netdev->type);
+	c_iov = iov_ie_append(iov, n_iov, c_iov, extended_capabilities);
+
+	rm_enabled_capabilities =
+		wiphy_get_rm_enabled_capabilities(netdev->wiphy);
+	c_iov = iov_ie_append(iov, n_iov, c_iov, rm_enabled_capabilities);
+
+	if (rm_enabled_capabilities)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_USE_RRM, 0, NULL);
+
+	return c_iov;
+}
+
 /* Cancels ongoing GTK/IGTK related commands (if any) */
 static void netdev_handshake_state_cancel_rekey(
 					struct netdev_handshake_state *nhs)
@@ -2702,15 +2725,19 @@ static void netdev_sae_tx_associate(void *user_data)
 	struct netdev *netdev = user_data;
 	struct handshake_state *hs = netdev->handshake;
 	struct l_genl_msg *msg;
-	struct iovec iov[3];
+	struct iovec iov[64];
 	unsigned int n_iov = L_ARRAY_SIZE(iov);
 	unsigned int n_used = 0;
+	enum mpdu_management_subtype subtype =
+				MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_REQUEST;
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
 	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_ie);
 	n_used = iov_ie_append(iov, n_iov, n_used, hs->mde);
 	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_rsnxe);
+	n_used = netdev_populate_common_ies(netdev, msg, iov, n_iov, n_used);
+	mpdu_sort_ies(subtype, iov, n_used);
 
 	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, n_used);
 
@@ -2741,15 +2768,29 @@ static void netdev_owe_tx_authenticate(void *user_data)
 	netdev->auth_cmd = l_genl_msg_ref(msg);
 }
 
-static void netdev_owe_tx_associate(struct iovec *ie_iov, size_t iov_len,
+static void netdev_owe_tx_associate(struct iovec *owe_iov, size_t n_owe_iov,
 					void *user_data)
 {
 	struct netdev *netdev = user_data;
 	struct l_genl_msg *msg;
+	struct iovec iov[64];
+	unsigned int n_iov = L_ARRAY_SIZE(iov);
+	unsigned int c_iov = 0;
+	enum mpdu_management_subtype subtype =
+				MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_REQUEST;
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
-	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, ie_iov, iov_len);
+	c_iov = netdev_populate_common_ies(netdev, msg, iov, n_iov, c_iov);
+
+	if (!L_WARN_ON(n_iov - c_iov < n_owe_iov)) {
+		memcpy(iov + c_iov, owe_iov, sizeof(*owe_iov) * n_owe_iov);
+		c_iov += n_owe_iov;
+	}
+
+	mpdu_sort_ies(subtype, iov, c_iov);
+
+	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
 
 	if (!l_genl_family_send(nl80211, msg, netdev_assoc_cb,
 							netdev, NULL)) {
@@ -2782,20 +2823,35 @@ static void netdev_fils_tx_authenticate(const uint8_t *body,
 	netdev->auth_cmd = l_genl_msg_ref(msg);
 }
 
-static void netdev_fils_tx_associate(struct iovec *iov, size_t iov_len,
+static void netdev_fils_tx_associate(struct iovec *fils_iov, size_t n_fils_iov,
 					const uint8_t *kek, size_t kek_len,
-					const uint8_t *nonces, size_t nonces_len,
+					const uint8_t *nonces,
+					size_t nonces_len,
 					void *user_data)
 {
 	struct netdev *netdev = user_data;
 	struct l_genl_msg *msg;
+	struct iovec iov[64];
+	unsigned int n_iov = L_ARRAY_SIZE(iov);
+	unsigned int c_iov = 0;
+	enum mpdu_management_subtype subtype =
+				MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_REQUEST;
 
 	msg = netdev_build_cmd_associate_common(netdev);
+	c_iov = netdev_populate_common_ies(netdev, msg, iov, n_iov, c_iov);
 
-	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, iov_len);
+	if (!L_WARN_ON(n_iov - c_iov < n_fils_iov)) {
+		memcpy(iov + c_iov, fils_iov, sizeof(*fils_iov) * n_fils_iov);
+		c_iov += n_fils_iov;
+	}
+
+	mpdu_sort_ies(subtype, iov, c_iov);
+
+	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
 
 	l_genl_msg_append_attr(msg, NL80211_ATTR_FILS_KEK, kek_len, kek);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_FILS_NONCES, nonces_len, nonces);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_FILS_NONCES,
+							nonces_len, nonces);
 
 	if (!l_genl_family_send(nl80211, msg, netdev_assoc_cb,
 							netdev, NULL)) {
@@ -2817,12 +2873,14 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 	uint32_t auth_type = IE_AKM_IS_SAE(hs->akm_suite) ?
 					NL80211_AUTHTYPE_SAE :
 					NL80211_AUTHTYPE_OPEN_SYSTEM;
+	enum mpdu_management_subtype subtype = prev_bssid ?
+				MPDU_MANAGEMENT_SUBTYPE_REASSOCIATION_REQUEST :
+				MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_REQUEST;
 	struct l_genl_msg *msg;
-	struct iovec iov[4 + num_vendor_ies];
-	int iov_elems = 0;
+	struct iovec iov[64];
+	unsigned int n_iov = L_ARRAY_SIZE(iov);
+	unsigned int c_iov = 0;
 	bool is_rsn = hs->supplicant_ie != NULL;
-	const uint8_t *extended_capabilities;
-	const uint8_t *rm_enabled_capabilities;
 
 	msg = l_genl_msg_new_sized(NL80211_CMD_CONNECT, 512);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
@@ -2901,10 +2959,7 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 						4, &wpa_version);
 
 		l_genl_msg_append_attr(msg, NL80211_ATTR_CONTROL_PORT, 0, NULL);
-
-		iov[iov_elems].iov_base = (void *) hs->supplicant_ie;
-		iov[iov_elems].iov_len = hs->supplicant_ie[1] + 2;
-		iov_elems += 1;
+		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_ie);
 	}
 
 	if (netdev->pae_over_nl80211)
@@ -2912,40 +2967,19 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 				NL80211_ATTR_CONTROL_PORT_OVER_NL80211,
 				0, NULL);
 
-	rm_enabled_capabilities =
-			wiphy_get_rm_enabled_capabilities(netdev->wiphy);
-	if (rm_enabled_capabilities) {
-		iov[iov_elems].iov_base = (void *) rm_enabled_capabilities;
-		iov[iov_elems].iov_len = rm_enabled_capabilities[1] + 2;
-		iov_elems += 1;
+	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->mde);
+	c_iov = netdev_populate_common_ies(netdev, msg, iov, n_iov, c_iov);
 
-		l_genl_msg_append_attr(msg, NL80211_ATTR_USE_RRM, 0, NULL);
-	}
+	mpdu_sort_ies(subtype, iov, c_iov);
 
-	if (hs->mde) {
-		iov[iov_elems].iov_base = (void *) hs->mde;
-		iov[iov_elems].iov_len = hs->mde[1] + 2;
-		iov_elems += 1;
-	}
-
-	/*
-	 * This element should be added after MDE
-	 * See 802.11-2016, Section 9.3.3.6
-	 */
-	extended_capabilities = wiphy_get_extended_capabilities(netdev->wiphy,
-								netdev->type);
-	iov[iov_elems].iov_base = (void *) extended_capabilities;
-	iov[iov_elems].iov_len = extended_capabilities[1] + 2;
-	iov_elems += 1;
-
-	if (vendor_ies) {
-		memcpy(iov + iov_elems, vendor_ies,
+	if (vendor_ies && !L_WARN_ON(n_iov - c_iov < num_vendor_ies)) {
+		memcpy(iov + c_iov, vendor_ies,
 					sizeof(*vendor_ies) * num_vendor_ies);
-		iov_elems += num_vendor_ies;
+		c_iov += num_vendor_ies;
 	}
 
-	if (iov_elems)
-		l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, iov_elems);
+	if (c_iov)
+		l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
 
 	return msg;
 }
@@ -3810,18 +3844,32 @@ restore_snonce:
 					MMPDU_STATUS_CODE_UNSPECIFIED);
 }
 
-static int netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
+static int netdev_ft_tx_associate(struct iovec *ft_iov, size_t n_ft_iov,
 					void *user_data)
 {
 	struct netdev *netdev = user_data;
 	struct auth_proto *ap = netdev->ap;
 	struct l_genl_msg *msg;
+	struct iovec iov[64];
+	unsigned int n_iov = L_ARRAY_SIZE(iov);
+	unsigned int c_iov = 0;
+	enum mpdu_management_subtype subtype =
+				MPDU_MANAGEMENT_SUBTYPE_REASSOCIATION_REQUEST;
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
+	c_iov = netdev_populate_common_ies(netdev, msg, iov, n_iov, c_iov);
+
+	if (!L_WARN_ON(n_iov - c_iov < n_ft_iov)) {
+		memcpy(iov + c_iov, ft_iov, sizeof(*ft_iov) * n_ft_iov);
+		c_iov += n_ft_iov;
+	}
+
+	mpdu_sort_ies(subtype, iov, c_iov);
+
 	l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, ETH_ALEN,
 				ap->prev_bssid);
-	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, ie_iov, iov_len);
+	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
 
 	netdev->connect_cmd_id = l_genl_family_send(nl80211, msg,
 						netdev_cmd_ft_reassociate_cb,
