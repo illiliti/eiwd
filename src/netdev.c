@@ -2914,7 +2914,7 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 
 	rm_enabled_capabilities =
 			wiphy_get_rm_enabled_capabilities(netdev->wiphy);
-	if (rm_enabled_capabilities && bss->capability & IE_BSS_CAP_RM) {
+	if (rm_enabled_capabilities) {
 		iov[iov_elems].iov_base = (void *) rm_enabled_capabilities;
 		iov[iov_elems].iov_len = rm_enabled_capabilities[1] + 2;
 		iov_elems += 1;
