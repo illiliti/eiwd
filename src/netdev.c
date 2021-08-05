@@ -4710,6 +4710,8 @@ static void netdev_channel_switch_event(struct l_genl_msg *msg,
 
 	l_debug("Channel switch event, frequency: %u", *freq);
 
+	netdev->frequency = *freq;
+
 	if (!netdev->event_filter)
 		return;
 
