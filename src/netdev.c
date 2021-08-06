@@ -269,6 +269,7 @@ static inline bool is_offload(struct handshake_state *hs)
 }
 
 static unsigned int netdev_populate_common_ies(struct netdev *netdev,
+					struct handshake_state *hs,
 					struct l_genl_msg *msg,
 					struct iovec *iov,
 					unsigned int n_iov,
@@ -287,6 +288,8 @@ static unsigned int netdev_populate_common_ies(struct netdev *netdev,
 
 	if (rm_enabled_capabilities)
 		l_genl_msg_append_attr(msg, NL80211_ATTR_USE_RRM, 0, NULL);
+
+	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->vendor_ies);
 
 	return c_iov;
 }
@@ -2736,7 +2739,8 @@ static void netdev_sae_tx_associate(void *user_data)
 	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_ie);
 	n_used = iov_ie_append(iov, n_iov, n_used, hs->mde);
 	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_rsnxe);
-	n_used = netdev_populate_common_ies(netdev, msg, iov, n_iov, n_used);
+	n_used = netdev_populate_common_ies(netdev, hs, msg,
+							iov, n_iov, n_used);
 	mpdu_sort_ies(subtype, iov, n_used);
 
 	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, n_used);
@@ -2772,6 +2776,7 @@ static void netdev_owe_tx_associate(struct iovec *owe_iov, size_t n_owe_iov,
 					void *user_data)
 {
 	struct netdev *netdev = user_data;
+	struct handshake_state *hs = netdev->handshake;
 	struct l_genl_msg *msg;
 	struct iovec iov[64];
 	unsigned int n_iov = L_ARRAY_SIZE(iov);
@@ -2781,7 +2786,7 @@ static void netdev_owe_tx_associate(struct iovec *owe_iov, size_t n_owe_iov,
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
-	c_iov = netdev_populate_common_ies(netdev, msg, iov, n_iov, c_iov);
+	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
 
 	if (!L_WARN_ON(n_iov - c_iov < n_owe_iov)) {
 		memcpy(iov + c_iov, owe_iov, sizeof(*owe_iov) * n_owe_iov);
@@ -2830,6 +2835,7 @@ static void netdev_fils_tx_associate(struct iovec *fils_iov, size_t n_fils_iov,
 					void *user_data)
 {
 	struct netdev *netdev = user_data;
+	struct handshake_state *hs = netdev->handshake;
 	struct l_genl_msg *msg;
 	struct iovec iov[64];
 	unsigned int n_iov = L_ARRAY_SIZE(iov);
@@ -2838,7 +2844,7 @@ static void netdev_fils_tx_associate(struct iovec *fils_iov, size_t n_fils_iov,
 				MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_REQUEST;
 
 	msg = netdev_build_cmd_associate_common(netdev);
-	c_iov = netdev_populate_common_ies(netdev, msg, iov, n_iov, c_iov);
+	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
 
 	if (!L_WARN_ON(n_iov - c_iov < n_fils_iov)) {
 		memcpy(iov + c_iov, fils_iov, sizeof(*fils_iov) * n_fils_iov);
@@ -2968,7 +2974,7 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 				0, NULL);
 
 	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->mde);
-	c_iov = netdev_populate_common_ies(netdev, msg, iov, n_iov, c_iov);
+	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
 
 	mpdu_sort_ies(subtype, iov, c_iov);
 
@@ -3849,6 +3855,7 @@ static int netdev_ft_tx_associate(struct iovec *ft_iov, size_t n_ft_iov,
 {
 	struct netdev *netdev = user_data;
 	struct auth_proto *ap = netdev->ap;
+	struct handshake_state *hs = netdev->handshake;
 	struct l_genl_msg *msg;
 	struct iovec iov[64];
 	unsigned int n_iov = L_ARRAY_SIZE(iov);
@@ -3858,7 +3865,7 @@ static int netdev_ft_tx_associate(struct iovec *ft_iov, size_t n_ft_iov,
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
-	c_iov = netdev_populate_common_ies(netdev, msg, iov, n_iov, c_iov);
+	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
 
 	if (!L_WARN_ON(n_iov - c_iov < n_ft_iov)) {
 		memcpy(iov + c_iov, ft_iov, sizeof(*ft_iov) * n_ft_iov);
