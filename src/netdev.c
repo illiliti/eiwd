@@ -180,6 +180,7 @@ struct netdev {
 	bool aborting : 1;
 	bool events_ready : 1;
 	bool retry_auth : 1;
+	bool in_reassoc : 1;
 };
 
 struct netdev_preauth_state {
@@ -780,6 +781,7 @@ static void netdev_connect_free(struct netdev *netdev)
 	netdev->result = NETDEV_RESULT_OK;
 	netdev->last_code = 0;
 	netdev->in_ft = false;
+	netdev->in_reassoc = false;
 	netdev->ignore_connect_event = false;
 	netdev->expect_connect_failure = false;
 	netdev->cur_rssi_low = false;
@@ -1122,7 +1124,7 @@ static void netdev_disconnect_event(struct l_genl_msg *msg,
 	l_debug("");
 
 	if (!netdev->connected || netdev->disconnect_cmd_id > 0 ||
-			netdev->in_ft)
+			netdev->in_ft || netdev->in_reassoc)
 		return;
 
 	if (!l_genl_attr_init(&attr, msg)) {
@@ -2559,6 +2561,7 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 								false);
 
 			netdev->in_ft = false;
+			netdev->in_reassoc = false;
 			netdev->associated = true;
 			return;
 		} else if (ret == -EAGAIN) {
@@ -2745,6 +2748,11 @@ static void netdev_sae_tx_associate(void *user_data)
 
 	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, n_used);
 
+	/* If doing a non-FT Reassociation */
+	if (netdev->in_reassoc)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, 6,
+					netdev->ap->prev_bssid);
+
 	if (!l_genl_family_send(nl80211, msg, netdev_assoc_cb, netdev, NULL)) {
 		l_genl_msg_unref(msg);
 		netdev_connect_failed(netdev, NETDEV_RESULT_ASSOCIATION_FAILED,
@@ -2796,6 +2804,11 @@ static void netdev_owe_tx_associate(struct iovec *owe_iov, size_t n_owe_iov,
 	mpdu_sort_ies(subtype, iov, c_iov);
 
 	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
+
+	/* If doing a non-FT Reassociation */
+	if (netdev->in_reassoc)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, 6,
+					netdev->ap->prev_bssid);
 
 	if (!l_genl_family_send(nl80211, msg, netdev_assoc_cb,
 							netdev, NULL)) {
@@ -2858,6 +2871,11 @@ static void netdev_fils_tx_associate(struct iovec *fils_iov, size_t n_fils_iov,
 	l_genl_msg_append_attr(msg, NL80211_ATTR_FILS_KEK, kek_len, kek);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_FILS_NONCES,
 							nonces_len, nonces);
+
+	/* If doing a non-FT Reassociation */
+	if (netdev->in_reassoc)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, 6,
+					netdev->ap->prev_bssid);
 
 	if (!l_genl_family_send(nl80211, msg, netdev_assoc_cb,
 							netdev, NULL)) {
@@ -3424,57 +3442,21 @@ offload_1x:
 	return 0;
 }
 
-static void netdev_connect_common(struct netdev *netdev,
-					struct l_genl_msg *cmd_connect,
+static int netdev_connect_common(struct netdev *netdev,
 					struct scan_bss *bss,
+					struct scan_bss *prev_bss,
 					struct handshake_state *hs,
-					struct eapol_sm *sm,
+					const struct iovec *vendor_ies,
+					size_t num_vendor_ies,
 					netdev_event_func_t event_filter,
 					netdev_connect_cb_t cb, void *user_data)
-{
-	netdev->connect_cmd = cmd_connect;
-	netdev->event_filter = event_filter;
-	netdev->connect_cb = cb;
-	netdev->user_data = user_data;
-	netdev->handshake = hs;
-	netdev->sm = sm;
-	netdev->frequency = bss->frequency;
-	netdev->cur_rssi = bss->signal_strength / 100;
-	netdev_rssi_level_init(netdev);
-	netdev_cqm_rssi_update(netdev);
-
-	handshake_state_set_authenticator_address(hs, bss->addr);
-
-	if (!wiphy_has_ext_feature(netdev->wiphy,
-					NL80211_EXT_FEATURE_CAN_REPLACE_PTK0))
-		handshake_state_set_no_rekey(hs, true);
-
-	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
-				&connect_work_ops);
-}
-
-int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
-				struct handshake_state *hs,
-				const struct iovec *vendor_ies,
-				size_t num_vendor_ies,
-				netdev_event_func_t event_filter,
-				netdev_connect_cb_t cb, void *user_data)
 {
 	struct netdev_handshake_state *nhs = l_container_of(hs,
 				struct netdev_handshake_state, super);
 	struct l_genl_msg *cmd_connect = NULL;
 	struct eapol_sm *sm = NULL;
 	bool is_rsn = hs->supplicant_ie != NULL;
-
-	if (!(netdev->ifi_flags & IFF_UP))
-		return -ENETDOWN;
-
-	if (netdev->type != NL80211_IFTYPE_STATION &&
-			netdev->type != NL80211_IFTYPE_P2P_CLIENT)
-		return -ENOTSUP;
-
-	if (netdev->connected || netdev->connect_cmd_id || netdev->work.id)
-		return -EISCONN;
+	const uint8_t *prev_bssid = prev_bss ? prev_bss->addr : NULL;
 
 	if (!is_rsn) {
 		nhs->type = CONNECTION_TYPE_SOFTMAC;
@@ -3522,7 +3504,7 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 	default:
 build_cmd_connect:
 		cmd_connect = netdev_build_cmd_connect(netdev, bss, hs,
-					NULL, vendor_ies, num_vendor_ies);
+					prev_bssid, vendor_ies, num_vendor_ies);
 
 		if (!is_offload(hs) && (is_rsn || hs->settings_8021x)) {
 			sm = eapol_sm_new(hs);
@@ -3532,9 +3514,49 @@ build_cmd_connect:
 		}
 	}
 
-	netdev_connect_common(netdev, cmd_connect, bss, hs, sm,
-						event_filter, cb, user_data);
+	netdev->connect_cmd = cmd_connect;
+	netdev->event_filter = event_filter;
+	netdev->connect_cb = cb;
+	netdev->user_data = user_data;
+	netdev->handshake = hs;
+	netdev->sm = sm;
+	netdev->frequency = bss->frequency;
+	netdev->cur_rssi = bss->signal_strength / 100;
+	netdev_rssi_level_init(netdev);
+	netdev_cqm_rssi_update(netdev);
+
+	handshake_state_set_authenticator_address(hs, bss->addr);
+
+	if (!wiphy_has_ext_feature(netdev->wiphy,
+					NL80211_EXT_FEATURE_CAN_REPLACE_PTK0))
+		handshake_state_set_no_rekey(hs, true);
+
+	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
+				&connect_work_ops);
+
 	return 0;
+}
+
+int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
+				struct handshake_state *hs,
+				const struct iovec *vendor_ies,
+				size_t num_vendor_ies,
+				netdev_event_func_t event_filter,
+				netdev_connect_cb_t cb, void *user_data)
+{
+	if (!(netdev->ifi_flags & IFF_UP))
+		return -ENETDOWN;
+
+	if (netdev->type != NL80211_IFTYPE_STATION &&
+			netdev->type != NL80211_IFTYPE_P2P_CLIENT)
+		return -ENOTSUP;
+
+	if (netdev->connected || netdev->connect_cmd_id || netdev->work.id)
+		return -EISCONN;
+
+	return netdev_connect_common(netdev, bss, NULL, hs, vendor_ies,
+					num_vendor_ies, event_filter, cb,
+					user_data);
 }
 
 static void disconnect_idle(struct l_idle *idle, void *user_data)
@@ -3622,35 +3644,25 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 			netdev_event_func_t event_filter,
 			netdev_connect_cb_t cb, void *user_data)
 {
-	struct l_genl_msg *cmd_connect;
-	struct netdev_handshake_state;
 	struct handshake_state *old_hs;
-	struct eapol_sm *sm = NULL, *old_sm;
-	bool is_rsn = hs->supplicant_ie != NULL;
-
-	if (netdev_handshake_state_setup_connection_type(hs) < 0)
-		return -ENOTSUP;
-
-	/* TODO: SoftMac SAE/FILS Re-Associations are not suppored yet */
-	if (L_WARN_ON(IE_AKM_IS_SAE(hs->akm_suite) ||
-				IE_AKM_IS_FILS(hs->akm_suite)))
-		return -ENOTSUP;
-
-	cmd_connect = netdev_build_cmd_connect(netdev, target_bss, hs,
-						orig_bss->addr, NULL, 0);
-
-	if (is_rsn)
-		sm = eapol_sm_new(hs);
+	struct eapol_sm *old_sm;
+	int ret;
 
 	old_sm = netdev->sm;
 	old_hs = netdev->handshake;
 
-	netdev_connect_common(netdev, cmd_connect, target_bss, hs, sm,
+	ret = netdev_connect_common(netdev, target_bss, orig_bss, hs, NULL, 0,
 					event_filter, cb, user_data);
+	if (ret < 0)
+		return ret;
+
+	if (netdev->ap)
+		memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
 
 	netdev->associated = false;
 	netdev->operational = false;
 	netdev->connected = false;
+	netdev->in_reassoc = true;
 
 	netdev_rssi_polling_update(netdev);
 
