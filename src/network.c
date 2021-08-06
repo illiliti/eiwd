@@ -1497,35 +1497,11 @@ error:
 	return reply;
 }
 
-static struct l_dbus_message *network_connect(struct l_dbus *dbus,
-						struct l_dbus_message *message,
-						void *user_data)
+struct l_dbus_message *__network_connect(struct network *network,
+						struct scan_bss *bss,
+						struct l_dbus_message *message)
 {
-	struct network *network = user_data;
 	struct station *station = network->station;
-	struct scan_bss *bss;
-
-	l_debug("");
-
-	if (network == station_get_connected_network(station))
-		/*
-		 * The requested network is already connected, return success.
-		 */
-		return l_dbus_message_new_method_return(message);
-
-	if (network->agent_request)
-		return dbus_error_busy(message);
-
-	/*
-	 * Select the best BSS to use at this time.  If we have to query the
-	 * agent this may not be the final choice because BSS visibility can
-	 * change while we wait for the agent.
-	 */
-	bss = network_bss_select(network, true);
-
-	/* None of the BSSes is compatible with our stack */
-	if (!bss)
-		return dbus_error_not_supported(message);
 
 	switch (network_get_security(network)) {
 	case SECURITY_PSK:
@@ -1557,6 +1533,39 @@ static struct l_dbus_message *network_connect(struct l_dbus *dbus,
 	default:
 		return dbus_error_not_supported(message);
 	}
+}
+
+static struct l_dbus_message *network_connect(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct network *network = user_data;
+	struct station *station = network->station;
+	struct scan_bss *bss;
+
+	l_debug("");
+
+	if (network == station_get_connected_network(station))
+		/*
+		 * The requested network is already connected, return success.
+		 */
+		return l_dbus_message_new_method_return(message);
+
+	if (network->agent_request)
+		return dbus_error_busy(message);
+
+	/*
+	 * Select the best BSS to use at this time.  If we have to query the
+	 * agent this may not be the final choice because BSS visibility can
+	 * change while we wait for the agent.
+	 */
+	bss = network_bss_select(network, true);
+
+	/* None of the BSSes is compatible with our stack */
+	if (!bss)
+		return dbus_error_not_supported(message);
+
+	return __network_connect(network, bss, message);
 }
 
 /*
