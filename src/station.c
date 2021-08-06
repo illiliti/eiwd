@@ -3750,6 +3750,9 @@ static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 
 	l_debug("Attempting forced roam to BSS "MAC, MAC_STR(mac));
 
+	/* The various roam routines expect this to be set from scanning */
+	station->preparing_roam = true;
+
 	station_transition_start(station, target);
 
 	return l_dbus_message_new_method_return(message);
