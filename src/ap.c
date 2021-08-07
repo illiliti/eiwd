@@ -526,7 +526,6 @@ static size_t ap_write_wsc_ie(struct ap_state *ap,
 				size_t client_frame_len,
 				uint8_t *out_buf)
 {
-	const uint8_t *from = client_frame->address_2;
 	uint8_t *wsc_data;
 	size_t wsc_data_size;
 	uint8_t *wsc_ie;
@@ -535,6 +534,7 @@ static size_t ap_write_wsc_ie(struct ap_state *ap,
 
 	/* WSC IE */
 	if (type == MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE) {
+		const uint8_t *from = client_frame->address_2;
 		struct wsc_probe_response wsc_pr = {};
 		const struct mmpdu_probe_request *req =
 			mmpdu_body(client_frame);
@@ -597,6 +597,7 @@ static size_t ap_write_wsc_ie(struct ap_state *ap,
 		wsc_data = wsc_build_beacon(&wsc_beacon, &wsc_data_size);
 	} else if (L_IN_SET(type, MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_RESPONSE,
 			MPDU_MANAGEMENT_SUBTYPE_REASSOCIATION_RESPONSE)) {
+		const uint8_t *from = client_frame->address_2;
 		struct wsc_association_response wsc_resp = {};
 		struct sta_state *sta =
 			l_queue_find(ap->sta_states, ap_sta_match_addr, from);
