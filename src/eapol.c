@@ -1356,11 +1356,11 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 		key_data_buf[key_data_len++] = 4 + 12;
 		l_put_be32(HANDSHAKE_KDE_IP_ADDRESS_ALLOC,
 				key_data_buf + key_data_len + 0);
-		l_put_be32(sm->handshake->client_ip_addr,
+		l_put_u32(sm->handshake->client_ip_addr,
 				key_data_buf + key_data_len + 4);
-		l_put_be32(sm->handshake->subnet_mask,
+		l_put_u32(sm->handshake->subnet_mask,
 				key_data_buf + key_data_len + 8);
-		l_put_be32(sm->handshake->go_ip_addr,
+		l_put_u32(sm->handshake->go_ip_addr,
 				key_data_buf + key_data_len + 12);
 		key_data_len += 4 + 12;
 	}
@@ -1810,9 +1810,9 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 		hs->support_ip_allocation = ip_alloc_kde != NULL;
 
 		if (ip_alloc_kde) {
-			hs->client_ip_addr = l_get_be32(ip_alloc_kde);
-			hs->subnet_mask = l_get_be32(ip_alloc_kde + 4);
-			hs->go_ip_addr = l_get_be32(ip_alloc_kde + 8);
+			hs->client_ip_addr = l_get_u32(ip_alloc_kde);
+			hs->subnet_mask = l_get_u32(ip_alloc_kde + 4);
+			hs->go_ip_addr = l_get_u32(ip_alloc_kde + 8);
 		} else
 			l_debug("Authenticator ignored our IP Address Request");
 	}

@@ -1441,7 +1441,7 @@ static void p2p_netdev_event(struct netdev *netdev, enum netdev_event event,
 
 static const char *p2p_ip_to_string(uint32_t addr)
 {
-	struct in_addr ia = { .s_addr = L_CPU_TO_BE32(addr) };
+	struct in_addr ia = { .s_addr = addr };
 
 	return inet_ntoa(ia);
 }
