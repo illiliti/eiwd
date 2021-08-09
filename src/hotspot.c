@@ -495,11 +495,16 @@ static int hotspot_init(void)
 		char *filename;
 		struct network_config config;
 
-		if (dirent->d_type != DT_REG && dirent->d_type != DT_LNK)
-			continue;
-
 		filename = l_strdup_printf("%s/%s", hs20_dir, dirent->d_name);
 		s = l_settings_new();
+
+		if (dirent->d_type == DT_UNKNOWN) {
+			if (!storage_is_file(filename))
+				goto next;
+		} else if (dirent->d_type != DT_REG &&
+						dirent->d_type != DT_LNK) {
+			goto next;
+		}
 
 		if (!l_settings_load_from_file(s, filename))
 			goto next;
