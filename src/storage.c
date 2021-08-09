@@ -29,11 +29,13 @@
 #include <errno.h>
 #include <ctype.h>
 #include <fcntl.h>
+#include <stdbool.h>
 #include <string.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -444,4 +446,20 @@ void storage_known_frequencies_sync(struct l_settings *known_freqs)
 	l_free(data);
 
 	l_free(known_freq_file_path);
+}
+
+bool storage_is_file(const char *filename)
+{
+	char *path;
+	struct stat st;
+	int err;
+
+	path = storage_get_path("%s", filename);
+	err = stat(path, &st);
+	l_free(path);
+
+	if (!err && S_ISREG(st.st_mode) != 0)
+		return true;
+
+	return false;
 }
