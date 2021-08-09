@@ -3364,6 +3364,9 @@ static int netdev_handshake_state_setup_connection_type(
 	bool softmac = wiphy_supports_cmds_auth_assoc(wiphy);
 	bool canroam = wiphy_supports_firmware_roam(wiphy);
 
+	if (hs->supplicant_ie == NULL)
+		goto softmac;
+
 	/*
 	 * Sanity check that any FT AKMs are set only on softmac or on
 	 * devices that support firmware roam
@@ -3442,7 +3445,7 @@ offload_1x:
 	return 0;
 }
 
-static int netdev_connect_common(struct netdev *netdev,
+static void netdev_connect_common(struct netdev *netdev,
 					struct scan_bss *bss,
 					struct scan_bss *prev_bss,
 					struct handshake_state *hs,
@@ -3458,13 +3461,8 @@ static int netdev_connect_common(struct netdev *netdev,
 	bool is_rsn = hs->supplicant_ie != NULL;
 	const uint8_t *prev_bssid = prev_bss ? prev_bss->addr : NULL;
 
-	if (!is_rsn) {
-		nhs->type = CONNECTION_TYPE_SOFTMAC;
+	if (!is_rsn)
 		goto build_cmd_connect;
-	}
-
-	if (netdev_handshake_state_setup_connection_type(hs) < 0)
-		return -ENOTSUP;
 
 	if (nhs->type != CONNECTION_TYPE_SOFTMAC)
 		goto build_cmd_connect;
@@ -3533,8 +3531,6 @@ build_cmd_connect:
 
 	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
 				&connect_work_ops);
-
-	return 0;
 }
 
 int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
@@ -3554,9 +3550,14 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 	if (netdev->connected || netdev->connect_cmd_id || netdev->work.id)
 		return -EISCONN;
 
-	return netdev_connect_common(netdev, bss, NULL, hs, vendor_ies,
+	if (netdev_handshake_state_setup_connection_type(hs) < 0)
+		return -ENOTSUP;
+
+	netdev_connect_common(netdev, bss, NULL, hs, vendor_ies,
 					num_vendor_ies, event_filter, cb,
 					user_data);
+
+	return 0;
 }
 
 static void disconnect_idle(struct l_idle *idle, void *user_data)
@@ -3646,23 +3647,23 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 {
 	struct handshake_state *old_hs;
 	struct eapol_sm *old_sm;
-	int ret;
 
 	old_sm = netdev->sm;
 	old_hs = netdev->handshake;
 
-	ret = netdev_connect_common(netdev, target_bss, orig_bss, hs, NULL, 0,
-					event_filter, cb, user_data);
-	if (ret < 0)
-		return ret;
-
-	if (netdev->ap)
-		memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
+	if (netdev_handshake_state_setup_connection_type(hs) < 0)
+		return -ENOTSUP;
 
 	netdev->associated = false;
 	netdev->operational = false;
 	netdev->connected = false;
 	netdev->in_reassoc = true;
+
+	netdev_connect_common(netdev, target_bss, orig_bss, hs, NULL, 0,
+					event_filter, cb, user_data);
+
+	if (netdev->ap)
+		memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
 
 	netdev_rssi_polling_update(netdev);
 
