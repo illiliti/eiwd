@@ -1071,8 +1071,13 @@ static int known_networks_init(void)
 		struct l_settings *settings;
 		L_AUTO_FREE_VAR(char *, full_path) = NULL;
 
-		if (dirent->d_type != DT_REG && dirent->d_type != DT_LNK)
+		if (dirent->d_type == DT_UNKNOWN) {
+			if (!storage_is_file(dirent->d_name))
+				continue;
+		} else if (dirent->d_type != DT_REG &&
+						dirent->d_type != DT_LNK) {
 			continue;
+		}
 
 		ssid = storage_network_ssid_from_path(dirent->d_name,
 							&security);
