@@ -1036,31 +1036,96 @@ def start_test(ctx, subtests, rqueue):
 		results queue which is required since this is using
 		multiprocessing.
 	'''
-	suite = unittest.TestSuite()
+	run = 0
+	errors = 0
+	failures = 0
+	skipped = 0
 
+	start = time.time()
 	#
 	# Iterate through each individual python test.
 	#
 	for s in subtests:
 		loader = unittest.TestLoader()
-		subtest = importlib.import_module(os.path.splitext(s)[0])
-		suite.addTests(loader.loadTestsFromModule(subtest))
+		module = importlib.import_module(os.path.splitext(s)[0])
+		subtest = loader.loadTestsFromModule(module)
+
+		# The test suite is being (ab)used to get a bit more granularity
+		# with individual tests. The 'normal' way to use unittest is to
+		# just create a test suite and run them. The problem here is that
+		# test results are queued and printed at the very end so its
+		# difficult to know *where* a test failed (python gives a stack
+		# trace but printing the exception/failure immediately shows
+		# where in the debug logs something failed). Moreso if there are
+		# several test functions inside a single python file they run
+		# as a single test and it is difficult (again) to know where
+		# something failed.
+
+		# Iterating through each python test file
+		for test in subtest:
+			# Iterating through individual test functions inside a
+			# Test() class. Due to the nature of unittest we have
+			# to jump through some hoops to set up the test class
+			# only once by turning the enumeration into a list, then
+			# enumerating (again) to keep track of the index (just
+			# enumerating the test class doesn't allow len() because
+			# it is not a list).
+			tlist = list(enumerate(test))
+			for index, t in enumerate(tlist):
+				# enumerate is returning a tuple, index 1 is our
+				# actual object.
+				t = t[1]
+
+				func, file = str(t).split(' ')
+				#
+				# TODO: There may be a better way of doing this
+				# but strigifying the test class gives us a string:
+				# <function> (<file>.<class>)
+				#
+				file = file.strip('()').split('.')[0] + '.py'
+
+				# Set up class only on first test
+				if index == 0:
+					dbg(file)
+					t.setUpClass()
+
+				dbg("\t%s RUNNING" % str(func), end='')
+				sys.__stdout__.flush()
+
+				# Run test (setUp/tearDown run automatically)
+				result = t()
+
+				# Tear down class only on last test
+				if index == len(tlist) - 1:
+					t.tearDownClass()
+
+				run += result.testsRun
+				errors += len(result.errors)
+				failures += len(result.failures)
+				skipped += len(result.skipped)
+
+				if len(result.errors) > 0 or len(result.failures) > 0:
+					dbg(colored(" FAILED", "red"))
+					for e in result.errors:
+						dbg(e[1])
+					for f in result.failures:
+						dbg(f[1])
+				elif len(result.skipped) > 0:
+					dbg(colored(" SKIPPED", "cyan"))
+				else:
+					dbg(colored(" PASSED", "green"))
 
 		# Prevents future test modules with the same name (e.g.
 		# connection_test.py) from being loaded from the cache
-		sys.modules.pop(subtest.__name__)
+		sys.modules.pop(module.__name__)
 
-	start = time.time()
-	runner = unittest.TextTestRunner()
-	result = runner.run(suite)
 	#
 	# The multiprocessing queue is picky with what objects it will serialize
 	# and send between processes. Because of this we put the important bits
 	# of the result into our own 'SimpleResult' tuple.
 	#
-	sresult = SimpleResult(run=result.testsRun, failures=len(result.failures),
-				errors=len(result.errors), skipped=len(result.skipped),
-				time=time.time() - start)
+	sresult = SimpleResult(run=run, failures=failures, errors=errors,
+				skipped=skipped, time=time.time() - start)
 	rqueue.put(sresult)
 
 	# This may not be required since we are manually popping sys.modules
@@ -1072,7 +1137,7 @@ def pre_test(ctx, test, copied):
 	'''
 	os.chdir(test)
 
-	dbg("Starting test %s" % test)
+	dbg("\nStarting %s" % colored(os.path.basename(test), "white", attrs=['bold']))
 	if not os.path.exists(test + '/hw.conf'):
 		raise Exception("No hw.conf found for %s" % test)
 
