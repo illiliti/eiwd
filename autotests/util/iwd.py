@@ -542,6 +542,12 @@ class Device(IWDDBusAbstract):
                                                 IWD_STATION_DEBUG_INTERFACE)
         self._station_debug_if.ConnectBssid(dbus.ByteArray.fromhex(address.replace(':', '')))
 
+    def roam(self, address):
+        self._station_debug_if = dbus.Interface(self._bus.get_object(IWD_SERVICE,
+                                                self.device_path),
+                                                IWD_STATION_DEBUG_INTERFACE)
+        self._station_debug_if.Roam(dbus.ByteArray.fromhex(address.replace(':', '')))
+
     def __str__(self, prefix = ''):
         return prefix + 'Device: ' + self.device_path + '\n'\
                + prefix + '\tName:\t\t' + self.name + '\n'\
