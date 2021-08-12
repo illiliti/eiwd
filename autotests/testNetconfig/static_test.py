@@ -30,14 +30,6 @@ class Test(unittest.TestCase):
         dev1 = wd.list_devices(1)[0]
         dev2 = wd_ns0.list_devices(1)[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(dev1, condition)
-
-        dev1.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(dev1, condition)
-
         ordered_network = dev1.get_ordered_network('ssidTKIP')
 
         self.assertEqual(ordered_network.type, NetworkType.psk)

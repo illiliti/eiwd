@@ -38,14 +38,6 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(1)
         device = devices[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
         #
         # Connect to the PSK network, then Hotspot so IWD creates 2 entries in
         # the known frequency file.

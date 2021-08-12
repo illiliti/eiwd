@@ -26,14 +26,6 @@ class Test(unittest.TestCase):
         self.assertIsNotNone(devices)
         device = devices[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
         ordered_network = device.get_ordered_network('ssidEAP-PWD')
 
         self.assertEqual(ordered_network.type, NetworkType.eap)

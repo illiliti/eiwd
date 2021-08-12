@@ -46,7 +46,7 @@ class Test(unittest.TestCase):
 
         dev1, dev2 = wd.list_devices(2)
 
-        ordered_network = dev1.get_ordered_network("TestBlacklist", scan_if_needed=True)
+        ordered_network = dev1.get_ordered_network("TestBlacklist")
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
@@ -62,14 +62,6 @@ class Test(unittest.TestCase):
 
         # dev1 now connected, this should max out the first AP, causing the next
         # connection to fail to this AP.
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(dev2, condition)
-
-        dev2.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(dev2, condition)
 
         ordered_network = dev2.get_ordered_network("TestBlacklist")
 
@@ -91,14 +83,6 @@ class Test(unittest.TestCase):
         # disconnect dev1, opening up the AP for more connections
         dev1.disconnect()
         dev2.disconnect()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(dev2, condition)
-
-        dev2.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(dev2, condition)
 
         ordered_network = dev2.get_ordered_network("TestBlacklist")
 

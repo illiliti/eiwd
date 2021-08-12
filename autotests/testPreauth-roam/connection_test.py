@@ -34,7 +34,7 @@ class Test(unittest.TestCase):
 
         device = wd.list_devices(1)[0]
 
-        ordered_network = device.get_ordered_network('TestPreauth', scan_if_needed=True)
+        ordered_network = device.get_ordered_network('TestPreauth')
 
         self.assertEqual(ordered_network.type, NetworkType.eap)
 

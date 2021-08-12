@@ -51,7 +51,7 @@ class Test(unittest.TestCase):
 
         devices[1].disconnect()
 
-        ordered_network = device.get_ordered_network("TestBlacklist", scan_if_needed=True)
+        ordered_network = device.get_ordered_network("TestBlacklist")
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 

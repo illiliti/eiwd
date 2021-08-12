@@ -15,7 +15,7 @@ class Test(unittest.TestCase):
     def client_connect(self, wd, dev):
         hostapd = HostapdCLI(config='psk-ccmp.conf')
 
-        ordered_network = dev.get_ordered_network('TestAP1', True)
+        ordered_network = dev.get_ordered_network('TestAP1')
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 

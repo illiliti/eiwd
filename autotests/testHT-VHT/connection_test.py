@@ -25,7 +25,11 @@ class Test(unittest.TestCase):
         condition = 'not obj.scanning'
         wd.wait_for_object_condition(device, condition)
 
-        ordered_network = device.get_ordered_network('testSSID')
+        #
+        # Scanning must be explicitly done to get updated RSSI values. Therefore
+        # scan_if_needed is set false because of the previous scan.
+        #
+        ordered_network = device.get_ordered_network('testSSID', scan_if_needed=False)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 

@@ -61,14 +61,6 @@ class TestMFP(unittest.TestCase):
         self.assertIsNotNone(devices)
         device = devices[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
         if config_dir == '/tmp/IWD-MFP2':
             self.check_mfp_connection(wd, device, 'ssidMFP0', True)
         else:

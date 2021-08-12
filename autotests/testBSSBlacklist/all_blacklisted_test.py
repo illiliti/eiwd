@@ -47,7 +47,7 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(1)
         device = devices[0]
 
-        ordered_network = device.get_ordered_network("TestBlacklist", scan_if_needed=True)
+        ordered_network = device.get_ordered_network("TestBlacklist")
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 

@@ -98,6 +98,9 @@ class Test(unittest.TestCase):
 
         device.scan()
 
+        condition = 'obj.scanning'
+        cls.wd.wait_for_object_condition(device, condition)
+
         condition = 'not obj.scanning'
         cls.wd.wait_for_object_condition(device, condition)
 

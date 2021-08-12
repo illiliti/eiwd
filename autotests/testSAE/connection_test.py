@@ -30,7 +30,12 @@ class Test(unittest.TestCase):
         wd.wait_for_object_condition(device, 'obj.scanning')
         wd.wait_for_object_condition(device, 'not obj.scanning')
 
-        network = device.get_ordered_network('ssidSAE')
+        #
+        # An explicit scan was done prior due to hostapd options changing.
+        # Because of this scan_if_needed is set to False to avoid a redundant
+        # scan
+        #
+        network = device.get_ordered_network('ssidSAE', scan_if_needed=False)
 
         self.assertEqual(network.type, NetworkType.psk)
 

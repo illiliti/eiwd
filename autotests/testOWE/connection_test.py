@@ -20,7 +20,7 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(1)
         device = devices[0]
 
-        device.get_ordered_network('ssidOWE', scan_if_needed=True)
+        device.get_ordered_network('ssidOWE')
 
         device.connect_bssid(hapd.bssid)
 
@@ -41,7 +41,7 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(1)
         device = devices[0]
 
-        device.get_ordered_network('ssidOWE', scan_if_needed=True)
+        device.get_ordered_network('ssidOWE')
 
         device.connect_bssid(hapd0.bssid)
 

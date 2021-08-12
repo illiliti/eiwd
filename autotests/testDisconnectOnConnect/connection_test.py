@@ -20,14 +20,6 @@ class Test(unittest.TestCase):
 
         device = wd.list_devices(1)[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
         wpa_net = device.get_ordered_network('ssidTKIP')
         self.assertEqual(wpa_net.type, NetworkType.psk)
 

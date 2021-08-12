@@ -22,16 +22,6 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.disconnected'
         wd.wait_for_object_condition(device, condition)
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        if not device.get_ordered_networks():
-            device.scan()
-            condition = 'obj.scanning'
-            wd.wait_for_object_condition(device, condition)
-            condition = 'not obj.scanning'
-            wd.wait_for_object_condition(device, condition)
-
         ordered_network = device.get_ordered_network("ssidCCMP")
         self.assertEqual(ordered_network.type, NetworkType.psk)
         network = ordered_network.network_object

@@ -44,7 +44,18 @@ class Test(unittest.TestCase):
         condition = 'not obj.scanning'
         wd.wait_for_object_condition(device, condition)
 
-        ordered_network = device.get_ordered_network('Hotspot')
+        # If no networks were found we likely had a quick scan. Try again to
+        # allow the full autoconnect scan to happen.
+        try:
+            ordered_network = device.get_ordered_network('Hotspot')
+        except:
+            condition = 'obj.scanning'
+            wd.wait_for_object_condition(device, condition)
+
+            condition = 'not obj.scanning'
+            wd.wait_for_object_condition(device, condition)
+
+            ordered_network = device.get_ordered_network('Hotspot')
 
         self.assertEqual(ordered_network.type, NetworkType.eap)
 
