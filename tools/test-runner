@@ -46,11 +46,11 @@ TEST_MAX_TIMEOUT = 120
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
-def dbg(*s):
+def dbg(*s, **kwargs):
 	'''
 		Allows prints if stdout has been re-directed
 	'''
-	print(*s, file=sys.__stdout__)
+	print(*s, **kwargs, file=sys.__stdout__)
 
 def exit_vm():
 	if config:
