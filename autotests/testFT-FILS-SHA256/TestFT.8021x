@@ -1,5 +1,7 @@
 [Security]
 EAP-Method=PWD
+EAP-Identity=user@example.com
+EAP-Password=secret123
 
 [Settings]
 AutoConnect=False

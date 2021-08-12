@@ -4,41 +4,21 @@ import unittest
 import sys, os
 
 sys.path.append('../util')
-import iwd
 from iwd import IWD
-from iwd import PSKAgent
 from iwd import NetworkType
-from hwsim import Hwsim
 from hostapd import HostapdCLI
 import testutil
 
 class Test(unittest.TestCase):
-    def test_roam_success(self):
-        hwsim = Hwsim()
-
-        rule0 = hwsim.rules.create()
-        rule0.source = self.bss_radio[0].addresses[0]
-        rule0.bidirectional = True
-
-        rule1 = hwsim.rules.create()
-        rule1.source = self.bss_radio[1].addresses[0]
-        rule1.bidirectional = True
-
-        # Check that iwd selects BSS 0 first
-        rule0.signal = -2000
-        rule1.signal = -6900
-
-        wd = IWD(True)
-
-        psk_agent = PSKAgent('user@example.com', ('user@example.com',
-                                                                  'secret123'))
-        wd.register_psk_agent(psk_agent)
-
+    def validate_connection(self, wd):
         device = wd.list_devices(1)[0]
 
         condition = 'not obj.scanning'
         wd.wait_for_object_condition(device, condition)
 
+        # Scanning is unavoidable in this case since both FILS-SHA256 and
+        # FILS-SHA384 are tested. Without a new scan the cached scan results
+        # would cause IWD to choose an incorrect AKM for the second test.
         device.scan()
 
         condition = 'obj.scanning'
@@ -50,15 +30,11 @@ class Test(unittest.TestCase):
         ordered_network = device.get_ordered_network('TestFT')
 
         self.assertEqual(ordered_network.type, NetworkType.eap)
-        self.assertEqual(ordered_network.signal_strength, -2000)
-
-        condition = 'not obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
 
         self.assertFalse(self.bss_hostapd[0].list_sta())
         self.assertFalse(self.bss_hostapd[1].list_sta())
 
-        ordered_network.network_object.connect()
+        device.connect_bssid(self.bss_hostapd[0].bssid)
 
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
@@ -69,7 +45,7 @@ class Test(unittest.TestCase):
         testutil.test_iface_operstate(device.name)
         testutil.test_ifaces_connected(self.bss_hostapd[0].ifname, device.name)
         self.assertRaises(Exception, testutil.test_ifaces_connected,
-                          (self.bss_hostapd[1].ifname, device.name))
+                          (self.bss_hostapd[1].ifname, device.name, True, True))
 
         device.disconnect()
 
@@ -80,10 +56,8 @@ class Test(unittest.TestCase):
 
         self.assertEqual(ordered_network.type, NetworkType.eap)
 
-        condition = 'not obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
-
-        ordered_network.network_object.connect()
+        # TODO: verify FILS was actually used on this second connection
+        device.connect_bssid(self.bss_hostapd[0].bssid)
 
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
@@ -94,7 +68,7 @@ class Test(unittest.TestCase):
         testutil.test_iface_operstate(device.name)
         testutil.test_ifaces_connected(self.bss_hostapd[0].ifname, device.name)
         self.assertRaises(Exception, testutil.test_ifaces_connected,
-                          (self.bss_hostapd[1].ifname, device.name))
+                          (self.bss_hostapd[1].ifname, device.name, True, True))
 
         # Check that iwd starts transition to BSS 1 in less than 10 seconds.
         # The 10 seconds is longer than needed to scan on just two channels
@@ -102,7 +76,8 @@ class Test(unittest.TestCase):
         # by mac80211_hwsim will not finish.  If this times out then, but
         # device_roam_trigger_cb has happened, it probably means that
         # Neighbor Reports are broken.
-        rule0.signal = -8000
+        #rule0.signal = -8000
+        device.roam(self.bss_hostapd[1].bssid)
 
         condition = 'obj.state == DeviceState.roaming'
         wd.wait_for_object_condition(device, condition)
@@ -118,7 +93,33 @@ class Test(unittest.TestCase):
         testutil.test_iface_operstate(device.name)
         testutil.test_ifaces_connected(self.bss_hostapd[1].ifname, device.name)
         self.assertRaises(Exception, testutil.test_ifaces_connected,
-                          (self.bss_hostapd[0].ifname, device.name))
+                          (self.bss_hostapd[0].ifname, device.name, True, True))
+
+    def test_fils_ft_roam_sha256(self):
+        wd = IWD(True)
+
+        self.bss_hostapd[0].set_value('wpa_key_mgmt', 'FT-EAP FILS-SHA256 FT-FILS-SHA256')
+        self.bss_hostapd[0].reload()
+        self.bss_hostapd[0].wait_for_event("AP-ENABLED")
+
+        self.bss_hostapd[1].set_value('wpa_key_mgmt', 'FT-EAP FILS-SHA256 FT-FILS-SHA256')
+        self.bss_hostapd[1].reload()
+        self.bss_hostapd[1].wait_for_event("AP-ENABLED")
+
+        self.validate_connection(wd)
+
+    def test_fils_ft_roam_sha384(self):
+        wd = IWD(True)
+
+        self.bss_hostapd[0].set_value('wpa_key_mgmt', 'FT-EAP FILS-SHA384 FT-FILS-SHA384')
+        self.bss_hostapd[0].reload()
+        self.bss_hostapd[0].wait_for_event("AP-ENABLED")
+
+        self.bss_hostapd[1].set_value('wpa_key_mgmt', 'FT-EAP FILS-SHA384 FT-FILS-SHA384')
+        self.bss_hostapd[1].reload()
+        self.bss_hostapd[1].wait_for_event("AP-ENABLED")
+
+        self.validate_connection(wd)
 
     def tearDown(self):
         os.system('ifconfig "' + self.bss_hostapd[0].ifname + '" down')
@@ -126,21 +127,13 @@ class Test(unittest.TestCase):
         os.system('ifconfig "' + self.bss_hostapd[0].ifname + '" up')
         os.system('ifconfig "' + self.bss_hostapd[1].ifname + '" up')
 
-        hwsim = Hwsim()
-        for rule in list(hwsim.rules.keys()):
-            del hwsim.rules[rule]
-
     @classmethod
     def setUpClass(cls):
         os.system('ifconfig lo up')
         IWD.copy_to_storage('TestFT.8021x')
 
-        hwsim = Hwsim()
-
         cls.bss_hostapd = [ HostapdCLI(config='ft-eap-ccmp-1.conf'),
                             HostapdCLI(config='ft-eap-ccmp-2.conf') ]
-        cls.bss_radio =  [ hwsim.get_radio('rad0'),
-                           hwsim.get_radio('rad1') ]
 
         # Set interface addresses to those expected by hostapd config files
         os.system('ifconfig "' + cls.bss_hostapd[0].ifname +
@@ -167,7 +160,7 @@ class Test(unittest.TestCase):
     def tearDownClass(cls):
         IWD.clear_storage()
         cls.bss_hostapd = None
-        cls.bss_radio = None
+        #cls.bss_radio = None
 
 if __name__ == '__main__':
     unittest.main(exit=True)
