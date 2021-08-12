@@ -648,7 +648,7 @@ class Namespace:
 			args.extend(['valgrind', '--leak-check=full', '--track-origins=yes',
 					'--log-file=/tmp/valgrind.log.%p'])
 
-		args.extend(['iwd', '-p', iwd_radios])
+		args.extend(['iwd', '-p', iwd_radios, '-E'])
 
 		if self.is_verbose(args[0]):
 			args.append('-d')
