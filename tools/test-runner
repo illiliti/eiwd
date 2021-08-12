@@ -1259,8 +1259,8 @@ def run_auto_tests(ctx, args):
 				ctx.results[os.path.basename(test)] = rqueue.get()
 
 		except Exception as ex:
-			print(ex)
-			print("Uncaught exception thrown for %s" % test)
+			dbg(ex)
+			dbg("Uncaught exception thrown for %s" % test)
 			ctx.results[os.path.basename(test)] = SimpleResult(run=0, failures=0,
 								errors=0, skipped=0, time=0)
 		finally:
