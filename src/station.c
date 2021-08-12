@@ -2681,7 +2681,8 @@ void station_connect_network(struct station *station, struct network *network,
 	station_enter_state(station, STATION_STATE_CONNECTING);
 
 	station->connect_pending = l_dbus_message_ref(message);
-	station->autoconnect = true;
+
+	station_set_autoconnect(station, true);
 
 	return;
 
