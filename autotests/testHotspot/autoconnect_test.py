@@ -23,6 +23,7 @@ class Test(unittest.TestCase):
 
         devices = wd.list_devices(1)
         device = devices[0]
+        device.autoconnect = True
 
         condition = 'obj.scanning'
         wd.wait_for_object_condition(device, condition)

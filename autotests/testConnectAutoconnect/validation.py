@@ -28,6 +28,8 @@ class TestConnectAutoConnect(unittest.TestCase):
         wd.wait_for_object_condition(device, condition)
 
     def check_autoconnect(self, wd, device, ssid, throws):
+        device.autoconnect = True
+
         if throws is None:
             condition = 'obj.state == DeviceState.connected'
             wd.wait_for_object_condition(device, condition)

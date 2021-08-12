@@ -33,6 +33,7 @@ class Test(unittest.TestCase):
 
         devices = wd.list_devices(1)
         device = devices[0]
+        device.autoconnect = True
 
         # We are dependent on a periodic scan here. We want to wait for this
         # because this is the first opportunity IWD has to do ANQP. Once ANQP

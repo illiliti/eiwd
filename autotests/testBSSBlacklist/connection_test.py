@@ -81,10 +81,8 @@ class Test(unittest.TestCase):
 
         rule0.drop = False
 
-        # Next try autoconnecting to a network with a blacklisted BSS. Since an
-        # explicit disconnect call would disable autoconnect we reset
-        # hostapd which will disconnect IWD.
-        bss_hostapd[1].reload()
+        device.disconnect()
+        device.autoconnect = True
 
         condition = 'not obj.connected'
         wd.wait_for_object_condition(ordered_network.network_object, condition)
