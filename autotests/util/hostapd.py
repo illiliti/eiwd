@@ -212,20 +212,6 @@ class HostapdCLI:
         if 'OK' not in proc.out:
             raise Exception('BSS_TM_REQ failed, is hostapd built with CONFIG_WNM_AP=y?')
 
-    def get_config_value(self, key):
-        # first find the right config file
-        with open(self.config, 'r') as f:
-            # read in config file and search for key
-            cfg = f.read()
-            match = re.search(r'%s=.*' % key, cfg)
-            if match:
-                return match.group(0).split('=')[1]
-        return None
-
-
-    def get_freq(self):
-        return chan_freq_map[int(self.get_config_value('channel'))]
-
     def ungraceful_restart(self):
         '''
             Ungracefully kill and restart hostapd
