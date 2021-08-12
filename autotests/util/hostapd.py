@@ -234,3 +234,13 @@ class HostapdCLI:
         '''
         cmd = self.cmdline + ['req_beacon', addr, request]
         ctx.start_process(cmd, wait=True)
+
+    @property
+    def bssid(self):
+        cmd = self.cmdline + ['status']
+        status = ctx.start_process(cmd, wait=True, need_out=True).out
+        status = status.split('\n')
+
+        bssid = [x for x in status if x.startswith('bssid')]
+        bssid = bssid[0].split('=')
+        return bssid[1]
