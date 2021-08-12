@@ -39,6 +39,7 @@ IWD_P2P_INTERFACE =             'net.connman.iwd.p2p.Device'
 IWD_P2P_PEER_INTERFACE =        'net.connman.iwd.p2p.Peer'
 IWD_P2P_SERVICE_MANAGER_INTERFACE = 'net.connman.iwd.p2p.ServiceManager'
 IWD_P2P_WFD_INTERFACE =         'net.connman.iwd.p2p.Display'
+IWD_STATION_DEBUG_INTERFACE =   'net.connman.iwd.StationDebug'
 
 IWD_AGENT_MANAGER_PATH =        '/net/connman/iwd'
 IWD_TOP_LEVEL_PATH =            '/'
@@ -534,6 +535,12 @@ class Device(IWDDBusAbstract):
 
     def stop_adhoc(self):
         self._prop_proxy.Set(IWD_DEVICE_INTERFACE, 'Mode', 'station')
+
+    def connect_bssid(self, address):
+        self._station_debug_if = dbus.Interface(self._bus.get_object(IWD_SERVICE,
+                                                self.device_path),
+                                                IWD_STATION_DEBUG_INTERFACE)
+        self._station_debug_if.ConnectBssid(dbus.ByteArray.fromhex(address.replace(':', '')))
 
     def __str__(self, prefix = ''):
         return prefix + 'Device: ' + self.device_path + '\n'\
