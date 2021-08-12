@@ -49,7 +49,7 @@ class Test(unittest.TestCase):
             wd.wait_for_object_condition(device, condition)
 
         # Spoof a disassociate frame. This will kick off SA Query procedure.
-        hwsim.spoof_disassociate(radio, hostapd.get_freq(), device.address)
+        hwsim.spoof_disassociate(radio, hostapd.frequency, device.address)
 
         # sleep to ensure hostapd responds and SA Query does not timeout
         sleep(4)
