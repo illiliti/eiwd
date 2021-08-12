@@ -428,6 +428,7 @@ class HostapdInstance:
 	def __init__(self, config, radio):
 		self.radio = radio
 		self.config = config
+		self.cli = None
 
 		self.intf = radio.create_interface(self.config, 'hostapd')
 		self.intf.set_interface_state('up')
@@ -493,6 +494,10 @@ class Hostapd:
 		self.process = ctx.start_process(args)
 
 		self.process.wait_for_socket(self.global_ctrl_iface, 30)
+
+	def attach_cli(self):
+		for hapd in self.instances:
+			hapd.cli = importlib.import_module('hostapd').HostapdCLI(config=hapd.config)
 
 	def _rewrite_config(self, config):
 		'''
@@ -841,6 +846,15 @@ class TestContext(Namespace):
 		radius_config = settings.get('radius_server', None)
 
 		self.hostapd = Hostapd(self, hapd_radios, hapd_configs, radius_config)
+		self.hostapd.attach_cli()
+
+	def get_frequencies(self):
+		frequencies = []
+
+		for hapd in self.hostapd.instances:
+			frequencies.append(hapd.cli.frequency)
+
+		return frequencies
 
 	def start_wpas_interfaces(self):
 		if 'WPA_SUPPLICANT' not in self.hw_config:

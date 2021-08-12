@@ -42,6 +42,24 @@ class HostapdCLI:
 
         hapd = ctx.hostapd[config]
 
+        if not hasattr(self, '_hostapd_restarted'):
+            self._hostapd_restarted = False
+
+        #
+        # TODO: In theory some type of instance singleton could be created for
+        #       HostapdCLI where test-runner initializes but any subsequent
+        #       call to HostapdCLI (with the same config) returns the same
+        #       object that test-runner has. This would avoid setting these
+        #       variables.
+        #
+        if hapd.cli:
+            self.ifname = hapd.cli.ifname
+            self.ctrl_sock = hapd.cli.ctrl_sock
+            self.cmdline = hapd.cli.cmdline
+            self.interface = hapd.intf
+            self.config = hapd.config
+            return
+
         self.interface = hapd.intf
         self.config = hapd.config
 
@@ -52,9 +70,6 @@ class HostapdCLI:
         self.socket_path = os.path.dirname(self.interface.ctrl_interface)
 
         self.cmdline = ['hostapd_cli', '-p', self.socket_path, '-i', self.ifname]
-
-        if not hasattr(self, '_hostapd_restarted'):
-            self._hostapd_restarted = False
 
         self.local_ctrl = '/tmp/hostapd_' + str(os.getpid()) + '_' + \
                             str(ctrl_count)
@@ -244,3 +259,14 @@ class HostapdCLI:
         bssid = [x for x in status if x.startswith('bssid')]
         bssid = bssid[0].split('=')
         return bssid[1]
+
+    @property
+    def frequency(self):
+        cmd = self.cmdline + ['status']
+        status = ctx.start_process(cmd, wait=True, need_out=True).out
+        status = status.split('\n')
+
+        frequency = [x for x in status if x.startswith('freq')][0]
+        frequency = frequency.split('=')[1]
+
+        return int(frequency)
