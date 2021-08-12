@@ -755,7 +755,7 @@ class TestContext(Namespace):
 		nradios = int(setup['num_radios'])
 		args = ['hwsim']
 
-		if not self.hw_config['SETUP'].get('hwsim_medium', 'yes') in ['yes', '1', 'true']:
+		if self.hw_config['SETUP'].get('hwsim_medium', 'no') in ['no', '0', 'false']:
 			# register hwsim as medium
 			args.extend(['--no-register'])
 
