@@ -1072,8 +1072,7 @@ def pre_test(ctx, test, copied):
 
 	dbg("Starting test %s" % test)
 	if not os.path.exists(test + '/hw.conf'):
-		print("No hw.conf found for %s" % test)
-		exit()
+		raise Exception("No hw.conf found for %s" % test)
 
 	ctx.hw_config = ConfigParser()
 	ctx.hw_config.read(test + '/hw.conf')
