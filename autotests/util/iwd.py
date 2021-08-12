@@ -226,6 +226,21 @@ class AdHocDevice(IWDDBusAbstract):
     def connected_peers(self):
         return self._properties['ConnectedPeers']
 
+class StationDebug(IWDDBusAbstract):
+    '''
+        Class represents net.connman.iwd.StationDebug
+    '''
+    _iface_name = IWD_STATION_DEBUG_INTERFACE
+
+    def __init__(self, *args, **kwargs):
+        self._debug_props = None
+        self._debug_iface = None
+
+        IWDDBusAbstract.__init__(self, *args, **kwargs)
+
+    @property
+    def autoconnect(self):
+        return self._properties['AutoConnect']
 
 class Device(IWDDBusAbstract):
     '''
@@ -238,6 +253,7 @@ class Device(IWDDBusAbstract):
         self._wps_manager_if = None
         self._station_if = None
         self._station_props = None
+        self._station_debug = None
         IWDDBusAbstract.__init__(self, *args, **kwargs)
 
     @property
@@ -353,6 +369,21 @@ class Device(IWDDBusAbstract):
         '''
         props = self._station_properties()
         return bool(props['Scanning'])
+
+    @property
+    def autoconnect(self):
+        if not self._station_debug:
+            self._station_debug = StationDebug(self._object_path)
+
+        return self._station_debug.autoconnect
+
+    @autoconnect.setter
+    def autoconnect(self, value):
+        if not self._station_debug:
+            self._station_debug = StationDebug(self._object_path)
+
+        self._station_debug._prop_proxy.Set(IWD_STATION_DEBUG_INTERFACE,
+                                            'AutoConnect', value)
 
     def scan(self):
         '''Schedule a network scan.
