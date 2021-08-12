@@ -1013,15 +1013,17 @@ def build_test_list(args):
 				tests = [test_root + '/' + x for x in full_list[i:] \
 							if x.startswith('test')]
 			elif os.path.exists(t):
-				tests.append(t)
+				if t not in tests:
+					tests.append(t)
 			elif os.path.exists(path):
-				tests.append(path)
+				if path not in tests:
+					tests.append(path)
 			else:
 				matches = glob(path)
 				if matches == []:
 					raise Exception("Could not find test %s" % t)
 
-				tests.extend(matches)
+				tests.extend(list(set(matches) - set(tests)))
 
 	return sorted(tests)
 
