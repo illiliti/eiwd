@@ -3783,10 +3783,6 @@ static void station_setup_diagnostic_interface(
 	l_dbus_interface_method(interface, "GetDiagnostics", 0,
 				station_get_diagnostics, "a{sv}", "",
 				"diagnostics");
-
-	if (iwd_is_developer_mode())
-		l_dbus_interface_method(interface, "Roam", 0,
-					station_force_roam, "", "ay", "mac");
 }
 
 static void station_destroy_diagnostic_interface(void *user_data)
@@ -3841,6 +3837,8 @@ static void station_setup_debug_interface(
 	l_dbus_interface_method(interface, "ConnectBssid", 0,
 					station_force_connect_bssid, "", "ay",
 					"mac");
+	l_dbus_interface_method(interface, "Roam", 0,
+					station_force_roam, "", "ay", "mac");
 }
 
 static void ap_roam_frame_event(const struct mmpdu_header *hdr,
