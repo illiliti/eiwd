@@ -3507,6 +3507,7 @@ static struct station *station_create(struct netdev *netdev)
 {
 	struct station *station;
 	struct l_dbus *dbus = dbus_get_bus();
+	bool autoconnect = true;
 
 	station = l_new(struct station, 1);
 	watchlist_init(&station->state_watches, NULL);
@@ -3524,8 +3525,6 @@ static struct station *station_create(struct netdev *netdev)
 
 	l_queue_push_head(station_list, station);
 
-	station_set_autoconnect(station, true);
-
 	l_dbus_object_add_interface(dbus, netdev_get_path(netdev),
 					IWD_STATION_INTERFACE, station);
 
@@ -3536,11 +3535,15 @@ static struct station *station_create(struct netdev *netdev)
 
 	station_fill_scan_freq_subsets(station);
 
-	if (iwd_is_developer_mode())
+	if (iwd_is_developer_mode()) {
 		l_dbus_object_add_interface(dbus,
 					netdev_get_path(station->netdev),
 					IWD_STATION_DEBUG_INTERFACE,
 					station);
+		autoconnect = false;
+	}
+
+	station_set_autoconnect(station, autoconnect);
 
 	return station;
 }
