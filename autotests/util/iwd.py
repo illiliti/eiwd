@@ -242,6 +242,10 @@ class StationDebug(IWDDBusAbstract):
     def autoconnect(self):
         return self._properties['AutoConnect']
 
+    def scan(self, frequencies):
+        frequencies = dbus.Array([dbus.UInt16(f) for f in frequencies])
+        self._iface.Scan(frequencies)
+
 class Device(IWDDBusAbstract):
     '''
         Class represents a network device object: net.connman.iwd.Device
@@ -584,6 +588,12 @@ class Device(IWDDBusAbstract):
                                                 self.device_path),
                                                 IWD_STATION_DEBUG_INTERFACE)
         self._station_debug_if.Roam(dbus.ByteArray.fromhex(address.replace(':', '')))
+
+    def debug_scan(self, frequencies):
+        if not self._station_debug:
+            self._station_debug = StationDebug(self._object_path)
+
+        self._station_debug.scan(frequencies)
 
     def __str__(self, prefix = ''):
         return prefix + 'Device: ' + self.device_path + '\n'\
