@@ -414,7 +414,7 @@ class Device(IWDDBusAbstract):
 
         self._wait_for_async_op()
 
-    def get_ordered_networks(self, scan_if_needed = True):
+    def get_ordered_networks(self, scan_if_needed = True, full_scan = False):
         '''Return the list of networks found in the most recent
            scan, sorted by their user interface importance
            score as calculated by iwd.  If the device is
@@ -440,7 +440,10 @@ class Device(IWDDBusAbstract):
         IWD._wait_for_object_condition(self, condition)
 
         try:
-            self.scan()
+            if full_scan:
+                self.scan()
+            else:
+                self.debug_scan(ctx.get_frequencies())
         except InProgressEx:
             pass
 
@@ -458,7 +461,7 @@ class Device(IWDDBusAbstract):
 
         return None
 
-    def get_ordered_network(self, network, scan_if_needed = True):
+    def get_ordered_network(self, network, scan_if_needed = True, full_scan = False):
         '''Returns a single network from ordered network call, or None if the
            network wasn't found. If the network is not found an exception is
            raised, this removes the need to extra asserts in autotests.
