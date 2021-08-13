@@ -5,8 +5,8 @@ import sys
 import os
 
 sys.path.append('../util')
-import iwd
 from iwd import IWD
+from iwd import IWD_CONFIG_DIR
 from iwd import PSKAgent
 from iwd import NetworkType
 from hostapd import HostapdCLI
@@ -50,8 +50,7 @@ class Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         IWD.copy_to_hotspot('roaming.conf')
-        conf = '[General]\nDisableANQP=1\n'
-        os.system('echo "%s" > /tmp/main.conf' % conf)
+        IWD.copy_to_storage('anqp_disabled.conf', storage_dir=IWD_CONFIG_DIR, name='main.conf')
 
     @classmethod
     def tearDownClass(cls):
