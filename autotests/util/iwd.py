@@ -248,6 +248,12 @@ class StationDebug(IWDDBusAbstract):
     def autoconnect(self):
         return self._properties['AutoConnect']
 
+    def connect_bssid(self, address):
+        self._iface.ConnectBssid(dbus.ByteArray.fromhex(address.replace(':', '')))
+
+    def roam(self, address):
+        self._iface.Roam(dbus.ByteArray.fromhex(address.replace(':', '')))
+
     def scan(self, frequencies):
         frequencies = dbus.Array([dbus.UInt16(f) for f in frequencies])
         self._iface.Scan(frequencies)
@@ -278,8 +284,10 @@ class Device(IWDDBusAbstract):
         self._wps_manager_if = None
         self._station_if = None
         self._station_props = None
-        self._station_debug = None
+
         IWDDBusAbstract.__init__(self, *args, **kwargs)
+
+        self._station_debug = StationDebug(*args, **kwargs)
 
     @property
     def _wps_manager(self):
@@ -397,16 +405,10 @@ class Device(IWDDBusAbstract):
 
     @property
     def autoconnect(self):
-        if not self._station_debug:
-            self._station_debug = StationDebug(self._object_path)
-
         return self._station_debug.autoconnect
 
     @autoconnect.setter
     def autoconnect(self, value):
-        if not self._station_debug:
-            self._station_debug = StationDebug(self._object_path)
-
         self._station_debug._prop_proxy.Set(IWD_STATION_DEBUG_INTERFACE,
                                             'AutoConnect', value)
 
@@ -602,27 +604,15 @@ class Device(IWDDBusAbstract):
         self._prop_proxy.Set(IWD_DEVICE_INTERFACE, 'Mode', 'station')
 
     def connect_bssid(self, address):
-        self._station_debug_if = dbus.Interface(self._bus.get_object(IWD_SERVICE,
-                                                self.device_path),
-                                                IWD_STATION_DEBUG_INTERFACE)
-        self._station_debug_if.ConnectBssid(dbus.ByteArray.fromhex(address.replace(':', '')))
+        self._station_debug.connect_bssid(address)
 
     def roam(self, address):
-        self._station_debug_if = dbus.Interface(self._bus.get_object(IWD_SERVICE,
-                                                self.device_path),
-                                                IWD_STATION_DEBUG_INTERFACE)
-        self._station_debug_if.Roam(dbus.ByteArray.fromhex(address.replace(':', '')))
+        self._station_debug.roam(address)
 
     def debug_scan(self, frequencies):
-        if not self._station_debug:
-            self._station_debug = StationDebug(self._object_path)
-
         self._station_debug.scan(frequencies)
 
     def wait_for_event(self, event, timeout=10):
-        if not self._station_debug:
-            self._station_debug = StationDebug(self._object_path)
-
         self._station_debug.wait_for_event(event, timeout)
 
     def __str__(self, prefix = ''):
