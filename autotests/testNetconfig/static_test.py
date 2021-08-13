@@ -75,6 +75,13 @@ class Test(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        def remove_lease():
+            try:
+                os.remove('/tmp/dhcpd.leases')
+                os.remove('/tmp/dhcpd.leases~')
+            except:
+                pass
+
         hapd = HostapdCLI()
         # TODO: This could be moved into test-runner itself if other tests ever
         #       require this functionality (p2p, FILS, etc.). Since its simple
@@ -84,14 +91,13 @@ class Test(unittest.TestCase):
         ctx.start_process(['touch', '/tmp/dhcpd.leases'], wait=True)
         cls.dhcpd_pid = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf',
                                             '-lf', '/tmp/dhcpd.leases',
-                                            hapd.ifname])
+                                            hapd.ifname], cleanup=remove_lease)
         IWD.copy_to_storage('ssidTKIP.psk', '/tmp/storage')
 
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
         cls.dhcpd_pid.kill()
-        os.system('rm -rf /tmp/dhcpd.leases')
 
 if __name__ == '__main__':
     unittest.main(exit=True)
