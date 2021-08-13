@@ -233,7 +233,7 @@ class Process:
 		if not wait and not check:
 			return
 
-		self.pid.wait(timeout=5)
+		Namespace.non_block_wait(self.wait_for_process, 10, 1)
 		self.killed = True
 		self.ret = self.pid.returncode
 
@@ -244,6 +244,13 @@ class Process:
 		print("%s returned %d" % (args[0], self.ret))
 		if check and self.ret != 0:
 			raise subprocess.CalledProcessError(returncode=self.ret, cmd=self.args)
+
+	def wait_for_process(self, timeout):
+		try:
+			self.pid.wait(timeout)
+			return True
+		except:
+			return False
 
 	def process_io(self, source):
 		data = source.read()
@@ -312,12 +319,7 @@ class Process:
 		self.killed = True
 
 	def wait_for_socket(self, socket, wait):
-		waited = 0
-		while not os.path.exists(socket):
-			sleep(0.5)
-			waited += 0.5
-			if waited > wait:
-				raise Exception("Timed out waiting for socket")
+		Namespace.non_block_wait(os.path.exists, wait, socket)
 
 	def __str__(self):
 		return str(self.args) + '\n'
@@ -641,7 +643,7 @@ class Namespace:
 		p = self.start_process(['dbus-daemon', '--config-file=%s' % self.dbus_cfg],
 					wait=False, cleanup=self._cleanup_dbus)
 
-		p.wait_for_socket(self.dbus_address.split('=')[1], wait=5)
+		p.wait_for_socket(self.dbus_address.split('=')[1], 5)
 
 		self._bus = dbus.bus.BusConnection(address_or_type=self.dbus_address)
 
@@ -699,14 +701,61 @@ class Namespace:
 
 		return False
 
-	def wait_for_dbus_service(self, service):
-		tries = 0
+	@staticmethod
+	def non_block_wait(func, timeout, *args, exception=True):
+		'''
+			Convenience function for waiting in a non blocking
+			manor using GLibs context iteration i.e. does not block
+			the main loop while waiting.
 
-		while not self._bus.name_has_owner(service):
-			if tries > 200:
-				raise TimeoutError('DBus service %s did not appear', service)
-			tries += 1
+			'func' will be called at least once and repeatedly until
+			either it returns success, throws an exception, or the
+			'timeout' expires.
+
+			'timeout' is the ultimate timeout in seconds
+
+			'*args' will be passed to 'func'
+
+			If 'exception' is an Exception type it will be raised.
+			If 'exception' is True a generic TimeoutError will be raised.
+			Any other value will not result in an exception.
+		'''
+		# Simple class for signaling the wait timeout
+		class Bool:
+			def __init__(self, value):
+				self.value = value
+
+		def wait_timeout_cb(done):
+			done.value = True
+			return False
+
+		mainloop = GLib.MainLoop()
+		done = Bool(False)
+
+		timeout = GLib.timeout_add_seconds(timeout, wait_timeout_cb, done)
+		context = mainloop.get_context()
+
+		while True:
+			context.iteration(may_block=False)
+
+			try:
+				ret = func(*args)
+				if ret:
+					GLib.source_remove(timeout)
+					return ret
+			except Exception as e:
+				GLib.source_remove(timeout)
+				raise e
+
 			sleep(0.1)
+
+			if done.value == True:
+				if isinstance(exception, Exception):
+					raise exception
+				elif type(exception) == bool and exception:
+					raise TimeoutError("Timeout on non_block_wait")
+				else:
+					return
 
 	def __str__(self):
 		ret = 'Namespace: %s\n' % self.name
@@ -765,7 +814,8 @@ class TestContext(Namespace):
 			args.extend(['--no-register'])
 
 		self.start_process(args)
-		self.wait_for_dbus_service('net.connman.hwsim')
+		self.non_block_wait(self._bus.name_has_owner, 20, 'net.connman.hwsim',
+					exception=TimeoutError('net.connman.hwsim did not appear'))
 
 		for i in range(nradios):
 			name = 'rad%u' % i
