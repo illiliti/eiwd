@@ -233,8 +233,16 @@ class StationDebug(IWDDBusAbstract):
     def __init__(self, *args, **kwargs):
         self._debug_props = None
         self._debug_iface = None
+        self._last_event = None
+        self._last_event_data = []
 
         IWDDBusAbstract.__init__(self, *args, **kwargs)
+
+        self._iface.connect_to_signal("Event", self._event_handler)
+
+    def _event_handler(self, event, data):
+        self._last_event = event
+        self._last_event_data = data
 
     @property
     def autoconnect(self):
@@ -243,6 +251,21 @@ class StationDebug(IWDDBusAbstract):
     def scan(self, frequencies):
         frequencies = dbus.Array([dbus.UInt16(f) for f in frequencies])
         self._iface.Scan(frequencies)
+
+    def wait_for_event(self, event, timeout=10):
+        try:
+            if self._last_event is not None:
+                return self._last_event_data
+
+            ctx.non_block_wait(lambda s, e : s._last_event == e, timeout, self, event,
+                                exception=TimeoutError("waiting for StationDebug.Event"))
+
+            return self._last_event_data
+        finally:
+            # Consume the event
+            self._last_event_data = None
+            self._last_event = None
+
 
 class Device(IWDDBusAbstract):
     '''
@@ -595,6 +618,12 @@ class Device(IWDDBusAbstract):
             self._station_debug = StationDebug(self._object_path)
 
         self._station_debug.scan(frequencies)
+
+    def wait_for_event(self, event, timeout=10):
+        if not self._station_debug:
+            self._station_debug = StationDebug(self._object_path)
+
+        self._station_debug.wait_for_event(event, timeout)
 
     def __str__(self, prefix = ''):
         return prefix + 'Device: ' + self.device_path + '\n'\
