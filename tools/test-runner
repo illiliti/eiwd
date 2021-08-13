@@ -541,7 +541,7 @@ class Hostapd:
 		try:
 			os.remove(self.global_ctrl_iface)
 		except:
-			dbg("Failed to remove %s" % self.global_ctrl_iface)
+			print("Failed to remove %s" % self.global_ctrl_iface)
 
 		self.instances = None
 
