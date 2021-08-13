@@ -13,9 +13,11 @@ import time
 import unittest
 import importlib
 import signal
+from unittest.result import TestResult
 import pyroute2
 import multiprocessing
 import re
+import traceback
 
 from configparser import ConfigParser
 from prettytable import PrettyTable
@@ -1152,34 +1154,44 @@ def start_test(ctx, subtests, rqueue):
 				#
 				file = file.strip('()').split('.')[0] + '.py'
 
-				# Set up class only on first test
-				if index == 0:
-					dbg(file)
-					t.setUpClass()
+				# Create an empty result here in case the test fails
+				result = TestResult()
 
-				dbg("\t%s RUNNING" % str(func), end='')
-				sys.__stdout__.flush()
+				try:
+					# Set up class only on first test
+					if index == 0:
+						dbg("%s\n\t%s RUNNING" % (file, str(func)), end='')
+						t.setUpClass()
+					else:
+						dbg("\t%s RUNNING" % str(func), end='')
 
-				# Run test (setUp/tearDown run automatically)
-				result = t()
+					sys.__stdout__.flush()
 
-				# Tear down class only on last test
-				if index == len(tlist) - 1:
-					t.tearDownClass()
+					# Run test (setUp/tearDown run automatically)
+					result = t()
+
+					# Tear down class only on last test
+					if index == len(tlist) - 1:
+						t.tearDownClass()
+				except unittest.SkipTest as e:
+					result.skipped.append(t)
+				except Exception as e:
+					dbg('\n%s threw an uncaught exception:' % func)
+					traceback.print_exc(file=sys.__stdout__)
 
 				run += result.testsRun
 				errors += len(result.errors)
 				failures += len(result.failures)
 				skipped += len(result.skipped)
 
-				if len(result.errors) > 0 or len(result.failures) > 0:
+				if len(result.skipped) > 0:
+					dbg(colored(" SKIPPED", "cyan"))
+				elif run == 0 or len(result.errors) > 0 or len(result.failures) > 0:
 					dbg(colored(" FAILED", "red"))
 					for e in result.errors:
 						dbg(e[1])
 					for f in result.failures:
 						dbg(f[1])
-				elif len(result.skipped) > 0:
-					dbg(colored(" SKIPPED", "cyan"))
 				else:
 					dbg(colored(" PASSED", "green"))
 
@@ -1392,8 +1404,8 @@ def run_auto_tests(ctx, args):
 				ctx.results[os.path.basename(test)] = rqueue.get()
 
 		except Exception as ex:
-			dbg(ex)
-			dbg("Uncaught exception thrown for %s" % test)
+			dbg("%s threw an uncaught exception" % test)
+			traceback.print_exc(file=sys.__stdout__)
 			ctx.results[os.path.basename(test)] = SimpleResult(run=0, failures=0,
 								errors=0, skipped=0, time=0)
 		finally:
