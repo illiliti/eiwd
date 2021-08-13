@@ -1152,10 +1152,13 @@ class IWD(AsyncOpAbstract):
         fo.close()
 
     @staticmethod
-    def copy_to_storage(source, storage_dir=IWD_STORAGE_DIR):
+    def copy_to_storage(source, storage_dir=IWD_STORAGE_DIR, name=None):
         import shutil
 
         assert not os.path.isabs(source)
+
+        if name:
+            storage_dir += '/%s' % name
 
         shutil.copy(source, storage_dir)
 
