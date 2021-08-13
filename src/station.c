@@ -153,6 +153,24 @@ static bool station_is_autoconnecting(struct station *station)
 			station->state == STATION_STATE_AUTOCONNECT_QUICK;
 }
 
+static bool station_debug_event(struct station *station, const char *name)
+{
+	struct l_dbus_message *signal;
+
+	if (!iwd_is_developer_mode())
+		return true;
+
+	l_debug("StationDebug.Event(%s)", name);
+
+	signal = l_dbus_message_new_signal(dbus_get_bus(),
+					netdev_get_path(station->netdev),
+					IWD_STATION_DEBUG_INTERFACE, "Event");
+
+	l_dbus_message_set_arguments(signal, "sav", name, 0);
+
+	return l_dbus_send(dbus_get_bus(), signal) != 0;
+}
+
 static void station_property_set_scanning(struct station *station,
 								bool scanning)
 {
@@ -1938,8 +1956,10 @@ next:
 		goto fail_free_bss;
 
 	/* See if we have anywhere to roam to */
-	if (!best_bss || scan_bss_addr_eq(best_bss, station->connected_bss))
+	if (!best_bss || scan_bss_addr_eq(best_bss, station->connected_bss)) {
+		station_debug_event(station, "no-roam-candidates");
 		goto fail_free_bss;
+	}
 
 	bss = network_bss_find_by_addr(network, best_bss->addr);
 	if (bss) {
@@ -3990,6 +4010,8 @@ static void station_setup_debug_interface(
 	l_dbus_interface_method(interface, "Scan", 0,
 					station_debug_scan, "", "aq",
 					"frequencies");
+
+	l_dbus_interface_signal(interface, "Event", 0, "sav", "name", "data");
 
 	l_dbus_interface_property(interface, "AutoConnect", 0, "b",
 					station_property_get_autoconnect,
