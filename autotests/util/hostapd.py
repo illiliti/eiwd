@@ -86,30 +86,19 @@ class HostapdCLI:
     def __init__(self, config=None):
         self._init_hostapd(config)
 
-    def wait_for_event(self, event, timeout=10):
-        global mainloop
-        self._wait_timed_out = False
-
-        def wait_timeout_cb():
-            self._wait_timed_out = True
+    def _poll_event(self, event):
+        if not self._data_available(0.25):
             return False
 
-        timeout = GLib.timeout_add_seconds(timeout, wait_timeout_cb)
-        context = mainloop.get_context()
+        data = self.ctrl_sock.recv(4096).decode('utf-8')
+        if event in data:
+            return data
 
-        while True:
-            context.iteration(may_block=False)
+        return False
 
-            while self._data_available(0.25):
-                data = self.ctrl_sock.recv(4096).decode('utf-8')
-                if event in data:
-                    GLib.source_remove(timeout)
-                    return data
-
-            if self._wait_timed_out:
-                raise TimeoutError('waiting for hostapd event timed out')
-
-        return None
+    def wait_for_event(self, event, timeout=10):
+        return ctx.non_block_wait(self._poll_event, timeout, event,
+                                    exception=TimeoutError("waiting for event"))
 
     def _data_available(self, timeout=2):
         [r, w, e] = select.select([self.ctrl_sock], [], [], timeout)
@@ -123,10 +112,10 @@ class HostapdCLI:
 
         self.ctrl_sock.send(bytes(command))
 
-        if self._data_available(timeout):
-            return self.ctrl_sock.recv(4096).decode('utf-8')
+        ctx.non_block_wait(self._data_available, timeout,
+                            exception=TimeoutError("waiting for control response"))
 
-        raise Exception('timeout waiting for control response')
+        return self.ctrl_sock.recv(4096).decode('utf-8')
 
     def _del_hostapd(self, force=False):
         if not self.ctrl_sock:
