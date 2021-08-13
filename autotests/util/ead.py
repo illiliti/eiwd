@@ -103,22 +103,3 @@ class EAD(iwd.AsyncOpAbstract):
                             exception=TimeoutError('EAD has no associated devices'))
 
         return list(self._adapters.values())
-
-    def wait_for_object_condition(self, obj, condition_str, max_wait = 50):
-        self._wait_timed_out = False
-        def wait_timeout_cb():
-            self._wait_timed_out = True
-            return False
-
-        try:
-            timeout = GLib.timeout_add_seconds(max_wait, wait_timeout_cb)
-            context = ctx.mainloop.get_context()
-            while not eval(condition_str):
-                context.iteration(may_block=True)
-                if self._wait_timed_out and ctx.args.gdb == None:
-                    raise TimeoutError('[' + condition_str + ']'\
-                                       ' condition was not met in '\
-                                       + str(max_wait) + ' sec')
-        finally:
-            if not self._wait_timed_out:
-                GLib.source_remove(timeout)
