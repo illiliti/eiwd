@@ -58,14 +58,13 @@ class Test(unittest.TestCase):
     def test_connection_with_other_agent(self):
         wd = IWD()
 
-        iwctl = ctx.start_process(['iwctl', '-P', 'secret_ssid2']).pid
+        iwctl = ctx.start_process(['iwctl', '-P', 'secret_ssid2'])
         # Let iwctl to start and register its agent.
         wd.wait(2)
 
         self.check_connection(wd, 'ssid2')
 
-        iwctl.terminate()
-        iwctl.communicate()
+        iwctl.kill()
 
         IWD.clear_storage()
 
@@ -73,7 +72,7 @@ class Test(unittest.TestCase):
 
         wd = IWD()
 
-        iwctl = ctx.start_process(['iwctl', '-P', 'secret_ssid2']).pid
+        iwctl = ctx.start_process(['iwctl', '-P', 'secret_ssid2'])
         # Let iwctl to start and register its agent.
         wd.wait(2)
 
@@ -84,8 +83,7 @@ class Test(unittest.TestCase):
 
         wd.unregister_psk_agent(psk_agent)
 
-        iwctl.terminate()
-        iwctl.communicate()
+        iwctl.kill()
 
         IWD.clear_storage()
 
