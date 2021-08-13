@@ -604,8 +604,9 @@ class Namespace:
 		if not env:
 			env = os.environ.copy()
 
-		# In case this process needs DBus...
-		env['DBUS_SYSTEM_BUS_ADDRESS'] = self.dbus_address
+		if hasattr(self, "dbus_address"):
+			# In case this process needs DBus...
+			env['DBUS_SYSTEM_BUS_ADDRESS'] = self.dbus_address
 
 		p = Process(args, ctx=self, namespace=ns, env=env, **kwargs)
 
@@ -1403,10 +1404,6 @@ def run_auto_tests(ctx, args):
 	shutil.rmtree('/tmp/secrets')
 	os.remove('/tmp/phonesim.conf')
 
-	# Write out kernel log
-	if ctx.args.log:
-		ctx.start_process(["dmesg"], wait=True)
-
 def run_unit_tests(ctx, args):
 	os.chdir(args.testhome + '/unit')
 	units = build_unit_list(args)
@@ -1484,6 +1481,9 @@ def run_tests():
 				shutil.rmtree(f)
 			else:
 				os.remove(f)
+
+		# Start writing out kernel log
+		config.ctx.start_process(["dmesg", '--follow'])
 	elif args.monitor:
 		parent = os.path.abspath(os.path.join(args.monitor, os.pardir))
 		mount('mondir', parent, '9p', 0, 'trans=virtio,version=9p2000.L,msize=10240')
