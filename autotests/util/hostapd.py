@@ -28,10 +28,28 @@ chan_freq_map = [
 ctrl_count = 0
 mainloop = GLib.MainLoop()
 
-class HostapdCLI:
-    def _init_hostapd(self, config=None):
+class HostapdCLI(object):
+    _instances = {}
+
+    def __new__(cls, config=None, *args, **kwargs):
+        hapd = ctx.hostapd[config]
+
+        if not config:
+            config = hapd.config
+
+        if not config in cls._instances.keys():
+            cls._instances[config] = object.__new__(cls, *args, **kwargs)
+            cls._instances[config]._initialized = False
+
+        return cls._instances[config]
+
+    def _init_hostapd(self, config):
         global ctrl_count
-        interface = None
+
+        if self._initialized:
+            return
+
+        self._initialized = True
         self.ctrl_sock = None
 
         if not ctx.hostapd:
@@ -44,21 +62,6 @@ class HostapdCLI:
 
         if not hasattr(self, '_hostapd_restarted'):
             self._hostapd_restarted = False
-
-        #
-        # TODO: In theory some type of instance singleton could be created for
-        #       HostapdCLI where test-runner initializes but any subsequent
-        #       call to HostapdCLI (with the same config) returns the same
-        #       object that test-runner has. This would avoid setting these
-        #       variables.
-        #
-        if hapd.cli:
-            self.ifname = hapd.cli.ifname
-            self.ctrl_sock = hapd.cli.ctrl_sock
-            self.cmdline = hapd.cli.cmdline
-            self.interface = hapd.intf
-            self.config = hapd.config
-            return
 
         self.interface = hapd.intf
         self.config = hapd.config
@@ -83,7 +86,7 @@ class HostapdCLI:
 
         ctrl_count = ctrl_count + 1
 
-    def __init__(self, config=None):
+    def __init__(self, config=None, *args, **kwargs):
         self._init_hostapd(config)
 
     def _poll_event(self, event):
@@ -136,6 +139,13 @@ class HostapdCLI:
 
     def __del__(self):
         self._del_hostapd()
+
+        HostapdCLI._instances[self.config] = None
+
+        # Check if this is the final instance
+        destroy = len([hapd for hapd in HostapdCLI._instances.values() if hapd is not None]) == 0
+        if destroy:
+            HostapdCLI._instances = {}
 
     def set_value(self, key, value):
         cmd = self.cmdline + ['set', key, value]
