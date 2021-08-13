@@ -497,6 +497,9 @@ class Hostapd:
 
 		self.process.wait_for_socket(self.global_ctrl_iface, 30)
 
+		for hapd in self.instances:
+			self.process.wait_for_socket(hapd.intf.ctrl_interface, 30)
+
 	def attach_cli(self):
 		for hapd in self.instances:
 			hapd.cli = importlib.import_module('hostapd').HostapdCLI(config=hapd.config)
