@@ -10,6 +10,7 @@ from iwd import IWD
 from iwd import NetworkType
 from hlrauc import AuthCenter
 from ofono import Ofono
+from config import ctx
 
 class Test(unittest.TestCase):
     def validate_connection(self, wd):
@@ -46,6 +47,9 @@ class Test(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        if not ctx.is_process_running('ofonod'):
+            cls.skipTest(cls, "ofono not running")
+
         cls.auth = AuthCenter('/tmp/hlrauc.sock', '/tmp/sim.db')
 
         IWD.copy_to_storage('ssidEAP-PEAP-SIM.8021x')
