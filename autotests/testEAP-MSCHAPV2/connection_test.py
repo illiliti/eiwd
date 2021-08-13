@@ -10,7 +10,7 @@ from iwd import NetworkType
 
 class Test(unittest.TestCase):
 
-    def run_connection_test(self, ssid, *secrets):
+    def run_connection_test(self, *secrets):
         wd = IWD()
 
         psk_agent = iwd.PSKAgent(*secrets)
@@ -29,7 +29,7 @@ class Test(unittest.TestCase):
             condition = 'not obj.scanning'
             wd.wait_for_object_condition(device, condition)
 
-        ordered_network = device.get_ordered_network(ssid)
+        ordered_network = device.get_ordered_network("ssidEAP-MSCHAPV2")
 
         self.assertEqual(ordered_network.type, NetworkType.eap)
 
@@ -49,23 +49,24 @@ class Test(unittest.TestCase):
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
     def test_agent_none(self):
-        self.run_connection_test('ssidEAP-MSCHAPV2-1')
+        IWD.copy_to_storage('ssidEAP-MSCHAPV2-1.8021x', name='ssidEAP-MSCHAPV2.8021x')
+        self.run_connection_test()
 
     def test_agent_none_hash(self):
-        self.run_connection_test('ssidEAP-MSCHAPV2-2')
+        IWD.copy_to_storage('ssidEAP-MSCHAPV2-2.8021x', name='ssidEAP-MSCHAPV2.8021x')
+        self.run_connection_test()
 
     def test_agent_passwd(self):
-        self.run_connection_test('ssidEAP-MSCHAPV2-3', [], ('domain\\User', 'Password'))
+        IWD.copy_to_storage('ssidEAP-MSCHAPV2-3.8021x', name='ssidEAP-MSCHAPV2.8021x')
+        self.run_connection_test([], ('domain\\User', 'Password'))
 
     def test_agent_username_and_passwd(self):
-        self.run_connection_test('ssidEAP-MSCHAPV2-4', [], ('domain\\User', 'Password'))
+        IWD.copy_to_storage('ssidEAP-MSCHAPV2-4.8021x', name='ssidEAP-MSCHAPV2.8021x')
+        self.run_connection_test([], ('domain\\User', 'Password'))
 
     @classmethod
     def setUpClass(cls):
-        IWD.copy_to_storage('ssidEAP-MSCHAPV2-1.8021x')
-        IWD.copy_to_storage('ssidEAP-MSCHAPV2-2.8021x')
-        IWD.copy_to_storage('ssidEAP-MSCHAPV2-3.8021x')
-        IWD.copy_to_storage('ssidEAP-MSCHAPV2-4.8021x')
+        pass
 
     @classmethod
     def tearDownClass(cls):
