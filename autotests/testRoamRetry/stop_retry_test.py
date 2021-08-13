@@ -99,7 +99,7 @@ class Test(unittest.TestCase):
 
         condition = 'obj.state == DeviceState.roaming'
         self.assertRaises(TimeoutError, wd.wait_for_object_condition, device,
-                          condition, max_wait=70)
+                          condition, max_wait=10)
 
         device.disconnect()
 
