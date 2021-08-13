@@ -65,13 +65,14 @@ class Test(unittest.TestCase):
 
         # Force the case where ANQP does not finish before Connect() comes in
         rule0.delay = 100
+        rule0.prefix = '0d'
 
-        ordered_network.network_object.connect()
-
-        rule0.delay = 1
+        ordered_network.network_object.connect(wait=False)
 
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
+
+        hapd.wait_for_event('AP-STA-CONNECTED')
 
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected(device.name, hapd.ifname)
