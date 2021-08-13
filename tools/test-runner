@@ -751,10 +751,12 @@ class Namespace:
 			try:
 				ret = func(*args)
 				if ret:
-					GLib.source_remove(timeout)
+					if not done.value:
+						GLib.source_remove(timeout)
 					return ret
 			except Exception as e:
-				GLib.source_remove(timeout)
+				if not done.value:
+					GLib.source_remove(timeout)
 				raise e
 
 			sleep(0.1)
