@@ -43,10 +43,10 @@ class HostapdCLI(object):
 
         return cls._instances[config]
 
-    def _init_hostapd(self, config):
+    def _init_hostapd(self, config, reinit=False):
         global ctrl_count
 
-        if self._initialized:
+        if self._initialized and not reinit:
             return
 
         self._initialized = True
@@ -59,9 +59,6 @@ class HostapdCLI(object):
             raise Exception('config must be provided if more than one hostapd instance exists')
 
         hapd = ctx.hostapd[config]
-
-        if not hasattr(self, '_hostapd_restarted'):
-            self._hostapd_restarted = False
 
         self.interface = hapd.intf
         self.config = hapd.config
@@ -130,12 +127,6 @@ class HostapdCLI(object):
             os.remove(self.local_ctrl)
         except:
             pass
-
-        if self._hostapd_restarted:
-            ctx.stop_process(ctx.hostapd.process, force)
-
-            self.interface.set_interface_state('down')
-            self.interface.set_interface_state('up')
 
     def __del__(self):
         self._del_hostapd()
@@ -215,8 +206,10 @@ class HostapdCLI(object):
         '''
             Ungracefully kill and restart hostapd
         '''
-        # set flag so hostapd can be killed after the test
-        self._hostapd_restarted = True
+        ctx.stop_process(ctx.hostapd.process, True)
+
+        self.interface.set_interface_state('down')
+        self.interface.set_interface_state('up')
 
         self._del_hostapd(force=True)
 
@@ -226,7 +219,7 @@ class HostapdCLI(object):
         time.sleep(1)
 
         # New hostapd process, so re-init
-        self._init_hostapd(config=self.config)
+        self._init_hostapd(config=self.config, reinit=True)
 
     def req_beacon(self, addr, request):
         '''
