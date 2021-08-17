@@ -1,6 +1,6 @@
 [Security]
 EAP-Method=MSCHAPV2
-EAP-Identity=domain\\User
+EAP-Identity=mschapv2@example.com
 EAP-Password=Password
 
 [Settings]

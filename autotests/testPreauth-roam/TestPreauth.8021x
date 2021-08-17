@@ -3,7 +3,7 @@ EAP-Method=TLS
 EAP-TLS-CACert=/tmp/certs/cert-ca.pem
 EAP-TLS-ClientCert=/tmp/certs/cert-client.pem
 EAP-TLS-ClientKey=/tmp/certs/cert-client-key-pkcs8.pem
-EAP-Identity=abc@example.com
+EAP-Identity=tls@example.com
 
 [Settings]
 AutoConnect=false

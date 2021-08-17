@@ -1,5 +1,0 @@
-[Security]
-EAP-Method=MSCHAPV2
-
-[Settings]
-AutoConnect=false

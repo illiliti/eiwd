@@ -7,7 +7,6 @@ import os
 sys.path.append('../util')
 import iwd
 from iwd import IWD
-from iwd import PSKAgent
 from iwd import NetworkType
 from hostapd import HostapdCLI
 import testutil
@@ -17,10 +16,6 @@ class Test(unittest.TestCase):
         hapd = HostapdCLI(config='ssidFILS-256.conf')
 
         wd = IWD(True)
-
-        psk_agent = PSKAgent('user@example.com', ('user@example.com',
-                                                                  'secret123'))
-        wd.register_psk_agent(psk_agent)
 
         devices = wd.list_devices(1)
         device = devices[0]
@@ -61,8 +56,6 @@ class Test(unittest.TestCase):
         testutil.test_ifaces_connected(device.name, hapd.ifname)
 
         device.disconnect()
-
-        wd.unregister_psk_agent(psk_agent)
 
     @classmethod
     def setUpClass(cls):

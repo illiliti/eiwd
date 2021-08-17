@@ -1,5 +1,0 @@
-[Security]
-EAP-Method=AKA'
-
-[Settings]
-AutoConnect=false

@@ -1,9 +1,0 @@
-[Security]
-EAP-Method=TLS
-EAP-TLS-CACert=/tmp/certs/cert-ca.pem
-EAP-TLS-ClientKeyBundle=/tmp/certs/cert-client.p12
-EAP-TLS-ClientKeyPassphrase=abc
-EAP-Identity=abc@example.com
-
-[Settings]
-AutoConnect=False
