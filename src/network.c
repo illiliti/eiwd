@@ -1849,6 +1849,9 @@ static void emit_known_network_removed(struct station *station, void *user_data)
 
 	if (network && was_hidden)
 		station_hide_network(station, network);
+
+	l_queue_destroy(network->secrets, eap_secret_info_free);
+	network->secrets = NULL;
 }
 
 static void network_update_hotspot(struct network *network, void *user_data)
