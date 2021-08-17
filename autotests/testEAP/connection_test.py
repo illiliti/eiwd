@@ -142,17 +142,11 @@ class Test(unittest.TestCase):
     #
     # EAP-PEAP
     #
-    # * Test all combinations of PEAP, PEAPv0, PEAPv1 with MD5, GTC, SIM, MSCHAPv2
+    # * Test all combinations of PEAP, PEAPv0, PEAPv1 with MD5, GTC, MSCHAPv2
     #
     def test_eap_peap(self):
-        ofono = Ofono()
-        ofono.enable_modem('/phonesim')
-        ofono.wait_for_sim_auth()
-
-        auth = AuthCenter('/tmp/hlrauc.sock', '/tmp/sim/sim.db')
-
         for ver in ['PEAP', 'PEAPv0', 'PEAPv1']:
-            for inner in ['MD5', 'GTC', 'SIM', 'MSCHAPv2']:
+            for inner in ['MD5', 'GTC', 'MSCHAPv2']:
                 self.copy_network('peap/ssidEAP-%s-%s.8021x' % (ver, inner))
 
                 try:
@@ -160,8 +154,35 @@ class Test(unittest.TestCase):
                 except Exception as e:
                     # Catch an error here and print the actual PEAP combo that failed
                     traceback.print_exc()
-                    auth.stop()
                     raise Exception("%s-%s test failed" % (ver, inner))
+
+                self.remove_network()
+
+    #
+    # EAP-PEAP + SIM
+    #
+    # * Tests EAP-PEAP + SIM separately to allow skipping if ofono is not found
+    #
+    def test_eap_peap_sim(self):
+        if not ctx.is_process_running('ofonod'):
+            self.skipTest("ofono not running")
+
+        ofono = Ofono()
+        ofono.enable_modem('/phonesim')
+        ofono.wait_for_sim_auth()
+
+        auth = AuthCenter('/tmp/hlrauc.sock', '/tmp/sim/sim.db')
+
+        for ver in ['PEAP', 'PEAPv0', 'PEAPv1']:
+                self.copy_network('peap/ssidEAP-%s-SIM.8021x' % ver)
+
+                try:
+                    self.validate_connection(self.wd)
+                except Exception as e:
+                    # Catch an error here and print the actual PEAP combo that failed
+                    traceback.print_exc()
+                    auth.stop()
+                    raise Exception("%s-SIM test failed" % ver)
 
                 self.remove_network()
 
