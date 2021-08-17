@@ -1,0 +1,12 @@
+[Security]
+EAP-Method=TTLS
+EAP-Identity=ttls@example.com
+EAP-TTLS-Phase2-Method=Tunneled-MSCHAPv2
+
+# If MSCHAP Identity and Password are left out, they will be requested through
+# the agent.
+#EAP-TTLS-Phase2-Identity=ttls-mschapv2-phase2@example.com
+#EAP-TTLS-Phase2-Password=Password
+
+[Settings]
+AutoConnect=False

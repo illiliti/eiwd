@@ -1,0 +1,10 @@
+[Security]
+EAP-Method=PEAP
+EAP-Identity=peapv0@example.com
+EAP-PEAP-CACert=/tmp/certs/cert-ca.pem
+EAP-PEAP-ClientCert=/tmp/certs/cert-client.pem
+EAP-PEAP-ClientKey=/tmp/certs/cert-client-key-pkcs8.pem
+EAP-PEAP-Phase2-Method=SIM
+
+[Settings]
+AutoConnect=false

@@ -1,0 +1,12 @@
+[Security]
+EAP-Method=TTLS
+EAP-Identity=ttls@example.com
+EAP-TTLS-CACert=/tmp/certs/cert-ca.pem
+EAP-TTLS-ClientCert=/tmp/certs/cert-client.pem
+EAP-TTLS-ClientKey=/tmp/certs/cert-client-key-pkcs8.pem
+EAP-TTLS-Phase2-Method=MD5
+EAP-TTLS-Phase2-Identity=md5-phase2@example.com
+EAP-TTLS-Phase2-Password=Password
+
+[Settings]
+AutoConnect=False
