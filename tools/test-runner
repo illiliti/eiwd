@@ -1139,6 +1139,13 @@ def start_test(ctx, subtests, rqueue):
 
 		# Iterating through each python test file
 		for test in subtest:
+			limit_funcs = []
+
+			if ctx.args.sub_tests:
+				for i in ctx.args.sub_tests:
+					if len(i.split('.')) == 2:
+						limit_funcs.append(i.split('.')[1])
+
 			# Iterating through individual test functions inside a
 			# Test() class. Due to the nature of unittest we have
 			# to jump through some hoops to set up the test class
@@ -1164,21 +1171,29 @@ def start_test(ctx, subtests, rqueue):
 				result = TestResult()
 
 				try:
+					skip = len(limit_funcs) > 0 and func not in limit_funcs
+
 					# Set up class only on first test
 					if index == 0:
-						dbg("%s\n\t%s RUNNING" % (file, str(func)), end='')
+						if not skip:
+							dbg("%s\n\t%s RUNNING" % (file, str(func)), end='')
 						t.setUpClass()
 					else:
-						dbg("\t%s RUNNING" % str(func), end='')
+						if not skip:
+							dbg("\t%s RUNNING" % str(func), end='')
 
 					sys.__stdout__.flush()
 
-					# Run test (setUp/tearDown run automatically)
-					result = t()
+					if not skip:
+						# Run test (setUp/tearDown run automatically)
+						result = t()
 
 					# Tear down class only on last test
 					if index == len(tlist) - 1:
 						t.tearDownClass()
+
+					if skip:
+						continue
 				except unittest.SkipTest as e:
 					result.skipped.append(t)
 				except Exception as e:
@@ -1256,9 +1271,13 @@ def pre_test(ctx, test, copied):
 		pruned = []
 
 		for s in subtests:
-			# Allow test name both with and without the extension
-			if s in ctx.args.sub_tests or os.path.splitext(s)[0] in ctx.args.sub_tests:
-				pruned.append(s)
+			file = s
+			# Handle <file>.<test function> format
+			if '.' in s:
+				file = s.split('.')[0] + '.py'
+
+			if file == s:
+				pruned.append(file)
 
 		subtests = pruned
 
