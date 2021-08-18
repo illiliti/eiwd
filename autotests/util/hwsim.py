@@ -171,7 +171,9 @@ class Rule(HwsimDBusAbstract):
                prefix + '\tFrequency:\t' + str(self.frequency) + '\n' + \
                prefix + '\tApply rssi:\t' + str(self.signal) + '\n' + \
                prefix + '\tApply drop:\t' + str(self.drop) + '\n' + \
-               prefix + '\tPrefix:\t' + str([hex(b) for b in self.prefix]) + '\n'
+               prefix + '\tPrefix:\t' + str([hex(b) for b in self.prefix]) + '\n' + \
+               prefix + '\tDelay:\t' + str(self.delay) + '\n' + \
+               prefix + '\tEnabled:\t' + str(self.enabled) + '\n'
 
 class RuleSet(collections.Mapping):
     def __init__(self, hwsim, objects):
