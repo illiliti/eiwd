@@ -142,6 +142,16 @@ class Rule(HwsimDBusAbstract):
                             reply_handler=self._success, error_handler=self._failure)
         self._wait_for_async_op()
 
+    @property
+    def enabled(self):
+        return self._properties['Enabled']
+
+    @enabled.setter
+    def enabled(self, value):
+        self._prop_proxy.Set(self._iface_name, 'Enabled', value,
+                            reply_handler=self._success, error_handler=self._failure)
+        self._wait_for_async_op()
+
     def remove(self):
         self._iface.Remove(reply_handler=self._success,
                 error_handler=self._failure)
