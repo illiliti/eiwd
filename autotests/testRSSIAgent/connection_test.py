@@ -20,6 +20,7 @@ class Test(unittest.TestCase):
     def test_rssi_agent(self):
         rule = Hwsim().rules.create()
         rule.signal = -4000
+        rule.enabled = True
 
         wd = IWD()
 

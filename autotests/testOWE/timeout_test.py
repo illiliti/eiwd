@@ -39,12 +39,14 @@ class Test(unittest.TestCase):
         rule0.bidirectional = True
         rule0.drop = True
         rule0.prefix = 'b0'
+        rule0.enabled = True
 
         rule1 = hwsim.rules.create()
         rule1.source = bss_radio1.addresses[0]
         rule1.bidirectional = True
         rule1.drop = True
         rule1.prefix = 'b0'
+        rule1.enabled = True
 
         # Test Authenticate (b0) and Association (00) timeouts
 

@@ -28,10 +28,12 @@ class Test(unittest.TestCase):
         rule0 = hwsim.rules.create()
         rule0.source = bss_radio[0].addresses[0]
         rule0.bidirectional = True
+        rule0.enabled = True
 
         rule1 = hwsim.rules.create()
         rule1.source = bss_radio[1].addresses[0]
         rule1.bidirectional = True
+        rule1.enabled = True
 
         # Fill in the neighbor AP tables in both BSSes.  By default each
         # instance knows only about current BSS, even inside one hostapd

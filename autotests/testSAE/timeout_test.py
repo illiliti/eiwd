@@ -35,6 +35,7 @@ class Test(unittest.TestCase):
         rule0.bidirectional = True
         rule0.drop = True
         rule0.prefix = 'b0'
+        rule0.enabled = True
 
         wd.wait(1)
         print(rule0)
