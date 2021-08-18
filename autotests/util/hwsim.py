@@ -202,6 +202,10 @@ class RuleSet(collections.Mapping):
         self._dict[path] = obj
         return obj
 
+    def remove_all(self):
+        for rule in self._dict.values():
+            rule.remove()
+
 class Radio(HwsimDBusAbstract):
     _iface_name = HWSIM_RADIO_INTERFACE
 
