@@ -1271,16 +1271,18 @@ def pre_test(ctx, test, copied):
 	# Prune down any subtests if needed
 	if ctx.args.sub_tests:
 		ctx.args.sub_tests = ctx.args.sub_tests.split(',')
+
+		to_run = [x.split('.')[0] for x in ctx.args.sub_tests]
 		pruned = []
 
 		for s in subtests:
-			file = s
+			no_ext = s
 			# Handle <file>.<test function> format
 			if '.' in s:
-				file = s.split('.')[0] + '.py'
+				no_ext = s.split('.')[0]
 
-			if file == s:
-				pruned.append(file)
+			if no_ext in to_run:
+				pruned.append(no_ext + '.py')
 
 		subtests = pruned
 
