@@ -489,16 +489,24 @@ class Device(IWDDBusAbstract):
            network wasn't found. If the network is not found an exception is
            raised, this removes the need to extra asserts in autotests.
         '''
-        ordered_networks = self.get_ordered_networks(scan_if_needed)
+        def wait_for_network(self, network, scan_if_needed):
+            networks = self.get_ordered_networks(scan_if_needed)
 
-        if not ordered_networks:
-            raise Exception('Network %s not found' % network)
+            if not networks:
+                # No point in continuing if we aren't going to re-scan
+                if not scan_if_needed:
+                    raise Exception("Network %s not found" % network)
 
-        for n in ordered_networks:
-            if n.name == network:
-                return n
+                return False
 
-        raise Exception('Network %s not found' % network)
+            for n in networks:
+                if n.name == network:
+                    return n
+
+            return False
+
+        return ctx.non_block_wait(wait_for_network, 30, self, network, scan_if_needed,
+                                    exception=Exception("Network %s not found" % network))
 
     def wps_push_button(self):
         self._wps_manager.PushButton(dbus_interface=IWD_WSC_INTERFACE,
