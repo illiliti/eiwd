@@ -1436,8 +1436,10 @@ static void frame_delay_callback(struct l_timeout *timeout, void *user_data)
 	else
 		send_frame_destroy(send_info);
 
-	l_timeout_remove(timeout);
+	if (timeout)
+		l_timeout_remove(timeout);
 }
+
 
 /*
  * Process frames in a similar way to how the kernel built-in hwsim medium
@@ -1457,7 +1459,7 @@ static void process_frame(struct hwsim_frame *frame)
 		struct radio_info_rec *radio = entry->data;
 		struct send_frame_info *send_info;
 		bool drop = drop_mcast;
-		uint32_t delay = HWSIM_DELAY_MIN_MS;
+		uint32_t delay = 0;
 
 		if (radio == frame->src_radio)
 			continue;
@@ -1499,11 +1501,16 @@ static void process_frame(struct hwsim_frame *frame)
 		send_info->radio = radio;
 		send_info->frame = hwsim_frame_ref(frame);
 
-		if (!l_timeout_create_ms(delay, frame_delay_callback,
-						send_info, NULL)) {
-			l_error("Error delaying frame, frame will be dropped");
-			send_frame_destroy(send_info);
-		}
+		if (delay) {
+			if (!l_timeout_create_ms(delay, frame_delay_callback,
+							send_info, NULL)) {
+				l_error("Error delaying frame %ums, "
+						"frame will be dropped", delay);
+				send_frame_destroy(send_info);
+			}
+		} else
+			frame_delay_callback(NULL, send_info);
+
 	}
 
 	hwsim_frame_unref(frame);
@@ -1999,7 +2006,7 @@ static struct l_dbus_message *rule_add(struct l_dbus *dbus,
 	rule->id = next_rule_id++;
 	rule->source_any = true;
 	rule->destination_any = true;
-	rule->delay = HWSIM_DELAY_MIN_MS;
+	rule->delay = 0;
 	rule->enabled = false;
 
 	if (!rules)
