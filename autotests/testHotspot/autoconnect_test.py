@@ -14,7 +14,7 @@ import testutil
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
-        wd = IWD(True, '/tmp')
+        wd = self.wd
 
         hapd_hotspot = HostapdCLI(config='ssidHotspot.conf')
         hapd_wpa = HostapdCLI(config='ssidWPA2-1.conf')
@@ -111,10 +111,14 @@ class Test(unittest.TestCase):
         IWD.copy_to_storage('ssidWPA2-1.psk')
         IWD.copy_to_storage('anqp_enabled.conf', storage_dir=IWD_CONFIG_DIR, name='main.conf')
 
+        cls.wd = IWD(True)
+
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
         os.remove('/tmp/main.conf')
+
+        cls.wd = None
 
 if __name__ == '__main__':
     unittest.main(exit=True)

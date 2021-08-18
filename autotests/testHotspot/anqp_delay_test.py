@@ -17,19 +17,9 @@ from time import sleep
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
-        hwsim = Hwsim()
-
-        bss_radio = hwsim.get_radio('rad0')
-        rule0 = hwsim.rules.create()
-        rule0.source = bss_radio.addresses[0]
-        rule0.bidirectional = True
-
-        wd = IWD(True)
-
-        hapd = HostapdCLI(config='ssidHotspot.conf')
-
-        psk_agent = PSKAgent('abc', ('domain\\user', 'testpasswd'))
-        wd.register_psk_agent(psk_agent)
+        wd = self.wd
+        hapd = self.hapd
+        rule0 = self.rule0
 
         devices = wd.list_devices(1)
         device = devices[0]
@@ -82,17 +72,35 @@ class Test(unittest.TestCase):
         condition = 'not obj.connected'
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
-        wd.unregister_psk_agent(psk_agent)
-
     @classmethod
     def setUpClass(cls):
+        cls.hwsim = Hwsim()
+
+        bss_radio = cls.hwsim.get_radio('rad0')
+        cls.rule0 = cls.hwsim.rules.create()
+        cls.rule0.source = bss_radio.addresses[0]
+        cls.rule0.bidirectional = True
+
+        cls.hapd = HostapdCLI(config='ssidHotspot.conf')
+
         IWD.copy_to_hotspot('example.conf')
         IWD.copy_to_storage('anqp_enabled.conf', storage_dir=IWD_CONFIG_DIR, name='main.conf')
+
+        cls.wd = IWD(True)
+        cls.psk_agent = PSKAgent('abc', ('domain\\user', 'testpasswd'))
+        cls.wd.register_psk_agent(cls.psk_agent)
 
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
+
+        cls.wd.unregister_psk_agent(cls.psk_agent)
+        cls.psk_agent = None
         os.remove('/tmp/main.conf')
+
+        cls.hwsim.rules.remove_all()
+        cls.hwsim = None
+        cls.wd = None
 
 if __name__ == '__main__':
     unittest.main(exit=True)
