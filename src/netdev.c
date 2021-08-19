@@ -5589,6 +5589,8 @@ static void netdev_newlink_notify(const struct ifinfomsg *ifi, int bytes)
 	char old_name[IFNAMSIZ];
 	uint8_t old_addr[ETH_ALEN];
 	struct rtattr *attr;
+	uint8_t *operstate = NULL;
+	uint8_t *linkmode = NULL;
 
 	if (ifi->ifi_family == AF_BRIDGE) {
 		netdev_bridge_port_event(ifi, bytes, true);
@@ -5617,11 +5619,35 @@ static void netdev_newlink_notify(const struct ifinfomsg *ifi, int bytes)
 
 			memcpy(netdev->addr, RTA_DATA(attr), ETH_ALEN);
 			break;
+		case IFLA_OPERSTATE:
+			operstate = RTA_DATA(attr);
+			break;
+		case IFLA_LINKMODE:
+			linkmode = RTA_DATA(attr);
+			break;
 		}
 	}
 
 	if (!netdev->events_ready) /* Did we send NETDEV_WATCH_EVENT_NEW yet? */
 		return;
+
+	/*
+	 * Sometimes the driver sends the Association / Connect event on the
+	 * nl80211 interface before the driver is ready to accept IF_OPER_UP
+	 * setting on the rtnl interface.  This results in our initial
+	 * IF_OPER_UP setting being ignored.  In this case the driver will
+	 * send a New Link event with a stale OperState.  Detect this case and
+	 * try to re-set IF_OPER_UP.
+	 */
+	if (linkmode && *linkmode == 1 &&
+			operstate && *operstate == IF_OPER_DORMANT &&
+			netdev->operational) {
+		l_debug("Retrying setting OperState to IF_OPER_UP");
+		l_rtnl_set_linkmode_and_operstate(rtnl, netdev->index,
+					IF_LINK_MODE_DORMANT, IF_OPER_UP,
+					netdev_operstate_cb,
+					L_UINT_TO_PTR(netdev->index), NULL);
+	}
 
 	new_up = netdev_get_is_up(netdev);
 
