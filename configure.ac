@@ -262,7 +262,7 @@ if (test "${enable_external_ell}" = "yes"); then
 			test "${enable_monitor}" != "no" ||
 			test "${enable_wired}" = "yes" ||
 			test "${enable_hwsim}" = "yes"); then
-		ell_min_version="0.42"
+		ell_min_version="0.43"
 	else
 		ell_min_version="0.5"
 	fi
