@@ -1,0 +1,7 @@
+[Security]
+EAP-Method=MSCHAPV2
+EAP-Identity=mschapv2@example.com
+EAP-Password-Hash=a4f49c406510bdcab6824ee7c30fd852
+
+[Settings]
+AutoConnect=false

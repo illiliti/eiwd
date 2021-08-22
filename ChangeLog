@@ -1,3 +1,9 @@
+ver 1.17:
+	Fix issue with sending additional and vendor IEs.
+	Fix issue with IE ordering for 802.11-2020 support.
+	Fix issue with frequency update on channel switch events.
+	Fix issue with drivers and handling of IF_OPER_UP setting.
+
 ver 1.16:
 	Fix issue with writing provisioning files with a passphrase.
 	Add support for Authenticator & Supplicant RSN Extension elements.

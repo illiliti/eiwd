@@ -13,29 +13,16 @@ import testutil
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
-        hapd = HostapdCLI(config='ssidOWE.conf')
+        hapd = HostapdCLI(config='ssidOWE-1.conf')
 
         wd = IWD()
 
         devices = wd.list_devices(1)
         device = devices[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
+        device.get_ordered_network('ssidOWE')
 
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        ordered_network = device.get_ordered_network('ssidOWE')
-
-        self.assertEqual(ordered_network.type, NetworkType.open)
-
-        condition = 'not obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
-
-        ordered_network.network_object.connect()
+        device.connect_bssid(hapd.bssid)
 
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
@@ -45,8 +32,40 @@ class Test(unittest.TestCase):
 
         device.disconnect()
 
-        condition = 'not obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+    def test_reassociate(self):
+        hapd0 = HostapdCLI(config='ssidOWE-1.conf')
+        hapd1 = HostapdCLI(config='ssidOWE-2.conf')
+
+        wd = IWD()
+
+        devices = wd.list_devices(1)
+        device = devices[0]
+
+        device.get_ordered_network('ssidOWE')
+
+        device.connect_bssid(hapd0.bssid)
+
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
+
+        testutil.test_iface_operstate()
+        testutil.test_ifaces_connected(device.name, hapd0.ifname)
+
+        device.roam(hapd1.bssid)
+
+        condition = 'obj.state == DeviceState.roaming'
+        wd.wait_for_object_condition(device, condition)
+
+        from_condition = 'obj.state == DeviceState.roaming'
+        to_condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_change(device, from_condition, to_condition)
+
+        self.assertTrue(hapd1.list_sta())
+
+        testutil.test_iface_operstate(device.name)
+        testutil.test_ifaces_connected(hapd1.ifname, device.name)
+        self.assertRaises(Exception, testutil.test_ifaces_connected,
+                          (hapd0.ifname, device.name, True, True))
 
     @classmethod
     def setUpClass(cls):

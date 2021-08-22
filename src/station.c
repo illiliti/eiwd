@@ -153,6 +153,24 @@ static bool station_is_autoconnecting(struct station *station)
 			station->state == STATION_STATE_AUTOCONNECT_QUICK;
 }
 
+static bool station_debug_event(struct station *station, const char *name)
+{
+	struct l_dbus_message *signal;
+
+	if (!iwd_is_developer_mode())
+		return true;
+
+	l_debug("StationDebug.Event(%s)", name);
+
+	signal = l_dbus_message_new_signal(dbus_get_bus(),
+					netdev_get_path(station->netdev),
+					IWD_STATION_DEBUG_INTERFACE, "Event");
+
+	l_dbus_message_set_arguments(signal, "sav", name, 0);
+
+	return l_dbus_send(dbus_get_bus(), signal) != 0;
+}
+
 static void station_property_set_scanning(struct station *station,
 								bool scanning)
 {
@@ -288,6 +306,25 @@ static int bss_signal_strength_compare(const void *a, const void *b, void *user)
 	return (bss->signal_strength > new_bss->signal_strength) ? 1 : -1;
 }
 
+static int station_parse_bss_security(struct station *station,
+				struct scan_bss *bss,
+				enum security *security_out)
+{
+	struct ie_rsn_info info;
+	int r;
+
+	r = scan_bss_get_rsn_info(bss, &info);
+	if (r < 0) {
+		if (r != -ENOENT)
+			return r;
+
+		*security_out = security_determine(bss->capability, NULL);
+	} else
+		*security_out = security_determine(bss->capability, &info);
+
+	return 0;
+}
+
 /*
  * Returns the network object the BSS was added to or NULL if ignored.
  */
@@ -295,8 +332,6 @@ static struct network *station_add_seen_bss(struct station *station,
 						struct scan_bss *bss)
 {
 	struct network *network;
-	struct ie_rsn_info info;
-	int r;
 	enum security security;
 	const char *path;
 	char ssid[33];
@@ -325,15 +360,8 @@ static struct network *station_add_seen_bss(struct station *station,
 		return NULL;
 	}
 
-	memset(&info, 0, sizeof(info));
-	r = scan_bss_get_rsn_info(bss, &info);
-	if (r < 0) {
-		if (r != -ENOENT)
-			return NULL;
-
-		security = security_determine(bss->capability, NULL);
-	} else
-		security = security_determine(bss->capability, &info);
+	if (station_parse_bss_security(station, bss, &security) < 0)
+		return NULL;
 
 	path = iwd_network_get_path(station, ssid, security);
 
@@ -745,7 +773,7 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 {
 	enum security security = network_get_security(network);
 	bool add_mde = false;
-	bool fils_hint = false;
+	struct erp_cache_entry *erp_cache = NULL;
 
 	struct ie_rsn_info bss_info;
 	uint8_t rsne_buf[256];
@@ -766,10 +794,10 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 	 * wiphy may select FILS if supported by the AP.
 	 */
 	if (security == SECURITY_8021X && hs->support_fils)
-		fils_hint = network_has_erp_identity(network);
+		erp_cache = network_get_erp_cache(network);
 
 	info.akm_suites = wiphy_select_akm(wiphy, bss, security,
-							&bss_info, fils_hint);
+						&bss_info, erp_cache != NULL);
 
 	/*
 	 * Special case for OWE. With OWE we still need to build up the
@@ -850,6 +878,19 @@ build_ie:
 	if (IE_AKM_IS_FT(info.akm_suites))
 		add_mde = true;
 
+	/*
+	 * If FILS was chosen, the ERP cache has been verified to exist. Take
+	 * a reference now so it remains valid (in case of expiration) until
+	 * FILS starts.
+	 */
+	if (hs->akm_suite & (IE_RSN_AKM_SUITE_FILS_SHA256 |
+				IE_RSN_AKM_SUITE_FILS_SHA384 |
+				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |
+				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
+		hs->erp_cache = erp_cache;
+	else if (erp_cache)
+		erp_cache_put(erp_cache);
+
 open_network:
 	if (security == SECURITY_NONE)
 		/* Perform FT association if available */
@@ -869,6 +910,9 @@ open_network:
 	return 0;
 
 not_supported:
+	if (erp_cache)
+		erp_cache_put(erp_cache);
+
 	return -ENOTSUP;
 }
 
@@ -877,7 +921,10 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 							struct scan_bss *bss)
 {
 	struct wiphy *wiphy = station->wiphy;
+	const struct network_info *info = network_get_info(network);
 	struct handshake_state *hs;
+	const struct iovec *vendor_ies;
+	size_t iov_elems = 0;
 
 	hs = netdev_handshake_state_new(station->netdev);
 
@@ -891,16 +938,8 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 	if (network_handshake_setup(network, hs) < 0)
 		goto not_supported;
 
-	/*
-	 * If FILS was chosen, the ERP cache has been verified to exist. We
-	 * wait to get it until here because at this point so there are no
-	 * failure paths before fils_sm_new
-	 */
-	if (hs->akm_suite & (IE_RSN_AKM_SUITE_FILS_SHA256 |
-				IE_RSN_AKM_SUITE_FILS_SHA384 |
-				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |
-				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
-		hs->erp_cache = erp_cache_get(network_get_ssid(network));
+	vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
+	handshake_state_set_vendor_ies(hs, vendor_ies, iov_elems);
 
 	return hs;
 
@@ -1199,6 +1238,11 @@ bool station_set_autoconnect(struct station *station, bool autoconnect)
 
 	if (station_is_autoconnecting(station) && !autoconnect)
 		station_enter_state(station, STATION_STATE_DISCONNECTED);
+
+	if (iwd_is_developer_mode())
+		l_dbus_property_changed(dbus_get_bus(),
+				netdev_get_path(station->netdev),
+				IWD_STATION_DEBUG_INTERFACE, "AutoConnect");
 
 	return true;
 }
@@ -1729,6 +1773,10 @@ static void station_transition_start(struct station *station,
 
 	/* Can we use Fast Transition? */
 	if (station_can_fast_transition(hs, bss)) {
+		const struct network_info *info = network_get_info(connected);
+		const struct iovec *vendor_ies;
+		size_t iov_elems = 0;
+
 		/* Rebuild handshake RSN for target AP */
 		if (station_build_handshake_rsn(hs, station->wiphy,
 				station->connected_network, bss) < 0) {
@@ -1737,10 +1785,15 @@ static void station_transition_start(struct station *station,
 			return;
 		}
 
+		/* Reset the vendor_ies in case they're different */
+		vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
+		handshake_state_set_vendor_ies(hs, vendor_ies, iov_elems);
+
 		/* FT-over-DS can be better suited for these situations */
 		if ((hs->mde[4] & 1) && station->signal_low) {
 			ret = netdev_fast_transition_over_ds(station->netdev,
-					bss, station_fast_transition_cb);
+					bss, station->connected_bss,
+					station_fast_transition_cb);
 			/* No action responses from this BSS, try over air */
 			if (ret == -ENOENT)
 				goto try_over_air;
@@ -1755,6 +1808,7 @@ static void station_transition_start(struct station *station,
 		} else {
 try_over_air:
 			if (netdev_fast_transition(station->netdev, bss,
+					station->connected_bss,
 					station_fast_transition_cb) < 0) {
 				station_roam_failed(station);
 				return;
@@ -1865,8 +1919,6 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 
 	while ((bss = l_queue_pop_head(bss_list))) {
 		double rank;
-		struct ie_rsn_info info;
-		int r;
 
 		/* Skip the BSS we are connected to if doing an AP roam */
 		if (station->ap_directed_roaming && !memcmp(bss->addr,
@@ -1879,15 +1931,8 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 				memcmp(bss->ssid, hs->ssid, hs->ssid_len))
 			goto next;
 
-		memset(&info, 0, sizeof(info));
-		r = scan_bss_get_rsn_info(bss, &info);
-		if (r < 0) {
-			if (r != -ENOENT)
-				goto next;
-
-			security = security_determine(bss->capability, NULL);
-		} else
-			security = security_determine(bss->capability, &info);
+		if (station_parse_bss_security(station, bss, &security) < 0)
+			goto next;
 
 		if (security != orig_security)
 			goto next;
@@ -1925,8 +1970,10 @@ next:
 		goto fail_free_bss;
 
 	/* See if we have anywhere to roam to */
-	if (!best_bss || scan_bss_addr_eq(best_bss, station->connected_bss))
+	if (!best_bss || scan_bss_addr_eq(best_bss, station->connected_bss)) {
+		station_debug_event(station, "no-roam-candidates");
 		goto fail_free_bss;
+	}
 
 	bss = network_bss_find_by_addr(network, best_bss->addr);
 	if (bss) {
@@ -2555,8 +2602,6 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 int __station_connect_network(struct station *station, struct network *network,
 				struct scan_bss *bss)
 {
-	const struct iovec *extra_ies;
-	size_t iov_elems = 0;
 	struct handshake_state *hs;
 	int r;
 
@@ -2564,10 +2609,8 @@ int __station_connect_network(struct station *station, struct network *network,
 	if (!hs)
 		return -ENOTSUP;
 
-	extra_ies = network_get_extra_ies(network, &iov_elems);
-
-	r = netdev_connect(station->netdev, bss, hs, extra_ies,
-				iov_elems, station_netdev_event,
+	r = netdev_connect(station->netdev, bss, hs, NULL, 0,
+				station_netdev_event,
 				station_connect_cb, station);
 	if (r < 0) {
 		handshake_state_free(hs);
@@ -2680,7 +2723,8 @@ void station_connect_network(struct station *station, struct network *network,
 	station_enter_state(station, STATION_STATE_CONNECTING);
 
 	station->connect_pending = l_dbus_message_ref(message);
-	station->autoconnect = true;
+
+	station_set_autoconnect(station, true);
 
 	return;
 
@@ -3034,20 +3078,10 @@ static struct l_dbus_message *station_dbus_get_hidden_access_points(
 						entry; entry = entry->next) {
 		struct scan_bss *bss = entry->data;
 		int16_t signal_strength = bss->signal_strength;
-		struct ie_rsn_info info;
 		enum security security;
-		int r;
 
-		memset(&info, 0, sizeof(info));
-		r = scan_bss_get_rsn_info(bss, &info);
-		if (r < 0) {
-			if (r != -ENOENT)
-				continue;
-
-			security = security_determine(bss->capability, NULL);
-		} else {
-			security = security_determine(bss->capability, &info);
-		}
+		if (station_parse_bss_security(station, bss, &security) < 0)
+			continue;
 
 		l_dbus_message_builder_enter_struct(builder, "sns");
 		l_dbus_message_builder_append_basic(builder, 's',
@@ -3524,6 +3558,7 @@ static struct station *station_create(struct netdev *netdev)
 #ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
 #endif
+	bool autoconnect = true;
 
 	station = l_new(struct station, 1);
 	watchlist_init(&station->state_watches, NULL);
@@ -3541,8 +3576,6 @@ static struct station *station_create(struct netdev *netdev)
 
 	l_queue_push_head(station_list, station);
 
-	station_set_autoconnect(station, true);
-
 #ifdef HAVE_DBUS
 	l_dbus_object_add_interface(dbus, netdev_get_path(netdev),
 					IWD_STATION_INTERFACE, station);
@@ -3554,6 +3587,18 @@ static struct station *station_create(struct netdev *netdev)
 	station->anqp_pending = l_queue_new();
 
 	station_fill_scan_freq_subsets(station);
+
+	if (iwd_is_developer_mode()) {
+#ifdef HAVE_DBUS
+		l_dbus_object_add_interface(dbus,
+					netdev_get_path(station->netdev),
+					IWD_STATION_DEBUG_INTERFACE,
+					station);
+#endif
+		autoconnect = false;
+	}
+
+	station_set_autoconnect(station, autoconnect);
 
 	return station;
 }
@@ -3568,6 +3613,10 @@ static void station_free(struct station *station)
 	l_dbus_object_remove_interface(dbus_get_bus(),
 					netdev_get_path(station->netdev),
 					IWD_STATION_DIAGNOSTIC_INTERFACE);
+	if (iwd_is_developer_mode())
+		l_dbus_object_remove_interface(dbus_get_bus(),
+					netdev_get_path(station->netdev),
+					IWD_STATION_DEBUG_INTERFACE);
 
 	if (station->netconfig) {
 		netconfig_destroy(station->netconfig);
@@ -3765,6 +3814,9 @@ static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 
 	l_debug("Attempting forced roam to BSS "MAC, MAC_STR(mac));
 
+	/* The various roam routines expect this to be set from scanning */
+	station->preparing_roam = true;
+
 	station_transition_start(station, target);
 
 	return l_dbus_message_new_method_return(message);
@@ -3773,20 +3825,231 @@ invalid_args:
 	return dbus_error_invalid_args(message);
 }
 
+static struct network *station_find_network_from_bss(struct station *station,
+						struct scan_bss *bss)
+{
+	enum security security;
+	char ssid[33];
+
+	memcpy(ssid, bss->ssid, bss->ssid_len);
+	ssid[bss->ssid_len] = '\0';
+
+	if (station_parse_bss_security(station, bss, &security) < 0)
+		return NULL;
+
+	return station_network_find(station, ssid, security);
+}
+
 static void station_setup_diagnostic_interface(
 					struct l_dbus_interface *interface)
 {
 	l_dbus_interface_method(interface, "GetDiagnostics", 0,
 				station_get_diagnostics, "a{sv}", "",
 				"diagnostics");
-
-	if (iwd_is_developer_mode())
-		l_dbus_interface_method(interface, "Roam", 0,
-					station_force_roam, "", "ay", "mac");
 }
 
 static void station_destroy_diagnostic_interface(void *user_data)
 {
+}
+
+static struct l_dbus_message *station_force_connect_bssid(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct station *station = user_data;
+	struct l_queue *bss_list;
+	struct scan_bss *target;
+	struct network *network;
+	struct l_dbus_message_iter iter;
+	uint8_t *mac;
+	uint32_t mac_len;
+
+	if (!l_dbus_message_get_arguments(message, "ay", &iter))
+		goto invalid_args;
+
+	if (!l_dbus_message_iter_get_fixed_array(&iter, &mac, &mac_len))
+		goto invalid_args;
+
+	if (mac_len != 6)
+		return dbus_error_invalid_args(message);
+
+	bss_list = station_get_bss_list(station);
+
+	target = l_queue_find(bss_list, bss_match_bssid, mac);
+	if (!target)
+		return dbus_error_invalid_args(message);
+
+	if (util_ssid_is_hidden(target->ssid_len, target->ssid))
+		return dbus_error_not_found(message);
+
+	network = station_find_network_from_bss(station, target);
+	if (!network)
+		return dbus_error_invalid_args(message);
+
+	l_debug("Attempting forced connection to BSS "MAC, MAC_STR(mac));
+
+	return __network_connect(network, target, message);
+
+invalid_args:
+	return dbus_error_invalid_args(message);
+}
+
+static void station_debug_scan_triggered(int err, void *user_data)
+{
+	struct station *station = user_data;
+	struct l_dbus_message *reply;
+
+	if (err < 0) {
+		if (station->scan_pending) {
+			reply = dbus_error_from_errno(err,
+							station->scan_pending);
+			dbus_pending_reply(&station->scan_pending, reply);
+		}
+
+		station_dbus_scan_done(station);
+		return;
+	}
+
+	l_debug("debug scan triggered for %s",
+			netdev_get_name(station->netdev));
+
+	if (station->scan_pending) {
+		reply = l_dbus_message_new_method_return(station->scan_pending);
+		l_dbus_message_set_arguments(reply, "");
+		dbus_pending_reply(&station->scan_pending, reply);
+	}
+
+	station_property_set_scanning(station, true);
+}
+
+static bool station_debug_scan_results(int err, struct l_queue *bss_list,
+					const struct scan_freq_set *freqs,
+					void *userdata)
+{
+	struct station *station = userdata;
+	bool autoconnect;
+
+	if (err) {
+		station_dbus_scan_done(station);
+		return false;
+	}
+
+	autoconnect = station_is_autoconnecting(station);
+	station_set_scan_results(station, bss_list, freqs, autoconnect);
+
+	station_dbus_scan_done(station);
+
+	return true;
+}
+
+static struct l_dbus_message *station_debug_scan(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct station *station = user_data;
+	struct l_dbus_message_iter iter;
+	uint16_t *freqs;
+	uint32_t freqs_len;
+	struct scan_freq_set *freq_set;
+	unsigned int i;
+
+	if (station->dbus_scan_id)
+		return dbus_error_busy(message);
+
+	if (station->state == STATION_STATE_CONNECTING ||
+			station->state == STATION_STATE_CONNECTING_AUTO)
+		return dbus_error_busy(message);
+
+	if (!l_dbus_message_get_arguments(message, "aq", &iter))
+		goto invalid_args;
+
+	if (!l_dbus_message_iter_get_fixed_array(&iter, &freqs, &freqs_len))
+		goto invalid_args;
+
+	freq_set = scan_freq_set_new();
+
+	for (i = 0; i < freqs_len; i++) {
+		if (!scan_freq_set_add(freq_set, (uint32_t)freqs[i])) {
+			scan_freq_set_free(freq_set);
+			goto invalid_args;
+		}
+
+		l_debug("added frequency %u", freqs[i]);
+	}
+
+	station->dbus_scan_id = station_scan_trigger(station, freq_set,
+						station_debug_scan_triggered,
+						station_debug_scan_results,
+						NULL);
+
+	scan_freq_set_free(freq_set);
+
+	if (!station->dbus_scan_id)
+		goto failed;
+
+	station->scan_pending = l_dbus_message_ref(message);
+
+	return NULL;
+
+failed:
+	return dbus_error_failed(message);
+invalid_args:
+	return dbus_error_invalid_args(message);
+}
+
+static bool station_property_get_autoconnect(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct station *station = user_data;
+	bool autoconnect;
+
+	autoconnect = station->autoconnect;
+
+	l_dbus_message_builder_append_basic(builder, 'b', &autoconnect);
+
+	return true;
+}
+
+static struct l_dbus_message *station_property_set_autoconnect(
+					struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_iter *new_value,
+					l_dbus_property_complete_cb_t complete,
+					void *user_data)
+{
+	struct station *station = user_data;
+	bool autoconnect;
+
+	if (!l_dbus_message_iter_get_variant(new_value, "b", &autoconnect))
+		return dbus_error_invalid_args(message);
+
+	l_debug("Setting autoconnect %s", autoconnect ? "true" : "false");
+
+	station_set_autoconnect(station, autoconnect);
+
+	return l_dbus_message_new_method_return(message);
+}
+
+static void station_setup_debug_interface(
+					struct l_dbus_interface *interface)
+{
+	l_dbus_interface_method(interface, "ConnectBssid", 0,
+					station_force_connect_bssid, "", "ay",
+					"mac");
+	l_dbus_interface_method(interface, "Roam", 0,
+					station_force_roam, "", "ay", "mac");
+
+	l_dbus_interface_method(interface, "Scan", 0,
+					station_debug_scan, "", "aq",
+					"frequencies");
+
+	l_dbus_interface_signal(interface, "Event", 0, "sav", "name", "data");
+
+	l_dbus_interface_property(interface, "AutoConnect", 0, "b",
+					station_property_get_autoconnect,
+					station_property_set_autoconnect);
 }
 
 static void ap_roam_frame_event(const struct mmpdu_header *hdr,
@@ -3863,6 +4126,12 @@ static int station_init(void)
 					station_setup_diagnostic_interface,
 					station_destroy_diagnostic_interface,
 					false);
+	if (iwd_is_developer_mode())
+		l_dbus_register_interface(dbus_get_bus(),
+					IWD_STATION_DEBUG_INTERFACE,
+					station_setup_debug_interface,
+					NULL,
+					false);
 #endif
 
 	if (!l_settings_get_uint(iwd_get_config(), "General",
@@ -3906,6 +4175,9 @@ static void station_exit(void)
 #ifdef HAVE_DBUS
 	l_dbus_unregister_interface(dbus_get_bus(),
 					IWD_STATION_DIAGNOSTIC_INTERFACE);
+	if (iwd_is_developer_mode())
+		l_dbus_unregister_interface(dbus_get_bus(),
+					IWD_STATION_DEBUG_INTERFACE);
 	l_dbus_unregister_interface(dbus_get_bus(), IWD_STATION_INTERFACE);
 #endif
 	netdev_watch_remove(netdev_watch);

@@ -1,2 +1,4 @@
 [Security]
 EAP-Method=PWD
+EAP-Identity=pwd@example.com
+EAP-Password=Password

@@ -1,7 +1,0 @@
-[Security]
-EAP-Method=MSCHAPV2
-EAP-Identity=domain\\User
-EAP-Password-Hash=a4f49c406510bdcab6824ee7c30fd852
-
-[Settings]
-AutoConnect=false

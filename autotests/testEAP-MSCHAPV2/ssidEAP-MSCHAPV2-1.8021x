@@ -1,7 +1,0 @@
-[Security]
-EAP-Method=MSCHAPV2
-EAP-Identity=domain\\User
-EAP-Password=Password
-
-[Settings]
-AutoConnect=false

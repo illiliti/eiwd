@@ -23,14 +23,6 @@ class Test(unittest.TestCase):
         self.assertIsNotNone(devices)
         device = devices[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
         network = device.get_ordered_network('ssidSAE')
 
         self.assertEqual(network.type, NetworkType.psk)
@@ -43,6 +35,7 @@ class Test(unittest.TestCase):
         rule0.bidirectional = True
         rule0.drop = True
         rule0.prefix = 'b0'
+        rule0.enabled = True
 
         wd.wait(1)
         print(rule0)

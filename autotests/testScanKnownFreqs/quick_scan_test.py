@@ -24,6 +24,7 @@ class Test(unittest.TestCase):
     def validate_quick_scan(self, wd):
         devices = wd.list_devices(1)
         device = devices[0]
+        device.autoconnect = True
 
         # Device initiates a passive quick scan and scans only for the known
         # frequencies (listed in .known_network.freq file).

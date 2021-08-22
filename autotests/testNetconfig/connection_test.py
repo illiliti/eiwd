@@ -24,14 +24,6 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(1)
         device = devices[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
         ordered_network = device.get_ordered_network('ssidTKIP')
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
@@ -56,6 +48,13 @@ class Test(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        def remove_lease():
+            try:
+                os.remove('/tmp/dhcpd.leases')
+                os.remove('/tmp/dhcpd.leases~')
+            except:
+                pass
+
         hapd = HostapdCLI()
         # TODO: This could be moved into test-runner itself if other tests ever
         #       require this functionality (p2p, FILS, etc.). Since its simple
@@ -65,14 +64,13 @@ class Test(unittest.TestCase):
         ctx.start_process(['touch', '/tmp/dhcpd.leases'], wait=True)
         cls.dhcpd_pid = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf',
                                             '-lf', '/tmp/dhcpd.leases',
-                                            hapd.ifname])
+                                            hapd.ifname], cleanup=remove_lease)
 
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
         ctx.stop_process(cls.dhcpd_pid)
         cls.dhcpd_pid = None
-        os.remove('/tmp/dhcpd.leases')
 
 if __name__ == '__main__':
     unittest.main(exit=True)

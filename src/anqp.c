@@ -248,7 +248,7 @@ uint32_t anqp_request(uint64_t wdev_id, const uint8_t *addr,
 	iov[0].iov_len = request->frame_len;
 	iov[1].iov_base = NULL;
 
-	l_debug("Sending ANQP request");
+	l_debug("Sending ANQP request to "MAC, MAC_STR(bss->addr));
 
 	request->id = frame_xchg_start(request->wdev_id, iov,
 				request->frequency, 0, 300, 0,

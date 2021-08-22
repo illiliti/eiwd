@@ -22,10 +22,10 @@ class Test(unittest.TestCase):
         adapter = ead.list_adapters(1)[0]
 
         condition = 'obj.connected == True'
-        ead.wait_for_object_condition(adapter, condition)
+        IWD._wait_for_object_condition(adapter, condition)
 
         condition = 'obj.authenticated == True'
-        ead.wait_for_object_condition(adapter, condition)
+        IWD._wait_for_object_condition(adapter, condition)
 
         ctx.stop_process(p)
     @classmethod

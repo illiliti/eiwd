@@ -32,6 +32,7 @@ ssize_t write_file(const void *buffer, size_t len, bool preserve_times,
 			const char *path_fmt, ...)
 	__attribute__((format(printf, 4, 5)));
 
+bool storage_is_file(const char *filename);
 bool storage_create_dirs(void);
 void storage_cleanup_dirs(void);
 char *storage_get_path(const char *format, ...);

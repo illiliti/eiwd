@@ -51,7 +51,12 @@ def tx(fromsock, tosock, src, dst):
 
     return (frame, fromsock, tosock, src, dst)
 
-def test_connected(if0=None, if1=None, group=True):
+def test_connected(if0=None, if1=None, group=True, expect_fail=False):
+    if expect_fail:
+        timeout = 0
+    else:
+        timeout = 10
+
     if if0 is None or if1 is None:
         iwd_list = [dev.name for dev in iwd.IWD.get_instance().list_devices()]
 
@@ -82,7 +87,7 @@ def test_connected(if0=None, if1=None, group=True):
             rec.append(False)
 
         while not all(rec):
-            r, w, x = select.select([sock0, sock1], [], [], 10)
+            r, w, x = select.select([sock0, sock1], [], [], timeout)
             if not r:
                 raise Exception('timeout waiting for packets: ' + repr(rec))
 
@@ -110,15 +115,15 @@ def test_connected(if0=None, if1=None, group=True):
         sock0.close()
         sock1.close()
 
-def test_ifaces_connected(if0=None, if1=None, group=True):
+def test_ifaces_connected(if0=None, if1=None, group=True, expect_fail=False):
     retry = 0
     while True:
         try:
-            test_connected(if0, if1, group)
+            test_connected(if0, if1, group, expect_fail)
             break
 
         except Exception as e:
-            if retry < 3:
+            if retry < 3 and not expect_fail:
                 print('retrying connection test: %i' % retry)
                 retry += 1
                 continue

@@ -39,6 +39,7 @@ IWD_P2P_INTERFACE =             'net.connman.iwd.p2p.Device'
 IWD_P2P_PEER_INTERFACE =        'net.connman.iwd.p2p.Peer'
 IWD_P2P_SERVICE_MANAGER_INTERFACE = 'net.connman.iwd.p2p.ServiceManager'
 IWD_P2P_WFD_INTERFACE =         'net.connman.iwd.p2p.Display'
+IWD_STATION_DEBUG_INTERFACE =   'net.connman.iwd.StationDebug'
 
 IWD_AGENT_MANAGER_PATH =        '/net/connman/iwd'
 IWD_TOP_LEVEL_PATH =            '/'
@@ -108,9 +109,7 @@ class AsyncOpAbstract(object):
         self._exception = _convert_dbus_ex(ex)
 
     def _wait_for_async_op(self):
-        context = ctx.mainloop.get_context()
-        while not self._is_completed:
-            context.iteration(may_block=True)
+        ctx.non_block_wait(lambda s: s._is_completed, 30, self, exception=None)
 
         self._is_completed = False
         if self._exception is not None:
@@ -225,6 +224,54 @@ class AdHocDevice(IWDDBusAbstract):
     def connected_peers(self):
         return self._properties['ConnectedPeers']
 
+class StationDebug(IWDDBusAbstract):
+    '''
+        Class represents net.connman.iwd.StationDebug
+    '''
+    _iface_name = IWD_STATION_DEBUG_INTERFACE
+
+    def __init__(self, *args, **kwargs):
+        self._debug_props = None
+        self._debug_iface = None
+        self._last_event = None
+        self._last_event_data = []
+
+        IWDDBusAbstract.__init__(self, *args, **kwargs)
+
+        self._iface.connect_to_signal("Event", self._event_handler)
+
+    def _event_handler(self, event, data):
+        self._last_event = event
+        self._last_event_data = data
+
+    @property
+    def autoconnect(self):
+        return self._properties['AutoConnect']
+
+    def connect_bssid(self, address):
+        self._iface.ConnectBssid(dbus.ByteArray.fromhex(address.replace(':', '')))
+
+    def roam(self, address):
+        self._iface.Roam(dbus.ByteArray.fromhex(address.replace(':', '')))
+
+    def scan(self, frequencies):
+        frequencies = dbus.Array([dbus.UInt16(f) for f in frequencies])
+        self._iface.Scan(frequencies)
+
+    def wait_for_event(self, event, timeout=10):
+        try:
+            if self._last_event is not None:
+                return self._last_event_data
+
+            ctx.non_block_wait(lambda s, e : s._last_event == e, timeout, self, event,
+                                exception=TimeoutError("waiting for StationDebug.Event"))
+
+            return self._last_event_data
+        finally:
+            # Consume the event
+            self._last_event_data = None
+            self._last_event = None
+
 
 class Device(IWDDBusAbstract):
     '''
@@ -237,7 +284,10 @@ class Device(IWDDBusAbstract):
         self._wps_manager_if = None
         self._station_if = None
         self._station_props = None
+
         IWDDBusAbstract.__init__(self, *args, **kwargs)
+
+        self._station_debug = StationDebug(*args, **kwargs)
 
     @property
     def _wps_manager(self):
@@ -353,6 +403,15 @@ class Device(IWDDBusAbstract):
         props = self._station_properties()
         return bool(props['Scanning'])
 
+    @property
+    def autoconnect(self):
+        return self._station_debug.autoconnect
+
+    @autoconnect.setter
+    def autoconnect(self, value):
+        self._station_debug._prop_proxy.Set(IWD_STATION_DEBUG_INTERFACE,
+                                            'AutoConnect', value)
+
     def scan(self):
         '''Schedule a network scan.
 
@@ -378,7 +437,7 @@ class Device(IWDDBusAbstract):
 
         self._wait_for_async_op()
 
-    def get_ordered_networks(self, scan_if_needed = False):
+    def get_ordered_networks(self, scan_if_needed = True, full_scan = False):
         '''Return the list of networks found in the most recent
            scan, sorted by their user interface importance
            score as calculated by iwd.  If the device is
@@ -400,7 +459,16 @@ class Device(IWDDBusAbstract):
         elif not scan_if_needed:
             return None
 
-        self.scan()
+        condition = 'not obj.scanning'
+        IWD._wait_for_object_condition(self, condition)
+
+        try:
+            if full_scan:
+                self.scan()
+            else:
+                self.debug_scan(ctx.get_frequencies())
+        except InProgressEx:
+            pass
 
         condition = 'obj.scanning'
         IWD._wait_for_object_condition(self, condition)
@@ -416,21 +484,29 @@ class Device(IWDDBusAbstract):
 
         return None
 
-    def get_ordered_network(self, network, scan_if_needed = False):
+    def get_ordered_network(self, network, scan_if_needed = True, full_scan = False):
         '''Returns a single network from ordered network call, or None if the
            network wasn't found. If the network is not found an exception is
            raised, this removes the need to extra asserts in autotests.
         '''
-        ordered_networks = self.get_ordered_networks(scan_if_needed)
+        def wait_for_network(self, network, scan_if_needed):
+            networks = self.get_ordered_networks(scan_if_needed)
 
-        if not ordered_networks:
-            raise Exception('Network %s not found' % network)
+            if not networks:
+                # No point in continuing if we aren't going to re-scan
+                if not scan_if_needed:
+                    raise Exception("Network %s not found" % network)
 
-        for n in ordered_networks:
-            if n.name == network:
-                return n
+                return False
 
-        raise Exception('Network %s not found' % network)
+            for n in networks:
+                if n.name == network:
+                    return n
+
+            return False
+
+        return ctx.non_block_wait(wait_for_network, 30, self, network, scan_if_needed,
+                                    exception=Exception("Network %s not found" % network))
 
     def wps_push_button(self):
         self._wps_manager.PushButton(dbus_interface=IWD_WSC_INTERFACE,
@@ -534,6 +610,18 @@ class Device(IWDDBusAbstract):
 
     def stop_adhoc(self):
         self._prop_proxy.Set(IWD_DEVICE_INTERFACE, 'Mode', 'station')
+
+    def connect_bssid(self, address):
+        self._station_debug.connect_bssid(address)
+
+    def roam(self, address):
+        self._station_debug.roam(address)
+
+    def debug_scan(self, frequencies):
+        self._station_debug.scan(frequencies)
+
+    def wait_for_event(self, event, timeout=10):
+        self._station_debug.wait_for_event(event, timeout)
 
     def __str__(self, prefix = ''):
         return prefix + 'Device: ' + self.device_path + '\n'\
@@ -956,16 +1044,8 @@ class IWD(AsyncOpAbstract):
             self._iwd_proc = self.namespace.start_iwd(iwd_config_dir,
                                                         iwd_storage_dir)
 
-        tries = 0
-        while not self._bus.name_has_owner(IWD_SERVICE):
-            if not ctx.args.gdb:
-                if tries > 200:
-                    if start_iwd_daemon:
-                        self.namespace.stop_process(self._iwd_proc)
-                        self._iwd_proc = None
-                    raise TimeoutError('IWD has failed to start')
-                tries += 1
-            time.sleep(0.1)
+        ctx.non_block_wait(self._bus.name_has_owner, 20, IWD_SERVICE,
+                                exception=TimeoutError('IWD has failed to start'))
 
         self._devices = DeviceList(self)
 
@@ -1011,27 +1091,13 @@ class IWD(AsyncOpAbstract):
 
     @staticmethod
     def _wait_for_object_condition(obj, condition_str, max_wait = 50):
-        class TimeoutData:
-            _wait_timed_out = False
+        def _eval_wrap(obj, condition_str):
+            return eval(condition_str)
 
-        data = TimeoutData()
-
-        def wait_timeout_cb(data):
-            data._wait_timed_out = True
-            return False
-
-        try:
-            timeout = GLib.timeout_add_seconds(max_wait, wait_timeout_cb, data)
-            context = ctx.mainloop.get_context()
-            while not eval(condition_str):
-                context.iteration(may_block=True)
-                if data._wait_timed_out and ctx.args.gdb == None:
-                    raise TimeoutError('[' + condition_str + ']'\
-                                       ' condition was not met in '\
-                                       + str(max_wait) + ' sec')
-        finally:
-            if not data._wait_timed_out:
-                GLib.source_remove(timeout)
+        ctx.non_block_wait(_eval_wrap, max_wait, obj, condition_str,
+                            exception=TimeoutError('[' + condition_str + ']'\
+                                                   ' condition was not met in '\
+                                                   + str(max_wait) + ' sec'))
 
     def wait_for_object_condition(self, *args, **kwargs):
         self._wait_for_object_condition(*args, **kwargs)
@@ -1045,54 +1111,30 @@ class IWD(AsyncOpAbstract):
             This allows an object to be checked for a state transition without any
             intermediate state changes.
         '''
-        self._wait_timed_out = False
+        def _eval_from_to(obj, from_str, to_str):
+            # If neither the initial or expected condition evaluate the
+            # object must be in another unexpected state.
+            if not eval(from_str) and not eval(to_str):
+                raise Exception('unexpected condition between [%s] and [%s]' %
+                                        (from_str, to_str))
 
-        def wait_timeout_cb():
-            self._wait_timed_out = True
+            # Initial condition does not evaluate but expected does, pass
+            if not eval(from_str) and eval(to_str):
+                return True
+
             return False
 
         # Does initial condition pass?
         if not eval(from_str):
             raise Exception("initial condition [%s] not met" % from_str)
 
-        try:
-            timeout = GLib.timeout_add_seconds(max_wait, wait_timeout_cb)
-            context = ctx.mainloop.get_context()
-            while True:
-                context.iteration(may_block=True)
-
-                # If neither the initial or expected condition evaluate the
-                # object must be in another unexpected state.
-                if not eval(from_str) and not eval(to_str):
-                    raise Exception('unexpected condition between [%s] and [%s]' %
-                                        (from_str, to_str))
-
-                # Initial condition does not evaluate but expected does, pass
-                if not eval(from_str) and eval(to_str):
-                    break
-
-                if self._wait_timed_out and ctx.args.gdb == None:
-                    raise TimeoutError('[' + to_str + ']'\
+        ctx.non_block_wait(_eval_from_to, max_wait, obj, from_str, to_str,
+                            exception=TimeoutError('[' + to_str + ']'\
                                        ' condition was not met in '\
-                                       + str(max_wait) + ' sec')
-        finally:
-            if not self._wait_timed_out:
-                GLib.source_remove(timeout)
+                                       + str(max_wait) + ' sec'))
 
     def wait(self, time):
-        self._wait_timed_out = False
-        def wait_timeout_cb():
-            self._wait_timed_out = True
-            return False
-
-        try:
-            timeout = GLib.timeout_add(int(time * 1000), wait_timeout_cb)
-            context = ctx.mainloop.get_context()
-            while not self._wait_timed_out:
-                context.iteration(may_block=True)
-        finally:
-            if not self._wait_timed_out:
-                GLib.source_remove(timeout)
+        ctx.non_block_wait(lambda : False, time, exception=False)
 
     @staticmethod
     def clear_storage(storage_dir=IWD_STORAGE_DIR):
@@ -1108,10 +1150,13 @@ class IWD(AsyncOpAbstract):
         fo.close()
 
     @staticmethod
-    def copy_to_storage(source, storage_dir=IWD_STORAGE_DIR):
+    def copy_to_storage(source, storage_dir=IWD_STORAGE_DIR, name=None):
         import shutil
 
         assert not os.path.isabs(source)
+
+        if name:
+            storage_dir += '/%s' % name
 
         shutil.copy(source, storage_dir)
 
@@ -1137,21 +1182,8 @@ class IWD(AsyncOpAbstract):
         if not wait_to_appear:
             return list(self._devices.values() if not p2p else self._devices.p2p_dict.values())
 
-        self._wait_timed_out = False
-        def wait_timeout_cb():
-            self._wait_timed_out = True
-            return False
-
-        try:
-            timeout = GLib.timeout_add_seconds(max_wait, wait_timeout_cb)
-            context = ctx.mainloop.get_context()
-            while len(self._devices) < wait_to_appear:
-                context.iteration(may_block=True)
-                if self._wait_timed_out:
-                    raise TimeoutError('IWD has no associated devices')
-        finally:
-            if not self._wait_timed_out:
-                GLib.source_remove(timeout)
+        ctx.non_block_wait(lambda s, n: len(s._devices) >= n, max_wait, self, wait_to_appear,
+                            exception=TimeoutError('IWD has no associated devices'))
 
         return list(self._devices.values() if not p2p else self._devices.p2p_dict.values())[:wait_to_appear]
 

@@ -31,6 +31,7 @@ struct auth_proto {
 					const uint8_t *frame, size_t len);
 	bool (*auth_timeout)(struct auth_proto *ap);
 	bool (*assoc_timeout)(struct auth_proto *ap);
+	uint8_t prev_bssid[6];
 };
 
 static inline void auth_proto_free(struct auth_proto *ap)

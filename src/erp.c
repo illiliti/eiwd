@@ -336,6 +336,7 @@ struct erp_state *erp_new(struct erp_cache_entry *cache,
 	erp->tx_packet = tx_packet;
 	erp->user_data = user_data;
 	erp->cache = cache;
+	cache->ref++;
 
 	return erp;
 }

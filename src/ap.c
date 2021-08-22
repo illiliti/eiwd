@@ -251,6 +251,11 @@ static void ap_del_station(struct sta_state *sta, uint16_t reason,
 		sta->rsna = false;
 	}
 
+	if (sta->assoc_resp_cmd_id) {
+		l_genl_family_cancel(ap->nl80211, sta->assoc_resp_cmd_id);
+		sta->assoc_resp_cmd_id = 0;
+	}
+
 	if (sta->gtk_query_cmd_id) {
 		l_genl_family_cancel(ap->nl80211, sta->gtk_query_cmd_id);
 		sta->gtk_query_cmd_id = 0;
@@ -258,6 +263,10 @@ static void ap_del_station(struct sta_state *sta, uint16_t reason,
 
 	ap_stop_handshake(sta);
 
+	/*
+	 * If the event handler tears the AP down, we've made sure above that
+	 * a subsequent ap_sta_free(sta) has no need to access sta->ap.
+	 */
 	if (send_event)
 		ap->ops->handle_event(AP_EVENT_STATION_REMOVED, &event_data,
 					ap->user_data);
@@ -526,7 +535,6 @@ static size_t ap_write_wsc_ie(struct ap_state *ap,
 				size_t client_frame_len,
 				uint8_t *out_buf)
 {
-	const uint8_t *from = client_frame->address_2;
 	uint8_t *wsc_data;
 	size_t wsc_data_size;
 	uint8_t *wsc_ie;
@@ -535,6 +543,7 @@ static size_t ap_write_wsc_ie(struct ap_state *ap,
 
 	/* WSC IE */
 	if (type == MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE) {
+		const uint8_t *from = client_frame->address_2;
 		struct wsc_probe_response wsc_pr = {};
 		const struct mmpdu_probe_request *req =
 			mmpdu_body(client_frame);
@@ -597,6 +606,7 @@ static size_t ap_write_wsc_ie(struct ap_state *ap,
 		wsc_data = wsc_build_beacon(&wsc_beacon, &wsc_data_size);
 	} else if (L_IN_SET(type, MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_RESPONSE,
 			MPDU_MANAGEMENT_SUBTYPE_REASSOCIATION_RESPONSE)) {
+		const uint8_t *from = client_frame->address_2;
 		struct wsc_association_response wsc_resp = {};
 		struct sta_state *sta =
 			l_queue_find(ap->sta_states, ap_sta_match_addr, from);
@@ -2003,7 +2013,6 @@ static void ap_deauth_cb(const struct mmpdu_header *hdr, const void *body,
 				size_t body_len, int rssi, void *user_data)
 {
 	struct ap_state *ap = user_data;
-	struct sta_state *sta;
 	const struct mmpdu_deauthentication *deauth = body;
 	const uint8_t *bssid = netdev_get_address(ap->netdev);
 
@@ -2015,14 +2024,8 @@ static void ap_deauth_cb(const struct mmpdu_header *hdr, const void *body,
 			memcmp(hdr->address_3, bssid, 6))
 		return;
 
-	sta = l_queue_remove_if(ap->sta_states, ap_sta_match_addr,
-				hdr->address_2);
-	if (!sta)
-		return;
-
-	ap_del_station(sta, L_LE16_TO_CPU(deauth->reason_code), false);
-
-	ap_sta_free(sta);
+	ap_station_disconnect(ap, hdr->address_2,
+				L_LE16_TO_CPU(deauth->reason_code));
 }
 
 static void do_debug(const char *str, void *user_data)
@@ -2338,7 +2341,6 @@ cleanup:
 
 static void ap_handle_del_station(struct ap_state *ap, struct l_genl_msg *msg)
 {
-	struct sta_state *sta;
 	struct l_genl_attr attr;
 	uint16_t type;
 	uint16_t len;
@@ -2365,12 +2367,7 @@ static void ap_handle_del_station(struct ap_state *ap, struct l_genl_msg *msg)
 		}
 	}
 
-	sta = l_queue_find(ap->sta_states, ap_sta_match_addr, mac);
-	if (!sta)
-		return;
-
-	ap_del_station(sta, reason, true);
-	ap_remove_sta(sta);
+	ap_station_disconnect(ap, mac, reason);
 }
 
 static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)

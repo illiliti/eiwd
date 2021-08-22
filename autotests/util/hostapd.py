@@ -28,10 +28,28 @@ chan_freq_map = [
 ctrl_count = 0
 mainloop = GLib.MainLoop()
 
-class HostapdCLI:
-    def _init_hostapd(self, config=None):
+class HostapdCLI(object):
+    _instances = {}
+
+    def __new__(cls, config=None, *args, **kwargs):
+        hapd = ctx.hostapd[config]
+
+        if not config:
+            config = hapd.config
+
+        if not config in cls._instances.keys():
+            cls._instances[config] = object.__new__(cls, *args, **kwargs)
+            cls._instances[config]._initialized = False
+
+        return cls._instances[config]
+
+    def _init_hostapd(self, config, reinit=False):
         global ctrl_count
-        interface = None
+
+        if self._initialized and not reinit:
+            return
+
+        self._initialized = True
         self.ctrl_sock = None
 
         if not ctx.hostapd:
@@ -53,9 +71,6 @@ class HostapdCLI:
 
         self.cmdline = ['hostapd_cli', '-p', self.socket_path, '-i', self.ifname]
 
-        if not hasattr(self, '_hostapd_restarted'):
-            self._hostapd_restarted = False
-
         self.local_ctrl = '/tmp/hostapd_' + str(os.getpid()) + '_' + \
                             str(ctrl_count)
         self.ctrl_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
@@ -68,33 +83,22 @@ class HostapdCLI:
 
         ctrl_count = ctrl_count + 1
 
-    def __init__(self, config=None):
+    def __init__(self, config=None, *args, **kwargs):
         self._init_hostapd(config)
 
-    def wait_for_event(self, event, timeout=10):
-        global mainloop
-        self._wait_timed_out = False
-
-        def wait_timeout_cb():
-            self._wait_timed_out = True
+    def _poll_event(self, event):
+        if not self._data_available(0.25):
             return False
 
-        timeout = GLib.timeout_add_seconds(timeout, wait_timeout_cb)
-        context = mainloop.get_context()
+        data = self.ctrl_sock.recv(4096).decode('utf-8')
+        if event in data:
+            return data
 
-        while True:
-            context.iteration(may_block=False)
+        return False
 
-            while self._data_available(0.25):
-                data = self.ctrl_sock.recv(4096).decode('utf-8')
-                if event in data:
-                    GLib.source_remove(timeout)
-                    return data
-
-            if self._wait_timed_out:
-                raise TimeoutError('waiting for hostapd event timed out')
-
-        return None
+    def wait_for_event(self, event, timeout=10):
+        return ctx.non_block_wait(self._poll_event, timeout, event,
+                                    exception=TimeoutError("waiting for event"))
 
     def _data_available(self, timeout=2):
         [r, w, e] = select.select([self.ctrl_sock], [], [], timeout)
@@ -108,10 +112,10 @@ class HostapdCLI:
 
         self.ctrl_sock.send(bytes(command))
 
-        if self._data_available(timeout):
-            return self.ctrl_sock.recv(4096).decode('utf-8')
+        ctx.non_block_wait(self._data_available, timeout,
+                            exception=TimeoutError("waiting for control response"))
 
-        raise Exception('timeout waiting for control response')
+        return self.ctrl_sock.recv(4096).decode('utf-8')
 
     def _del_hostapd(self, force=False):
         if not self.ctrl_sock:
@@ -124,14 +128,15 @@ class HostapdCLI:
         except:
             pass
 
-        if self._hostapd_restarted:
-            ctx.stop_process(ctx.hostapd.process, force)
-
-            self.interface.set_interface_state('down')
-            self.interface.set_interface_state('up')
-
     def __del__(self):
         self._del_hostapd()
+
+        HostapdCLI._instances[self.config] = None
+
+        # Check if this is the final instance
+        destroy = len([hapd for hapd in HostapdCLI._instances.values() if hapd is not None]) == 0
+        if destroy:
+            HostapdCLI._instances = {}
 
     def set_value(self, key, value):
         cmd = self.cmdline + ['set', key, value]
@@ -197,26 +202,14 @@ class HostapdCLI:
         if 'OK' not in proc.out:
             raise Exception('BSS_TM_REQ failed, is hostapd built with CONFIG_WNM_AP=y?')
 
-    def get_config_value(self, key):
-        # first find the right config file
-        with open(self.config, 'r') as f:
-            # read in config file and search for key
-            cfg = f.read()
-            match = re.search(r'%s=.*' % key, cfg)
-            if match:
-                return match.group(0).split('=')[1]
-        return None
-
-
-    def get_freq(self):
-        return chan_freq_map[int(self.get_config_value('channel'))]
-
     def ungraceful_restart(self):
         '''
             Ungracefully kill and restart hostapd
         '''
-        # set flag so hostapd can be killed after the test
-        self._hostapd_restarted = True
+        ctx.stop_process(ctx.hostapd.process, True)
+
+        self.interface.set_interface_state('down')
+        self.interface.set_interface_state('up')
 
         self._del_hostapd(force=True)
 
@@ -226,7 +219,7 @@ class HostapdCLI:
         time.sleep(1)
 
         # New hostapd process, so re-init
-        self._init_hostapd(config=self.config)
+        self._init_hostapd(config=self.config, reinit=True)
 
     def req_beacon(self, addr, request):
         '''
@@ -234,3 +227,24 @@ class HostapdCLI:
         '''
         cmd = self.cmdline + ['req_beacon', addr, request]
         ctx.start_process(cmd, wait=True)
+
+    @property
+    def bssid(self):
+        cmd = self.cmdline + ['status']
+        status = ctx.start_process(cmd, wait=True, need_out=True).out
+        status = status.split('\n')
+
+        bssid = [x for x in status if x.startswith('bssid')]
+        bssid = bssid[0].split('=')
+        return bssid[1]
+
+    @property
+    def frequency(self):
+        cmd = self.cmdline + ['status']
+        status = ctx.start_process(cmd, wait=True, need_out=True).out
+        status = status.split('\n')
+
+        frequency = [x for x in status if x.startswith('freq')][0]
+        frequency = frequency.split('=')[1]
+
+        return int(frequency)

@@ -110,7 +110,6 @@ struct netdev {
 	struct wiphy *wiphy;
 	unsigned int ifi_flags;
 	uint32_t frequency;
-	uint32_t prev_frequency;
 
 	netdev_event_func_t event_filter;
 	netdev_connect_cb_t connect_cb;
@@ -135,7 +134,6 @@ struct netdev {
 	struct l_timeout *sa_query_timeout;
 	struct l_timeout *group_handshake_timeout;
 	uint16_t sa_query_id;
-	uint8_t prev_bssid[ETH_ALEN];
 	uint8_t prev_snonce[32];
 	int8_t rssi_levels[16];
 	uint8_t rssi_levels_num;
@@ -182,6 +180,7 @@ struct netdev {
 	bool aborting : 1;
 	bool events_ready : 1;
 	bool retry_auth : 1;
+	bool in_reassoc : 1;
 };
 
 struct netdev_preauth_state {
@@ -268,6 +267,32 @@ static inline bool is_offload(struct handshake_state *hs)
 	}
 
 	return false;
+}
+
+static unsigned int netdev_populate_common_ies(struct netdev *netdev,
+					struct handshake_state *hs,
+					struct l_genl_msg *msg,
+					struct iovec *iov,
+					unsigned int n_iov,
+					unsigned int c_iov)
+{
+	const uint8_t *extended_capabilities;
+	const uint8_t *rm_enabled_capabilities;
+
+	extended_capabilities = wiphy_get_extended_capabilities(netdev->wiphy,
+								netdev->type);
+	c_iov = iov_ie_append(iov, n_iov, c_iov, extended_capabilities);
+
+	rm_enabled_capabilities =
+		wiphy_get_rm_enabled_capabilities(netdev->wiphy);
+	c_iov = iov_ie_append(iov, n_iov, c_iov, rm_enabled_capabilities);
+
+	if (rm_enabled_capabilities)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_USE_RRM, 0, NULL);
+
+	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->vendor_ies);
+
+	return c_iov;
 }
 
 /* Cancels ongoing GTK/IGTK related commands (if any) */
@@ -756,6 +781,7 @@ static void netdev_connect_free(struct netdev *netdev)
 	netdev->result = NETDEV_RESULT_OK;
 	netdev->last_code = 0;
 	netdev->in_ft = false;
+	netdev->in_reassoc = false;
 	netdev->ignore_connect_event = false;
 	netdev->expect_connect_failure = false;
 	netdev->cur_rssi_low = false;
@@ -1098,7 +1124,7 @@ static void netdev_disconnect_event(struct l_genl_msg *msg,
 	l_debug("");
 
 	if (!netdev->connected || netdev->disconnect_cmd_id > 0 ||
-			netdev->in_ft)
+			netdev->in_ft || netdev->in_reassoc)
 		return;
 
 	if (!l_genl_attr_init(&attr, msg)) {
@@ -2535,6 +2561,7 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 								false);
 
 			netdev->in_ft = false;
+			netdev->in_reassoc = false;
 			netdev->associated = true;
 			return;
 		} else if (ret == -EAGAIN) {
@@ -2704,17 +2731,27 @@ static void netdev_sae_tx_associate(void *user_data)
 	struct netdev *netdev = user_data;
 	struct handshake_state *hs = netdev->handshake;
 	struct l_genl_msg *msg;
-	struct iovec iov[3];
+	struct iovec iov[64];
 	unsigned int n_iov = L_ARRAY_SIZE(iov);
 	unsigned int n_used = 0;
+	enum mpdu_management_subtype subtype =
+				MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_REQUEST;
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
 	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_ie);
 	n_used = iov_ie_append(iov, n_iov, n_used, hs->mde);
 	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_rsnxe);
+	n_used = netdev_populate_common_ies(netdev, hs, msg,
+							iov, n_iov, n_used);
+	mpdu_sort_ies(subtype, iov, n_used);
 
 	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, n_used);
+
+	/* If doing a non-FT Reassociation */
+	if (netdev->in_reassoc)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, 6,
+					netdev->ap->prev_bssid);
 
 	if (!l_genl_family_send(nl80211, msg, netdev_assoc_cb, netdev, NULL)) {
 		l_genl_msg_unref(msg);
@@ -2743,15 +2780,35 @@ static void netdev_owe_tx_authenticate(void *user_data)
 	netdev->auth_cmd = l_genl_msg_ref(msg);
 }
 
-static void netdev_owe_tx_associate(struct iovec *ie_iov, size_t iov_len,
+static void netdev_owe_tx_associate(struct iovec *owe_iov, size_t n_owe_iov,
 					void *user_data)
 {
 	struct netdev *netdev = user_data;
+	struct handshake_state *hs = netdev->handshake;
 	struct l_genl_msg *msg;
+	struct iovec iov[64];
+	unsigned int n_iov = L_ARRAY_SIZE(iov);
+	unsigned int c_iov = 0;
+	enum mpdu_management_subtype subtype =
+				MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_REQUEST;
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
-	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, ie_iov, iov_len);
+	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
+
+	if (!L_WARN_ON(n_iov - c_iov < n_owe_iov)) {
+		memcpy(iov + c_iov, owe_iov, sizeof(*owe_iov) * n_owe_iov);
+		c_iov += n_owe_iov;
+	}
+
+	mpdu_sort_ies(subtype, iov, c_iov);
+
+	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
+
+	/* If doing a non-FT Reassociation */
+	if (netdev->in_reassoc)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, 6,
+					netdev->ap->prev_bssid);
 
 	if (!l_genl_family_send(nl80211, msg, netdev_assoc_cb,
 							netdev, NULL)) {
@@ -2784,20 +2841,41 @@ static void netdev_fils_tx_authenticate(const uint8_t *body,
 	netdev->auth_cmd = l_genl_msg_ref(msg);
 }
 
-static void netdev_fils_tx_associate(struct iovec *iov, size_t iov_len,
+static void netdev_fils_tx_associate(struct iovec *fils_iov, size_t n_fils_iov,
 					const uint8_t *kek, size_t kek_len,
-					const uint8_t *nonces, size_t nonces_len,
+					const uint8_t *nonces,
+					size_t nonces_len,
 					void *user_data)
 {
 	struct netdev *netdev = user_data;
+	struct handshake_state *hs = netdev->handshake;
 	struct l_genl_msg *msg;
+	struct iovec iov[64];
+	unsigned int n_iov = L_ARRAY_SIZE(iov);
+	unsigned int c_iov = 0;
+	enum mpdu_management_subtype subtype =
+				MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_REQUEST;
 
 	msg = netdev_build_cmd_associate_common(netdev);
+	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
 
-	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, iov_len);
+	if (!L_WARN_ON(n_iov - c_iov < n_fils_iov)) {
+		memcpy(iov + c_iov, fils_iov, sizeof(*fils_iov) * n_fils_iov);
+		c_iov += n_fils_iov;
+	}
+
+	mpdu_sort_ies(subtype, iov, c_iov);
+
+	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
 
 	l_genl_msg_append_attr(msg, NL80211_ATTR_FILS_KEK, kek_len, kek);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_FILS_NONCES, nonces_len, nonces);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_FILS_NONCES,
+							nonces_len, nonces);
+
+	/* If doing a non-FT Reassociation */
+	if (netdev->in_reassoc)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, 6,
+					netdev->ap->prev_bssid);
 
 	if (!l_genl_family_send(nl80211, msg, netdev_assoc_cb,
 							netdev, NULL)) {
@@ -2819,12 +2897,14 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 	uint32_t auth_type = IE_AKM_IS_SAE(hs->akm_suite) ?
 					NL80211_AUTHTYPE_SAE :
 					NL80211_AUTHTYPE_OPEN_SYSTEM;
+	enum mpdu_management_subtype subtype = prev_bssid ?
+				MPDU_MANAGEMENT_SUBTYPE_REASSOCIATION_REQUEST :
+				MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_REQUEST;
 	struct l_genl_msg *msg;
-	struct iovec iov[4 + num_vendor_ies];
-	int iov_elems = 0;
+	struct iovec iov[64];
+	unsigned int n_iov = L_ARRAY_SIZE(iov);
+	unsigned int c_iov = 0;
 	bool is_rsn = hs->supplicant_ie != NULL;
-	const uint8_t *extended_capabilities;
-	const uint8_t *rm_enabled_capabilities;
 
 	msg = l_genl_msg_new_sized(NL80211_CMD_CONNECT, 512);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
@@ -2903,10 +2983,7 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 						4, &wpa_version);
 
 		l_genl_msg_append_attr(msg, NL80211_ATTR_CONTROL_PORT, 0, NULL);
-
-		iov[iov_elems].iov_base = (void *) hs->supplicant_ie;
-		iov[iov_elems].iov_len = hs->supplicant_ie[1] + 2;
-		iov_elems += 1;
+		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_ie);
 	}
 
 	if (netdev->pae_over_nl80211)
@@ -2914,40 +2991,19 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 				NL80211_ATTR_CONTROL_PORT_OVER_NL80211,
 				0, NULL);
 
-	rm_enabled_capabilities =
-			wiphy_get_rm_enabled_capabilities(netdev->wiphy);
-	if (rm_enabled_capabilities && bss->capability & IE_BSS_CAP_RM) {
-		iov[iov_elems].iov_base = (void *) rm_enabled_capabilities;
-		iov[iov_elems].iov_len = rm_enabled_capabilities[1] + 2;
-		iov_elems += 1;
+	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->mde);
+	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
 
-		l_genl_msg_append_attr(msg, NL80211_ATTR_USE_RRM, 0, NULL);
-	}
+	mpdu_sort_ies(subtype, iov, c_iov);
 
-	if (hs->mde) {
-		iov[iov_elems].iov_base = (void *) hs->mde;
-		iov[iov_elems].iov_len = hs->mde[1] + 2;
-		iov_elems += 1;
-	}
-
-	/*
-	 * This element should be added after MDE
-	 * See 802.11-2016, Section 9.3.3.6
-	 */
-	extended_capabilities = wiphy_get_extended_capabilities(netdev->wiphy,
-								netdev->type);
-	iov[iov_elems].iov_base = (void *) extended_capabilities;
-	iov[iov_elems].iov_len = extended_capabilities[1] + 2;
-	iov_elems += 1;
-
-	if (vendor_ies) {
-		memcpy(iov + iov_elems, vendor_ies,
+	if (vendor_ies && !L_WARN_ON(n_iov - c_iov < num_vendor_ies)) {
+		memcpy(iov + c_iov, vendor_ies,
 					sizeof(*vendor_ies) * num_vendor_ies);
-		iov_elems += num_vendor_ies;
+		c_iov += num_vendor_ies;
 	}
 
-	if (iov_elems)
-		l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, iov_elems);
+	if (c_iov)
+		l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
 
 	return msg;
 }
@@ -3308,6 +3364,9 @@ static int netdev_handshake_state_setup_connection_type(
 	bool softmac = wiphy_supports_cmds_auth_assoc(wiphy);
 	bool canroam = wiphy_supports_firmware_roam(wiphy);
 
+	if (hs->supplicant_ie == NULL)
+		goto softmac;
+
 	/*
 	 * Sanity check that any FT AKMs are set only on softmac or on
 	 * devices that support firmware roam
@@ -3386,66 +3445,24 @@ offload_1x:
 	return 0;
 }
 
-static int netdev_connect_common(struct netdev *netdev,
-					struct l_genl_msg *cmd_connect,
+static void netdev_connect_common(struct netdev *netdev,
 					struct scan_bss *bss,
+					struct scan_bss *prev_bss,
 					struct handshake_state *hs,
-					struct eapol_sm *sm,
+					const struct iovec *vendor_ies,
+					size_t num_vendor_ies,
 					netdev_event_func_t event_filter,
 					netdev_connect_cb_t cb, void *user_data)
-{
-	netdev->connect_cmd = cmd_connect;
-	netdev->event_filter = event_filter;
-	netdev->connect_cb = cb;
-	netdev->user_data = user_data;
-	netdev->handshake = hs;
-	netdev->sm = sm;
-	netdev->frequency = bss->frequency;
-	netdev->cur_rssi = bss->signal_strength / 100;
-	netdev_rssi_level_init(netdev);
-	netdev_cqm_rssi_update(netdev);
-
-	handshake_state_set_authenticator_address(hs, bss->addr);
-
-	if (!wiphy_has_ext_feature(netdev->wiphy,
-					NL80211_EXT_FEATURE_CAN_REPLACE_PTK0))
-		handshake_state_set_no_rekey(hs, true);
-
-	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
-				&connect_work_ops);
-	return 0;
-}
-
-int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
-				struct handshake_state *hs,
-				const struct iovec *vendor_ies,
-				size_t num_vendor_ies,
-				netdev_event_func_t event_filter,
-				netdev_connect_cb_t cb, void *user_data)
 {
 	struct netdev_handshake_state *nhs = l_container_of(hs,
 				struct netdev_handshake_state, super);
 	struct l_genl_msg *cmd_connect = NULL;
 	struct eapol_sm *sm = NULL;
 	bool is_rsn = hs->supplicant_ie != NULL;
+	const uint8_t *prev_bssid = prev_bss ? prev_bss->addr : NULL;
 
-	if (!(netdev->ifi_flags & IFF_UP))
-		return -ENETDOWN;
-
-	if (netdev->type != NL80211_IFTYPE_STATION &&
-			netdev->type != NL80211_IFTYPE_P2P_CLIENT)
-		return -ENOTSUP;
-
-	if (netdev->connected || netdev->connect_cmd_id || netdev->work.id)
-		return -EISCONN;
-
-	if (!is_rsn) {
-		nhs->type = CONNECTION_TYPE_SOFTMAC;
+	if (!is_rsn)
 		goto build_cmd_connect;
-	}
-
-	if (netdev_handshake_state_setup_connection_type(hs) < 0)
-		return -ENOTSUP;
 
 	if (nhs->type != CONNECTION_TYPE_SOFTMAC)
 		goto build_cmd_connect;
@@ -3485,7 +3502,7 @@ int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
 	default:
 build_cmd_connect:
 		cmd_connect = netdev_build_cmd_connect(netdev, bss, hs,
-					NULL, vendor_ies, num_vendor_ies);
+					prev_bssid, vendor_ies, num_vendor_ies);
 
 		if (!is_offload(hs) && (is_rsn || hs->settings_8021x)) {
 			sm = eapol_sm_new(hs);
@@ -3495,8 +3512,52 @@ build_cmd_connect:
 		}
 	}
 
-	return netdev_connect_common(netdev, cmd_connect, bss, hs, sm,
-						event_filter, cb, user_data);
+	netdev->connect_cmd = cmd_connect;
+	netdev->event_filter = event_filter;
+	netdev->connect_cb = cb;
+	netdev->user_data = user_data;
+	netdev->handshake = hs;
+	netdev->sm = sm;
+	netdev->frequency = bss->frequency;
+	netdev->cur_rssi = bss->signal_strength / 100;
+	netdev_rssi_level_init(netdev);
+	netdev_cqm_rssi_update(netdev);
+
+	handshake_state_set_authenticator_address(hs, bss->addr);
+
+	if (!wiphy_has_ext_feature(netdev->wiphy,
+					NL80211_EXT_FEATURE_CAN_REPLACE_PTK0))
+		handshake_state_set_no_rekey(hs, true);
+
+	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
+				&connect_work_ops);
+}
+
+int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
+				struct handshake_state *hs,
+				const struct iovec *vendor_ies,
+				size_t num_vendor_ies,
+				netdev_event_func_t event_filter,
+				netdev_connect_cb_t cb, void *user_data)
+{
+	if (!(netdev->ifi_flags & IFF_UP))
+		return -ENETDOWN;
+
+	if (netdev->type != NL80211_IFTYPE_STATION &&
+			netdev->type != NL80211_IFTYPE_P2P_CLIENT)
+		return -ENOTSUP;
+
+	if (netdev->connected || netdev->connect_cmd_id || netdev->work.id)
+		return -EISCONN;
+
+	if (netdev_handshake_state_setup_connection_type(hs) < 0)
+		return -ENOTSUP;
+
+	netdev_connect_common(netdev, bss, NULL, hs, vendor_ies,
+					num_vendor_ies, event_filter, cb,
+					user_data);
+
+	return 0;
 }
 
 static void disconnect_idle(struct l_idle *idle, void *user_data)
@@ -3584,40 +3645,25 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 			netdev_event_func_t event_filter,
 			netdev_connect_cb_t cb, void *user_data)
 {
-	struct l_genl_msg *cmd_connect;
-	struct netdev_handshake_state;
 	struct handshake_state *old_hs;
-	struct eapol_sm *sm = NULL, *old_sm;
-	bool is_rsn = hs->supplicant_ie != NULL;
-	int err;
-
-	if (netdev_handshake_state_setup_connection_type(hs) < 0)
-		return -ENOTSUP;
-
-	/* TODO: SoftMac SAE/FILS Re-Associations are not suppored yet */
-	if (L_WARN_ON(IE_AKM_IS_SAE(hs->akm_suite) ||
-				IE_AKM_IS_FILS(hs->akm_suite)))
-		return -ENOTSUP;
-
-	cmd_connect = netdev_build_cmd_connect(netdev, target_bss, hs,
-						orig_bss->addr, NULL, 0);
-
-	if (is_rsn)
-		sm = eapol_sm_new(hs);
+	struct eapol_sm *old_sm;
 
 	old_sm = netdev->sm;
 	old_hs = netdev->handshake;
 
-	err = netdev_connect_common(netdev, cmd_connect, target_bss, hs, sm,
-					event_filter, cb, user_data);
-	if (err < 0)
-		return err;
-
-	memcpy(netdev->prev_bssid, orig_bss->addr, ETH_ALEN);
+	if (netdev_handshake_state_setup_connection_type(hs) < 0)
+		return -ENOTSUP;
 
 	netdev->associated = false;
 	netdev->operational = false;
 	netdev->connected = false;
+	netdev->in_reassoc = true;
+
+	netdev_connect_common(netdev, target_bss, orig_bss, hs, NULL, 0,
+					event_filter, cb, user_data);
+
+	if (netdev->ap)
+		memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
 
 	netdev_rssi_polling_update(netdev);
 
@@ -3627,7 +3673,7 @@ int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
 	if (old_hs)
 		handshake_state_free(old_hs);
 
-	return err;
+	return 0;
 }
 
 static void netdev_join_adhoc_cb(struct l_genl_msg *msg, void *user_data)
@@ -3817,17 +3863,33 @@ restore_snonce:
 					MMPDU_STATUS_CODE_UNSPECIFIED);
 }
 
-static int netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
+static int netdev_ft_tx_associate(struct iovec *ft_iov, size_t n_ft_iov,
 					void *user_data)
 {
 	struct netdev *netdev = user_data;
+	struct auth_proto *ap = netdev->ap;
+	struct handshake_state *hs = netdev->handshake;
 	struct l_genl_msg *msg;
+	struct iovec iov[64];
+	unsigned int n_iov = L_ARRAY_SIZE(iov);
+	unsigned int c_iov = 0;
+	enum mpdu_management_subtype subtype =
+				MPDU_MANAGEMENT_SUBTYPE_REASSOCIATION_REQUEST;
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
+	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
+
+	if (!L_WARN_ON(n_iov - c_iov < n_ft_iov)) {
+		memcpy(iov + c_iov, ft_iov, sizeof(*ft_iov) * n_ft_iov);
+		c_iov += n_ft_iov;
+	}
+
+	mpdu_sort_ies(subtype, iov, c_iov);
+
 	l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, ETH_ALEN,
-				netdev->prev_bssid);
-	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, ie_iov, iov_len);
+				ap->prev_bssid);
+	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
 
 	netdev->connect_cmd_id = l_genl_family_send(nl80211, msg,
 						netdev_cmd_ft_reassociate_cb,
@@ -3841,7 +3903,7 @@ static int netdev_ft_tx_associate(struct iovec *ie_iov, size_t iov_len,
 	return 0;
 }
 
-static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)
+static void prepare_ft(struct netdev *netdev, const struct scan_bss *target_bss)
 {
 	struct netdev_handshake_state *nhs;
 
@@ -3852,8 +3914,6 @@ static void prepare_ft(struct netdev *netdev, struct scan_bss *target_bss)
 	 */
 	memcpy(netdev->prev_snonce, netdev->handshake->snonce, 32);
 
-	memcpy(netdev->prev_bssid, netdev->handshake->aa, 6);
-	netdev->prev_frequency = netdev->frequency;
 	netdev->frequency = target_bss->frequency;
 
 	handshake_state_set_authenticator_address(netdev->handshake,
@@ -4022,7 +4082,9 @@ static const struct wiphy_radio_work_item_ops ft_work_ops = {
 	.do_work = netdev_ft_work_ready,
 };
 
-int netdev_fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
+int netdev_fast_transition(struct netdev *netdev,
+				const struct scan_bss *target_bss,
+				const struct scan_bss *orig_bss,
 				netdev_connect_cb_t cb)
 {
 	if (!netdev->operational)
@@ -4042,6 +4104,7 @@ int netdev_fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 	netdev->ap = ft_over_air_sm_new(netdev->handshake,
 					netdev_ft_tx_authenticate,
 					netdev_ft_tx_associate, netdev);
+	memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
 
 	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
 				&ft_work_ops);
@@ -4050,7 +4113,8 @@ int netdev_fast_transition(struct netdev *netdev, struct scan_bss *target_bss,
 }
 
 int netdev_fast_transition_over_ds(struct netdev *netdev,
-					struct scan_bss *target_bss,
+					const struct scan_bss *target_bss,
+					const struct scan_bss *orig_bss,
 					netdev_connect_cb_t cb)
 {
 	struct netdev_ft_over_ds_info *info;
@@ -4081,6 +4145,7 @@ int netdev_fast_transition_over_ds(struct netdev *netdev,
 	netdev->ap = ft_over_ds_sm_new(netdev->handshake,
 					netdev_ft_tx_associate,
 					netdev);
+	memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
 
 	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
 				&ft_work_ops);
@@ -4712,6 +4777,8 @@ static void netdev_channel_switch_event(struct l_genl_msg *msg,
 		return;
 
 	l_debug("Channel switch event, frequency: %u", *freq);
+
+	netdev->frequency = *freq;
 
 	if (!netdev->event_filter)
 		return;
@@ -5522,6 +5589,8 @@ static void netdev_newlink_notify(const struct ifinfomsg *ifi, int bytes)
 	char old_name[IFNAMSIZ];
 	uint8_t old_addr[ETH_ALEN];
 	struct rtattr *attr;
+	uint8_t *operstate = NULL;
+	uint8_t *linkmode = NULL;
 
 	if (ifi->ifi_family == AF_BRIDGE) {
 		netdev_bridge_port_event(ifi, bytes, true);
@@ -5550,11 +5619,35 @@ static void netdev_newlink_notify(const struct ifinfomsg *ifi, int bytes)
 
 			memcpy(netdev->addr, RTA_DATA(attr), ETH_ALEN);
 			break;
+		case IFLA_OPERSTATE:
+			operstate = RTA_DATA(attr);
+			break;
+		case IFLA_LINKMODE:
+			linkmode = RTA_DATA(attr);
+			break;
 		}
 	}
 
 	if (!netdev->events_ready) /* Did we send NETDEV_WATCH_EVENT_NEW yet? */
 		return;
+
+	/*
+	 * Sometimes the driver sends the Association / Connect event on the
+	 * nl80211 interface before the driver is ready to accept IF_OPER_UP
+	 * setting on the rtnl interface.  This results in our initial
+	 * IF_OPER_UP setting being ignored.  In this case the driver will
+	 * send a New Link event with a stale OperState.  Detect this case and
+	 * try to re-set IF_OPER_UP.
+	 */
+	if (linkmode && *linkmode == 1 &&
+			operstate && *operstate == IF_OPER_DORMANT &&
+			netdev->operational) {
+		l_debug("Retrying setting OperState to IF_OPER_UP");
+		l_rtnl_set_linkmode_and_operstate(rtnl, netdev->index,
+					IF_LINK_MODE_DORMANT, IF_OPER_UP,
+					netdev_operstate_cb,
+					L_UINT_TO_PTR(netdev->index), NULL);
+	}
 
 	new_up = netdev_get_is_up(netdev);
 

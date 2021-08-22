@@ -14,14 +14,6 @@ class Test(unittest.TestCase):
         self.assertIsNotNone(devices)
         device = devices[0]
 
-        device.scan()
-
-        condition = 'obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
         ordered_network = device.get_ordered_network('ssidNew')
 
         condition = 'not obj.connected'

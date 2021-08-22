@@ -9,7 +9,7 @@ if (len(sys.argv) != 3):
 
 bus = dbus.SystemBus()
 device = dbus.Interface(bus.get_object("net.connman.iwd", sys.argv[1]),
-                                    "net.connman.iwd.StationDiagnostic")
+                                    "net.connman.iwd.StationDebug")
 
 mac = sys.argv[2].replace(':', '')
 

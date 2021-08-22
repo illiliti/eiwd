@@ -1058,7 +1058,7 @@ static bool match_bss(const void *a, const void *b)
 	return a == b;
 }
 
-bool network_has_erp_identity(struct network *network)
+struct erp_cache_entry *network_get_erp_cache(struct network *network)
 {
 	struct erp_cache_entry *cache;
 	struct l_settings *settings;
@@ -1068,16 +1068,16 @@ bool network_has_erp_identity(struct network *network)
 
 	settings = network_get_settings(network);
 	if (!settings)
-		return false;
+		return NULL;
 
 	check_id = l_settings_get_string(settings, "Security", "EAP-Identity");
 	if (!check_id)
-		return false;
+		return NULL;
 
 	cache = erp_cache_get(network_get_ssid(network));
 	if (!cache) {
 		l_free(check_id);
-		return false;
+		return NULL;
 	}
 
 	identity = erp_cache_entry_get_identity(cache);
@@ -1085,17 +1085,19 @@ bool network_has_erp_identity(struct network *network)
 	ret = strcmp(check_id, identity) == 0;
 
 	l_free(check_id);
-	erp_cache_put(cache);
 
 	/*
 	 * The settings file must have change out from under us. In this
 	 * case we want to remove the ERP entry because it is no longer
 	 * valid.
 	 */
-	if (!ret)
+	if (!ret) {
+		erp_cache_put(cache);
 		erp_cache_remove(identity);
+		return NULL;
+	}
 
-	return ret;
+	return cache;
 }
 
 const struct l_queue_entry *network_bss_list_get_entries(
@@ -1503,35 +1505,11 @@ error:
 	return reply;
 }
 
-static struct l_dbus_message *network_connect(struct l_dbus *dbus,
-						struct l_dbus_message *message,
-						void *user_data)
+struct l_dbus_message *__network_connect(struct network *network,
+						struct scan_bss *bss,
+						struct l_dbus_message *message)
 {
-	struct network *network = user_data;
 	struct station *station = network->station;
-	struct scan_bss *bss;
-
-	l_debug("");
-
-	if (network == station_get_connected_network(station))
-		/*
-		 * The requested network is already connected, return success.
-		 */
-		return l_dbus_message_new_method_return(message);
-
-	if (network->agent_request)
-		return dbus_error_busy(message);
-
-	/*
-	 * Select the best BSS to use at this time.  If we have to query the
-	 * agent this may not be the final choice because BSS visibility can
-	 * change while we wait for the agent.
-	 */
-	bss = network_bss_select(network, true);
-
-	/* None of the BSSes is compatible with our stack */
-	if (!bss)
-		return dbus_error_not_supported(message);
 
 	switch (network_get_security(network)) {
 	case SECURITY_PSK:
@@ -1563,6 +1541,39 @@ static struct l_dbus_message *network_connect(struct l_dbus *dbus,
 	default:
 		return dbus_error_not_supported(message);
 	}
+}
+
+static struct l_dbus_message *network_connect(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct network *network = user_data;
+	struct station *station = network->station;
+	struct scan_bss *bss;
+
+	l_debug("");
+
+	if (network == station_get_connected_network(station))
+		/*
+		 * The requested network is already connected, return success.
+		 */
+		return l_dbus_message_new_method_return(message);
+
+	if (network->agent_request)
+		return dbus_error_busy(message);
+
+	/*
+	 * Select the best BSS to use at this time.  If we have to query the
+	 * agent this may not be the final choice because BSS visibility can
+	 * change while we wait for the agent.
+	 */
+	bss = network_bss_select(network, true);
+
+	/* None of the BSSes is compatible with our stack */
+	if (!bss)
+		return dbus_error_not_supported(message);
+
+	return __network_connect(network, bss, message);
 }
 
 /*
@@ -1612,14 +1623,6 @@ struct l_dbus_message *network_connect_new_hidden_network(
 void network_blacklist_add(struct network *network, struct scan_bss *bss)
 {
 	l_queue_push_head(network->blacklist, bss);
-}
-
-const struct iovec *network_get_extra_ies(struct network *network,
-						size_t *num_elems)
-{
-	struct scan_bss *bss = network_bss_select(network, false);
-
-	return network_info_get_extra_ies(network->info, bss, num_elems);
 }
 
 static bool network_property_get_name(struct l_dbus *dbus,
@@ -1834,6 +1837,9 @@ static void network_unset_hotspot(struct network *network, void *user_data)
 		return;
 
 	network_set_info(network, NULL);
+
+	l_queue_destroy(network->secrets, eap_secret_info_free);
+	network->secrets = NULL;
 }
 
 static void emit_known_network_removed(struct station *station, void *user_data)
@@ -1852,6 +1858,9 @@ static void emit_known_network_removed(struct station *station, void *user_data)
 			return;
 
 		network_set_info(network, NULL);
+
+		l_queue_destroy(network->secrets, eap_secret_info_free);
+		network->secrets = NULL;
 	}
 
 	connected_network = station_get_connected_network(station);

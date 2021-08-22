@@ -25,7 +25,11 @@ class Test(unittest.TestCase):
         condition = 'not obj.scanning'
         wd.wait_for_object_condition(device, condition)
 
-        ordered_network = device.get_ordered_network('testSSID')
+        #
+        # Scanning must be explicitly done to get updated RSSI values. Therefore
+        # scan_if_needed is set false because of the previous scan.
+        #
+        ordered_network = device.get_ordered_network('testSSID', scan_if_needed=False)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
@@ -62,16 +66,19 @@ class Test(unittest.TestCase):
         rule0.source = vht_radio.addresses[0]
         rule0.bidirectional = True
         rule0.signal = -5100
+        rule0.enabled = True
 
         rule1 = hwsim.rules.create()
         rule1.source = ht_radio.addresses[0]
         rule1.bidirectional = True
         rule1.signal = -5200
+        rule1.enabled = True
 
         rule2 = hwsim.rules.create()
         rule2.source = non_ht_radio.addresses[0]
         rule2.bidirectional = True
         rule2.signal = -5300
+        rule2.enabled = True
 
         wd = IWD()
 

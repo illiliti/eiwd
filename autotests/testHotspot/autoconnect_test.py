@@ -5,8 +5,8 @@ import sys
 import os
 
 sys.path.append('../util')
-import iwd
 from iwd import IWD
+from iwd import IWD_CONFIG_DIR
 from iwd import NetworkType
 from hostapd import HostapdCLI
 import testutil
@@ -14,7 +14,7 @@ import testutil
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
-        wd = IWD(True, '/tmp')
+        wd = self.wd
 
         hapd_hotspot = HostapdCLI(config='ssidHotspot.conf')
         hapd_wpa = HostapdCLI(config='ssidWPA2-1.conf')
@@ -23,6 +23,7 @@ class Test(unittest.TestCase):
 
         devices = wd.list_devices(1)
         device = devices[0]
+        device.autoconnect = True
 
         condition = 'obj.scanning'
         wd.wait_for_object_condition(device, condition)
@@ -108,13 +109,16 @@ class Test(unittest.TestCase):
     def setUpClass(cls):
         IWD.copy_to_hotspot('autoconnect.conf')
         IWD.copy_to_storage('ssidWPA2-1.psk')
-        conf = '[General]\nDisableANQP=0\n'
-        os.system('echo "%s" > /tmp/main.conf' % conf)
+        IWD.copy_to_storage('anqp_enabled.conf', storage_dir=IWD_CONFIG_DIR, name='main.conf')
+
+        cls.wd = IWD(True)
 
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
         os.remove('/tmp/main.conf')
+
+        cls.wd = None
 
 if __name__ == '__main__':
     unittest.main(exit=True)

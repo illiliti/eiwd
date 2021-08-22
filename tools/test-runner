@@ -13,9 +13,11 @@ import time
 import unittest
 import importlib
 import signal
+from unittest.result import TestResult
 import pyroute2
 import multiprocessing
 import re
+import traceback
 
 from configparser import ConfigParser
 from prettytable import PrettyTable
@@ -46,11 +48,11 @@ TEST_MAX_TIMEOUT = 120
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
-def dbg(*s):
+def dbg(*s, **kwargs):
 	'''
 		Allows prints if stdout has been re-directed
 	'''
-	print(*s, file=sys.__stdout__)
+	print(*s, **kwargs, file=sys.__stdout__)
 
 def exit_vm():
 	if config:
@@ -233,7 +235,7 @@ class Process:
 		if not wait and not check:
 			return
 
-		self.pid.wait(timeout=5)
+		Namespace.non_block_wait(self.wait_for_process, 10, 1)
 		self.killed = True
 		self.ret = self.pid.returncode
 
@@ -244,6 +246,13 @@ class Process:
 		print("%s returned %d" % (args[0], self.ret))
 		if check and self.ret != 0:
 			raise subprocess.CalledProcessError(returncode=self.ret, cmd=self.args)
+
+	def wait_for_process(self, timeout):
+		try:
+			self.pid.wait(timeout)
+			return True
+		except:
+			return False
 
 	def process_io(self, source):
 		data = source.read()
@@ -312,12 +321,7 @@ class Process:
 		self.killed = True
 
 	def wait_for_socket(self, socket, wait):
-		waited = 0
-		while not os.path.exists(socket):
-			sleep(0.5)
-			waited += 0.5
-			if waited > wait:
-				raise Exception("Timed out waiting for socket")
+		Namespace.non_block_wait(os.path.exists, wait, socket)
 
 	def __str__(self):
 		return str(self.args) + '\n'
@@ -428,6 +432,7 @@ class HostapdInstance:
 	def __init__(self, config, radio):
 		self.radio = radio
 		self.config = config
+		self.cli = None
 
 		self.intf = radio.create_interface(self.config, 'hostapd')
 		self.intf.set_interface_state('up')
@@ -494,6 +499,13 @@ class Hostapd:
 
 		self.process.wait_for_socket(self.global_ctrl_iface, 30)
 
+		for hapd in self.instances:
+			self.process.wait_for_socket(hapd.intf.ctrl_interface, 30)
+
+	def attach_cli(self):
+		for hapd in self.instances:
+			hapd.cli = importlib.import_module('hostapd').HostapdCLI(config=hapd.config)
+
 	def _rewrite_config(self, config):
 		'''
 			Replaces any $ifaceN values with the correct interface
@@ -531,7 +543,14 @@ class Hostapd:
 		try:
 			os.remove(self.global_ctrl_iface)
 		except:
-			dbg("Failed to remove %s" % self.global_ctrl_iface)
+			print("Failed to remove %s" % self.global_ctrl_iface)
+
+		for hapd in self.instances:
+			if not hapd.cli:
+				continue
+
+			hapd.cli._instances[hapd.config] = None
+			hapd.cli = None
 
 		self.instances = None
 
@@ -594,8 +613,9 @@ class Namespace:
 		if not env:
 			env = os.environ.copy()
 
-		# In case this process needs DBus...
-		env['DBUS_SYSTEM_BUS_ADDRESS'] = self.dbus_address
+		if hasattr(self, "dbus_address"):
+			# In case this process needs DBus...
+			env['DBUS_SYSTEM_BUS_ADDRESS'] = self.dbus_address
 
 		p = Process(args, ctx=self, namespace=ns, env=env, **kwargs)
 
@@ -636,7 +656,7 @@ class Namespace:
 		p = self.start_process(['dbus-daemon', '--config-file=%s' % self.dbus_cfg],
 					wait=False, cleanup=self._cleanup_dbus)
 
-		p.wait_for_socket(self.dbus_address.split('=')[1], wait=5)
+		p.wait_for_socket(self.dbus_address.split('=')[1], 5)
 
 		self._bus = dbus.bus.BusConnection(address_or_type=self.dbus_address)
 
@@ -648,7 +668,7 @@ class Namespace:
 			args.extend(['valgrind', '--leak-check=full', '--track-origins=yes',
 					'--log-file=/tmp/valgrind.log.%p'])
 
-		args.extend(['iwd', '-p', iwd_radios])
+		args.extend(['iwd', '-p', iwd_radios, '-E'])
 
 		if self.is_verbose(args[0]):
 			args.append('-d')
@@ -694,14 +714,63 @@ class Namespace:
 
 		return False
 
-	def wait_for_dbus_service(self, service):
-		tries = 0
+	@staticmethod
+	def non_block_wait(func, timeout, *args, exception=True):
+		'''
+			Convenience function for waiting in a non blocking
+			manor using GLibs context iteration i.e. does not block
+			the main loop while waiting.
 
-		while not self._bus.name_has_owner(service):
-			if tries > 200:
-				raise TimeoutError('DBus service %s did not appear', service)
-			tries += 1
+			'func' will be called at least once and repeatedly until
+			either it returns success, throws an exception, or the
+			'timeout' expires.
+
+			'timeout' is the ultimate timeout in seconds
+
+			'*args' will be passed to 'func'
+
+			If 'exception' is an Exception type it will be raised.
+			If 'exception' is True a generic TimeoutError will be raised.
+			Any other value will not result in an exception.
+		'''
+		# Simple class for signaling the wait timeout
+		class Bool:
+			def __init__(self, value):
+				self.value = value
+
+		def wait_timeout_cb(done):
+			done.value = True
+			return False
+
+		mainloop = GLib.MainLoop()
+		done = Bool(False)
+
+		timeout = GLib.timeout_add_seconds(timeout, wait_timeout_cb, done)
+		context = mainloop.get_context()
+
+		while True:
+			context.iteration(may_block=False)
+
+			try:
+				ret = func(*args)
+				if ret:
+					if not done.value:
+						GLib.source_remove(timeout)
+					return ret
+			except Exception as e:
+				if not done.value:
+					GLib.source_remove(timeout)
+				raise e
+
 			sleep(0.1)
+
+			if done.value == True:
+				if isinstance(exception, Exception):
+					raise exception
+				elif type(exception) == bool and exception:
+					raise TimeoutError("Timeout on non_block_wait")
+				else:
+					return
 
 	def __str__(self):
 		ret = 'Namespace: %s\n' % self.name
@@ -755,12 +824,13 @@ class TestContext(Namespace):
 		nradios = int(setup['num_radios'])
 		args = ['hwsim']
 
-		if not self.hw_config['SETUP'].get('hwsim_medium', 'yes') in ['yes', '1', 'true']:
+		if self.hw_config['SETUP'].get('hwsim_medium', 'no') in ['no', '0', 'false']:
 			# register hwsim as medium
 			args.extend(['--no-register'])
 
 		self.start_process(args)
-		self.wait_for_dbus_service('net.connman.hwsim')
+		self.non_block_wait(self._bus.name_has_owner, 20, 'net.connman.hwsim',
+					exception=TimeoutError('net.connman.hwsim did not appear'))
 
 		for i in range(nradios):
 			name = 'rad%u' % i
@@ -841,6 +911,15 @@ class TestContext(Namespace):
 		radius_config = settings.get('radius_server', None)
 
 		self.hostapd = Hostapd(self, hapd_radios, hapd_configs, radius_config)
+		self.hostapd.attach_cli()
+
+	def get_frequencies(self):
+		frequencies = []
+
+		for hapd in self.hostapd.instances:
+			frequencies.append(hapd.cli.frequency)
+
+		return frequencies
 
 	def start_wpas_interfaces(self):
 		if 'WPA_SUPPLICANT' not in self.hw_config:
@@ -1013,15 +1092,17 @@ def build_test_list(args):
 				tests = [test_root + '/' + x for x in full_list[i:] \
 							if x.startswith('test')]
 			elif os.path.exists(t):
-				tests.append(t)
+				if t not in tests:
+					tests.append(t)
 			elif os.path.exists(path):
-				tests.append(path)
+				if path not in tests:
+					tests.append(path)
 			else:
 				matches = glob(path)
 				if matches == []:
 					raise Exception("Could not find test %s" % t)
 
-				tests.extend(matches)
+				tests.extend(list(set(matches) - set(tests)))
 
 	return sorted(tests)
 
@@ -1034,31 +1115,121 @@ def start_test(ctx, subtests, rqueue):
 		results queue which is required since this is using
 		multiprocessing.
 	'''
-	suite = unittest.TestSuite()
+	run = 0
+	errors = 0
+	failures = 0
+	skipped = 0
 
+	start = time.time()
 	#
 	# Iterate through each individual python test.
 	#
 	for s in subtests:
 		loader = unittest.TestLoader()
-		subtest = importlib.import_module(os.path.splitext(s)[0])
-		suite.addTests(loader.loadTestsFromModule(subtest))
+		module = importlib.import_module(os.path.splitext(s)[0])
+		subtest = loader.loadTestsFromModule(module)
+
+		# The test suite is being (ab)used to get a bit more granularity
+		# with individual tests. The 'normal' way to use unittest is to
+		# just create a test suite and run them. The problem here is that
+		# test results are queued and printed at the very end so its
+		# difficult to know *where* a test failed (python gives a stack
+		# trace but printing the exception/failure immediately shows
+		# where in the debug logs something failed). Moreso if there are
+		# several test functions inside a single python file they run
+		# as a single test and it is difficult (again) to know where
+		# something failed.
+
+		# Iterating through each python test file
+		for test in subtest:
+			limit_funcs = []
+
+			if ctx.args.sub_tests:
+				for i in ctx.args.sub_tests:
+					if len(i.split('.')) == 2:
+						limit_funcs.append(i.split('.')[1])
+
+			# Iterating through individual test functions inside a
+			# Test() class. Due to the nature of unittest we have
+			# to jump through some hoops to set up the test class
+			# only once by turning the enumeration into a list, then
+			# enumerating (again) to keep track of the index (just
+			# enumerating the test class doesn't allow len() because
+			# it is not a list).
+			tlist = list(enumerate(test))
+			for index, t in enumerate(tlist):
+				# enumerate is returning a tuple, index 1 is our
+				# actual object.
+				t = t[1]
+
+				func, file = str(t).split(' ')
+				#
+				# TODO: There may be a better way of doing this
+				# but strigifying the test class gives us a string:
+				# <function> (<file>.<class>)
+				#
+				file = file.strip('()').split('.')[0] + '.py'
+
+				# Create an empty result here in case the test fails
+				result = TestResult()
+
+				try:
+					skip = len(limit_funcs) > 0 and func not in limit_funcs
+
+					# Set up class only on first test
+					if index == 0:
+						if not skip:
+							dbg("%s\n\t%s RUNNING" % (file, str(func)), end='')
+						t.setUpClass()
+					else:
+						if not skip:
+							dbg("\t%s RUNNING" % str(func), end='')
+
+					sys.__stdout__.flush()
+
+					if not skip:
+						# Run test (setUp/tearDown run automatically)
+						result = t()
+
+					# Tear down class only on last test
+					if index == len(tlist) - 1:
+						t.tearDownClass()
+
+					if skip:
+						continue
+				except unittest.SkipTest as e:
+					result.skipped.append(t)
+				except Exception as e:
+					dbg('\n%s threw an uncaught exception:' % func)
+					traceback.print_exc(file=sys.__stdout__)
+
+				run += result.testsRun
+				errors += len(result.errors)
+				failures += len(result.failures)
+				skipped += len(result.skipped)
+
+				if len(result.skipped) > 0:
+					dbg(colored(" SKIPPED", "cyan"))
+				elif run == 0 or len(result.errors) > 0 or len(result.failures) > 0:
+					dbg(colored(" FAILED", "red"))
+					for e in result.errors:
+						dbg(e[1])
+					for f in result.failures:
+						dbg(f[1])
+				else:
+					dbg(colored(" PASSED", "green"))
 
 		# Prevents future test modules with the same name (e.g.
 		# connection_test.py) from being loaded from the cache
-		sys.modules.pop(subtest.__name__)
+		sys.modules.pop(module.__name__)
 
-	start = time.time()
-	runner = unittest.TextTestRunner()
-	result = runner.run(suite)
 	#
 	# The multiprocessing queue is picky with what objects it will serialize
 	# and send between processes. Because of this we put the important bits
 	# of the result into our own 'SimpleResult' tuple.
 	#
-	sresult = SimpleResult(run=result.testsRun, failures=len(result.failures),
-				errors=len(result.errors), skipped=len(result.skipped),
-				time=time.time() - start)
+	sresult = SimpleResult(run=run, failures=failures, errors=errors,
+				skipped=skipped, time=time.time() - start)
 	rqueue.put(sresult)
 
 	# This may not be required since we are manually popping sys.modules
@@ -1070,10 +1241,9 @@ def pre_test(ctx, test, copied):
 	'''
 	os.chdir(test)
 
-	dbg("Starting test %s" % test)
+	dbg("\nStarting %s" % colored(os.path.basename(test), "white", attrs=['bold']))
 	if not os.path.exists(test + '/hw.conf'):
-		print("No hw.conf found for %s" % test)
-		exit()
+		raise Exception("No hw.conf found for %s" % test)
 
 	ctx.hw_config = ConfigParser()
 	ctx.hw_config.read(test + '/hw.conf')
@@ -1101,12 +1271,18 @@ def pre_test(ctx, test, copied):
 	# Prune down any subtests if needed
 	if ctx.args.sub_tests:
 		ctx.args.sub_tests = ctx.args.sub_tests.split(',')
+
+		to_run = [x.split('.')[0] for x in ctx.args.sub_tests]
 		pruned = []
 
 		for s in subtests:
-			# Allow test name both with and without the extension
-			if s in ctx.args.sub_tests or os.path.splitext(s)[0] in ctx.args.sub_tests:
-				pruned.append(s)
+			no_ext = s
+			# Handle <file>.<test function> format
+			if '.' in s:
+				no_ext = s.split('.')[0]
+
+			if no_ext in to_run:
+				pruned.append(no_ext + '.py')
 
 		subtests = pruned
 
@@ -1120,9 +1296,9 @@ def pre_test(ctx, test, copied):
 	ctx.start_ofono()
 
 	if ctx.args.log:
-		ctx.start_process(['iwmon'])
+		ctx.start_process(['iwmon', '--nowiphy'])
 	elif ctx.args.monitor:
-		ctx.start_process(['iwmon'], outfile=ctx.args.monitor)
+		ctx.start_process(['iwmon', '--nowiphy'], outfile=ctx.args.monitor)
 
 	if ctx.hw_config.has_option('SETUP', 'start_iwd'):
 		start = ctx.hw_config.getboolean('SETUP', 'start_iwd')
@@ -1258,8 +1434,8 @@ def run_auto_tests(ctx, args):
 				ctx.results[os.path.basename(test)] = rqueue.get()
 
 		except Exception as ex:
-			print(ex)
-			print("Uncaught exception thrown for %s" % test)
+			dbg("%s threw an uncaught exception" % test)
+			traceback.print_exc(file=sys.__stdout__)
 			ctx.results[os.path.basename(test)] = SimpleResult(run=0, failures=0,
 								errors=0, skipped=0, time=0)
 		finally:
@@ -1269,10 +1445,6 @@ def run_auto_tests(ctx, args):
 	shutil.rmtree('/tmp/certs')
 	shutil.rmtree('/tmp/secrets')
 	os.remove('/tmp/phonesim.conf')
-
-	# Write out kernel log
-	if ctx.args.log:
-		ctx.start_process(["dmesg"], wait=True)
 
 def run_unit_tests(ctx, args):
 	os.chdir(args.testhome + '/unit')
@@ -1351,6 +1523,9 @@ def run_tests():
 				shutil.rmtree(f)
 			else:
 				os.remove(f)
+
+		# Start writing out kernel log
+		config.ctx.start_process(["dmesg", '--follow'])
 	elif args.monitor:
 		parent = os.path.abspath(os.path.join(args.monitor, os.pardir))
 		mount('mondir', parent, '9p', 0, 'trans=virtio,version=9p2000.L,msize=10240')
@@ -1601,7 +1776,7 @@ class Main:
 				rootflags=trans=virtio,msize=1048576,version=9p2000.u \
 				acpi=off pci=noacpi %s ro \
 				mac80211_hwsim.radios=0 %s' % (kern_log, options),
-			'-cpu', 'host', '-smp', str(smp)
+			'-smp', str(smp)
 		]
 
 		# Add two ethernet devices for testing EAD

@@ -1,6 +1,0 @@
-[Security]
-EAP-Method=PWD
-EAP-Identity=eap-pwd-identity
-
-[Settings]
-AutoConnect=false

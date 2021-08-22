@@ -5,8 +5,8 @@ import sys
 import os
 
 sys.path.append('../util')
-import iwd
 from iwd import IWD
+from iwd import IWD_CONFIG_DIR
 from iwd import PSKAgent
 from iwd import NetworkType
 from hostapd import HostapdCLI
@@ -15,7 +15,7 @@ import testutil
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
-        wd = IWD(True, '/tmp')
+        wd = self.wd
 
         hapd = HostapdCLI(config='ssidHotspot.conf')
 
@@ -24,14 +24,6 @@ class Test(unittest.TestCase):
 
         devices = wd.list_devices(1)
         device = devices[0]
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
 
         ordered_network = device.get_ordered_network('Hotspot')
 
@@ -58,13 +50,16 @@ class Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         IWD.copy_to_hotspot('example.conf')
-        conf = '[General]\nDisableANQP=0\n'
-        os.system('echo "%s" > /tmp/main.conf' % conf)
+        IWD.copy_to_storage('anqp_enabled.conf', storage_dir=IWD_CONFIG_DIR, name='main.conf')
+
+        cls.wd = IWD(True)
 
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
         os.remove('/tmp/main.conf')
+
+        cls.wd = None
 
 if __name__ == '__main__':
     unittest.main(exit=True)

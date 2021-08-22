@@ -1,5 +1,0 @@
-[Security]
-EAP-Method=PWD
-
-[Settings]
-AutoConnect=False

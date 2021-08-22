@@ -28,10 +28,12 @@ class Test(unittest.TestCase):
         rule0 = hwsim.rules.create()
         rule0.source = bss_radio[0].addresses[0]
         rule0.bidirectional = True
+        rule0.enabled = True
 
         rule1 = hwsim.rules.create()
         rule1.source = bss_radio[1].addresses[0]
         rule1.bidirectional = True
+        rule1.enabled = True
 
         # Fill in the neighbor AP tables in both BSSes.  By default each
         # instance knows only about current BSS, even inside one hostapd
@@ -59,14 +61,6 @@ class Test(unittest.TestCase):
 
         devices = wd.list_devices(1)
         device = devices[0]
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
 
         ordered_network = device.get_ordered_network('TestRoamRetry')
 
@@ -107,7 +101,7 @@ class Test(unittest.TestCase):
 
         condition = 'obj.state == DeviceState.roaming'
         self.assertRaises(TimeoutError, wd.wait_for_object_condition, device,
-                          condition, max_wait=70)
+                          condition, max_wait=10)
 
         device.disconnect()
 

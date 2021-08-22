@@ -48,11 +48,13 @@ class TestConnectAutoConnect(unittest.TestCase):
         devices = wd.list_devices(1)
         self.assertIsNotNone(devices)
         device = devices[0]
+        device.autoconnect = autoconnect
 
         if autoconnect:
             self.check_autoconnect_hidden_network(wd, device, ssid, throws)
         else:
             if wait_periodic_scan:
+                device.autoconnect = True
                 condition = 'obj.scanning'
                 wd.wait_for_object_condition(device, condition)
                 condition = 'not obj.scanning'

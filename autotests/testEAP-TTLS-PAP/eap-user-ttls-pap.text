@@ -1,4 +1,0 @@
-# Phase 1 users
-* TTLS
-# Phase 2
-"user" TTLS-PAP "testpasswd" [2]

@@ -45,14 +45,6 @@ class Test(unittest.TestCase):
 
         perm_addr = device.address
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
         # 1. Test per-network deterministic MAC generation
         os.system('cat pernetwork.psk > /tmp/iwd/ssidCCMP.psk')
         new_addr = self.try_connection(wd)

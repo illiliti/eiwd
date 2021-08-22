@@ -315,7 +315,6 @@ monitor_iwmon_SOURCES = monitor/main.c linux/nl80211.h \
 					src/crypto.h src/crypto.c \
 					src/watchlist.h src/watchlist.c \
 					src/eapolutil.h src/eapolutil.c \
-					src/handshake.h src/handshake.c \
 					src/nl80211cmd.h src/nl80211cmd.c \
 					src/p2putil.c src/p2putil.h \
 					src/anqputil.h src/anqputil.c
@@ -523,6 +522,7 @@ unit_test_sae_SOURCES = unit/test-sae.c \
 				src/crypto.h src/crypto.c \
 				src/ie.h src/ie.c \
 				src/handshake.h src/handshake.c \
+				src/erp.h src/erp.c \
 				src/util.h src/util.c \
 				src/mpdu.h src/mpdu.c
 unit_test_sae_LDADD = $(ell_ldadd)

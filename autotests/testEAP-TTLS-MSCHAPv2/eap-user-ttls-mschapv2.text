@@ -1,4 +1,0 @@
-# Phase 1 users
-* TTLS
-# Phase 2
-"domain\user" TTLS-MSCHAPV2 "testpasswd" [2]

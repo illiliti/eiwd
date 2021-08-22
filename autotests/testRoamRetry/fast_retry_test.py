@@ -29,10 +29,12 @@ class Test(unittest.TestCase):
         rule0 = hwsim.rules.create()
         rule0.source = bss_radio[0].addresses[0]
         rule0.bidirectional = True
+        rule0.enabled = True
 
         rule1 = hwsim.rules.create()
         rule1.source = bss_radio[1].addresses[0]
         rule1.bidirectional = True
+        rule1.enabled = True
 
         # Fill in the neighbor AP tables in both BSSes.  By default each
         # instance knows only about current BSS, even inside one hostapd
@@ -61,14 +63,6 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(1)
         device = devices[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
         ordered_network = device.get_ordered_network('TestRoamRetry')
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
@@ -90,7 +84,7 @@ class Test(unittest.TestCase):
         # schedule another attempt for 60 seconds later
         rule0.signal = -8000
 
-        wd.wait(20)
+        device.wait_for_event('no-roam-candidates')
 
         self.assertEqual(device.state, iwd.DeviceState.connected)
         self.assertTrue(bss_hostapd[0].list_sta())
@@ -107,13 +101,12 @@ class Test(unittest.TestCase):
         wd.wait(1)
 
         # Assert low signal for BSS 0, check that iwd starts transition to BSS 1
-        # in less than 10 seconds. Because of the neighbor report a scan should
-        # not be necessary.
+        # in less than 10 seconds.
         rule0.signal = -8000
         rule1.signal = -2000
 
         condition = 'obj.state == DeviceState.roaming'
-        wd.wait_for_object_condition(device, condition, max_wait=10)
+        wd.wait_for_object_condition(device, condition, max_wait=15)
 
         # Check that iwd is on BSS 1 once out of roaming state and doesn't
         # go through 'disconnected', 'autoconnect', 'connecting' in between

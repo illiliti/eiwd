@@ -28,6 +28,7 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(1)
         self.assertIsNotNone(devices)
         device = devices[0]
+        device.autoconnect = True
 
         # Device initiates a passive periodic scan.
         condition = 'obj.scanning'

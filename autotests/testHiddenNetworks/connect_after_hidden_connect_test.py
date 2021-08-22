@@ -33,8 +33,7 @@ class TestConnectionAfterHiddenNetwork(unittest.TestCase):
         wd.register_psk_agent(psk_agent)
 
         device = wd.list_devices(1)[0]
-        ordered_network = device.get_ordered_network('ssidOpen',
-                                                     scan_if_needed=True)
+        ordered_network = device.get_ordered_network('ssidOpen')
 
         device.connect_hidden_network_async(name='ssidSomeHidden',
                                                   reply_handler = self._success,

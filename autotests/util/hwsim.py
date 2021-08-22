@@ -142,6 +142,16 @@ class Rule(HwsimDBusAbstract):
                             reply_handler=self._success, error_handler=self._failure)
         self._wait_for_async_op()
 
+    @property
+    def enabled(self):
+        return self._properties['Enabled']
+
+    @enabled.setter
+    def enabled(self, value):
+        self._prop_proxy.Set(self._iface_name, 'Enabled', value,
+                            reply_handler=self._success, error_handler=self._failure)
+        self._wait_for_async_op()
+
     def remove(self):
         self._iface.Remove(reply_handler=self._success,
                 error_handler=self._failure)
@@ -161,7 +171,9 @@ class Rule(HwsimDBusAbstract):
                prefix + '\tFrequency:\t' + str(self.frequency) + '\n' + \
                prefix + '\tApply rssi:\t' + str(self.signal) + '\n' + \
                prefix + '\tApply drop:\t' + str(self.drop) + '\n' + \
-               prefix + '\tPrefix:\t' + str([hex(b) for b in self.prefix]) + '\n'
+               prefix + '\tPrefix:\t' + str([hex(b) for b in self.prefix]) + '\n' + \
+               prefix + '\tDelay:\t' + str(self.delay) + '\n' + \
+               prefix + '\tEnabled:\t' + str(self.enabled) + '\n'
 
 class RuleSet(collections.Mapping):
     def __init__(self, hwsim, objects):
@@ -201,6 +213,10 @@ class RuleSet(collections.Mapping):
         obj = Rule(path)
         self._dict[path] = obj
         return obj
+
+    def remove_all(self):
+        for rule in self._dict.values():
+            rule.remove()
 
 class Radio(HwsimDBusAbstract):
     _iface_name = HWSIM_RADIO_INTERFACE
