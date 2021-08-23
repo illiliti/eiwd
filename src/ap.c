@@ -269,6 +269,17 @@ static void ap_del_station(struct sta_state *sta, uint16_t reason,
 	ap_stop_handshake(sta);
 
 	/*
+	 * Expire any DHCP leases owned by this client when it disconnects to
+	 * make it harder for somebody to DoS the IP pool.  If the client
+	 * comes back and the lease is still in the expired leases list they
+	 * will get their IP back.
+	 */
+	if (ap->netconfig_dhcp) {
+		sta->ip_alloc_lease = NULL;
+		l_dhcp_server_expire_by_mac(ap->netconfig_dhcp, sta->addr);
+	}
+
+	/*
 	 * If the event handler tears the AP down, we've made sure above that
 	 * a subsequent ap_sta_free(sta) has no need to access sta->ap.
 	 */
