@@ -43,10 +43,10 @@ class HostapdCLI(object):
 
         return cls._instances[config]
 
-    def _init_hostapd(self, config, reinit=False):
+    def __init__(self, config=None, *args, **kwargs):
         global ctrl_count
 
-        if self._initialized and not reinit:
+        if self._initialized:
             return
 
         self._initialized = True
@@ -83,9 +83,6 @@ class HostapdCLI(object):
 
         ctrl_count = ctrl_count + 1
 
-    def __init__(self, config=None, *args, **kwargs):
-        self._init_hostapd(config)
-
     def _poll_event(self, event):
         if not self._data_available(0.25):
             return False
@@ -117,19 +114,14 @@ class HostapdCLI(object):
 
         return self.ctrl_sock.recv(4096).decode('utf-8')
 
-    def _del_hostapd(self, force=False):
-        if not self.ctrl_sock:
-            return
-
-        self.ctrl_sock.close()
+    def __del__(self):
+        if self.ctrl_sock:
+            self.ctrl_sock.close()
 
         try:
             os.remove(self.local_ctrl)
         except:
             pass
-
-    def __del__(self):
-        self._del_hostapd()
 
         HostapdCLI._instances[self.config] = None
 
@@ -201,25 +193,6 @@ class HostapdCLI(object):
 
         if 'OK' not in proc.out:
             raise Exception('BSS_TM_REQ failed, is hostapd built with CONFIG_WNM_AP=y?')
-
-    def ungraceful_restart(self):
-        '''
-            Ungracefully kill and restart hostapd
-        '''
-        ctx.stop_process(ctx.hostapd.process, True)
-
-        self.interface.set_interface_state('down')
-        self.interface.set_interface_state('up')
-
-        self._del_hostapd(force=True)
-
-        ctx.start_hostapd()
-
-        # Give hostapd a second to start and initialize the control interface
-        time.sleep(1)
-
-        # New hostapd process, so re-init
-        self._init_hostapd(config=self.config, reinit=True)
 
     def req_beacon(self, addr, request):
         '''
