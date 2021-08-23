@@ -459,6 +459,33 @@ struct ie_neighbor_report_info {
 	bool bss_transition_pref_present : 1;
 };
 
+struct ie_fils_ip_addr_request_info {
+	bool ipv4 : 1;
+	uint32_t ipv4_requested_addr;		/* Zero if none */
+	bool ipv6 : 1;
+	uint8_t ipv6_requested_addr[16];	/* Zero if none */
+	bool dns : 1;
+};
+
+struct ie_fils_ip_addr_response_info {
+	bool response_pending : 1;
+	uint8_t response_timeout;	/* Seconds */
+	uint32_t ipv4_addr;		/* Zero if not provided */
+	uint8_t ipv4_prefix_len;
+	uint32_t ipv4_gateway;		/* Zero if not provided */
+	uint8_t ipv4_gateway_mac[6];
+	uint32_t ipv4_dns;		/* Zero if not provided */
+	uint8_t ipv4_dns_mac[6];	/* Zero if not provided */
+	uint8_t ipv4_lifetime;		/* Zero if not provided */
+	uint8_t ipv6_addr[16];		/* Zero if not provided */
+	uint8_t ipv6_prefix_len;
+	uint8_t ipv6_gateway[16];	/* Zero if not provided */
+	uint8_t ipv6_gateway_mac[6];
+	uint8_t ipv6_dns[16];		/* Zero if not provided */
+	uint8_t ipv6_dns_mac[6];	/* Zero if not provided */
+	uint8_t ipv6_lifetime;		/* Zero if not provided */
+};
+
 extern const unsigned char ieee_oui[3];
 extern const unsigned char microsoft_oui[3];
 extern const unsigned char wifi_alliance_oui[3];
@@ -586,3 +613,14 @@ enum ie_rsnx_capability {
 };
 
 bool ie_rsnxe_capable(const uint8_t *rsnxe, unsigned int bit);
+
+int ie_parse_fils_ip_addr_request(struct ie_tlv_iter *iter,
+				struct ie_fils_ip_addr_request_info *out);
+void ie_build_fils_ip_addr_request(
+				const struct ie_fils_ip_addr_request_info *info,
+				uint8_t *to);
+int ie_parse_fils_ip_addr_response(struct ie_tlv_iter *iter,
+				struct ie_fils_ip_addr_response_info *out);
+void ie_build_fils_ip_addr_response(
+			const struct ie_fils_ip_addr_response_info *info,
+			uint8_t *to);
