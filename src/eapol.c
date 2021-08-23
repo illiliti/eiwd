@@ -1350,6 +1350,23 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 		key_data_len += gtk_kde[1] + 2;
 	}
 
+	if (sm->handshake->support_ip_allocation &&
+			!sm->handshake->client_ip_addr) {
+		handshake_event(sm->handshake, HANDSHAKE_EVENT_P2P_IP_REQUEST);
+
+		/*
+		 * If .support_ip_allocation was set, the
+		 * HANDSHAKE_EVENT_P2P_IP_REQUEST handler is expected to set
+		 * .client_ip_addr if not already set.  Check if the handler
+		 * was successful in allocating an address, if it wasn't we'll
+		 * just skip the IP Address Allocation KDE.  In either case if
+		 * we need to resend message 3/4 the event callback won't be
+		 * triggered again because the condition above will be false.
+		 */
+		if (!sm->handshake->client_ip_addr)
+			sm->handshake->support_ip_allocation = false;
+	}
+
 	if (sm->handshake->support_ip_allocation) {
 		/* Wi-Fi P2P Technical Specification v1.7 Table 59 */
 		key_data_buf[key_data_len++] = IE_TYPE_VENDOR_SPECIFIC;
