@@ -3802,9 +3802,9 @@ static void eapol_ap_sta_handshake_ip_alloc_ok_test(const void *data)
 	handshake_state_set_ssid(s.ap_hs, (void *) ssid, strlen(ssid));
 	handshake_state_set_pmk(s.ap_hs, psk, 32);
 	s.ap_hs->support_ip_allocation = true;
-	s.ap_hs->client_ip_addr = 0x01020304;
-	s.ap_hs->subnet_mask = 0xffff0000;
-	s.ap_hs->go_ip_addr = 0x01020305;
+	s.ap_hs->client_ip_addr = L_CPU_TO_BE32(0x01020304);
+	s.ap_hs->subnet_mask = L_CPU_TO_BE32(0xffff0000);
+	s.ap_hs->go_ip_addr = L_CPU_TO_BE32(0x01020305);
 
 	handshake_state_set_authenticator(s.sta_hs, false);
 	handshake_state_set_event_func(s.sta_hs, test_ap_sta_hs_event, &s);
