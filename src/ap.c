@@ -118,6 +118,7 @@ struct sta_state {
 	struct l_settings *wsc_settings;
 	uint8_t wsc_uuid_e[16];
 	bool wsc_v2;
+	struct l_dhcp_lease *ip_alloc_lease;
 };
 
 struct ap_wsc_pbc_probe_record {
@@ -176,6 +177,10 @@ static void ap_sta_free(void *data)
 
 	if (sta->gtk_query_cmd_id)
 		l_genl_family_cancel(ap->nl80211, sta->gtk_query_cmd_id);
+
+	if (sta->ip_alloc_lease && ap->netconfig_dhcp)
+		l_dhcp_server_lease_remove(ap->netconfig_dhcp,
+						sta->ip_alloc_lease);
 
 	ap_stop_handshake(sta);
 
@@ -839,6 +844,12 @@ static uint32_t ap_send_mgmt_frame(struct ap_state *ap,
 					callback, user_data, NULL, NULL);
 }
 
+#define IP4_FROM_STR(str)						\
+	(__extension__ ({						\
+		struct in_addr ia;					\
+		inet_pton(AF_INET, str, &ia) == 1 ? ia.s_addr : 0;	\
+	}))
+
 static void ap_start_handshake(struct sta_state *sta, bool use_eapol_start,
 				const uint8_t *gtk_rsc)
 {
@@ -863,6 +874,9 @@ static void ap_start_handshake(struct sta_state *sta, bool use_eapol_start,
 		handshake_state_set_gtk(sta->hs, sta->ap->gtk,
 					sta->ap->gtk_index, gtk_rsc);
 
+	if (ap->netconfig_dhcp)
+		sta->hs->support_ip_allocation = true;
+
 	sta->sm = eapol_sm_new(sta->hs);
 	if (!sta->sm) {
 		ap_stop_handshake(sta);
@@ -886,12 +900,28 @@ static void ap_handshake_event(struct handshake_state *hs,
 		enum handshake_event event, void *user_data, ...)
 {
 	struct sta_state *sta = user_data;
+	struct ap_state *ap = sta->ap;
 	va_list args;
 
 	va_start(args, user_data);
 
 	switch (event) {
 	case HANDSHAKE_EVENT_COMPLETE:
+		if (sta->ip_alloc_lease) {
+			/*
+			 * Move the lease from offered to active state if the
+			 * client has actually used it.  In any case drop our
+			 * reference to the lease, the server owns the lease
+			 * and if we want to keep our reference we'd need to
+			 * react to relevant server events.
+			 */
+			if (hs->support_ip_allocation)
+				l_dhcp_server_request(ap->netconfig_dhcp,
+							sta->ip_alloc_lease);
+
+			sta->ip_alloc_lease = NULL;
+		}
+
 		ap_new_rsna(sta);
 		break;
 	case HANDSHAKE_EVENT_FAILED:
@@ -900,6 +930,34 @@ static void ap_handshake_event(struct handshake_state *hs,
 	case HANDSHAKE_EVENT_SETTING_KEYS_FAILED:
 		sta->sm = NULL;
 		ap_remove_sta(sta);
+		break;
+	case HANDSHAKE_EVENT_P2P_IP_REQUEST:
+	{
+		L_AUTO_FREE_VAR(char *, lease_addr_str) = NULL;
+		L_AUTO_FREE_VAR(char *, lease_netmask_str) = NULL;
+		char own_addr_str[INET_ADDRSTRLEN];
+
+		if (!sta->ip_alloc_lease)
+			sta->ip_alloc_lease = l_dhcp_server_discover(
+							ap->netconfig_dhcp,
+							0, NULL, sta->addr);
+
+		if (!sta->ip_alloc_lease) {
+			l_error("l_dhcp_server_discover() failed, see "
+				"IWD_DHCP_DEBUG output");
+			break;
+		}
+
+		lease_addr_str = l_dhcp_lease_get_address(sta->ip_alloc_lease);
+		lease_netmask_str =
+			l_dhcp_lease_get_netmask(sta->ip_alloc_lease);
+		l_rtnl_address_get_address(ap->netconfig_addr4, own_addr_str);
+
+		sta->hs->client_ip_addr = IP4_FROM_STR(lease_addr_str);
+		sta->hs->subnet_mask = IP4_FROM_STR(lease_netmask_str);
+		sta->hs->go_ip_addr = IP4_FROM_STR(own_addr_str);
+		break;
+	}
 	default:
 		break;
 	}

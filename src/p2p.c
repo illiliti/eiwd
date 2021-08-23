@@ -1276,6 +1276,7 @@ static void p2p_group_start(struct p2p_device *dev)
 
 	dev->capability.group_caps |= P2P_GROUP_CAP_GO;
 	dev->capability.group_caps |= P2P_GROUP_CAP_GROUP_FORMATION;
+	dev->capability.group_caps |= P2P_GROUP_CAP_IP_ALLOCATION;
 
 	dev->group = ap_start(dev->conn_netdev, config, &p2p_go_ops, NULL, dev);
 	l_settings_free(config);
