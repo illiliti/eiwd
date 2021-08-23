@@ -91,6 +91,7 @@ class Test(unittest.TestCase):
 
         wd.wait_for_object_condition(wpas, 'obj.p2p_group is not None', max_wait=3)
         peer_ifname = wpas.p2p_group['ifname']
+        self.assertEqual(wpas.p2p_group['role'], 'GO' if not go else 'client')
 
         if not go:
             ctx.start_process(['ifconfig', peer_ifname, '192.168.1.20', 'netmask', '255.255.255.0'], wait=True)
@@ -102,6 +103,9 @@ class Test(unittest.TestCase):
             client = wpas.p2p_clients[request['peer_iface']]
             self.assertEqual(client['p2p_dev_addr'], wpas_peer['p2p_dev_addr'])
         else:
+            self.assertEqual(wpas.p2p_group['ip_addr'], '192.168.1.2')
+            self.assertEqual(wpas.p2p_group['ip_mask'], '255.255.255.240')
+            self.assertEqual(wpas.p2p_group['go_ip_addr'], '192.168.1.1')
             dhcp = ctx.start_process(['dhclient', '-v', '-d', '--no-pid', '-cf', '/dev/null', '-lf', '/tmp/dhcp.leases',
                 '-sf', '/tmp/dhclient-script', peer_ifname])
             self.dhcp = dhcp
@@ -136,7 +140,10 @@ class Test(unittest.TestCase):
 
     def tearDown(self):
         if self.p2p is not None:
-            self.p2p.enabled = False
+            try:
+                self.p2p.enabled = False
+            except:
+                pass
         if self.wpas is not None:
             self.wpas.clean_up()
             self.wpas = None
