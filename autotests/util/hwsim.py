@@ -335,14 +335,26 @@ class Hwsim(iwd.AsyncOpAbstract):
     def object_manager(self):
         return self._object_manager_if
 
+    @staticmethod
+    def _convert_address(address):
+        first = int(address[0:2], base=16)
+        first |= 0x40
+        first = format(first, 'x')
+
+        address = first + address[2:]
+
+        return address
+
     def spoof_disassociate(self, radio, freq, station):
         '''
             Send a spoofed disassociate frame to a station
         '''
+        dest = self._convert_address(radio.addresses[0].replace(':', ''))
+
         frame = 'a0 00 3a 01'
         frame += station.replace(':', '')
-        frame += radio.addresses[0].replace(':', '')
-        frame += radio.addresses[0].replace(':', '')
+        frame += dest
+        frame += dest
         frame += '30 01 07 00'
         self.spoof_frame(radio, freq, station, frame)
 
