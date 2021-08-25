@@ -94,7 +94,7 @@ class Test(unittest.TestCase):
         self.assertEqual(wpas.p2p_group['role'], 'GO' if not go else 'client')
 
         if not go:
-            ctx.start_process(['ifconfig', peer_ifname, '192.168.1.20', 'netmask', '255.255.255.0'], wait=True)
+            ctx.start_process(['ifconfig', peer_ifname, '192.168.1.20', 'netmask', '255.255.255.0']).wait()
             os.system('> /tmp/dhcp.leases')
             dhcp = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf', '-lf', '/tmp/dhcp.leases', peer_ifname])
             self.dhcp = dhcp

@@ -125,11 +125,11 @@ class Test(unittest.TestCase):
                             HostapdCLI(config='ft-psk-3.conf') ]
 
         ctx.start_process(['ifconfig', cls.bss_hostapd[0].ifname, 'down', 'hw', \
-                                'ether', '12:00:00:00:00:01', 'up'], wait=True)
+                                'ether', '12:00:00:00:00:01', 'up']).wait()
         ctx.start_process(['ifconfig', cls.bss_hostapd[1].ifname, 'down', 'hw', \
-                                'ether', '12:00:00:00:00:02', 'up'], wait=True)
+                                'ether', '12:00:00:00:00:02', 'up']).wait()
         ctx.start_process(['ifconfig', cls.bss_hostapd[2].ifname, 'down', 'hw', \
-                                'ether', '12:00:00:00:00:03', 'up'], wait=True)
+                                'ether', '12:00:00:00:00:03', 'up']).wait()
 
         # Set interface addresses to those expected by hostapd config files
         cls.bss_hostapd[0].reload()
