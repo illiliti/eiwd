@@ -83,6 +83,7 @@ struct scan_bss {
 	bool vht_capable : 1;
 	bool anqp_capable : 1;
 	bool hs20_capable : 1;
+	bool force_default_sae_group : 1;
 };
 
 struct scan_parameters {

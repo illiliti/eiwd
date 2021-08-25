@@ -924,7 +924,9 @@ static bool scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
 			return false;
 
 		bss->hs20_capable = true;
-	} else
+	} else if (is_ie_default_sae_group_oui(data, len))
+		bss->force_default_sae_group = true;
+	else
 		return false;
 
 	return true;
