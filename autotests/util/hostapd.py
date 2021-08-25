@@ -132,18 +132,18 @@ class HostapdCLI(object):
 
     def set_value(self, key, value):
         cmd = self.cmdline + ['set', key, value]
-        ctx.start_process(cmd, wait=True)
+        ctx.start_process(cmd).wait()
 
     def wps_push_button(self):
-        ctx.start_process(self.cmdline + ['wps_pbc'], wait=True)
+        ctx.start_process(self.cmdline + ['wps_pbc']).wait()
 
     def wps_pin(self, pin):
         cmd = self.cmdline + ['wps_pin', 'any', pin]
-        ctx.start_process(cmd, wait=True)
+        ctx.start_process(cmd).wait()
 
     def deauthenticate(self, client_address):
         cmd = self.cmdline + ['deauthenticate', client_address]
-        ctx.start_process(cmd, wait=True)
+        ctx.start_process(cmd).wait()
 
     def eapol_reauth(self, client_address):
         cmd = 'IFNAME=' + self.ifname + ' EAPOL_REAUTH ' + client_address
@@ -152,12 +152,13 @@ class HostapdCLI(object):
     def reload(self):
         # Seemingly all three commands needed for the instance to notice
         # interface's address change
-        ctx.start_process(self.cmdline + ['reload'], wait=True)
-        ctx.start_process(self.cmdline + ['disable'], wait=True)
-        ctx.start_process(self.cmdline + ['enable'], wait=True)
+        ctx.start_process(self.cmdline + ['reload']).wait()
+        ctx.start_process(self.cmdline + ['disable']).wait()
+        ctx.start_process(self.cmdline + ['enable']).wait()
 
     def list_sta(self):
-        proc = ctx.start_process(self.cmdline + ['list_sta'], wait=True, need_out=True)
+        proc = ctx.start_process(self.cmdline + ['list_sta'])
+        proc.wait()
 
         if not proc.out:
             return []
@@ -166,7 +167,7 @@ class HostapdCLI(object):
 
     def set_neighbor(self, addr, ssid, nr):
         cmd = self.cmdline + ['set_neighbor', addr, 'ssid="%s"' % ssid, 'nr=%s' % nr]
-        ctx.start_process(cmd, wait=True)
+        ctx.start_process(cmd).wait()
 
     def send_bss_transition(self, device, nr_list):
         # Send a BSS transition to a station (device). nr_list should be an
@@ -189,7 +190,8 @@ class HostapdCLI(object):
                         (addr, bss_info, op_class, chan_num, phy_num)]
             pref += 1
 
-        proc = ctx.start_process(cmd, wait=True, need_out=True)
+        proc = ctx.start_process(cmd)
+        proc.wait()
 
         if 'OK' not in proc.out:
             raise Exception('BSS_TM_REQ failed, is hostapd built with CONFIG_WNM_AP=y?')
@@ -199,13 +201,14 @@ class HostapdCLI(object):
             Send a RRM Beacon request
         '''
         cmd = self.cmdline + ['req_beacon', addr, request]
-        ctx.start_process(cmd, wait=True)
+        ctx.start_process(cmd).wait()
 
     @property
     def bssid(self):
         cmd = self.cmdline + ['status']
-        status = ctx.start_process(cmd, wait=True, need_out=True).out
-        status = status.split('\n')
+        proc = ctx.start_process(cmd)
+        proc.wait()
+        status = proc.out.split('\n')
 
         bssid = [x for x in status if x.startswith('bssid')]
         bssid = bssid[0].split('=')
@@ -214,8 +217,9 @@ class HostapdCLI(object):
     @property
     def frequency(self):
         cmd = self.cmdline + ['status']
-        status = ctx.start_process(cmd, wait=True, need_out=True).out
-        status = status.split('\n')
+        proc = ctx.start_process(cmd)
+        proc.wait()
+        status = proc.out.split('\n')
 
         frequency = [x for x in status if x.startswith('freq')][0]
         frequency = frequency.split('=')[1]
