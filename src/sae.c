@@ -83,6 +83,8 @@ struct sae_sm {
 	sae_tx_associate_func_t tx_assoc;
 	void *user_data;
 	enum crypto_sae sae_type;
+
+	bool force_default_group : 1;
 };
 
 static enum mmpdu_status_code sae_status_code(struct sae_sm *sm)
@@ -139,6 +141,24 @@ static int sae_choose_next_group(struct sae_sm *sm)
 	const unsigned int *ecc_groups = l_ecc_supported_ike_groups();
 	bool reset = sm->group_retry >= 0;
 
+	/*
+	 * If this is a buggy AP in which group negotiation is broken use the
+	 * default group 19 and fail if this is a retry.
+	 */
+	if (sm->sae_type == CRYPTO_SAE_LOOPING && sm->force_default_group) {
+		if (sm->group_retry != -1) {
+			l_warn("Forced default group but was rejected!");
+			return -ENOENT;
+		}
+
+		l_debug("Forcing default SAE group 19");
+
+		sm->group_retry++;
+		sm->group = 19;
+
+		goto get_curve;
+	}
+
 	do {
 		sm->group_retry++;
 
@@ -151,6 +171,8 @@ static int sae_choose_next_group(struct sae_sm *sm)
 		sae_reset_state(sm);
 
 	sm->group = ecc_groups[sm->group_retry];
+
+get_curve:
 	sm->curve = l_ecc_curve_from_ike_group(sm->group);
 
 	return 0;
@@ -1296,6 +1318,13 @@ bool sae_sm_is_h2e(struct auth_proto *ap)
 	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
 
 	return sm->sae_type != CRYPTO_SAE_LOOPING;
+}
+
+void sae_sm_set_force_group_19(struct auth_proto *ap)
+{
+	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
+
+	sm->force_default_group = true;
 }
 
 static void sae_free(struct auth_proto *ap)
