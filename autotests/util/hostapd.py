@@ -5,6 +5,7 @@ import socket
 import select
 import time
 from gi.repository import GLib
+from weakref import WeakValueDictionary
 from config import ctx
 
 chan_freq_map = [
@@ -29,7 +30,7 @@ ctrl_count = 0
 mainloop = GLib.MainLoop()
 
 class HostapdCLI(object):
-    _instances = {}
+    _instances = WeakValueDictionary()
 
     def __new__(cls, config=None, *args, **kwargs):
         hapd = ctx.hostapd[config]
@@ -38,8 +39,10 @@ class HostapdCLI(object):
             config = hapd.config
 
         if not config in cls._instances.keys():
-            cls._instances[config] = object.__new__(cls, *args, **kwargs)
-            cls._instances[config]._initialized = False
+            obj = object.__new__(cls, *args, **kwargs)
+            obj._initialized = False
+
+            cls._instances[config] = obj
 
         return cls._instances[config]
 
@@ -122,13 +125,6 @@ class HostapdCLI(object):
             os.remove(self.local_ctrl)
         except:
             pass
-
-        HostapdCLI._instances[self.config] = None
-
-        # Check if this is the final instance
-        destroy = len([hapd for hapd in HostapdCLI._instances.values() if hapd is not None]) == 0
-        if destroy:
-            HostapdCLI._instances = {}
 
     def set_value(self, key, value):
         cmd = self.cmdline + ['set', key, value]

@@ -541,13 +541,6 @@ class Hostapd:
 		except:
 			print("Failed to remove %s" % self.global_ctrl_iface)
 
-		for hapd in self.instances:
-			if not hapd.cli:
-				continue
-
-			hapd.cli._instances[hapd.config] = None
-			hapd.cli = None
-
 		self.instances = None
 
 		# Hostapd may have already been stopped
