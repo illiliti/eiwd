@@ -377,17 +377,20 @@ class VirtualRadio(Radio):
 		TODO: Using D-Bus to create and destroy radios is more desireable
 		than the command line.
 	'''
-	def __init__(self, name, config=None):
+
+	def __init__(self, name, cfg=None):
+		global config
+
 		self.disable_cipher = None
 		self.disable_iftype = None
 
-		hwsim = importlib.import_module('hwsim').Hwsim()
+		self.hwsim = config.hwsim.Hwsim()
 
-		if config:
-			self.disable_iftype = config.get('iftype_disable', None)
-			self.disable_cipher = config.get('cipher_disable', None)
+		if cfg:
+			self.disable_iftype = cfg.get('iftype_disable', None)
+			self.disable_cipher = cfg.get('cipher_disable', None)
 
-		self._radio = hwsim.radios.create(name, p2p_device=True,
+		self._radio = self.hwsim.radios.create(name, p2p_device=True,
 					iftype_disable=self.disable_iftype,
 					cipher_disable=self.disable_cipher)
 
@@ -499,8 +502,10 @@ class Hostapd:
 			self.process.wait_for_socket(hapd.intf.ctrl_interface, 30)
 
 	def attach_cli(self):
+		global config
+
 		for hapd in self.instances:
-			hapd.cli = importlib.import_module('hostapd').HostapdCLI(config=hapd.config)
+			hapd.cli = config.hostapd.HostapdCLI(config=hapd.config)
 
 	def _rewrite_config(self, config):
 		'''
@@ -1501,6 +1506,10 @@ def run_tests():
 	#
 	config = importlib.import_module('config')
 	config.ctx = TestContext(args)
+
+	# Must import these after config so ctx gets set
+	config.hwsim = importlib.import_module('hwsim')
+	config.hostapd = importlib.import_module('hostapd')
 
 	if args.log:
 		mount('logdir', args.log, '9p', 0, 'trans=virtio,version=9p2000.L,msize=10240')
