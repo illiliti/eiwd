@@ -3,6 +3,7 @@ import dbus
 import sys
 import collections
 
+from weakref import WeakValueDictionary
 from abc import ABCMeta, abstractmethod
 from enum import Enum
 
@@ -297,7 +298,25 @@ class RadioList(collections.Mapping):
         return obj
 
 class Hwsim(iwd.AsyncOpAbstract):
+    _instances = WeakValueDictionary()
+
+    def __new__(cls, namespace=ctx):
+        name = namespace.name
+
+        if name not in cls._instances.keys():
+            obj = object.__new__(cls)
+            obj._initialized = False
+
+            cls._instances[name] = obj
+
+        return cls._instances[name]
+
     def __init__(self, namespace=ctx):
+        if self._initialized:
+            return
+
+        self._initialized = True
+
         self._bus = namespace.get_bus()
 
         self._rule_manager_if = dbus.Interface(
