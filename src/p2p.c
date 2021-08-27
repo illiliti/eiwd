@@ -1328,8 +1328,16 @@ static void p2p_start_client_netconfig(struct p2p_device *dev)
 	}
 
 	settings = dev->conn_netconfig_settings ?: p2p_dhcp_settings;
-	netconfig_configure(dev->conn_netconfig, settings, dev->conn_addr,
-				p2p_netconfig_event_handler, dev);
+
+	if (!netconfig_load_settings(dev->conn_netconfig, settings,
+					dev->conn_addr) ||
+			!netconfig_configure(dev->conn_netconfig,
+						p2p_netconfig_event_handler,
+						dev)) {
+		p2p_connect_failed(dev);
+		return;
+	}
+
 	dev->conn_dhcp_timeout = l_timeout_create(p2p_dhcp_timeout_val,
 						p2p_dhcp_timeout, dev,
 						p2p_dhcp_timeout_destroy);

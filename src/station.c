@@ -2443,14 +2443,12 @@ static void station_connect_ok(struct station *station)
 
 	network_connected(station->connected_network);
 
-	if (station->netconfig)
-		netconfig_configure(station->netconfig,
-					network_get_settings(
-						station->connected_network),
-					netdev_get_address(station->netdev),
-					station_netconfig_event_handler,
-					station);
-	else
+	if (station->netconfig) {
+		if (L_WARN_ON(!netconfig_configure(station->netconfig,
+						station_netconfig_event_handler,
+						station)))
+			return;
+	} else
 		station_enter_state(station, STATION_STATE_CONNECTED);
 }
 
@@ -2591,6 +2589,12 @@ int __station_connect_network(struct station *station, struct network *network,
 {
 	struct handshake_state *hs;
 	int r;
+
+	if (station->netconfig && !netconfig_load_settings(
+					station->netconfig,
+					network_get_settings(network),
+					netdev_get_address(station->netdev)))
+		return -EINVAL;
 
 	hs = station_handshake_setup(station, network, bss);
 	if (!hs)
