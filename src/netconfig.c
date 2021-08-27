@@ -48,6 +48,7 @@
 #include "src/network.h"
 #include "src/resolve.h"
 #include "src/util.h"
+#include "src/ie.h"
 #include "src/netconfig.h"
 
 struct netconfig {
@@ -59,6 +60,7 @@ struct netconfig {
 	struct l_rtnl_address *v4_address;
 	char **dns4_overrides;
 	char **dns6_overrides;
+	struct ie_fils_ip_addr_response_info *fils_override;
 
 	const struct l_settings *active_settings;
 
@@ -164,6 +166,36 @@ static struct netconfig *netconfig_find(uint32_t ifindex)
 			dest[index++] = *p;			\
 	} while (0)						\
 
+static inline char *netconfig_ipv4_to_string(uint32_t addr)
+{
+	struct in_addr in_addr = { .s_addr = addr };
+	char *addr_str = l_malloc(INET_ADDRSTRLEN);
+
+	if (L_WARN_ON(unlikely(!inet_ntop(AF_INET, &in_addr, addr_str,
+						INET_ADDRSTRLEN)))) {
+		l_free(addr_str);
+		return NULL;
+	}
+
+	return addr_str;
+}
+
+static inline char *netconfig_ipv6_to_string(const uint8_t *addr)
+{
+	struct in6_addr in6_addr;
+	char *addr_str = l_malloc(INET6_ADDRSTRLEN);
+
+	memcpy(in6_addr.__in6_u.__u6_addr8, addr, 16);
+
+	if (L_WARN_ON(unlikely(!inet_ntop(AF_INET6, &in6_addr, addr_str,
+						INET6_ADDRSTRLEN)))) {
+		l_free(addr_str);
+		return NULL;
+	}
+
+	return addr_str;
+}
+
 static int netconfig_set_dns(struct netconfig *netconfig)
 {
 	char **dns6_list = NULL;
@@ -173,19 +205,30 @@ static int netconfig_set_dns(struct netconfig *netconfig)
 
 	if (!netconfig->dns4_overrides &&
 			netconfig->rtm_protocol == RTPROT_DHCP) {
-		const struct l_dhcp_lease *lease =
-			l_dhcp_client_get_lease(netconfig->dhcp_client);
+		const struct l_dhcp_lease *lease;
 
-		if (lease)
+		if (netconfig->fils_override &&
+				netconfig->fils_override->ipv4_dns) {
+			dns4_list = l_new(char *, 2);
+			dns4_list[0] = netconfig_ipv4_to_string(
+					netconfig->fils_override->ipv4_dns);
+		} else if ((lease = l_dhcp_client_get_lease(
+						netconfig->dhcp_client)))
 			dns4_list = l_dhcp_lease_get_dns(lease);
 	}
 
 	if (!netconfig->dns6_overrides &&
 			netconfig->rtm_v6_protocol == RTPROT_DHCP) {
-		const struct l_dhcp6_lease *lease =
-			l_dhcp6_client_get_lease(netconfig->dhcp6_client);
+		const struct l_dhcp6_lease *lease;
 
-		if (lease)
+		if (netconfig->fils_override &&
+				!l_memeqzero(netconfig->fils_override->ipv6_dns,
+						16)) {
+			dns6_list = l_new(char *, 2);
+			dns6_list[0] = netconfig_ipv6_to_string(
+					netconfig->fils_override->ipv6_dns);
+		} else if ((lease = l_dhcp6_client_get_lease(
+						netconfig->dhcp6_client)))
 			dns6_list = l_dhcp6_lease_get_dns(lease);
 	}
 
@@ -335,6 +378,11 @@ static char *netconfig_ipv4_get_gateway(struct netconfig *netconfig)
 		return gateway;
 
 	case RTPROT_DHCP:
+		if (netconfig->fils_override &&
+				netconfig->fils_override->ipv4_gateway)
+			return netconfig_ipv4_to_string(
+					netconfig->fils_override->ipv4_gateway);
+
 		lease = l_dhcp_client_get_lease(netconfig->dhcp_client);
 		if (!lease)
 			return NULL;
@@ -390,7 +438,13 @@ static struct l_rtnl_route *netconfig_get_static6_gateway(
 
 	gateway = l_settings_get_string(netconfig->active_settings,
 						"IPv6", "Gateway");
-	if (!gateway)
+	if (!gateway && netconfig->rtm_v6_protocol == RTPROT_DHCP &&
+			netconfig->fils_override &&
+			!l_memeqzero(netconfig->fils_override->ipv6_gateway,
+					16))
+		gateway = netconfig_ipv6_to_string(
+					netconfig->fils_override->ipv6_gateway);
+	else if (!gateway)
 		return NULL;
 
 	ret = l_rtnl_route_new_gateway(gateway);
@@ -520,7 +574,9 @@ static void netconfig_ifaddr_ipv6_added(struct netconfig *netconfig,
 	l_debug("ifindex %u: ifaddr %s/%u", netconfig->ifindex,
 			ip, ifa->ifa_prefixlen);
 
-	if (netconfig->rtm_v6_protocol != RTPROT_DHCP)
+	if (netconfig->rtm_v6_protocol != RTPROT_DHCP ||
+			(netconfig->fils_override &&
+			 !l_memeqzero(netconfig->fils_override->ipv6_addr, 16)))
 		return;
 
 	inet_pton(AF_INET6, ip, &in6);
@@ -898,7 +954,35 @@ static void netconfig_ipv4_acd_event(enum l_acd_event event, void *user_data)
 
 static bool netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 {
-	if (netconfig->rtm_protocol == RTPROT_STATIC) {
+	bool set_address = (netconfig->rtm_protocol == RTPROT_STATIC);
+
+	if (netconfig->rtm_protocol == RTPROT_DHCP &&
+			netconfig->fils_override &&
+			netconfig->fils_override->ipv4_addr) {
+		L_AUTO_FREE_VAR(char *, addr_str) = netconfig_ipv4_to_string(
+					netconfig->fils_override->ipv4_addr);
+		uint8_t prefix_len = netconfig->fils_override->ipv4_prefix_len;
+
+		if (unlikely(!addr_str))
+			return false;
+
+		if (L_WARN_ON(unlikely(!(netconfig->v4_address =
+						l_rtnl_address_new(addr_str,
+								prefix_len)))))
+			return false;
+
+		l_rtnl_address_set_noprefixroute(netconfig->v4_address, true);
+		set_address = true;
+
+		/*
+		 * TODO: If netconfig->fils_override->ipv4_lifetime is set,
+		 * start a timeout to renew the address using FILS IP Address
+		 * Assignment or perhaps just start the DHCP client at that
+		 * time.
+		 */
+	}
+
+	if (set_address) {
 		char ip[INET6_ADDRSTRLEN];
 
 		if (L_WARN_ON(!netconfig->v4_address ||
@@ -941,6 +1025,7 @@ static bool netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 static bool netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 {
 	struct netdev *netdev = netdev_find(netconfig->ifindex);
+	struct l_rtnl_address *address = NULL;
 
 	if (netconfig->rtm_v6_protocol == RTPROT_UNSPEC) {
 		l_debug("IPV6 configuration disabled");
@@ -949,11 +1034,34 @@ static bool netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 
 	sysfs_write_ipv6_setting(netdev_get_name(netdev), "disable_ipv6", "0");
 
-	if (netconfig->rtm_v6_protocol == RTPROT_STATIC) {
-		struct l_rtnl_address *address =
-			netconfig_get_static6_address(
+	if (netconfig->rtm_v6_protocol == RTPROT_STATIC)
+		address = netconfig_get_static6_address(
 						netconfig->active_settings);
+	else if (netconfig->rtm_v6_protocol == RTPROT_DHCP &&
+			netconfig->fils_override &&
+			!l_memeqzero(netconfig->fils_override->ipv6_addr, 16)) {
+		uint8_t prefix_len = netconfig->fils_override->ipv6_prefix_len;
+		L_AUTO_FREE_VAR(char *, addr_str) = netconfig_ipv6_to_string(
+					netconfig->fils_override->ipv6_addr);
 
+		if (unlikely(!addr_str))
+			return false;
+
+		if (L_WARN_ON(unlikely(!(address = l_rtnl_address_new(addr_str,
+								prefix_len)))))
+			return false;
+
+		l_rtnl_address_set_noprefixroute(address, true);
+
+		/*
+		 * TODO: If netconfig->fils_override->ipv6_lifetime is set,
+		 * start a timeout to renew the address using FILS IP Address
+		 * Assignment or perhaps just start the DHCP client at that
+		 * time.
+		 */
+	}
+
+	if (address) {
 		L_WARN_ON(!(netconfig->addr6_add_cmd_id =
 			l_rtnl_ifaddr_add(rtnl, netconfig->ifindex, address,
 					netconfig_ipv6_ifaddr_add_cmd_cb,
@@ -1184,6 +1292,8 @@ bool netconfig_reset(struct netconfig *netconfig)
 						"disable_ipv6", "1");
 	}
 
+	l_free(l_steal_ptr(netconfig->fils_override));
+
 	return true;
 }
 
@@ -1199,6 +1309,35 @@ char *netconfig_get_dhcp_server_ipv4(struct netconfig *netconfig)
 		return NULL;
 
 	return l_dhcp_lease_get_server_id(lease);
+}
+
+bool netconfig_get_fils_ip_req(struct netconfig *netconfig,
+				struct ie_fils_ip_addr_request_info *info)
+{
+	/*
+	 * Fill in the fields used for building the FILS IP Address Assigment
+	 * IE during connection if we're configured to do automatic network
+	 * configuration (usually DHCP).  If we're configured with static
+	 * values return false to mean the IE should not be sent.
+	 */
+	if (netconfig->rtm_protocol != RTPROT_DHCP &&
+			netconfig->rtm_v6_protocol != RTPROT_DHCP)
+		return false;
+
+	memset(info, 0, sizeof(*info));
+	info->ipv4 = (netconfig->rtm_protocol == RTPROT_DHCP);
+	info->ipv6 = (netconfig->rtm_v6_protocol == RTPROT_DHCP);
+	info->dns = (info->ipv4 && !netconfig->dns4_overrides) ||
+		(info->ipv6 && !netconfig->dns6_overrides);
+
+	return true;
+}
+
+void netconfig_handle_fils_ip_resp(struct netconfig *netconfig,
+			const struct ie_fils_ip_addr_response_info *info)
+{
+	l_free(netconfig->fils_override);
+	netconfig->fils_override = l_memdup(info, sizeof(*info));
 }
 
 struct netconfig *netconfig_new(uint32_t ifindex)
