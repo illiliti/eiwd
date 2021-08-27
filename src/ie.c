@@ -2309,8 +2309,10 @@ int ie_parse_fils_ip_addr_response(struct ie_tlv_iter *iter,
 		memcpy(info.ipv4_gateway_mac, ptr + 4, 6);
 
 		/* Check gateway is on the same subnet */
-		if (info.ipv4_addr && (ntohl(info.ipv4_addr ^ info.ipv4_gateway) &
-				util_netmask_from_prefix(info.ipv4_prefix_len)))
+		if (info.ipv4_addr &&
+				!util_ip_subnet_match(info.ipv4_prefix_len,
+							&info.ipv4_addr,
+							&info.ipv4_gateway))
 			return -EINVAL;
 	}
 
@@ -2330,17 +2332,11 @@ int ie_parse_fils_ip_addr_response(struct ie_tlv_iter *iter,
 		memcpy(info.ipv6_gateway_mac, ptr + 16, 6);
 
 		/* Check gateway is on the same subnet */
-		if (!l_memeqzero(info.ipv6_addr, 12)) {
-			int n = info.ipv6_prefix_len / 8;
-			uint8_t mask = (1 << (info.ipv6_prefix_len & 7)) - 1;
-
-			if (n && memcmp(info.ipv6_addr, info.ipv6_gateway, n))
-				return -EINVAL;
-
-			if (mask && ((info.ipv6_addr[n] ^
-						info.ipv6_gateway[n]) & mask))
-				return -EINVAL;
-		}
+		if (!l_memeqzero(info.ipv6_addr, 16) &&
+				!util_ip_subnet_match(info.ipv6_prefix_len,
+							info.ipv6_addr,
+							info.ipv6_gateway))
+			return -EINVAL;
 	}
 
 	if (*resp_ctrl & IE_FILS_IP_ADDR_RESP_CTRL_IPV4_LIFETIME_INCLUDED)

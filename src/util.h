@@ -82,9 +82,23 @@ static inline uint32_t util_secure_fill_with_msb(uint32_t val)
 bool util_ip_prefix_tohl(const char *ip, uint8_t *prefix, uint32_t *start_out,
 				uint32_t *end_out, uint32_t *mask_out);
 
+/* Host byte-order IPv4 netmask */
 static inline uint32_t util_netmask_from_prefix(uint8_t prefix_len)
 {
 	return ~((1ull << (32 - prefix_len)) - 1);
+}
+
+/* Expects network byte-order (big-endian) addresses */
+static inline bool util_ip_subnet_match(uint8_t prefix_len,
+					const void *addr1, const void *addr2)
+{
+	const uint8_t *u8_1 = addr1;
+	const uint8_t *u8_2 = addr2;
+	uint8_t pref_bytes = prefix_len / 8;
+
+	return (!pref_bytes || !memcmp(u8_1, u8_2, pref_bytes)) &&
+		!((u8_1[pref_bytes] ^ u8_2[pref_bytes]) &
+		  ~((1u << (8 - (prefix_len % 8))) - 1));
 }
 
 #endif /* __UTIL_H */
