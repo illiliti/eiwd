@@ -292,6 +292,9 @@ static unsigned int netdev_populate_common_ies(struct netdev *netdev,
 
 	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->vendor_ies);
 
+	if (hs->fils_ip_req_ie)
+		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->fils_ip_req_ie);
+
 	return c_iov;
 }
 
@@ -2185,6 +2188,18 @@ process_resp_ies:
 			case IE_TYPE_QOS_MAP_SET:
 				qos_set = data;
 				qos_len = ie_tlv_iter_get_length(&iter);
+				break;
+			case IE_TYPE_FILS_IP_ADDRESS:
+				if (netdev->handshake->fils_ip_resp_ie) {
+					l_debug("Duplicate response FILS IP "
+						"Address Assignment IE");
+					l_free(netdev->handshake->
+						fils_ip_resp_ie);
+				}
+
+				netdev->handshake->fils_ip_resp_ie = l_memdup(
+					data - 3,
+					ie_tlv_iter_get_length(&iter) + 3);
 				break;
 			}
 		}

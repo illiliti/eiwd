@@ -140,6 +140,8 @@ struct handshake_state {
 	uint32_t client_ip_addr;
 	uint32_t subnet_mask;
 	uint32_t go_ip_addr;
+	uint8_t *fils_ip_req_ie;
+	uint8_t *fils_ip_resp_ie;
 	void *user_data;
 
 	void (*free)(struct handshake_state *s);

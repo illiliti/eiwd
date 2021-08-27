@@ -924,6 +924,7 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 	struct handshake_state *hs;
 	const struct iovec *vendor_ies;
 	size_t iov_elems = 0;
+	struct ie_fils_ip_addr_request_info fils_ip_req;
 
 	hs = netdev_handshake_state_new(station->netdev);
 
@@ -939,6 +940,16 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 
 	vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
 	handshake_state_set_vendor_ies(hs, vendor_ies, iov_elems);
+
+	/*
+	 * It can't hurt to try the FILS IP Address Assigment independent of
+	 * which auth-proto is actually used.
+	 */
+	if (station->netconfig && netconfig_get_fils_ip_req(station->netconfig,
+								&fils_ip_req)) {
+		hs->fils_ip_req_ie = l_malloc(32);
+		ie_build_fils_ip_addr_request(&fils_ip_req, hs->fils_ip_req_ie);
+	}
 
 	return hs;
 
@@ -2444,6 +2455,35 @@ static void station_connect_ok(struct station *station)
 	network_connected(station->connected_network);
 
 	if (station->netconfig) {
+		if (hs->fils_ip_req_ie && hs->fils_ip_resp_ie) {
+			struct ie_fils_ip_addr_response_info info;
+			struct ie_tlv_iter iter;
+			int r;
+
+			ie_tlv_iter_init(&iter, hs->fils_ip_resp_ie,
+						hs->fils_ip_resp_ie[1] + 2);
+			ie_tlv_iter_next(&iter);
+			r = ie_parse_fils_ip_addr_response(&iter, &info);
+
+			if (r != 0)
+				l_debug("Error parsing the FILS IP Address "
+					"Assignment response: %s (%i)",
+					strerror(-r), -r);
+			else if (info.response_pending &&
+					info.response_timeout)
+				l_debug("FILS IP Address Assignment response "
+					"is pending (unsupported)");
+			else if (info.response_pending)
+				l_debug("FILS IP Address Assignment failed");
+			else {
+				l_debug("FILS IP Address Assignment response "
+					"OK");
+				netconfig_handle_fils_ip_resp(
+							station->netconfig,
+							&info);
+			}
+		}
+
 		if (L_WARN_ON(!netconfig_configure(station->netconfig,
 						station_netconfig_event_handler,
 						station)))
