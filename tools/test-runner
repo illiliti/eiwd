@@ -176,11 +176,11 @@ class Process(subprocess.Popen):
 			global config
 			self.ctx = config.ctx
 
-		if namespace:
-			args = ['ip', 'netns', 'exec', namespace] + args
-
 		if self.ctx.is_verbose(args[0], log=False):
 			self.verbose = True
+
+		if namespace:
+			args = ['ip', 'netns', 'exec', namespace] + args
 
 		if outfile:
 			self._append_outfile(outfile)
