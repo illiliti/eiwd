@@ -237,18 +237,6 @@ Wireless daemon
   Priority: Low
   Complexity: C4
 
-- Take EAP MSK size into consideration.
-
-  MSK is mandated to be 64 bytes long, and depending on the AKM, different parts
-  of the MSK are used to generate keys.  Some EAP methods produce MSKs with less
-  than 64 bytes of useable data.  For example, LEAP produces only 16 bytes and
-  MSCHAPv2 produces 32 bytes.  If the AKM requires MSK of a certain size, and
-  the EAP method does not provide enough data, then the handshake should be
-  aborted.
-
-  Priority: Medium
-  Complexity: C2
-
 - Implement Enrollee Session Overlap Detection after WSC Protocol Run
 
   WSC Best Practices v2.0.1, Section 3.15 describes an enhacement to detect
