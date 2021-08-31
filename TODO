@@ -370,3 +370,18 @@ Wireless daemon
 
   Priority: Medium
   Complexity: C4
+
+Network Configuration
+=====================
+
+- Support elements of RFC4436 - DNAv4
+
+  Assumption: netconfig is able to save lease information for networks that
+  have been joined previously and does not release the lease when the network
+  is left temporarily.
+
+  Attempt to re-assume the lease via methods described in DNAv4 if we attempt
+  to rejoin a network and the lease has not expired yet.
+
+  Priority: Low
+  Complexity: C4
