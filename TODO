@@ -349,27 +349,6 @@ Wireless daemon
   Priority: Medium
   Complexity: C4
 
-- Support Diagnostics interface
-
-  The diagnostic interface for a particular Device would contain information
-  (and possibly operations) that would be meant for diagnostics applications
-  or other applications that require access to very low level details.  Such
-  applications would be expected how to interpret this information
-  appropriately.
-
-  This interface would also be heavily utilized by the Auto-Test framework
-  in order to more easily ascertain the internal state of the hardware & the
-  daemon itself.
-
-  The list of possible information exposed via this interface includes:
-    - MAC address of the currently connected AP (in a Station)
-    - MAC addresses of currently connected clients (Adhoc, AP, etc)
-    - packet error rates or signal strength
-    - Throughput statistics
-    - FTM / direction finding operations
-
-  Priority: Medium
-  Complexity: C4
 
 Network Configuration
 =====================
