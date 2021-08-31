@@ -199,11 +199,6 @@ Wireless daemon
   Priority: Low
   Complexity: C4
 
-- Add support for 802.11u.  This is required for Passpoint 2.0 support.
-
-  Priority: Low
-  Complexity: C8
-
 - Add support for Wireless Network Management (WNM) from 802.11v.  Parts of
   this are needed for Passpoint support.
 
