@@ -3980,6 +3980,9 @@ static struct l_dbus_message *station_debug_scan(struct l_dbus *dbus,
 	freq_set = scan_freq_set_new();
 
 	for (i = 0; i < freqs_len; i++) {
+		if (scan_freq_set_contains(freq_set, (uint32_t)freqs[i]))
+			continue;
+
 		if (!scan_freq_set_add(freq_set, (uint32_t)freqs[i])) {
 			scan_freq_set_free(freq_set);
 			goto invalid_args;
