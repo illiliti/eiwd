@@ -183,7 +183,9 @@ class Process(subprocess.Popen):
 			args = ['ip', 'netns', 'exec', namespace] + args
 
 		if outfile:
-			self._append_outfile(outfile)
+			# outfile is only used by iwmon, in which case we don't want
+			# to append to an existing file.
+			self._append_outfile(outfile, append=False)
 
 		if self.ctx.args.log:
 			logfile = '%s/%s/%s' % (self.ctx.args.log,
@@ -240,7 +242,7 @@ class Process(subprocess.Popen):
 
 		return True
 
-	def _append_outfile(self, file):
+	def _append_outfile(self, file, append=True):
 		gid = int(self.ctx.args.log_gid)
 		uid = int(self.ctx.args.log_uid)
 		dir = os.path.dirname(file)
@@ -253,7 +255,7 @@ class Process(subprocess.Popen):
 
 		# If the out file exists, append. Useful for processes like
 		# hostapd_cli where it is called multiple times independently.
-		if os.path.isfile(file):
+		if os.path.isfile(file) and append:
 			mode = 'a'
 		else:
 			mode = 'w'
@@ -1707,6 +1709,9 @@ class Main:
 
 			self.args.monitor = os.path.abspath(self.args.monitor)
 			mon_parent_dir = os.path.abspath(os.path.join(self.args.monitor, os.pardir))
+
+			options += ' --log-gid %u' % int(os.environ['SUDO_GID'])
+			options += ' --log-uid %u' % int(os.environ['SUDO_UID'])
 
 		denylist = [
 			'auto_tests',
