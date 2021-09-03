@@ -23,11 +23,9 @@
 struct owe_sm;
 struct handshake_state;
 
-typedef void (*owe_tx_authenticate_func_t)(void *user_data);
-typedef void (*owe_tx_associate_func_t)(struct iovec *ie_iov, size_t iov_len,
-					void *user_data);
+struct owe_sm *owe_sm_new(struct handshake_state *hs);
+void owe_sm_free(struct owe_sm *sm);
 
-struct auth_proto *owe_sm_new(struct handshake_state *hs,
-				owe_tx_authenticate_func_t auth,
-				owe_tx_associate_func_t assoc,
-				void *user_data);
+void owe_build_dh_ie(struct owe_sm *sm, uint8_t *buf, size_t *len_out);
+int owe_process_dh_ie(struct owe_sm *sm, const uint8_t *dh, size_t len);
+bool owe_next_group(struct owe_sm *sm);
