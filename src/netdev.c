@@ -181,6 +181,7 @@ struct netdev {
 	bool events_ready : 1;
 	bool retry_auth : 1;
 	bool in_reassoc : 1;
+	bool privacy : 1;
 };
 
 struct netdev_preauth_state {
@@ -788,6 +789,7 @@ static void netdev_connect_free(struct netdev *netdev)
 	netdev->ignore_connect_event = false;
 	netdev->expect_connect_failure = false;
 	netdev->cur_rssi_low = false;
+	netdev->privacy = false;
 
 	if (netdev->connect_cmd) {
 		l_genl_msg_unref(netdev->connect_cmd);
@@ -2901,7 +2903,6 @@ static void netdev_fils_tx_associate(struct iovec *fils_iov, size_t n_fils_iov,
 }
 
 static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
-						struct scan_bss *bss,
 						struct handshake_state *hs,
 						const uint8_t *prev_bssid,
 						const struct iovec *vendor_ies,
@@ -2924,10 +2925,9 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 	msg = l_genl_msg_new_sized(NL80211_CMD_CONNECT, 512);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY_FREQ,
-						4, &bss->frequency);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, bss->addr);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_SSID,
-						bss->ssid_len, bss->ssid);
+							4, &netdev->frequency);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, hs->aa);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_SSID, hs->ssid_len, hs->ssid);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_AUTH_TYPE, 4, &auth_type);
 
 	switch (nhs->type) {
@@ -2950,7 +2950,7 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 		l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, ETH_ALEN,
 						prev_bssid);
 
-	if (bss->capability & IE_BSS_CAP_PRIVACY)
+	if (netdev->privacy)
 		l_genl_msg_append_attr(msg, NL80211_ATTR_PRIVACY, 0, NULL);
 
 	l_genl_msg_append_attr(msg, NL80211_ATTR_SOCKET_OWNER, 0, NULL);
@@ -3476,6 +3476,10 @@ static void netdev_connect_common(struct netdev *netdev,
 	bool is_rsn = hs->supplicant_ie != NULL;
 	const uint8_t *prev_bssid = prev_bss ? prev_bss->addr : NULL;
 
+	netdev->frequency = bss->frequency;
+	netdev->privacy = bss->capability & IE_BSS_CAP_PRIVACY;
+	handshake_state_set_authenticator_address(hs, bss->addr);
+
 	if (!is_rsn)
 		goto build_cmd_connect;
 
@@ -3519,8 +3523,8 @@ static void netdev_connect_common(struct netdev *netdev,
 		break;
 	default:
 build_cmd_connect:
-		cmd_connect = netdev_build_cmd_connect(netdev, bss, hs,
-					prev_bssid, vendor_ies, num_vendor_ies);
+		cmd_connect = netdev_build_cmd_connect(netdev, hs, prev_bssid,
+						vendor_ies, num_vendor_ies);
 
 		if (!is_offload(hs) && (is_rsn || hs->settings_8021x)) {
 			sm = eapol_sm_new(hs);
@@ -3536,12 +3540,9 @@ build_cmd_connect:
 	netdev->user_data = user_data;
 	netdev->handshake = hs;
 	netdev->sm = sm;
-	netdev->frequency = bss->frequency;
 	netdev->cur_rssi = bss->signal_strength / 100;
 	netdev_rssi_level_init(netdev);
 	netdev_cqm_rssi_update(netdev);
-
-	handshake_state_set_authenticator_address(hs, bss->addr);
 
 	if (!wiphy_has_ext_feature(netdev->wiphy,
 					NL80211_EXT_FEATURE_CAN_REPLACE_PTK0))
