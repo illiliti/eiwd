@@ -130,7 +130,7 @@ class Test(unittest.TestCase):
         if not go:
             wd.wait_for_object_condition(wpas, 'len(obj.p2p_clients) == 0', max_wait=3)
         else:
-            wd.wait_for_object_condition(wpas, 'obj.p2p_group is None', max_wait=3)
+            wd.wait_for_object_condition(wpas, 'obj.p2p_group is None', max_wait=15)
         self.assertEqual(peer.connected, False)
 
     def setUp(self):
