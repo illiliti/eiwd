@@ -2,7 +2,6 @@
 
 import unittest
 import sys
-import netifaces
 import os
 import time
 
@@ -112,16 +111,14 @@ class Test(unittest.TestCase):
 
         wd.wait_for_object_condition(peer, 'obj.connected', max_wait=15)
         time.sleep(1) # Give the client time to set the IP
-        our_ip = netifaces.ifaddresses(peer.connected_interface)[netifaces.AF_INET][0]['addr']
-        peer_ip = netifaces.ifaddresses(peer_ifname)[netifaces.AF_INET][0]['addr']
-        self.assertEqual(peer.connected_ip, peer_ip)
+        testutil.test_ip_address_match(peer_ifname, peer.connected_ip)
 
         if not go:
-            self.assertEqual(our_ip, '192.168.1.30')
-            self.assertEqual(peer_ip, '192.168.1.20')
+            testutil.test_ip_address_match(peer.connected_interface, '192.168.1.30')
+            self.assertEqual(peer.connected_ip, '192.168.1.20')
         else:
-            self.assertEqual(our_ip, '192.168.1.1')
-            self.assertEqual(peer_ip, '192.168.1.2')
+            testutil.test_ip_address_match(peer.connected_interface, '192.168.1.1')
+            self.assertEqual(peer.connected_ip, '192.168.1.2')
 
         testutil.test_iface_operstate(peer.connected_interface)
         testutil.test_ifaces_connected(peer.connected_interface, peer_ifname)
