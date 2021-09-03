@@ -2462,8 +2462,11 @@ static void station_connect_ok(struct station *station)
 
 			ie_tlv_iter_init(&iter, hs->fils_ip_resp_ie,
 						hs->fils_ip_resp_ie[1] + 2);
-			ie_tlv_iter_next(&iter);
-			r = ie_parse_fils_ip_addr_response(&iter, &info);
+			if (!L_WARN_ON(unlikely(!ie_tlv_iter_next(&iter))))
+				r = ie_parse_fils_ip_addr_response(&iter,
+									&info);
+			else
+				r = -ENOMSG;
 
 			if (r != 0)
 				l_debug("Error parsing the FILS IP Address "
