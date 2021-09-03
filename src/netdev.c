@@ -2527,8 +2527,8 @@ process_resp_ies:
 		 * Start processing EAPoL frames now that the state machine
 		 * has all the input data even in FT mode.
 		 */
-		if (!eapol_start(netdev->sm))
-			goto error;
+		if (L_WARN_ON(!eapol_start(netdev->sm)))
+			goto deauth;
 
 		return;
 	}
