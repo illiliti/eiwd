@@ -1293,6 +1293,8 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 							mac_address, ETH_ALEN);
 
 	netconfig->active_settings = active_settings;
+	netconfig->dns4_overrides = dns4_overrides;
+	netconfig->dns6_overrides = dns6_overrides;
 	return true;
 
 err_v6_addr:
