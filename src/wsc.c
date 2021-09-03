@@ -356,6 +356,7 @@ static int wsc_enrollee_connect(struct wsc_enrollee *wsce, struct scan_bss *bss,
 
 	handshake_state_set_event_func(hs, wsc_enrollee_handshake_event, wsce);
 	handshake_state_set_8021x_config(hs, settings);
+	handshake_state_set_ssid(hs, bss->ssid, bss->ssid_len);
 	wsce->eap_settings = settings;
 
 	request.version2 = true;
