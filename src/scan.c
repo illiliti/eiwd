@@ -911,25 +911,39 @@ static bool start_next_scan_request(struct wiphy_radio_work_item *item)
 	return true;
 }
 
-static bool scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
+static void scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
 					uint16_t len)
 {
-	if (!bss->wpa && is_ie_wpa_ie(data, len))
+	uint16_t cost_level;
+	uint16_t cost_flags;
+
+	if (!bss->wpa && is_ie_wpa_ie(data, len)) {
 		bss->wpa = l_memdup(data - 2, len + 2);
-	else if (!bss->osen && is_ie_wfa_ie(data, len, IE_WFA_OI_OSEN))
+		return;
+	}
+
+	if (!bss->osen && is_ie_wfa_ie(data, len, IE_WFA_OI_OSEN)) {
 		bss->osen = l_memdup(data - 2, len + 2);
-	else if (is_ie_wfa_ie(data, len, IE_WFA_OI_HS20_INDICATION)) {
+		return;
+	}
+
+	if (is_ie_wfa_ie(data, len, IE_WFA_OI_HS20_INDICATION)) {
 		if (ie_parse_hs20_indication_from_data(data - 2, len + 2,
 					&bss->hs20_version, NULL, NULL) < 0)
-			return false;
+			return;
 
 		bss->hs20_capable = true;
-	} else if (is_ie_default_sae_group_oui(data, len))
-		bss->force_default_sae_group = true;
-	else
-		return false;
+		return;
+	}
 
-	return true;
+	if (!ie_parse_network_cost(data, len, &cost_level, &cost_flags)) {
+		bss->cost_level = cost_level;
+		bss->cost_flags = cost_flags;
+		return;
+	}
+
+	if (is_ie_default_sae_group_oui(data, len))
+		bss->force_default_sae_group = true;
 }
 
 /*
@@ -1021,7 +1035,6 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 
 			break;
 		case IE_TYPE_VENDOR_SPECIFIC:
-			/* Interested only in WPA/WFA IE from Vendor data */
 			scan_parse_vendor_specific(bss, iter.data, iter.len);
 			break;
 		case IE_TYPE_MOBILITY_DOMAIN:
