@@ -626,3 +626,6 @@ int ie_parse_fils_ip_addr_response(struct ie_tlv_iter *iter,
 void ie_build_fils_ip_addr_response(
 			const struct ie_fils_ip_addr_response_info *info,
 			uint8_t *to);
+
+int ie_parse_network_cost(const void *data, size_t len,
+				uint16_t *flags, uint16_t *level);

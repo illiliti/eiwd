@@ -2472,3 +2472,23 @@ void ie_build_fils_ip_addr_response(
 done:
 	*len = to - (len + 1);
 }
+
+/*
+ * Parse Network Cost IE according to:
+ * https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-nct/88f0cdf4-cdf2-4455-b849-4abf1e5c11ac
+ */
+int ie_parse_network_cost(const void *data, size_t len,
+				uint16_t *level, uint16_t *flags)
+{
+	const uint8_t *ie = data;
+
+	if (len < 10 || ie[0] != IE_TYPE_VENDOR_SPECIFIC || ie[1] != 8)
+		return -ENOMSG;
+
+	if (memcmp(ie + 2, microsoft_oui, 3) || ie[5] != 0x11)
+		return -ENOMSG;
+
+	*level = l_get_le16(ie + 6);
+	*flags = l_get_le16(ie + 8);
+	return 0;
+}
