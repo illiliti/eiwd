@@ -27,6 +27,7 @@ from collections import namedtuple
 from time import sleep
 import dbus.mainloop.glib
 from gi.repository import GLib
+from weakref import WeakValueDictionary
 
 libc = ctypes.cdll['libc.so.6']
 libc.mount.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, \
@@ -161,7 +162,13 @@ busconfig.dtd\">
 '''
 
 class Process(subprocess.Popen):
+	processes = WeakValueDictionary()
 	ctx = None
+
+	def __new__(cls, *args, **kwargs):
+		obj = super().__new__(cls)
+		cls.processes[id(obj)] = obj
+		return obj
 
 	def __init__(self, args, namespace=None, outfile=None, env=None, check=False, cleanup=None):
 		self.write_fds = []
@@ -212,6 +219,30 @@ class Process(subprocess.Popen):
 				raise subprocess.CalledProcessError(returncode=self.returncode,
 									cmd=args)
 
+	@staticmethod
+	def _write_io(instance, data, stdout=True):
+		for f in instance.write_fds:
+			f.write(data)
+
+			# Write out a separator so multiple process calls per
+			# test are easer to read.
+			if instance.hup:
+				f.write("Terminated: {}\n\n".format(instance.args))
+
+			f.flush()
+
+		if instance.verbose and stdout:
+			sys.__stdout__.write(data)
+			sys.__stdout__.flush()
+
+	@classmethod
+	def write_separators(cls, sep):
+		for proc in cls.processes.values():
+			if proc.killed:
+				continue
+
+			cls._write_io(proc, sep, stdout=False)
+
 	def process_io(self, source, condition):
 		if condition & GLib.IO_HUP:
 			self.hup = True
@@ -226,19 +257,7 @@ class Process(subprocess.Popen):
 		# Save data away in case the caller needs it (e.g. list_sta)
 		self.out += data
 
-		for f in self.write_fds:
-			f.write(data)
-
-			# Write out a separator so multiple process calls per
-			# test are easer to read.
-			if self.hup:
-				f.write("Terminated: {}\n\n".format(self.args))
-
-			f.flush()
-
-		if self.verbose:
-			sys.__stdout__.write(data)
-			sys.__stdout__.flush()
+		self._write_io(self, data)
 
 		return True
 
@@ -1178,6 +1197,8 @@ def start_test(ctx, subtests, rqueue):
 							dbg("\t%s RUNNING" % str(func), end='')
 
 					sys.__stdout__.flush()
+
+					Process.write_separators("\n====== %s:%s ======\n\n" % (file, func))
 
 					if not skip:
 						# Run test (setUp/tearDown run automatically)
