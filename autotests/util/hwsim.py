@@ -153,6 +153,14 @@ class Rule(HwsimDBusAbstract):
                             reply_handler=self._success, error_handler=self._failure)
         self._wait_for_async_op()
 
+    @property
+    def match_times(self):
+        return self._properties['MatchTimes']
+
+    @match_times.setter
+    def match_times(self, value):
+        self._prop_proxy.Set(self._iface_name, 'MatchTimes', dbus.UInt16(value))
+
     def remove(self):
         self._iface.Remove(reply_handler=self._success,
                 error_handler=self._failure)
