@@ -599,12 +599,6 @@ class Namespace:
 		return self._bus
 
 	def start_process(self, args, env=None, **kwargs):
-		# Special case for 'root' namespace (aka TestContext)
-		if self.name == "root":
-			ns = None
-		else:
-			ns = self.name
-
 		if not env:
 			env = os.environ.copy()
 
@@ -612,7 +606,7 @@ class Namespace:
 			# In case this process needs DBus...
 			env['DBUS_SYSTEM_BUS_ADDRESS'] = self.dbus_address
 
-		p = Process(args, namespace=ns, env=env, **kwargs)
+		p = Process(args, namespace=self.name, env=env, **kwargs)
 
 		if not kwargs.get('wait', False):
 			self.processes.append(p)
@@ -791,7 +785,7 @@ class TestContext(Namespace):
 		such as processes, radios, interfaces and test results.
 	'''
 	def __init__(self, args):
-		self.name = "root"
+		self.name = None
 		self.processes = []
 		self.args = args
 		self.hw_config = None

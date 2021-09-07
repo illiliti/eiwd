@@ -301,15 +301,15 @@ class Hwsim(iwd.AsyncOpAbstract):
     _instances = WeakValueDictionary()
 
     def __new__(cls, namespace=ctx):
-        name = namespace.name
+        key = id(namespace)
 
-        if name not in cls._instances.keys():
+        if key not in cls._instances.keys():
             obj = object.__new__(cls)
             obj._initialized = False
 
-            cls._instances[name] = obj
+            cls._instances[key] = obj
 
-        return cls._instances[name]
+        return cls._instances[key]
 
     def __init__(self, namespace=ctx):
         if self._initialized:
