@@ -1226,10 +1226,28 @@ static int sae_verify_accepted(struct sae_sm *sm, uint16_t trans,
 	return -EAGAIN;
 }
 
+static const char *sae_state_to_str(enum sae_state state)
+{
+	switch (state) {
+	case SAE_STATE_NOTHING:
+		return "nothing";
+	case SAE_STATE_COMMITTED:
+		return "committed";
+	case SAE_STATE_CONFIRMED:
+		return "confirmed";
+	case SAE_STATE_ACCEPTED:
+		return "accepted";
+	}
+
+	return "unknown";
+}
+
 static int sae_verify_packet(struct sae_sm *sm, uint16_t trans,
 				uint16_t status, const uint8_t *frame,
 				size_t len)
 {
+	l_debug("rx trans=%u, state=%s", trans, sae_state_to_str(sm->state));
+
 	if (trans != SAE_STATE_COMMITTED && trans != SAE_STATE_CONFIRMED)
 		return -EBADMSG;
 
