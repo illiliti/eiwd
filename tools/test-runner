@@ -287,7 +287,23 @@ class Process(subprocess.Popen):
 	# Override wait() so it can do so non-blocking
 	def wait(self, timeout=10):
 		Namespace.non_block_wait(self.__wait, timeout, 1)
+		self._cleanup()
 
+	def _cleanup(self):
+		if self.cleanup:
+			self.cleanup()
+
+		self.write_fds = []
+
+		if self.io_watch:
+			GLib.source_remove(self.io_watch)
+			self.io_watch = None
+
+		self.cleanup = None
+		self.killed = True
+
+		if self in self.ctx.processes:
+			self.ctx.processes.remove(self)
 	# Override kill()
 	def kill(self, force=False):
 		if self.killed:
@@ -306,20 +322,7 @@ class Process(subprocess.Popen):
 			dbg("Process %s did not complete in 15 seconds!" % self.name)
 			super().kill()
 
-		if self.cleanup:
-			self.cleanup()
-
-		self.write_fds = []
-
-		if self.io_watch:
-			GLib.source_remove(self.io_watch)
-			self.io_watch = None
-
-		self.cleanup = None
-		self.killed = True
-
-		if self in self.ctx.processes:
-			self.ctx.processes.remove(self)
+		self._cleanup()
 
 	def __str__(self):
 		return str(self.args) + '\n'
