@@ -131,6 +131,7 @@ struct hwsim_rule {
 	int delay;
 	uint8_t *prefix;
 	size_t prefix_len;
+	int match_times; /* negative value indicates unused */
 };
 
 struct hwsim_support {
@@ -1217,6 +1218,8 @@ static void process_rules(const struct radio_info_rec *src_radio,
 		}
 
 		/* Rule deemed to match frame, apply any changes */
+		if (rule->match_times == 0)
+			continue;
 
 		if (rule->signal)
 			frame->signal = rule->signal / 100;
@@ -1225,6 +1228,9 @@ static void process_rules(const struct radio_info_rec *src_radio,
 
 		if (delay)
 			*delay = rule->delay;
+
+		if (rule->match_times > 0)
+			rule->match_times--;
 	}
 }
 
@@ -2008,6 +2014,7 @@ static struct l_dbus_message *rule_add(struct l_dbus *dbus,
 	rule->destination_any = true;
 	rule->delay = 0;
 	rule->enabled = false;
+	rule->match_times = -1;
 
 	if (!rules)
 		rules = l_queue_new();
@@ -2412,6 +2419,37 @@ static struct l_dbus_message *rule_property_set_enabled(
 	return l_dbus_message_new_method_return(message);
 }
 
+static bool rule_property_get_match_times(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct hwsim_rule *rule = user_data;
+	uint16_t val = rule->match_times;
+
+	l_dbus_message_builder_append_basic(builder, 'q', &val);
+
+	return true;
+}
+
+static struct l_dbus_message *rule_property_set_match_times(
+					struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_iter *new_value,
+					l_dbus_property_complete_cb_t complete,
+					void *user_data)
+{
+	struct hwsim_rule *rule = user_data;
+	uint16_t val;
+
+	if (!l_dbus_message_iter_get_variant(new_value, "q", &val))
+		return dbus_error_invalid_args(message);
+
+	rule->match_times = val;
+
+	return l_dbus_message_new_method_return(message);
+}
+
 static void setup_rule_interface(struct l_dbus_interface *interface)
 {
 	l_dbus_interface_method(interface, "Remove", 0, rule_remove, "", "");
@@ -2456,6 +2494,10 @@ static void setup_rule_interface(struct l_dbus_interface *interface)
 					L_DBUS_PROPERTY_FLAG_AUTO_EMIT, "b",
 					rule_property_get_enabled,
 					rule_property_set_enabled);
+	l_dbus_interface_property(interface, "MatchTimes",
+					L_DBUS_PROPERTY_FLAG_AUTO_EMIT, "q",
+					rule_property_get_match_times,
+					rule_property_set_match_times);
 }
 
 static void request_name_callback(struct l_dbus *dbus, bool success,
