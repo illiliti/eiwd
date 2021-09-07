@@ -57,12 +57,9 @@ def dbg(*s, **kwargs):
 
 def exit_vm():
 	if config:
-		for p in config.ctx.processes:
+		for p in Process.get_all():
 			print("Process %s still running!" % p.args[0])
 			p.kill()
-			p = None
-
-		config.ctx.processes = []
 
 	if config.ctx and config.ctx.results:
 		print_results(config.ctx.results)
@@ -178,6 +175,7 @@ class Process(subprocess.Popen):
 		self.out = ''
 		self.hup = False
 		self.killed = False
+		self.namespace = namespace
 
 		if not self.ctx:
 			global config
@@ -218,6 +216,15 @@ class Process(subprocess.Popen):
 			if self.returncode != 0:
 				raise subprocess.CalledProcessError(returncode=self.returncode,
 									cmd=args)
+
+	@classmethod
+	def get_all(cls):
+		return cls.processes.values()
+
+	@classmethod
+	def kill_all(cls):
+		for p in cls.processes.values():
+			p.kill()
 
 	@staticmethod
 	def _write_io(instance, data, stdout=True):
@@ -321,8 +328,6 @@ class Process(subprocess.Popen):
 		self.cleanup = None
 		self.killed = True
 
-		if self in self.ctx.processes:
-			self.ctx.processes.remove(self)
 	# Override kill()
 	def kill(self, force=False):
 		if self.killed:
@@ -588,7 +593,6 @@ dbus_count = 0
 class Namespace:
 	def __init__(self, args, name, radios):
 		self.dbus_address = None
-		self.processes = []
 		self.name = name
 		self.radios = radios
 		self.args = args
@@ -607,10 +611,7 @@ class Namespace:
 
 		self.radios = []
 
-		for p in list(self.processes):
-			p.kill()
-
-		self.processes = []
+		Process.kill_all()
 
 	def __del__(self):
 		print("Removing namespace %s" % self.name)
@@ -628,19 +629,14 @@ class Namespace:
 			# In case this process needs DBus...
 			env['DBUS_SYSTEM_BUS_ADDRESS'] = self.dbus_address
 
-		p = Process(args, namespace=self.name, env=env, **kwargs)
-
-		if not kwargs.get('wait', False):
-			self.processes.append(p)
-
-		return p
+		return Process(args, namespace=self.name, env=env, **kwargs)
 
 	def stop_process(self, p, force=False):
 		p.kill(force)
 
 	def is_process_running(self, process):
-		for p in self.processes:
-			if p.args[0] == process:
+		for p in Process.get_all():
+			if p.namespace == self.name and p.args[0] == process:
 				return True
 		return False
 
@@ -698,8 +694,7 @@ class Namespace:
 		if self.is_verbose('iwd-acd'):
 			env['IWD_ACD_DEBUG'] = '1'
 
-		pid = self.start_process(args, env=env)
-		return pid
+		return self.start_process(args, env=env)
 
 	def is_verbose(self, process, log=True):
 		process = os.path.basename(process)
@@ -786,7 +781,7 @@ class Namespace:
 	def __str__(self):
 		ret = 'Namespace: %s\n' % self.name
 		ret += 'Processes:\n'
-		for p in self.processes:
+		for p in Process.get_all():
 			ret += '\t%s' % str(p)
 
 		ret += 'Radios:\n'
@@ -808,7 +803,6 @@ class TestContext(Namespace):
 	'''
 	def __init__(self, args):
 		self.name = None
-		self.processes = []
 		self.args = args
 		self.hw_config = None
 		self.hostapd = None
