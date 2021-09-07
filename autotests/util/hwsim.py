@@ -161,6 +161,14 @@ class Rule(HwsimDBusAbstract):
     def match_times(self, value):
         self._prop_proxy.Set(self._iface_name, 'MatchTimes', dbus.UInt16(value))
 
+    @property
+    def drop_ack(self):
+        return self._properties(['DropAck'])
+
+    @drop_ack.setter
+    def drop_ack(self, value):
+        self._prop_proxy.Set(self._iface_name, 'DropAck', value)
+
     def remove(self):
         self._iface.Remove(reply_handler=self._success,
                 error_handler=self._failure)
