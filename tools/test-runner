@@ -464,8 +464,8 @@ class Hostapd:
 
 		print("Initializing hostapd instances")
 
-		ctx.start_process(['ip', 'link', 'set', 'eth0', 'up']).wait()
-		ctx.start_process(['ip', 'link', 'set', 'eth1', 'up']).wait()
+		Process(['ip', 'link', 'set', 'eth0', 'up']).wait()
+		Process(['ip', 'link', 'set', 'eth1', 'up']).wait()
 
 		self.global_ctrl_iface = '/var/run/hostapd/ctrl'
 
