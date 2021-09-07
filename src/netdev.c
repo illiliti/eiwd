@@ -2932,9 +2932,10 @@ static void netdev_new_scan_results_event(struct l_genl_msg *msg,
 static void netdev_assoc_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = user_data;
+	int err = l_genl_msg_get_error(msg);
 
-	if (l_genl_msg_get_error(msg) < 0) {
-		l_error("Error sending CMD_ASSOCIATE");
+	if (err < 0) {
+		l_error("Error sending CMD_ASSOCIATE (%d)", err);
 
 		netdev_connect_failed(netdev, NETDEV_RESULT_ASSOCIATION_FAILED,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
