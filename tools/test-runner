@@ -499,7 +499,7 @@ class Hostapd:
 		if ctx.is_verbose('hostapd'):
 			args.append('-d')
 
-		self.process = ctx.start_process(args)
+		self.process = Process(args)
 
 		self.process.wait_for_socket(self.global_ctrl_iface, 30)
 
