@@ -152,20 +152,6 @@ static struct netconfig *netconfig_find(uint32_t ifindex)
 	return NULL;
 }
 
-#define APPEND_STRDUPV(dest, index, src)			\
-	do {							\
-		char **p;					\
-		for (p = src; p && *p; p++)			\
-			dest[index++] = l_strdup(*p);		\
-	} while (0)						\
-
-#define APPENDV(dest, index, src)				\
-	do {							\
-		char **p;					\
-		for (p = src; p && *p; p++)			\
-			dest[index++] = *p;			\
-	} while (0)						\
-
 static inline char *netconfig_ipv4_to_string(uint32_t addr)
 {
 	struct in_addr in_addr = { .s_addr = addr };
@@ -196,6 +182,72 @@ static inline char *netconfig_ipv6_to_string(const uint8_t *addr)
 	return addr_str;
 }
 
+static char **netconfig_get_dns_list(struct netconfig *netconfig, int af,
+					const uint8_t **out_dns_mac)
+{
+	const struct ie_fils_ip_addr_response_info *fils =
+		netconfig->fils_override;
+
+	if (af == AF_INET) {
+		const struct l_dhcp_lease *lease;
+
+		if (netconfig->dns4_overrides)
+			return l_strv_copy(netconfig->dns4_overrides);
+
+		if (netconfig->rtm_protocol != RTPROT_DHCP)
+			return NULL;
+
+		if (fils && fils->ipv4_dns) {
+			char **dns_list = l_new(char *, 2);
+
+			if (!l_memeqzero(fils->ipv4_dns_mac, 6) &&
+					out_dns_mac &&
+					util_ip_subnet_match(
+							fils->ipv4_prefix_len,
+							&fils->ipv4_addr,
+							&fils->ipv4_dns))
+				*out_dns_mac = fils->ipv4_dns_mac;
+
+			dns_list[0] = netconfig_ipv4_to_string(fils->ipv4_dns);
+			return dns_list;
+		}
+
+		if (!(lease = l_dhcp_client_get_lease(netconfig->dhcp_client)))
+			return NULL;
+
+		return l_dhcp_lease_get_dns(lease);
+	} else {
+		const struct l_dhcp6_lease *lease;
+
+		if (netconfig->dns6_overrides)
+			return l_strv_copy(netconfig->dns6_overrides);
+
+		if (netconfig->rtm_v6_protocol != RTPROT_DHCP)
+			return NULL;
+
+		if (fils && !l_memeqzero(fils->ipv6_dns, 16)) {
+			char **dns_list = l_new(char *, 2);
+
+			if (!l_memeqzero(fils->ipv6_dns_mac, 6) &&
+					out_dns_mac &&
+					util_ip_subnet_match(
+							fils->ipv6_prefix_len,
+							fils->ipv6_addr,
+							fils->ipv6_dns))
+				*out_dns_mac = fils->ipv6_dns_mac;
+
+			dns_list[0] = netconfig_ipv6_to_string(fils->ipv6_dns);
+			return dns_list;
+		}
+
+		if (!(lease = l_dhcp6_client_get_lease(
+						netconfig->dhcp6_client)))
+			return NULL;
+
+		return l_dhcp6_lease_get_dns(lease);
+	}
+}
+
 static void netconfig_set_neighbor_entry_cb(int error,
 						uint16_t type, const void *data,
 						uint32_t len, void *user_data)
@@ -207,67 +259,34 @@ static void netconfig_set_neighbor_entry_cb(int error,
 
 static int netconfig_set_dns(struct netconfig *netconfig)
 {
-	char **dns6_list = NULL;
-	char **dns4_list = NULL;
-	unsigned int n_entries = 0;
-	char **dns_list;
 	const uint8_t *fils_dns4_mac = NULL;
 	const uint8_t *fils_dns6_mac = NULL;
+	char **dns4_list = netconfig_get_dns_list(netconfig, AF_INET,
+							&fils_dns4_mac);
+	char **dns6_list = netconfig_get_dns_list(netconfig, AF_INET6,
+							&fils_dns6_mac);
+	unsigned int n_entries4 = l_strv_length(dns4_list);
+	unsigned int n_entries6 = l_strv_length(dns6_list);
+	char **dns_list;
 	const struct ie_fils_ip_addr_response_info *fils =
 		netconfig->fils_override;
 
-	if (!netconfig->dns4_overrides &&
-			netconfig->rtm_protocol == RTPROT_DHCP) {
-		const struct l_dhcp_lease *lease;
+	if (!dns4_list && !dns6_list)
+		return 0;
 
-		if (fils && fils->ipv4_dns) {
-			dns4_list = l_new(char *, 2);
-			dns4_list[0] = netconfig_ipv4_to_string(fils->ipv4_dns);
+	dns_list = dns4_list;
 
-			if (!l_memeqzero(fils->ipv4_dns_mac, 6) &&
-					util_ip_subnet_match(
-							fils->ipv4_prefix_len,
-							&fils->ipv4_addr,
-							&fils->ipv4_dns))
-				fils_dns4_mac = fils->ipv4_dns_mac;
-		} else if ((lease = l_dhcp_client_get_lease(
-						netconfig->dhcp_client)))
-			dns4_list = l_dhcp_lease_get_dns(lease);
+	if (dns6_list) {
+		dns_list = l_realloc(dns_list,
+				sizeof(char *) * (n_entries4 + n_entries6 + 1));
+		memcpy(dns_list + n_entries4, dns6_list,
+			sizeof(char *) * (n_entries6 + 1));
+		/* Contents now belong to dns_list, so no l_strfreev */
+		l_free(dns6_list);
 	}
 
-	if (!netconfig->dns6_overrides &&
-			netconfig->rtm_v6_protocol == RTPROT_DHCP) {
-		const struct l_dhcp6_lease *lease;
-
-		if (fils && !l_memeqzero(fils->ipv6_dns,
-						16)) {
-			dns6_list = l_new(char *, 2);
-			dns6_list[0] = netconfig_ipv6_to_string(fils->ipv6_dns);
-
-			if (!l_memeqzero(fils->ipv6_dns_mac, 6) &&
-					util_ip_subnet_match(
-							fils->ipv6_prefix_len,
-							fils->ipv6_addr,
-							fils->ipv6_dns))
-				fils_dns6_mac = fils->ipv6_dns_mac;
-		} else if ((lease = l_dhcp6_client_get_lease(
-						netconfig->dhcp6_client)))
-			dns6_list = l_dhcp6_lease_get_dns(lease);
-	}
-
-	n_entries += l_strv_length(netconfig->dns4_overrides);
-	n_entries += l_strv_length(netconfig->dns6_overrides);
-	n_entries += l_strv_length(dns4_list);
-	n_entries += l_strv_length(dns6_list);
-
-	dns_list = l_new(char *, n_entries + 1);
-	n_entries = 0;
-
-	APPEND_STRDUPV(dns_list, n_entries, netconfig->dns4_overrides);
-	APPENDV(dns_list, n_entries, dns4_list);
-	APPEND_STRDUPV(dns_list, n_entries, netconfig->dns6_overrides);
-	APPENDV(dns_list, n_entries, dns6_list);
 	resolve_set_dns(netconfig->resolve, dns_list);
+	l_strv_free(dns_list);
 
 	if (fils_dns4_mac && !l_rtnl_neighbor_set_hwaddr(rtnl,
 					netconfig->ifindex, AF_INET,
@@ -283,10 +302,6 @@ static int netconfig_set_dns(struct netconfig *netconfig)
 					NULL))
 		l_debug("l_rtnl_neighbor_set_hwaddr failed");
 
-	l_strv_free(dns_list);
-	/* Contents belonged to dns_list, so not l_strfreev */
-	l_free(dns4_list);
-	l_free(dns6_list);
 	return 0;
 }
 
