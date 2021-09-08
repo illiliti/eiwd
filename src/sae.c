@@ -1182,10 +1182,32 @@ static int sae_verify_accepted(struct sae_sm *sm, uint16_t trans,
 {
 	uint16_t sc;
 
-	/* spec does not specify what to do here, so print and discard */
-	if (trans != SAE_STATE_CONFIRMED) {
+	/*
+	 * 12.4.8.6.1 Parent process behavior
+	 *
+	 * "Upon receipt of an SAE Commit message... and it is in Accepted
+	 * state, the scalar in the received frame is checked against the
+	 * peer-scalar used in authentication of the existing protocol instance
+	 * (in Accepted state). If it is identical, the frame shall be dropped"
+	 */
+	if (trans == SAE_STATE_COMMITTED) {
+		bool drop;
+		unsigned int nbytes = l_ecc_curve_get_scalar_bytes(sm->curve);
+		struct l_ecc_scalar *p_scalar;
+
+		if (len < nbytes + 2)
+			return -EMSGSIZE;
+
+		p_scalar = l_ecc_scalar_new(sm->curve, frame + 2, nbytes);
+
+		drop = l_ecc_scalars_are_equal(sm->p_scalar, p_scalar);
+		l_ecc_scalar_free(p_scalar);
+
+		if (drop)
+			return -EBADMSG;
+
 		l_error("received transaction %u in accepted state", trans);
-		return -EBADMSG;
+		return -EPROTO;
 	}
 
 	if (sm->sync > SAE_SYNC_MAX)
