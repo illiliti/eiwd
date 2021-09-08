@@ -25,6 +25,21 @@
 struct auth_proto {
 	bool (*start)(struct auth_proto *ap);
 	void (*free)(struct auth_proto *ap);
+	/*
+	 * Callback to receive an Authenticate frame. auth-protos should
+	 * return error codes consistent with one another as some are treated
+	 * specially:
+	 *
+	 * 0 indicates success, and that a state transition occurred.
+	 * -ENOMSG or -EBADMSG indicates the message should be ignored silently
+	 * -EAGAIN indicates a retry, and no state transition occurred. Any
+	 *         retry is handled by the auth-proto internally
+	 * -EPROTO indicates a fatal error
+	 * Any other < 0 return will be treated as a fatal error
+	 * > 0 indicates a fatal error with status code. This only applies to
+	 *         non-sta cases as non-zero status codes are rejected by the
+	 *         kernel when in station mode.
+	 */
 	int (*rx_authenticate)(struct auth_proto *driver,
 					const uint8_t *frame, size_t len);
 	int (*rx_associate)(struct auth_proto *driver,
