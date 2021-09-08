@@ -2644,6 +2644,31 @@ static void netdev_cmd_ft_reassociate_cb(struct l_genl_msg *msg,
 	}
 }
 
+static bool kernel_will_retry_auth(uint16_t status_code,
+					uint16_t alg, uint16_t trans)
+{
+	/*
+	 * Kernel keeps re-trying auth frames until told to stop
+	 * when authentication succeeds and under certain SAE-related
+	 * circumstances.  Detect these cases.
+	 */
+
+	if (status_code == 0)
+		return true;
+
+	if (alg != MMPDU_AUTH_ALGO_SAE)
+		return false;
+
+	if (status_code == MMPDU_STATUS_CODE_ANTI_CLOGGING_TOKEN_REQ)
+		return true;
+
+	if (trans == 1 && (status_code == MMPDU_STATUS_CODE_SAE_PK ||
+			status_code == MMPDU_STATUS_CODE_SAE_HASH_TO_ELEMENT))
+		return true;
+
+	return false;
+}
+
 static void netdev_authenticate_event(struct l_genl_msg *msg,
 							struct netdev *netdev)
 {
@@ -2707,6 +2732,7 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 	if (netdev->ap) {
 		const struct mmpdu_header *hdr;
 		const struct mmpdu_authentication *auth;
+		bool retry;
 
 		if (L_WARN_ON(!(hdr = mpdu_validate(frame, frame_len))))
 			goto auth_error;
@@ -2715,10 +2741,42 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 		status_code = L_CPU_TO_LE16(auth->status);
 
 		ret = auth_proto_rx_authenticate(netdev->ap, frame, frame_len);
+
+		/* We have sent another CMD_AUTHENTICATE / CMD_ASSOCIATE */
 		if (ret == 0 || ret == -EAGAIN)
 			return;
-		else if (ret > 0)
+
+		retry = kernel_will_retry_auth(status_code,
+				L_CPU_TO_LE16(auth->algorithm),
+				L_CPU_TO_LE16(auth->transaction_sequence));
+
+		/*
+		 * Spec wants us to silently drop these frames,
+		 * if the kernel will keep retrying, let it
+		 */
+		if ((ret == -ENOMSG || ret == -EBADMSG) && retry)
+			return;
+
+		if (ret > 0)
 			status_code = (uint16_t)ret;
+
+		/*
+		 * We have encountered a fatal error, if the kernel wants
+		 * to keep retrying, tell it to stop
+		 */
+		if (retry) {
+			struct l_genl_msg *cmd_deauth;
+
+			netdev->result = NETDEV_RESULT_ASSOCIATION_FAILED;
+			netdev->last_code = MMPDU_STATUS_CODE_UNSPECIFIED;
+			cmd_deauth = netdev_build_cmd_deauthenticate(netdev,
+						MMPDU_REASON_CODE_UNSPECIFIED);
+			netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
+							cmd_deauth,
+							netdev_disconnect_cb,
+							netdev, NULL);
+			return;
+		}
 	}
 
 auth_error:
