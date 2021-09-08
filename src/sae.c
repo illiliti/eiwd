@@ -1159,6 +1159,31 @@ static int sae_verify_confirmed(struct sae_sm *sm, uint16_t trans,
 		return -EBADMSG;
 
 	/*
+	 * Because of kernel retransmit behavior on missed ACKs plus hostapd's
+	 * incorrect handling of confirm packets while in accepted state the
+	 * following can happen:
+	 *
+	 * 1. Client sends commit, not acked (committed state)
+	 * 2. AP receives commit, sends commit reply (committed state)
+	 * 3. Client retransmits original commit
+	 * 4. Client receives AP's commit, sends confirm (confirmed state)
+	 * 5. AP receives clients retransmitted commit, sends only commit
+	 * 6. AP receives clients confirm and accepts (accepted state)
+	 * 7. Client receives AP's commit and sends both commit + confirm
+	 *    (the code below).
+	 * 8. AP receives clients commit while in accepted state, and deauths
+	 *
+	 * Due to this, any commit received while in a confirmed state will be
+	 * ignored by IWD since it is probably caused by this retransmission
+	 * and sending the commit/confirm below would likely cause hostapd to
+	 * deauth us.
+	 *
+	 * As for non-sta (currently not used) we want to keep with the spec.
+	 */
+	if (!sm->handshake->authenticator)
+		return -EBADMSG;
+
+	/*
 	 * the protocol instance shall increment Sync, increment Sc, and
 	 * transmit its Commit and Confirm (with the new Sc value) messages.
 	 */
