@@ -169,6 +169,22 @@ class Rule(HwsimDBusAbstract):
     def drop_ack(self, value):
         self._prop_proxy.Set(self._iface_name, 'DropAck', value)
 
+    @property
+    def match(self):
+        return self._properties['MatchBytes']
+
+    @match.setter
+    def match(self, value):
+        self._prop_proxy.Set(self._iface_name, 'MatchBytes', dbus.ByteArray.fromhex(value))
+
+    @property
+    def match_offset(self):
+        return self._properties(['MatchBytesOffset'])
+
+    @match_offset.setter
+    def match_offset(self, value):
+        self._prop_proxy.Set(self._iface_name, 'MatchBytesOffset', dbus.UInt16(value))
+
     def remove(self):
         self._iface.Remove(reply_handler=self._success,
                 error_handler=self._failure)
