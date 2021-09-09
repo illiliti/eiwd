@@ -132,6 +132,9 @@ struct hwsim_rule {
 	int delay;
 	uint8_t *prefix;
 	size_t prefix_len;
+	uint8_t *match;
+	size_t match_len;
+	uint16_t match_offset;
 	int match_times; /* negative value indicates unused */
 };
 
@@ -1218,6 +1221,14 @@ static void process_rules(const struct radio_info_rec *src_radio,
 				continue;
 		}
 
+		if (rule->match && frame->payload_len >=
+					rule->match_len + rule->match_offset) {
+			if (memcmp(rule->match,
+					frame->payload + rule->match_offset,
+					rule->match_len))
+				continue;
+		}
+
 		/* Rule deemed to match frame, apply any changes */
 		if (rule->match_times == 0)
 			continue;
@@ -2063,6 +2074,9 @@ static struct l_dbus_message *rule_remove(struct l_dbus *dbus,
 	if (rule->prefix)
 		l_free(rule->prefix);
 
+	if (rule->match)
+		l_free(rule->match);
+
 	l_free(rule);
 	l_dbus_unregister_object(dbus, path);
 
@@ -2394,6 +2408,90 @@ invalid_args:
 	return dbus_error_invalid_args(message);
 }
 
+static bool rule_property_get_match(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct hwsim_rule *rule = user_data;
+	size_t i;
+
+	l_dbus_message_builder_enter_array(builder, "y");
+
+	for (i = 0; i < rule->match_len; i++)
+		l_dbus_message_builder_append_basic(builder, 'y',
+							rule->match + i);
+
+	l_dbus_message_builder_leave_array(builder);
+
+	return true;
+}
+
+static struct l_dbus_message *rule_property_set_match(
+					struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_iter *new_value,
+					l_dbus_property_complete_cb_t complete,
+					void *user_data)
+{
+	struct hwsim_rule *rule = user_data;
+	struct l_dbus_message_iter iter;
+	const uint8_t *match;
+	uint32_t len;
+
+	if (!l_dbus_message_iter_get_variant(new_value, "ay", &iter))
+		goto invalid_args;
+
+	if (!l_dbus_message_iter_get_fixed_array(&iter,
+						(const void **)&match, &len))
+		goto invalid_args;
+
+	if (len > HWSIM_MAX_PREFIX_LEN)
+		goto invalid_args;
+
+	if (rule->match)
+		l_free(rule->match);
+
+	rule->match = l_memdup(match, len);
+	rule->match_len = len;
+
+	return l_dbus_message_new_method_return(message);
+
+invalid_args:
+	return dbus_error_invalid_args(message);
+}
+
+static bool rule_property_get_match_offset(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct hwsim_rule *rule = user_data;
+	uint16_t val = rule->match_offset;
+
+	l_dbus_message_builder_append_basic(builder, 'q', &val);
+
+	return true;
+}
+
+static struct l_dbus_message *rule_property_set_match_offset(
+					struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_iter *new_value,
+					l_dbus_property_complete_cb_t complete,
+					void *user_data)
+{
+	struct hwsim_rule *rule = user_data;
+	uint16_t val;
+
+	if (!l_dbus_message_iter_get_variant(new_value, "q", &val))
+		return dbus_error_invalid_args(message);
+
+	rule->match_offset = val;
+
+	return l_dbus_message_new_method_return(message);
+}
+
 static bool rule_property_get_enabled(struct l_dbus *dbus,
 					struct l_dbus_message *message,
 					struct l_dbus_message_builder *builder,
@@ -2527,6 +2625,14 @@ static void setup_rule_interface(struct l_dbus_interface *interface)
 					L_DBUS_PROPERTY_FLAG_AUTO_EMIT, "ay",
 					rule_property_get_prefix,
 					rule_property_set_prefix);
+	l_dbus_interface_property(interface, "MatchBytes",
+					L_DBUS_PROPERTY_FLAG_AUTO_EMIT, "ay",
+					rule_property_get_match,
+					rule_property_set_match);
+	l_dbus_interface_property(interface, "MatchBytesOffset",
+					L_DBUS_PROPERTY_FLAG_AUTO_EMIT, "q",
+					rule_property_get_match_offset,
+					rule_property_set_match_offset);
 	l_dbus_interface_property(interface, "Enabled",
 					L_DBUS_PROPERTY_FLAG_AUTO_EMIT, "b",
 					rule_property_get_enabled,
