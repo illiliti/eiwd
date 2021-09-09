@@ -42,6 +42,8 @@ class Test(unittest.TestCase):
         #
         hostapd = HostapdCLI(config='ssidSAE.conf')
         hostapd.set_value('vendor_elements', 'dd0cf4f5e8050500000000000000')
+        hostapd.set_value('sae_groups', '19')
+        hostapd.reload()
 
         hwsim = Hwsim()
         bss_radio = hwsim.get_radio('rad0')
@@ -50,12 +52,16 @@ class Test(unittest.TestCase):
         rule0.source = bss_radio.addresses[0]
         rule0.drop = True
         rule0.prefix = 'b0'
+        rule0.match = '01 00 00 00 13 00'
+        rule0.match_offset = 26
         rule0.match_times = 1
         rule0.drop_ack = True
         rule0.enabled = True
 
         wd = IWD(True)
         self.validate_connection(wd)
+
+        rule0.remove()
 
     @classmethod
     def setUpClass(cls):
