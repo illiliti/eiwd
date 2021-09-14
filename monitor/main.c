@@ -701,7 +701,7 @@ int main(int argc, char *argv[])
 	for (;;) {
 		int opt;
 
-		opt = getopt_long(argc, argv, "r:w:a:F:i:nvhys",
+		opt = getopt_long(argc, argv, "r:w:a:F:i:nvhyse",
 						main_options, NULL);
 		if (opt < 0)
 			break;
