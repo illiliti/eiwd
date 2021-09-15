@@ -152,6 +152,9 @@ class HostapdCLI(object):
         ctx.start_process(self.cmdline + ['disable']).wait()
         ctx.start_process(self.cmdline + ['enable']).wait()
 
+    def disable(self):
+        ctx.start_process(self.cmdline + ['disable']).wait()
+
     def list_sta(self):
         proc = ctx.start_process(self.cmdline + ['list_sta'])
         proc.wait()
