@@ -83,11 +83,13 @@ struct network {
 	bool ask_passphrase:1; /* Whether we should force-ask agent */
 	bool is_hs20:1;
 	bool anqp_pending:1;	/* Set if there is a pending ANQP request */
+	bool owe_hidden_pending:1;
 	uint8_t transition_disable; /* Temporary cache until info is set */
 	bool have_transition_disable:1;
 	int rank;
 	/* Holds DBus Connect() message if it comes in before ANQP finishes */
 	struct l_dbus_message *connect_after_anqp;
+	struct l_dbus_message *connect_after_owe_hidden;
 };
 
 static bool network_settings_load(struct network *network)
@@ -1506,6 +1508,17 @@ struct l_dbus_message *__network_connect(struct network *network,
 	case SECURITY_PSK:
 		return network_connect_psk(network, bss, message);
 	case SECURITY_NONE:
+		if (network->connect_after_owe_hidden)
+			return dbus_error_busy(message);
+
+		/* Save message and connect after OWE hidden scan is done */
+		if (network->owe_hidden_pending) {
+			network->connect_after_owe_hidden =
+						l_dbus_message_ref(message);
+			l_debug("Pending OWE hidden scan, delaying connect");
+			return NULL;
+		}
+
 		station_connect_network(station, network, bss, message);
 		return NULL;
 	case SECURITY_8021X:
@@ -1901,11 +1914,17 @@ static void known_networks_changed(enum known_networks_event event,
 static void event_watch_changed(enum station_event state,
 				struct network *network, void *user_data)
 {
-	network->anqp_pending = state == STATION_EVENT_ANQP_STARTED;
+	struct l_dbus_message *reply;
 
-	if (state == STATION_EVENT_ANQP_FINISHED &&
-						network->connect_after_anqp) {
-		struct l_dbus_message *reply;
+	switch (state) {
+	case STATION_EVENT_ANQP_STARTED:
+		network->anqp_pending = true;
+		break;
+	case STATION_EVENT_ANQP_FINISHED:
+		network->anqp_pending = false;
+
+		if (!network->connect_after_anqp)
+			return;
 
 		l_debug("ANQP complete, resuming connect to %s", network->ssid);
 
@@ -1925,6 +1944,27 @@ static void event_watch_changed(enum station_event state,
 
 		l_dbus_message_unref(network->connect_after_anqp);
 		network->connect_after_anqp = NULL;
+
+		break;
+	case STATION_EVENT_OWE_HIDDEN_STARTED:
+		network->owe_hidden_pending = true;
+		break;
+	case STATION_EVENT_OWE_HIDDEN_FINISHED:
+		network->owe_hidden_pending = false;
+
+		if (!network->connect_after_owe_hidden)
+			return;
+
+		reply = __network_connect(network,
+					network_bss_select(network, true),
+					network->connect_after_owe_hidden);
+		if (reply)
+			l_dbus_send(dbus_get_bus(), reply);
+
+		l_dbus_message_unref(network->connect_after_owe_hidden);
+		network->connect_after_owe_hidden = NULL;
+
+		break;
 	}
 }
 
