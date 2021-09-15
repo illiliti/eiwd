@@ -1955,11 +1955,9 @@ static void event_watch_changed(enum station_event state,
 		if (!network->connect_after_owe_hidden)
 			return;
 
-		reply = __network_connect(network,
+		station_connect_network(network->station, network,
 					network_bss_select(network, true),
 					network->connect_after_owe_hidden);
-		if (reply)
-			l_dbus_send(dbus_get_bus(), reply);
 
 		l_dbus_message_unref(network->connect_after_owe_hidden);
 		network->connect_after_owe_hidden = NULL;
