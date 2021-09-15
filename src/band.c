@@ -465,3 +465,224 @@ try_vht80:
 
 	return -ENETUNREACH;
 }
+
+struct operating_class_info {
+	uint32_t starting_frequency;
+	uint32_t flags;
+	uint8_t channel_set[20];
+	uint8_t center_frequencies[8];
+	uint16_t channel_spacing;
+	uint8_t operating_class;
+};
+
+enum operating_class_flags {
+	PRIMARY_CHANNEL_UPPER = 0x1,
+	PRIMARY_CHANNEL_LOWER = 0x2,
+	PLUS80 = 0x4,
+};
+
+static const struct operating_class_info e4_operating_classes[] = {
+	{
+		.operating_class = 81,
+		.starting_frequency = 2407,
+		.channel_set = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 },
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 82,
+		.starting_frequency = 2414,
+		.channel_set = { 14 },
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 83,
+		.starting_frequency = 2407,
+		.channel_set = { 1, 2, 3, 4, 5, 6, 7, 8, 9 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_LOWER,
+	},
+	{
+		.operating_class = 84,
+		.starting_frequency = 2407,
+		.channel_set = { 5, 6, 7, 8, 9, 10, 11, 12, 13 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_UPPER,
+	},
+	{
+		.operating_class = 115,
+		.starting_frequency = 5000,
+		.channel_set = { 36, 40, 44, 48},
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 116,
+		.starting_frequency = 5000,
+		.channel_set = { 36, 44 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_LOWER,
+	},
+	{
+		.operating_class = 117,
+		.starting_frequency = 5000,
+		.channel_set = { 40, 48 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_UPPER,
+	},
+	{
+		.operating_class = 118,
+		.starting_frequency = 5000,
+		.channel_set = { 52, 56, 60, 64},
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 119,
+		.starting_frequency = 5000,
+		.channel_set = { 52, 60 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_LOWER,
+	},
+	{
+		.operating_class = 120,
+		.starting_frequency = 5000,
+		.channel_set = { 56, 64 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_UPPER,
+	},
+	{
+		.operating_class = 121,
+		.starting_frequency = 5000,
+		.channel_set = { 100, 104, 108, 112, 116, 120,
+					124, 128, 132, 136, 140, 144 },
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 122,
+		.starting_frequency = 5000,
+		.channel_set = { 100, 108, 116, 124, 132, 140},
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_LOWER,
+	},
+	{
+		.operating_class = 123,
+		.starting_frequency = 5000,
+		.channel_set = { 104, 112, 120, 128, 136, 144 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_UPPER,
+	},
+	{
+		.operating_class = 124,
+		.starting_frequency = 5000,
+		.channel_set = { 149, 153, 157, 161 },
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 125,
+		.starting_frequency = 5000,
+		.channel_set = { 149, 153, 157, 161, 165, 169, 173},
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 126,
+		.starting_frequency = 5000,
+		.channel_set = { 149, 157, 165},
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_LOWER,
+	},
+	{
+		.operating_class = 127,
+		.starting_frequency = 5000,
+		.channel_set = { 153, 161, 169 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_UPPER,
+	},
+	{
+		.operating_class = 128,
+		.starting_frequency = 5000,
+		.channel_spacing = 80,
+		.center_frequencies = { 42, 58, 106, 122, 138, 155 },
+	},
+	{
+		.operating_class = 129,
+		.starting_frequency = 5000,
+		.channel_spacing = 160,
+		.center_frequencies = { 50, 114 },
+	},
+	{
+		.operating_class = 130,
+		.starting_frequency = 5000,
+		.channel_spacing = 80,
+		.center_frequencies = { 42, 58, 106, 122, 138, 155 },
+		.flags = PLUS80,
+	},
+};
+
+static const struct operating_class_info *e4_find_opclass(uint32_t opclass)
+{
+	unsigned int i;
+
+	for (i = 0; i < L_ARRAY_SIZE(e4_operating_classes); i++) {
+		if (e4_operating_classes[i].operating_class != opclass)
+			continue;
+
+		return &e4_operating_classes[i];
+	}
+
+	return NULL;
+}
+
+static int e4_channel_to_frequency(const struct operating_class_info *info,
+					uint32_t channel)
+{
+	unsigned int i;
+	unsigned int offset;
+
+	for (i = 0; info->channel_set[i] &&
+				i < L_ARRAY_SIZE(info->channel_set); i++) {
+		if (info->channel_set[i] != channel)
+			continue;
+
+		return channel * 5 + info->starting_frequency;
+	}
+
+	/*
+	 * Only classes in Table E4 with center frequencies are 128-130,
+	 * which use 20 Mhz wide channels.  Since E4 gives a center frequency,
+	 * calculate the channel offset based on channel spacing.
+	 *
+	 * Typically +/- 6 for 80 Mhz channels and +/- 14 for 160 Mhz channels
+	 */
+	offset = (info->channel_spacing - 20) / 5 / 2;
+
+	/*
+	 * Check that the channel is in the frequency range given by one of
+	 * the center frequencies listed for the operating class.  The channel
+	 * must be a valid channel for a lower operating class and spaced
+	 * 20 mhz apart
+	 */
+	for (i = 0; info->center_frequencies[i] &&
+			i < L_ARRAY_SIZE(info->center_frequencies); i++) {
+
+		unsigned int upper = info->center_frequencies[i] + offset;
+		unsigned int j = info->center_frequencies[i] - offset;
+
+		while (j <= upper && channel >= j) {
+			if (channel == j)
+				return channel * 5 + info->starting_frequency;
+
+			j += 4;
+		}
+	}
+
+	return -EINVAL;
+}
+
+int oci_to_frequency(uint32_t operating_class, uint32_t channel)
+{
+	const struct operating_class_info *info;
+
+	info = e4_find_opclass(operating_class);
+	if (!info)
+		return -ENOENT;
+
+	return e4_channel_to_frequency(info, channel);
+}
