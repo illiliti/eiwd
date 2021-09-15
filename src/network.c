@@ -59,7 +59,7 @@
 #define SAE_PT_SETTING "SAE-PT-Group%u"
 
 static uint32_t known_networks_watch;
-static uint32_t anqp_watch;
+static uint32_t event_watch;
 
 struct network {
 	char ssid[33];
@@ -1898,12 +1898,13 @@ static void known_networks_changed(enum known_networks_event event,
 	}
 }
 
-static void anqp_watch_changed(enum station_anqp_state state,
+static void event_watch_changed(enum station_event state,
 				struct network *network, void *user_data)
 {
-	network->anqp_pending = state == STATION_ANQP_STARTED;
+	network->anqp_pending = state == STATION_EVENT_ANQP_STARTED;
 
-	if (state == STATION_ANQP_FINISHED && network->connect_after_anqp) {
+	if (state == STATION_EVENT_ANQP_FINISHED &&
+						network->connect_after_anqp) {
 		struct l_dbus_message *reply;
 
 		l_debug("ANQP complete, resuming connect to %s", network->ssid);
@@ -1960,7 +1961,7 @@ static int network_init(void)
 	known_networks_watch =
 		known_networks_watch_add(known_networks_changed, NULL, NULL);
 
-	anqp_watch = station_add_anqp_watch(anqp_watch_changed, NULL, NULL);
+	event_watch = station_add_event_watch(event_watch_changed, NULL, NULL);
 
 	return 0;
 }
@@ -1970,8 +1971,8 @@ static void network_exit(void)
 	known_networks_watch_remove(known_networks_watch);
 	known_networks_watch = 0;
 
-	station_remove_anqp_watch(anqp_watch);
-	anqp_watch = 0;
+	station_remove_event_watch(event_watch);
+	event_watch = 0;
 
 	l_dbus_unregister_interface(dbus_get_bus(), IWD_NETWORK_INTERFACE);
 }

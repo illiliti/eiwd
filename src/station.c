@@ -64,7 +64,7 @@ static uint32_t mfp_setting;
 static uint32_t roam_retry_interval;
 static bool anqp_disabled;
 static bool netconfig_enabled;
-static struct watchlist anqp_watches;
+static struct watchlist event_watches;
 
 struct station {
 	enum station_state state;
@@ -485,8 +485,8 @@ static bool anqp_entry_foreach(void *data, void *user_data)
 {
 	struct anqp_entry *e = data;
 
-	WATCHLIST_NOTIFY(&anqp_watches, station_anqp_watch_func_t,
-				STATION_ANQP_FINISHED, e->network);
+	WATCHLIST_NOTIFY(&event_watches, station_event_watch_func_t,
+				STATION_EVENT_ANQP_FINISHED, e->network);
 
 	remove_anqp(e);
 
@@ -620,8 +620,8 @@ static bool station_start_anqp(struct station *station, struct network *network,
 
 	l_queue_push_head(station->anqp_pending, entry);
 
-	WATCHLIST_NOTIFY(&anqp_watches, station_anqp_watch_func_t,
-				STATION_ANQP_STARTED, network);
+	WATCHLIST_NOTIFY(&event_watches, station_event_watch_func_t,
+				STATION_EVENT_ANQP_STARTED, network);
 	return true;
 }
 
@@ -1216,16 +1216,16 @@ bool station_remove_state_watch(struct station *station, uint32_t id)
 	return watchlist_remove(&station->state_watches, id);
 }
 
-uint32_t station_add_anqp_watch(station_anqp_watch_func_t func,
+uint32_t station_add_event_watch(station_event_watch_func_t func,
 				void *user_data,
 				station_destroy_func_t destroy)
 {
-	return watchlist_add(&anqp_watches, func, user_data, destroy);
+	return watchlist_add(&event_watches, func, user_data, destroy);
 }
 
-void station_remove_anqp_watch(uint32_t id)
+void station_remove_event_watch(uint32_t id)
 {
-	watchlist_remove(&anqp_watches, id);
+	watchlist_remove(&event_watches, id);
 }
 
 bool station_set_autoconnect(struct station *station, bool autoconnect)
@@ -4178,7 +4178,7 @@ static int station_init(void)
 	if (!netconfig_enabled)
 		l_info("station: Network configuration is disabled.");
 
-	watchlist_init(&anqp_watches, NULL);
+	watchlist_init(&event_watches, NULL);
 
 	return 0;
 }
@@ -4194,7 +4194,7 @@ static void station_exit(void)
 	netdev_watch_remove(netdev_watch);
 	l_queue_destroy(station_list, NULL);
 	station_list = NULL;
-	watchlist_destroy(&anqp_watches);
+	watchlist_destroy(&event_watches);
 }
 
 IWD_MODULE(station, station_init, station_exit)
