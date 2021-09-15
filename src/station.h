@@ -48,6 +48,8 @@ enum station_state {
 enum station_event {
 	STATION_EVENT_ANQP_STARTED,
 	STATION_EVENT_ANQP_FINISHED,
+	STATION_EVENT_OWE_HIDDEN_STARTED,
+	STATION_EVENT_OWE_HIDDEN_FINISHED,
 };
 
 typedef void (*station_foreach_func_t)(struct station *, void *data);
