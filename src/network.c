@@ -465,7 +465,7 @@ static int network_set_handshake_secrets_psk(struct network *network,
 	return 0;
 }
 
-int network_handshake_setup(struct network *network,
+int network_handshake_setup(struct network *network, struct scan_bss *bss,
 						struct handshake_state *hs)
 {
 	struct station *station = network->station;
@@ -492,8 +492,7 @@ int network_handshake_setup(struct network *network,
 		return -ENOTSUP;
 	}
 
-	handshake_state_set_ssid(hs, (void *) network->ssid,
-						strlen(network->ssid));
+	handshake_state_set_ssid(hs, bss->ssid, bss->ssid_len);
 
 	if (settings && l_settings_get_uint(settings, "EAPoL",
 						"ProtocolVersion",

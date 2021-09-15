@@ -935,7 +935,7 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 
 	handshake_state_set_authenticator_rsnxe(hs, bss->rsnxe);
 
-	if (network_handshake_setup(network, hs) < 0)
+	if (network_handshake_setup(network, bss, hs) < 0)
 		goto not_supported;
 
 	vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);

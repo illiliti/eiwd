@@ -50,7 +50,7 @@ bool network_set_psk(struct network *network, const uint8_t *psk);
 int network_set_transition_disable(struct network *network,
 					const uint8_t *td, size_t len);
 
-int network_handshake_setup(struct network *network,
+int network_handshake_setup(struct network *network, struct scan_bss *bss,
 						struct handshake_state *hs);
 
 void network_sync_settings(struct network *network);
