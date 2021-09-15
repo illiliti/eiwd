@@ -171,7 +171,7 @@ static inline char *netconfig_ipv6_to_string(const uint8_t *addr)
 	struct in6_addr in6_addr;
 	char *addr_str = l_malloc(INET6_ADDRSTRLEN);
 
-	memcpy(in6_addr.__in6_u.__u6_addr8, addr, 16);
+	memcpy(in6_addr.s6_addr, addr, 16);
 
 	if (L_WARN_ON(unlikely(!inet_ntop(AF_INET6, &in6_addr, addr_str,
 						INET6_ADDRSTRLEN)))) {
