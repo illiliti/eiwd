@@ -630,3 +630,8 @@ void ie_build_fils_ip_addr_response(
 
 int ie_parse_network_cost(const void *data, size_t len,
 				uint16_t *flags, uint16_t *level);
+
+int ie_parse_owe_transition(const void *data, size_t len,
+				uint8_t bssid[static 6],
+				uint8_t ssid[static 32],
+				size_t *ssid_len);

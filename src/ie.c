@@ -1343,6 +1343,8 @@ bool is_ie_wfa_ie(const uint8_t *data, uint8_t len, uint8_t oi_type)
 		return false;
 	else if (oi_type == IE_WFA_OI_HS20_INDICATION && len != 5 && len != 7)
 		return false;
+	else if (oi_type == IE_WFA_OI_OWE_TRANSITION && len < 12)
+		return false;
 	else if (len < 4) /* OI not handled, but at least check length */
 		return false;
 
@@ -2490,5 +2492,48 @@ int ie_parse_network_cost(const void *data, size_t len,
 
 	*level = l_get_le16(ie + 6);
 	*flags = l_get_le16(ie + 8);
+	return 0;
+}
+
+int ie_parse_owe_transition(const void *data, size_t len,
+				uint8_t bssid[static 6],
+				uint8_t ssid[static 32],
+				size_t *ssid_len)
+{
+	const uint8_t *ie = data;
+	size_t slen;
+
+	if (len < 14 || ie[0] != IE_TYPE_VENDOR_SPECIFIC)
+		return -ENOMSG;
+
+	if (!is_ie_wfa_ie(ie + 2, len - 2, IE_WFA_OI_OWE_TRANSITION))
+		return -ENOMSG;
+
+	slen = l_get_u8(ie + 12);
+	if (slen > 32)
+		return -ENOMSG;
+
+	/*
+	 * WFA OWE Specification 2.3.1
+	 *
+	 * "Band Info and Channel Info are optional fields. If configured,
+	 * both fields shall be included in an OWE Transition Mode element"
+	 *
+	 * TODO: Support Band/Channel bytes:
+	 * For the time being the OWE transition AP is assumed to be on the same
+	 * channel as the open AP. This means there should be no band/channel
+	 * bytes at the end of the IE. Currently hostapd has no support for this
+	 * so it can be skipped. In addition 802.11 Appendix E-1 needs to be
+	 * encoded as a table to map Country/operating class to channels to make
+	 * any sense of it.
+	 */
+	if (len != slen + 13)
+		return -ENOMSG;
+
+	memcpy(bssid, ie + 6, 6);
+
+	memcpy(ssid, ie + 13, slen);
+	*ssid_len = slen;
+
 	return 0;
 }
