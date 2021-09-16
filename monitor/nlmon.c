@@ -1009,6 +1009,22 @@ static void print_ipv4(unsigned int level, const char *label,
 			addr[0], addr[1], addr[2], addr[3]);
 }
 
+static void print_ie_wfa_owe_transition(unsigned int level, const char *label,
+						const void *data, uint16_t size)
+{
+	uint8_t bssid[6];
+	uint8_t ssid[32];
+	size_t ssid_len;
+
+	if (ie_parse_owe_transition(data, size, bssid, ssid, &ssid_len) < 0) {
+		print_attr(level + 1, "Error parsing");
+		return;
+	}
+
+	print_attr(level + 1, "BSSID: "MAC, MAC_STR(bssid));
+	print_attr(level + 1, "SSID: %s", util_ssid_to_utf8(ssid_len, ssid));
+}
+
 static void print_ie_vendor(unsigned int level, const char *label,
 				const void *data, uint16_t size)
 {
@@ -1053,6 +1069,10 @@ static void print_ie_vendor(unsigned int level, const char *label,
 			return;
 		case 0x12:
 			print_ie_rsn_suites(level + 1, label, data, size);
+			return;
+		case 0x1c:
+			print_ie_wfa_owe_transition(level + 1, label,
+							data - 6, size + 6);
 			return;
 		default:
 			return;
