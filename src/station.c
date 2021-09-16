@@ -114,6 +114,7 @@ struct station {
 	bool ap_directed_roaming : 1;
 	bool scanning : 1;
 	bool autoconnect : 1;
+	bool autoconnect_can_start : 1;
 };
 
 struct anqp_entry {
@@ -244,6 +245,9 @@ static void station_autoconnect_start(struct station *station)
 {
 	l_debug("");
 
+	if (!station->autoconnect_can_start)
+		return;
+
 	if (!station_is_autoconnecting(station))
 		return;
 
@@ -256,6 +260,7 @@ static void station_autoconnect_start(struct station *station)
 	station->autoconnect_list = l_queue_new();
 	station_network_foreach(station, network_add_foreach, station);
 	station_autoconnect_next(station);
+	station->autoconnect_can_start = false;
 }
 
 static void bss_free(void *data)
@@ -724,8 +729,8 @@ void station_set_scan_results(struct station *station,
 
 	l_hashmap_foreach_remove(station->networks, process_network, station);
 
-	if (trigger_autoconnect)
-		station_autoconnect_start(station);
+	station->autoconnect_can_start = trigger_autoconnect;
+	station_autoconnect_start(station);
 }
 
 static void station_reconnect(struct station *station);
@@ -3144,10 +3149,16 @@ static struct l_dbus_message *station_dbus_get_hidden_access_points(
 	return reply;
 }
 
-static void station_dbus_scan_done(struct station *station)
+static void station_dbus_scan_done(struct station *station,
+							bool try_autoconnect)
 {
 	station->dbus_scan_id = 0;
 	station_property_set_scanning(station, false);
+
+	if (try_autoconnect) {
+		station->autoconnect_can_start = true;
+		station_autoconnect_start(station);
+	}
 }
 
 static void station_dbus_scan_triggered(int err, void *user_data)
@@ -3164,7 +3175,7 @@ static void station_dbus_scan_triggered(int err, void *user_data)
 			dbus_pending_reply(&station->scan_pending, reply);
 		}
 
-		station_dbus_scan_done(station);
+		station_dbus_scan_done(station, true);
 		return;
 	}
 
@@ -3192,18 +3203,18 @@ static bool station_dbus_scan_results(int err, struct l_queue *bss_list,
 	bool last_subset;
 
 	if (err) {
-		station_dbus_scan_done(station);
+		station_dbus_scan_done(station, true);
 		return false;
 	}
-
-	station_set_scan_results(station, bss_list, freqs, true);
 
 	last_subset = next_idx >= L_ARRAY_SIZE(station->scan_freqs_order) ||
 		station->scan_freqs_order[next_idx] == NULL;
 	station->dbus_scan_subset_idx = next_idx;
 
+	station_set_scan_results(station, bss_list, freqs, false);
+
 	if (last_subset || !station_dbus_scan_subset(station))
-		station_dbus_scan_done(station);
+		station_dbus_scan_done(station, true);
 
 	return true;
 }
@@ -3941,7 +3952,7 @@ static void station_debug_scan_triggered(int err, void *user_data)
 			dbus_pending_reply(&station->scan_pending, reply);
 		}
 
-		station_dbus_scan_done(station);
+		station_dbus_scan_done(station, false);
 		return;
 	}
 
@@ -3964,12 +3975,12 @@ static bool station_debug_scan_results(int err, struct l_queue *bss_list,
 	struct station *station = userdata;
 
 	if (err) {
-		station_dbus_scan_done(station);
+		station_dbus_scan_done(station, false);
 		return false;
 	}
 
 	station_set_scan_results(station, bss_list, freqs, false);
-	station_dbus_scan_done(station);
+	station_dbus_scan_done(station, false);
 
 	return true;
 }
