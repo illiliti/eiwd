@@ -2816,6 +2816,9 @@ static bool station_hidden_network_scan_results(int err,
 					memcmp(bss->ssid, ssid, ssid_len))
 			goto next;
 
+		if (!l_memeqzero(bss->owe_trans_bssid, 6))
+			goto next;
+
 		/*
 		 * Override time_stamp so that this entry is removed on
 		 * the next scan
@@ -2909,6 +2912,10 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 			l_queue_get_entries(station->hidden_bss_list_sorted);
 		struct scan_bss *target = network_bss_select(network, true);
 
+		/* Treat OWE transition networks special */
+		if (!l_memeqzero(target->owe_trans_bssid, 6))
+			goto not_hidden;
+
 		for (; entry; entry = entry->next) {
 			struct scan_bss *bss = entry->data;
 
@@ -2920,6 +2927,7 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 								message);
 		}
 
+not_hidden:
 		return dbus_error_not_hidden(message);
 	}
 
