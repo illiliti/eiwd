@@ -3957,16 +3957,13 @@ static bool station_debug_scan_results(int err, struct l_queue *bss_list,
 					void *userdata)
 {
 	struct station *station = userdata;
-	bool autoconnect;
 
 	if (err) {
 		station_dbus_scan_done(station);
 		return false;
 	}
 
-	autoconnect = station_is_autoconnecting(station);
-	station_set_scan_results(station, bss_list, freqs, autoconnect);
-
+	station_set_scan_results(station, bss_list, freqs, false);
 	station_dbus_scan_done(station);
 
 	return true;
