@@ -187,10 +187,21 @@ static void station_property_set_scanning(struct station *station,
 static void station_enter_state(struct station *station,
 						enum station_state state);
 
+static void network_add_foreach(struct network *network, void *user_data)
+{
+	struct station *station = user_data;
+
+	l_queue_insert(station->autoconnect_list, network,
+				network_rank_compare, NULL);
+}
+
 static int station_autoconnect_next(struct station *station)
 {
 	struct network *network;
 	int r;
+
+	if (!station->autoconnect_list)
+		return -ENOENT;
 
 	while ((network = l_queue_pop_head(station->autoconnect_list))) {
 		const char *ssid = network_get_ssid(network);
@@ -227,6 +238,24 @@ static int station_autoconnect_next(struct station *station)
 	}
 
 	return -ENOENT;
+}
+
+static void station_autoconnect_start(struct station *station)
+{
+	l_debug("");
+
+	if (!station_is_autoconnecting(station))
+		return;
+
+	if (!l_queue_isempty(station->anqp_pending))
+		return;
+
+	if (L_WARN_ON(station->autoconnect_list))
+		l_queue_destroy(station->autoconnect_list, NULL);
+
+	station->autoconnect_list = l_queue_new();
+	station_network_foreach(station, network_add_foreach, station);
+	station_autoconnect_next(station);
 }
 
 static void bss_free(void *data)
@@ -456,14 +485,6 @@ static bool match_nai_realms(const struct network_info *info, void *user_data)
 	return true;
 }
 
-static void network_add_foreach(struct network *network, void *user_data)
-{
-	struct station *station = user_data;
-
-	l_queue_insert(station->autoconnect_list, network,
-				network_rank_compare, NULL);
-}
-
 static bool match_pending(const void *a, const void *b)
 {
 	const struct anqp_entry *entry = a;
@@ -552,13 +573,7 @@ request_done:
 	/* Notify all watchers now that every ANQP request has finished */
 	l_queue_foreach_remove(station->anqp_pending, anqp_entry_foreach, NULL);
 
-	l_queue_destroy(station->autoconnect_list, NULL);
-	station->autoconnect_list = l_queue_new();
-
-	if (station_is_autoconnecting(station)) {
-		station_network_foreach(station, network_add_foreach, station);
-		station_autoconnect_next(station);
-	}
+	station_autoconnect_start(station);
 }
 
 static bool station_start_anqp(struct station *station, struct network *network,
@@ -652,7 +667,6 @@ void station_set_scan_results(struct station *station,
 {
 	const struct l_queue_entry *bss_entry;
 	struct network *network;
-	bool wait_for_anqp = false;
 
 	l_queue_foreach_remove(new_bss_list, bss_free_if_ssid_not_utf8, NULL);
 
@@ -662,7 +676,7 @@ void station_set_scan_results(struct station *station,
 	l_queue_clear(station->hidden_bss_list_sorted, NULL);
 
 	l_queue_destroy(station->autoconnect_list, NULL);
-	station->autoconnect_list = l_queue_new();
+	station->autoconnect_list = NULL;
 
 	station_bss_list_remove_expired_bsses(station, freqs);
 
@@ -703,19 +717,15 @@ void station_set_scan_results(struct station *station,
 		if (!scan_freq_set_contains(freqs, bss->frequency))
 			continue;
 
-		if (station_start_anqp(station, network, bss))
-			wait_for_anqp = true;
+		station_start_anqp(station, network, bss);
 	}
 
 	station->bss_list = new_bss_list;
 
 	l_hashmap_foreach_remove(station->networks, process_network, station);
 
-	if (!wait_for_anqp && trigger_autoconnect
-				&& station_is_autoconnecting(station)) {
-		station_network_foreach(station, network_add_foreach, station);
-		station_autoconnect_next(station);
-	}
+	if (trigger_autoconnect)
+		station_autoconnect_start(station);
 }
 
 static void station_reconnect(struct station *station);
