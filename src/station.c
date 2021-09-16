@@ -2009,9 +2009,12 @@ static int station_roam_scan(struct station *station,
 
 	l_debug("ifindex: %u", netdev_get_ifindex(station->netdev));
 
-	if (station->connected_network)
+	if (station->connected_network) {
+		const char *ssid = network_get_ssid(station->connected_network);
 		/* Use direct probe request */
-		params.ssid = network_get_ssid(station->connected_network);
+		params.ssid = (const uint8_t *)ssid;
+		params.ssid_len = strlen(ssid);
+	}
 
 	if (!freq_set)
 		station->roam_scan_full = true;
@@ -2916,7 +2919,8 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 		return dbus_error_not_hidden(message);
 	}
 
-	params.ssid = ssid;
+	params.ssid = (const uint8_t *)ssid;
+	params.ssid_len = strlen(ssid);
 
 	/* HW cannot randomize our MAC if connected */
 	if (!station->connected_bss)

@@ -1980,7 +1980,8 @@ static void p2p_provision_scan_start(struct p2p_device *dev)
 
 	params.flush = true;
 	params.no_cck_rates = true;
-	params.ssid = dev->go_group_id.ssid;
+	params.ssid = (const uint8_t *)dev->go_group_id.ssid;
+	params.ssid_len = strlen(dev->go_group_id.ssid);
 	params.extra_ie = p2p_build_scan_ies(dev, buf, sizeof(buf),
 						&params.extra_ie_size);
 	L_WARN_ON(!params.extra_ie);
@@ -3783,7 +3784,8 @@ static bool p2p_device_scan_start(struct p2p_device *dev)
 	L_WARN_ON(!params.extra_ie);
 	params.flush = true;
 	/* P2P Wildcard SSID because we don't need legacy networks to reply */
-	params.ssid = "DIRECT-";
+	params.ssid = (const uint8_t *)"DIRECT-";
+	params.ssid_len = strlen("DIRECT-");
 	/*
 	 * Must send probe requests at 6Mb/s, OFDM only.  The no-CCK rates
 	 * flag forces the drivers to do exactly this for 2.4GHz frames.

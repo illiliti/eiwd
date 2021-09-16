@@ -542,7 +542,7 @@ static void scan_cmds_add(struct l_queue *cmds, struct scan_context *sc,
 	if (params->ssid) {
 		/* direct probe request scan */
 		l_genl_msg_append_attr(cmd, NL80211_ATTR_SSID,
-					strlen(params->ssid), params->ssid);
+					params->ssid_len, params->ssid);
 		l_genl_msg_leave_nested(cmd);
 
 		l_queue_push_tail(cmds, cmd);
