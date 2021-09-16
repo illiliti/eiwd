@@ -936,6 +936,13 @@ static void scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
 		return;
 	}
 
+	if (is_ie_wfa_ie(data, len, IE_WFA_OI_OWE_TRANSITION)) {
+		ie_parse_owe_transition(data - 2, len + 2, bss->owe_trans_bssid,
+					bss->owe_trans_ssid,
+					&bss->owe_trans_ssid_len);
+		return;
+	}
+
 	if (!ie_parse_network_cost(data, len, &cost_level, &cost_flags)) {
 		bss->cost_level = cost_level;
 		bss->cost_flags = cost_flags;

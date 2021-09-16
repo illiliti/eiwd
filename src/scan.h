@@ -76,6 +76,9 @@ struct scan_bss {
 	uint64_t parent_tsf;
 	uint8_t *wfd;		/* Concatenated WFD IEs */
 	ssize_t wfd_size;	/* Size of Concatenated WFD IEs */
+	uint8_t owe_trans_ssid[32];
+	size_t owe_trans_ssid_len;
+	uint8_t owe_trans_bssid[6];
 	bool mde_present : 1;
 	bool cc_present : 1;
 	bool cap_rm_neighbor_report : 1;
