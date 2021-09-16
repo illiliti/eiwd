@@ -699,6 +699,10 @@ void station_set_scan_results(struct station *station,
 		if (!network)
 			continue;
 
+		/* Cached BSS entry, this should have been processed already */
+		if (!scan_freq_set_contains(freqs, bss->frequency))
+			continue;
+
 		if (station_start_anqp(station, network, bss))
 			wait_for_anqp = true;
 	}
