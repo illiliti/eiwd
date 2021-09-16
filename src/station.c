@@ -648,7 +648,7 @@ static bool bss_free_if_ssid_not_utf8(void *data, void *user_data)
 void station_set_scan_results(struct station *station,
 					struct l_queue *new_bss_list,
 					const struct scan_freq_set *freqs,
-					bool add_to_autoconnect)
+					bool trigger_autoconnect)
 {
 	const struct l_queue_entry *bss_entry;
 	struct network *network;
@@ -711,7 +711,8 @@ void station_set_scan_results(struct station *station,
 
 	l_hashmap_foreach_remove(station->networks, process_network, station);
 
-	if (!wait_for_anqp && add_to_autoconnect) {
+	if (!wait_for_anqp && trigger_autoconnect
+				&& station_is_autoconnecting(station)) {
 		station_network_foreach(station, network_add_foreach, station);
 		station_autoconnect_next(station);
 	}
@@ -967,15 +968,13 @@ static bool new_scan_results(int err, struct l_queue *bss_list,
 				void *userdata)
 {
 	struct station *station = userdata;
-	bool autoconnect;
 
 	station_property_set_scanning(station, false);
 
 	if (err)
 		return false;
 
-	autoconnect = station_is_autoconnecting(station);
-	station_set_scan_results(station, bss_list, freqs, autoconnect);
+	station_set_scan_results(station, bss_list, freqs, true);
 
 	return true;
 }
@@ -1039,15 +1038,13 @@ static bool station_quick_scan_results(int err, struct l_queue *bss_list,
 					void *userdata)
 {
 	struct station *station = userdata;
-	bool autoconnect;
 
 	station_property_set_scanning(station, false);
 
 	if (err)
 		goto done;
 
-	autoconnect = station_is_autoconnecting(station);
-	station_set_scan_results(station, bss_list, freqs, autoconnect);
+	station_set_scan_results(station, bss_list, freqs, true);
 
 done:
 	if (station->state == STATION_STATE_AUTOCONNECT_QUICK)
@@ -3182,7 +3179,6 @@ static bool station_dbus_scan_results(int err, struct l_queue *bss_list,
 {
 	struct station *station = userdata;
 	unsigned int next_idx = station->dbus_scan_subset_idx + 1;
-	bool autoconnect;
 	bool last_subset;
 
 	if (err) {
@@ -3190,8 +3186,7 @@ static bool station_dbus_scan_results(int err, struct l_queue *bss_list,
 		return false;
 	}
 
-	autoconnect = station_is_autoconnecting(station);
-	station_set_scan_results(station, bss_list, freqs, autoconnect);
+	station_set_scan_results(station, bss_list, freqs, true);
 
 	last_subset = next_idx >= L_ARRAY_SIZE(station->scan_freqs_order) ||
 		station->scan_freqs_order[next_idx] == NULL;
