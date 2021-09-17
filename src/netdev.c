@@ -119,6 +119,7 @@ struct netdev {
 	void *user_data;
 	struct eapol_sm *sm;
 	struct auth_proto *ap;
+	struct owe_sm *owe_sm;
 	struct handshake_state *handshake;
 	uint32_t connect_cmd_id;
 	uint32_t disconnect_cmd_id;
@@ -181,6 +182,7 @@ struct netdev {
 	bool events_ready : 1;
 	bool retry_auth : 1;
 	bool in_reassoc : 1;
+	bool privacy : 1;
 };
 
 struct netdev_preauth_state {
@@ -291,6 +293,9 @@ static unsigned int netdev_populate_common_ies(struct netdev *netdev,
 		l_genl_msg_append_attr(msg, NL80211_ATTR_USE_RRM, 0, NULL);
 
 	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->vendor_ies);
+
+	if (hs->fils_ip_req_ie)
+		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->fils_ip_req_ie);
 
 	return c_iov;
 }
@@ -748,6 +753,11 @@ static void netdev_connect_free(struct netdev *netdev)
 		netdev->ap = NULL;
 	}
 
+	if (netdev->owe_sm) {
+		owe_sm_free(netdev->owe_sm);
+		netdev->owe_sm = NULL;
+	}
+
 	eapol_preauth_cancel(netdev->index);
 
 	if (netdev->handshake) {
@@ -785,6 +795,7 @@ static void netdev_connect_free(struct netdev *netdev)
 	netdev->ignore_connect_event = false;
 	netdev->expect_connect_failure = false;
 	netdev->cur_rssi_low = false;
+	netdev->privacy = false;
 
 	if (netdev->connect_cmd) {
 		l_genl_msg_unref(netdev->connect_cmd);
@@ -2089,6 +2100,228 @@ static void netdev_driver_connected(struct netdev *netdev)
 		eapol_register(netdev->sm);
 }
 
+static unsigned int ie_rsn_akm_suite_to_nl80211(enum ie_rsn_akm_suite akm)
+{
+	switch (akm) {
+	case IE_RSN_AKM_SUITE_8021X:
+		return CRYPTO_AKM_8021X;
+	case IE_RSN_AKM_SUITE_PSK:
+		return CRYPTO_AKM_PSK;
+	case IE_RSN_AKM_SUITE_FT_OVER_8021X:
+		return CRYPTO_AKM_FT_OVER_8021X;
+	case IE_RSN_AKM_SUITE_FT_USING_PSK:
+		return CRYPTO_AKM_FT_USING_PSK;
+	case IE_RSN_AKM_SUITE_8021X_SHA256:
+		return CRYPTO_AKM_8021X_SHA256;
+	case IE_RSN_AKM_SUITE_PSK_SHA256:
+		return CRYPTO_AKM_PSK_SHA256;
+	case IE_RSN_AKM_SUITE_TDLS:
+		return CRYPTO_AKM_TDLS;
+	case IE_RSN_AKM_SUITE_SAE_SHA256:
+		return CRYPTO_AKM_SAE_SHA256;
+	case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
+		return CRYPTO_AKM_FT_OVER_SAE_SHA256;
+	case IE_RSN_AKM_SUITE_AP_PEER_KEY_SHA256:
+		return CRYPTO_AKM_AP_PEER_KEY_SHA256;
+	case IE_RSN_AKM_SUITE_8021X_SUITE_B_SHA256:
+		return CRYPTO_AKM_8021X_SUITE_B_SHA256;
+	case IE_RSN_AKM_SUITE_8021X_SUITE_B_SHA384:
+		return CRYPTO_AKM_8021X_SUITE_B_SHA384;
+	case IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384:
+		return CRYPTO_AKM_FT_OVER_8021X_SHA384;
+	case IE_RSN_AKM_SUITE_FILS_SHA256:
+		return CRYPTO_AKM_FILS_SHA256;
+	case IE_RSN_AKM_SUITE_FILS_SHA384:
+		return CRYPTO_AKM_FILS_SHA384;
+	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
+		return CRYPTO_AKM_FT_OVER_FILS_SHA256;
+	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
+		return CRYPTO_AKM_FT_OVER_FILS_SHA384;
+	case IE_RSN_AKM_SUITE_OWE:
+		return CRYPTO_AKM_OWE;
+	case IE_RSN_AKM_SUITE_OSEN:
+		return CRYPTO_AKM_OSEN;
+	}
+
+	return 0;
+}
+
+static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
+						struct handshake_state *hs,
+						const uint8_t *prev_bssid,
+						const struct iovec *vendor_ies,
+						size_t num_vendor_ies)
+{
+	struct netdev_handshake_state *nhs =
+		l_container_of(hs, struct netdev_handshake_state, super);
+	uint32_t auth_type = IE_AKM_IS_SAE(hs->akm_suite) ?
+					NL80211_AUTHTYPE_SAE :
+					NL80211_AUTHTYPE_OPEN_SYSTEM;
+	enum mpdu_management_subtype subtype = prev_bssid ?
+				MPDU_MANAGEMENT_SUBTYPE_REASSOCIATION_REQUEST :
+				MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_REQUEST;
+	struct l_genl_msg *msg;
+	struct iovec iov[64];
+	unsigned int n_iov = L_ARRAY_SIZE(iov);
+	unsigned int c_iov = 0;
+	bool is_rsn = hs->supplicant_ie != NULL;
+	uint8_t owe_dh_ie[5 + L_ECC_SCALAR_MAX_BYTES];
+	size_t dh_ie_len;
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_CONNECT, 512);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY_FREQ,
+							4, &netdev->frequency);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, hs->aa);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_SSID, hs->ssid_len, hs->ssid);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_AUTH_TYPE, 4, &auth_type);
+
+	switch (nhs->type) {
+	case CONNECTION_TYPE_SOFTMAC:
+	case CONNECTION_TYPE_FULLMAC:
+		break;
+	case CONNECTION_TYPE_SAE_OFFLOAD:
+		l_genl_msg_append_attr(msg, NL80211_ATTR_SAE_PASSWORD,
+					strlen(hs->passphrase), hs->passphrase);
+		break;
+	case CONNECTION_TYPE_PSK_OFFLOAD:
+		l_genl_msg_append_attr(msg, NL80211_ATTR_PMK, 32, hs->pmk);
+		break;
+	case CONNECTION_TYPE_8021X_OFFLOAD:
+		l_genl_msg_append_attr(msg, NL80211_ATTR_WANT_1X_4WAY_HS,
+					0, NULL);
+	}
+
+	if (prev_bssid)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, ETH_ALEN,
+						prev_bssid);
+
+	if (netdev->privacy)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_PRIVACY, 0, NULL);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_SOCKET_OWNER, 0, NULL);
+
+	if (is_rsn) {
+		uint32_t nl_cipher;
+		uint32_t nl_akm;
+		uint32_t wpa_version;
+
+		if (hs->pairwise_cipher == IE_RSN_CIPHER_SUITE_CCMP)
+			nl_cipher = CRYPTO_CIPHER_CCMP;
+		else
+			nl_cipher = CRYPTO_CIPHER_TKIP;
+
+		l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITES_PAIRWISE,
+					4, &nl_cipher);
+
+		if (hs->group_cipher == IE_RSN_CIPHER_SUITE_CCMP)
+			nl_cipher = CRYPTO_CIPHER_CCMP;
+		else
+			nl_cipher = CRYPTO_CIPHER_TKIP;
+
+		l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITE_GROUP,
+					4, &nl_cipher);
+
+		if (hs->mfp) {
+			uint32_t use_mfp = NL80211_MFP_REQUIRED;
+			l_genl_msg_append_attr(msg, NL80211_ATTR_USE_MFP,
+								4, &use_mfp);
+		}
+
+		nl_akm = ie_rsn_akm_suite_to_nl80211(hs->akm_suite);
+		if (nl_akm)
+			l_genl_msg_append_attr(msg, NL80211_ATTR_AKM_SUITES,
+							4, &nl_akm);
+
+		if (IE_AKM_IS_SAE(hs->akm_suite))
+			wpa_version = NL80211_WPA_VERSION_3;
+		else if (hs->wpa_ie)
+			wpa_version = NL80211_WPA_VERSION_1;
+		else
+			wpa_version = NL80211_WPA_VERSION_2;
+
+		l_genl_msg_append_attr(msg, NL80211_ATTR_WPA_VERSIONS,
+						4, &wpa_version);
+
+		l_genl_msg_append_attr(msg, NL80211_ATTR_CONTROL_PORT, 0, NULL);
+		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_ie);
+	}
+
+	if (netdev->owe_sm) {
+		owe_build_dh_ie(netdev->owe_sm, owe_dh_ie, &dh_ie_len);
+		c_iov = iov_ie_append(iov, n_iov, c_iov, owe_dh_ie);
+	}
+
+	if (netdev->pae_over_nl80211)
+		l_genl_msg_append_attr(msg,
+				NL80211_ATTR_CONTROL_PORT_OVER_NL80211,
+				0, NULL);
+
+	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->mde);
+	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
+
+	mpdu_sort_ies(subtype, iov, c_iov);
+
+	if (vendor_ies && !L_WARN_ON(n_iov - c_iov < num_vendor_ies)) {
+		memcpy(iov + c_iov, vendor_ies,
+					sizeof(*vendor_ies) * num_vendor_ies);
+		c_iov += num_vendor_ies;
+	}
+
+	if (c_iov)
+		l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
+
+	return msg;
+}
+
+static void netdev_cmd_connect_cb(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev = user_data;
+
+	netdev->connect_cmd_id = 0;
+
+	if (l_genl_msg_get_error(msg) >= 0) {
+		/*
+		 * connected should be false if the connect event hasn't come
+		 * in yet.  i.e. the CMD_CONNECT ack arrived first (typical).
+		 * Mark the connection as 'connected'
+		 */
+		if (!netdev->connected)
+			netdev_driver_connected(netdev);
+
+		return;
+	}
+
+	netdev_connect_failed(netdev, NETDEV_RESULT_ASSOCIATION_FAILED,
+				MMPDU_STATUS_CODE_UNSPECIFIED);
+}
+
+static bool netdev_retry_owe(struct netdev *netdev)
+{
+	struct iovec iov;
+
+	if (!owe_next_group(netdev->owe_sm))
+		return false;
+
+	iov.iov_base = netdev->handshake->vendor_ies;
+	iov.iov_len = netdev->handshake->vendor_ies_len;
+
+	netdev->connect_cmd = netdev_build_cmd_connect(netdev,
+					netdev->handshake, NULL, &iov, 1);
+
+	netdev->connect_cmd_id = l_genl_family_send(nl80211,
+						netdev->connect_cmd,
+						netdev_cmd_connect_cb, netdev,
+						NULL);
+
+	if (!netdev->connect_cmd_id)
+		return false;
+
+	netdev->connect_cmd = NULL;
+
+	return true;
+}
+
 static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 {
 	struct l_genl_attr attr;
@@ -2157,6 +2390,14 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 			goto error;
 	}
 
+	if (netdev->owe_sm && status_code && *status_code ==
+				MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP) {
+		if (!netdev_retry_owe(netdev))
+			goto error;
+
+		return;
+	}
+
 	/* AP Rejected the authenticate / associate */
 	if (!status_code || *status_code != 0)
 		goto error;
@@ -2170,8 +2411,12 @@ process_resp_ies:
 	if (resp_ies) {
 		const uint8_t *fte = NULL;
 		const uint8_t *qos_set = NULL;
+		const uint8_t *owe_dh = NULL;
+		size_t owe_dh_len = 0;
 		size_t qos_len = 0;
 		struct ie_ft_info ft_info;
+		struct ie_rsn_info info;
+		bool owe_akm_found = false;
 
 		ie_tlv_iter_init(&iter, resp_ies, resp_ies_len);
 
@@ -2186,7 +2431,65 @@ process_resp_ies:
 				qos_set = data;
 				qos_len = ie_tlv_iter_get_length(&iter);
 				break;
+			case IE_TYPE_FILS_IP_ADDRESS:
+				if (netdev->handshake->fils_ip_resp_ie) {
+					l_debug("Duplicate response FILS IP "
+						"Address Assignment IE");
+					l_free(netdev->handshake->
+						fils_ip_resp_ie);
+				}
+
+				netdev->handshake->fils_ip_resp_ie = l_memdup(
+					data - 3,
+					ie_tlv_iter_get_length(&iter) + 3);
+				break;
+			case IE_TYPE_OWE_DH_PARAM:
+				if (!netdev->owe_sm)
+					continue;
+
+				owe_dh = data;
+				owe_dh_len = len;
+
+				break;
+
+			case IE_TYPE_RSN:
+				if (!netdev->owe_sm)
+					continue;
+
+				if (ie_parse_rsne(&iter, &info) < 0) {
+					l_error("could not parse RSN IE");
+					goto deauth;
+				}
+
+				/*
+				 * RFC 8110 Section 4.2
+				 * An AP agreeing to do OWE MUST include the
+				 * OWE AKM in the RSN element portion of the
+				 * 802.11 association response.
+				 */
+				if (info.akm_suites != IE_RSN_AKM_SUITE_OWE) {
+					l_error("OWE AKM not included");
+					goto deauth;
+				}
+
+				owe_akm_found = true;
+
+				break;
 			}
+		}
+
+		if (netdev->owe_sm) {
+			if (!owe_dh || !owe_akm_found) {
+				l_error("OWE DH element/RSN not found");
+				goto deauth;
+			}
+
+			if (L_WARN_ON(owe_process_dh_ie(netdev->owe_sm, owe_dh,
+							owe_dh_len) != 0))
+				goto deauth;
+
+			owe_sm_free(netdev->owe_sm);
+			netdev->owe_sm = NULL;
 		}
 
 		/* FILS handles its own FT key derivation */
@@ -2224,8 +2527,8 @@ process_resp_ies:
 		 * Start processing EAPoL frames now that the state machine
 		 * has all the input data even in FT mode.
 		 */
-		if (!eapol_start(netdev->sm))
-			goto error;
+		if (L_WARN_ON(!eapol_start(netdev->sm)))
+			goto deauth;
 
 		return;
 	}
@@ -2252,52 +2555,6 @@ deauth:
 							msg,
 							netdev_disconnect_cb,
 							netdev, NULL);
-}
-
-static unsigned int ie_rsn_akm_suite_to_nl80211(enum ie_rsn_akm_suite akm)
-{
-	switch (akm) {
-	case IE_RSN_AKM_SUITE_8021X:
-		return CRYPTO_AKM_8021X;
-	case IE_RSN_AKM_SUITE_PSK:
-		return CRYPTO_AKM_PSK;
-	case IE_RSN_AKM_SUITE_FT_OVER_8021X:
-		return CRYPTO_AKM_FT_OVER_8021X;
-	case IE_RSN_AKM_SUITE_FT_USING_PSK:
-		return CRYPTO_AKM_FT_USING_PSK;
-	case IE_RSN_AKM_SUITE_8021X_SHA256:
-		return CRYPTO_AKM_8021X_SHA256;
-	case IE_RSN_AKM_SUITE_PSK_SHA256:
-		return CRYPTO_AKM_PSK_SHA256;
-	case IE_RSN_AKM_SUITE_TDLS:
-		return CRYPTO_AKM_TDLS;
-	case IE_RSN_AKM_SUITE_SAE_SHA256:
-		return CRYPTO_AKM_SAE_SHA256;
-	case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
-		return CRYPTO_AKM_FT_OVER_SAE_SHA256;
-	case IE_RSN_AKM_SUITE_AP_PEER_KEY_SHA256:
-		return CRYPTO_AKM_AP_PEER_KEY_SHA256;
-	case IE_RSN_AKM_SUITE_8021X_SUITE_B_SHA256:
-		return CRYPTO_AKM_8021X_SUITE_B_SHA256;
-	case IE_RSN_AKM_SUITE_8021X_SUITE_B_SHA384:
-		return CRYPTO_AKM_8021X_SUITE_B_SHA384;
-	case IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384:
-		return CRYPTO_AKM_FT_OVER_8021X_SHA384;
-	case IE_RSN_AKM_SUITE_FILS_SHA256:
-		return CRYPTO_AKM_FILS_SHA256;
-	case IE_RSN_AKM_SUITE_FILS_SHA384:
-		return CRYPTO_AKM_FILS_SHA384;
-	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
-		return CRYPTO_AKM_FT_OVER_FILS_SHA256;
-	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
-		return CRYPTO_AKM_FT_OVER_FILS_SHA384;
-	case IE_RSN_AKM_SUITE_OWE:
-		return CRYPTO_AKM_OWE;
-	case IE_RSN_AKM_SUITE_OSEN:
-		return CRYPTO_AKM_OSEN;
-	}
-
-	return 0;
 }
 
 static struct l_genl_msg *netdev_build_cmd_associate_common(
@@ -2387,6 +2644,31 @@ static void netdev_cmd_ft_reassociate_cb(struct l_genl_msg *msg,
 	}
 }
 
+static bool kernel_will_retry_auth(uint16_t status_code,
+					uint16_t alg, uint16_t trans)
+{
+	/*
+	 * Kernel keeps re-trying auth frames until told to stop
+	 * when authentication succeeds and under certain SAE-related
+	 * circumstances.  Detect these cases.
+	 */
+
+	if (status_code == 0)
+		return true;
+
+	if (alg != MMPDU_AUTH_ALGO_SAE)
+		return false;
+
+	if (status_code == MMPDU_STATUS_CODE_ANTI_CLOGGING_TOKEN_REQ)
+		return true;
+
+	if (trans == 1 && (status_code == MMPDU_STATUS_CODE_SAE_PK ||
+			status_code == MMPDU_STATUS_CODE_SAE_HASH_TO_ELEMENT))
+		return true;
+
+	return false;
+}
+
 static void netdev_authenticate_event(struct l_genl_msg *msg,
 							struct netdev *netdev)
 {
@@ -2450,6 +2732,7 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 	if (netdev->ap) {
 		const struct mmpdu_header *hdr;
 		const struct mmpdu_authentication *auth;
+		bool retry;
 
 		if (L_WARN_ON(!(hdr = mpdu_validate(frame, frame_len))))
 			goto auth_error;
@@ -2458,10 +2741,42 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 		status_code = L_CPU_TO_LE16(auth->status);
 
 		ret = auth_proto_rx_authenticate(netdev->ap, frame, frame_len);
+
+		/* We have sent another CMD_AUTHENTICATE / CMD_ASSOCIATE */
 		if (ret == 0 || ret == -EAGAIN)
 			return;
-		else if (ret > 0)
+
+		retry = kernel_will_retry_auth(status_code,
+				L_CPU_TO_LE16(auth->algorithm),
+				L_CPU_TO_LE16(auth->transaction_sequence));
+
+		/*
+		 * Spec wants us to silently drop these frames,
+		 * if the kernel will keep retrying, let it
+		 */
+		if ((ret == -ENOMSG || ret == -EBADMSG) && retry)
+			return;
+
+		if (ret > 0)
 			status_code = (uint16_t)ret;
+
+		/*
+		 * We have encountered a fatal error, if the kernel wants
+		 * to keep retrying, tell it to stop
+		 */
+		if (retry) {
+			struct l_genl_msg *cmd_deauth;
+
+			netdev->result = NETDEV_RESULT_ASSOCIATION_FAILED;
+			netdev->last_code = MMPDU_STATUS_CODE_UNSPECIFIED;
+			cmd_deauth = netdev_build_cmd_deauthenticate(netdev,
+						MMPDU_REASON_CODE_UNSPECIFIED);
+			netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
+							cmd_deauth,
+							netdev_disconnect_cb,
+							netdev, NULL);
+			return;
+		}
 	}
 
 auth_error:
@@ -2585,28 +2900,6 @@ assoc_failed:
 	netdev->expect_connect_failure = true;
 }
 
-static void netdev_cmd_connect_cb(struct l_genl_msg *msg, void *user_data)
-{
-	struct netdev *netdev = user_data;
-
-	netdev->connect_cmd_id = 0;
-
-	if (l_genl_msg_get_error(msg) >= 0) {
-		/*
-		 * connected should be false if the connect event hasn't come
-		 * in yet.  i.e. the CMD_CONNECT ack arrived first (typical).
-		 * Mark the connection as 'connected'
-		 */
-		if (!netdev->connected)
-			netdev_driver_connected(netdev);
-
-		return;
-	}
-
-	netdev_connect_failed(netdev, NETDEV_RESULT_ASSOCIATION_FAILED,
-				MMPDU_STATUS_CODE_UNSPECIFIED);
-}
-
 static struct l_genl_msg *netdev_build_cmd_authenticate(struct netdev *netdev,
 							uint32_t auth_type)
 {
@@ -2697,9 +2990,10 @@ static void netdev_new_scan_results_event(struct l_genl_msg *msg,
 static void netdev_assoc_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = user_data;
+	int err = l_genl_msg_get_error(msg);
 
-	if (l_genl_msg_get_error(msg) < 0) {
-		l_error("Error sending CMD_ASSOCIATE");
+	if (err < 0) {
+		l_error("Error sending CMD_ASSOCIATE (%d)", err);
 
 		netdev_connect_failed(netdev, NETDEV_RESULT_ASSOCIATION_FAILED,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
@@ -2754,64 +3048,6 @@ static void netdev_sae_tx_associate(void *user_data)
 					netdev->ap->prev_bssid);
 
 	if (!l_genl_family_send(nl80211, msg, netdev_assoc_cb, netdev, NULL)) {
-		l_genl_msg_unref(msg);
-		netdev_connect_failed(netdev, NETDEV_RESULT_ASSOCIATION_FAILED,
-					MMPDU_STATUS_CODE_UNSPECIFIED);
-	}
-}
-
-static void netdev_owe_tx_authenticate(void *user_data)
-{
-	struct netdev *netdev = user_data;
-	struct l_genl_msg *msg;
-
-	msg = netdev_build_cmd_authenticate(netdev,
-						NL80211_AUTHTYPE_OPEN_SYSTEM);
-
-	if (!l_genl_family_send(nl80211, msg, netdev_auth_cb,
-							netdev, NULL)) {
-		l_genl_msg_unref(msg);
-		netdev_connect_failed(netdev,
-					NETDEV_RESULT_AUTHENTICATION_FAILED,
-					MMPDU_STATUS_CODE_UNSPECIFIED);
-		return;
-	}
-
-	netdev->auth_cmd = l_genl_msg_ref(msg);
-}
-
-static void netdev_owe_tx_associate(struct iovec *owe_iov, size_t n_owe_iov,
-					void *user_data)
-{
-	struct netdev *netdev = user_data;
-	struct handshake_state *hs = netdev->handshake;
-	struct l_genl_msg *msg;
-	struct iovec iov[64];
-	unsigned int n_iov = L_ARRAY_SIZE(iov);
-	unsigned int c_iov = 0;
-	enum mpdu_management_subtype subtype =
-				MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_REQUEST;
-
-	msg = netdev_build_cmd_associate_common(netdev);
-
-	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
-
-	if (!L_WARN_ON(n_iov - c_iov < n_owe_iov)) {
-		memcpy(iov + c_iov, owe_iov, sizeof(*owe_iov) * n_owe_iov);
-		c_iov += n_owe_iov;
-	}
-
-	mpdu_sort_ies(subtype, iov, c_iov);
-
-	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
-
-	/* If doing a non-FT Reassociation */
-	if (netdev->in_reassoc)
-		l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, 6,
-					netdev->ap->prev_bssid);
-
-	if (!l_genl_family_send(nl80211, msg, netdev_assoc_cb,
-							netdev, NULL)) {
 		l_genl_msg_unref(msg);
 		netdev_connect_failed(netdev, NETDEV_RESULT_ASSOCIATION_FAILED,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
@@ -2883,129 +3119,6 @@ static void netdev_fils_tx_associate(struct iovec *fils_iov, size_t n_fils_iov,
 		netdev_connect_failed(netdev, NETDEV_RESULT_ASSOCIATION_FAILED,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
 	}
-}
-
-static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
-						struct scan_bss *bss,
-						struct handshake_state *hs,
-						const uint8_t *prev_bssid,
-						const struct iovec *vendor_ies,
-						size_t num_vendor_ies)
-{
-	struct netdev_handshake_state *nhs =
-		l_container_of(hs, struct netdev_handshake_state, super);
-	uint32_t auth_type = IE_AKM_IS_SAE(hs->akm_suite) ?
-					NL80211_AUTHTYPE_SAE :
-					NL80211_AUTHTYPE_OPEN_SYSTEM;
-	enum mpdu_management_subtype subtype = prev_bssid ?
-				MPDU_MANAGEMENT_SUBTYPE_REASSOCIATION_REQUEST :
-				MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_REQUEST;
-	struct l_genl_msg *msg;
-	struct iovec iov[64];
-	unsigned int n_iov = L_ARRAY_SIZE(iov);
-	unsigned int c_iov = 0;
-	bool is_rsn = hs->supplicant_ie != NULL;
-
-	msg = l_genl_msg_new_sized(NL80211_CMD_CONNECT, 512);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY_FREQ,
-						4, &bss->frequency);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, bss->addr);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_SSID,
-						bss->ssid_len, bss->ssid);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_AUTH_TYPE, 4, &auth_type);
-
-	switch (nhs->type) {
-	case CONNECTION_TYPE_SOFTMAC:
-	case CONNECTION_TYPE_FULLMAC:
-		break;
-	case CONNECTION_TYPE_SAE_OFFLOAD:
-		l_genl_msg_append_attr(msg, NL80211_ATTR_SAE_PASSWORD,
-					strlen(hs->passphrase), hs->passphrase);
-		break;
-	case CONNECTION_TYPE_PSK_OFFLOAD:
-		l_genl_msg_append_attr(msg, NL80211_ATTR_PMK, 32, hs->pmk);
-		break;
-	case CONNECTION_TYPE_8021X_OFFLOAD:
-		l_genl_msg_append_attr(msg, NL80211_ATTR_WANT_1X_4WAY_HS,
-					0, NULL);
-	}
-
-	if (prev_bssid)
-		l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, ETH_ALEN,
-						prev_bssid);
-
-	if (bss->capability & IE_BSS_CAP_PRIVACY)
-		l_genl_msg_append_attr(msg, NL80211_ATTR_PRIVACY, 0, NULL);
-
-	l_genl_msg_append_attr(msg, NL80211_ATTR_SOCKET_OWNER, 0, NULL);
-
-	if (is_rsn) {
-		uint32_t nl_cipher;
-		uint32_t nl_akm;
-		uint32_t wpa_version;
-
-		if (hs->pairwise_cipher == IE_RSN_CIPHER_SUITE_CCMP)
-			nl_cipher = CRYPTO_CIPHER_CCMP;
-		else
-			nl_cipher = CRYPTO_CIPHER_TKIP;
-
-		l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITES_PAIRWISE,
-					4, &nl_cipher);
-
-		if (hs->group_cipher == IE_RSN_CIPHER_SUITE_CCMP)
-			nl_cipher = CRYPTO_CIPHER_CCMP;
-		else
-			nl_cipher = CRYPTO_CIPHER_TKIP;
-
-		l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITE_GROUP,
-					4, &nl_cipher);
-
-		if (hs->mfp) {
-			uint32_t use_mfp = NL80211_MFP_REQUIRED;
-			l_genl_msg_append_attr(msg, NL80211_ATTR_USE_MFP,
-								4, &use_mfp);
-		}
-
-		nl_akm = ie_rsn_akm_suite_to_nl80211(hs->akm_suite);
-		if (nl_akm)
-			l_genl_msg_append_attr(msg, NL80211_ATTR_AKM_SUITES,
-							4, &nl_akm);
-
-		if (IE_AKM_IS_SAE(hs->akm_suite))
-			wpa_version = NL80211_WPA_VERSION_3;
-		else if (hs->wpa_ie)
-			wpa_version = NL80211_WPA_VERSION_1;
-		else
-			wpa_version = NL80211_WPA_VERSION_2;
-
-		l_genl_msg_append_attr(msg, NL80211_ATTR_WPA_VERSIONS,
-						4, &wpa_version);
-
-		l_genl_msg_append_attr(msg, NL80211_ATTR_CONTROL_PORT, 0, NULL);
-		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_ie);
-	}
-
-	if (netdev->pae_over_nl80211)
-		l_genl_msg_append_attr(msg,
-				NL80211_ATTR_CONTROL_PORT_OVER_NL80211,
-				0, NULL);
-
-	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->mde);
-	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
-
-	mpdu_sort_ies(subtype, iov, c_iov);
-
-	if (vendor_ies && !L_WARN_ON(n_iov - c_iov < num_vendor_ies)) {
-		memcpy(iov + c_iov, vendor_ies,
-					sizeof(*vendor_ies) * num_vendor_ies);
-		c_iov += num_vendor_ies;
-	}
-
-	if (c_iov)
-		l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
-
-	return msg;
 }
 
 struct rtnl_data {
@@ -3382,6 +3495,8 @@ static int netdev_handshake_state_setup_connection_type(
 				NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK))
 			goto psk_offload;
 
+	/* fall through */
+	case IE_RSN_AKM_SUITE_OWE:
 		if (softmac)
 			goto softmac;
 
@@ -3410,12 +3525,11 @@ static int netdev_handshake_state_setup_connection_type(
 			goto softmac;
 
 		return -EINVAL;
-	case IE_RSN_AKM_SUITE_OWE:
 	case IE_RSN_AKM_SUITE_FILS_SHA256:
 	case IE_RSN_AKM_SUITE_FILS_SHA384:
 	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
 	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
-		/* FILS and OWE have no offload in any upstream driver */
+		/* FILS has no offload in any upstream driver */
 		if (softmac)
 			goto softmac;
 
@@ -3461,6 +3575,10 @@ static void netdev_connect_common(struct netdev *netdev,
 	bool is_rsn = hs->supplicant_ie != NULL;
 	const uint8_t *prev_bssid = prev_bss ? prev_bss->addr : NULL;
 
+	netdev->frequency = bss->frequency;
+	netdev->privacy = bss->capability & IE_BSS_CAP_PRIVACY;
+	handshake_state_set_authenticator_address(hs, bss->addr);
+
 	if (!is_rsn)
 		goto build_cmd_connect;
 
@@ -3485,12 +3603,14 @@ static void netdev_connect_common(struct netdev *netdev,
 			}
 		}
 
+		if (bss->force_default_sae_group)
+			sae_sm_set_force_group_19(netdev->ap);
+
 		break;
 	case IE_RSN_AKM_SUITE_OWE:
-		netdev->ap = owe_sm_new(hs, netdev_owe_tx_authenticate,
-						netdev_owe_tx_associate,
-						netdev);
-		break;
+		netdev->owe_sm = owe_sm_new(hs);
+
+		goto build_cmd_connect;
 	case IE_RSN_AKM_SUITE_FILS_SHA256:
 	case IE_RSN_AKM_SUITE_FILS_SHA384:
 	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
@@ -3501,8 +3621,8 @@ static void netdev_connect_common(struct netdev *netdev,
 		break;
 	default:
 build_cmd_connect:
-		cmd_connect = netdev_build_cmd_connect(netdev, bss, hs,
-					prev_bssid, vendor_ies, num_vendor_ies);
+		cmd_connect = netdev_build_cmd_connect(netdev, hs, prev_bssid,
+						vendor_ies, num_vendor_ies);
 
 		if (!is_offload(hs) && (is_rsn || hs->settings_8021x)) {
 			sm = eapol_sm_new(hs);
@@ -3518,12 +3638,9 @@ build_cmd_connect:
 	netdev->user_data = user_data;
 	netdev->handshake = hs;
 	netdev->sm = sm;
-	netdev->frequency = bss->frequency;
 	netdev->cur_rssi = bss->signal_strength / 100;
 	netdev_rssi_level_init(netdev);
 	netdev_cqm_rssi_update(netdev);
-
-	handshake_state_set_authenticator_address(hs, bss->addr);
 
 	if (!wiphy_has_ext_feature(netdev->wiphy,
 					NL80211_EXT_FEATURE_CAN_REPLACE_PTK0))

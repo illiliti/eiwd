@@ -57,6 +57,7 @@ enum handshake_event {
 	HANDSHAKE_EVENT_REKEY_FAILED,
 	HANDSHAKE_EVENT_EAP_NOTIFY,
 	HANDSHAKE_EVENT_TRANSITION_DISABLE,
+	HANDSHAKE_EVENT_P2P_IP_REQUEST,
 };
 
 typedef void (*handshake_event_func_t)(struct handshake_state *hs,
@@ -139,6 +140,8 @@ struct handshake_state {
 	uint32_t client_ip_addr;
 	uint32_t subnet_mask;
 	uint32_t go_ip_addr;
+	uint8_t *fils_ip_req_ie;
+	uint8_t *fils_ip_resp_ie;
 	void *user_data;
 
 	void (*free)(struct handshake_state *s);

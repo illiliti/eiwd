@@ -92,6 +92,10 @@ struct ap_state {
 	struct l_dhcp_server *netconfig_dhcp;
 	struct l_rtnl_address *netconfig_addr4;
 	uint32_t rtnl_add_cmd;
+	uint32_t rtnl_get_gateway4_mac_cmd;
+	uint32_t rtnl_get_dns4_mac_cmd;
+	uint8_t netconfig_gateway4_mac[6];
+	uint8_t netconfig_dns4_mac[6];
 
 	bool started : 1;
 	bool gtk_set : 1;
@@ -118,6 +122,8 @@ struct sta_state {
 	struct l_settings *wsc_settings;
 	uint8_t wsc_uuid_e[16];
 	bool wsc_v2;
+	struct l_dhcp_lease *ip_alloc_lease;
+	bool ip_alloc_sent;
 };
 
 struct ap_wsc_pbc_probe_record {
@@ -177,6 +183,10 @@ static void ap_sta_free(void *data)
 	if (sta->gtk_query_cmd_id)
 		l_genl_family_cancel(ap->nl80211, sta->gtk_query_cmd_id);
 
+	if (sta->ip_alloc_lease && ap->netconfig_dhcp)
+		l_dhcp_server_lease_remove(ap->netconfig_dhcp,
+						sta->ip_alloc_lease);
+
 	ap_stop_handshake(sta);
 
 	l_free(sta);
@@ -204,6 +214,16 @@ static void ap_reset(struct ap_state *ap)
 
 	if (ap->rtnl_add_cmd)
 		l_netlink_cancel(rtnl, ap->rtnl_add_cmd);
+
+	if (ap->rtnl_get_gateway4_mac_cmd) {
+		l_netlink_cancel(rtnl, ap->rtnl_get_gateway4_mac_cmd);
+		ap->rtnl_get_gateway4_mac_cmd = 0;
+	}
+
+	if (ap->rtnl_get_dns4_mac_cmd) {
+		l_netlink_cancel(rtnl, ap->rtnl_get_dns4_mac_cmd);
+		ap->rtnl_get_dns4_mac_cmd = 0;
+	}
 
 	l_queue_destroy(ap->sta_states, ap_sta_free);
 
@@ -262,6 +282,17 @@ static void ap_del_station(struct sta_state *sta, uint16_t reason,
 	}
 
 	ap_stop_handshake(sta);
+
+	/*
+	 * Expire any DHCP leases owned by this client when it disconnects to
+	 * make it harder for somebody to DoS the IP pool.  If the client
+	 * comes back and the lease is still in the expired leases list they
+	 * will get their IP back.
+	 */
+	if (ap->netconfig_dhcp) {
+		sta->ip_alloc_lease = NULL;
+		l_dhcp_server_expire_by_mac(ap->netconfig_dhcp, sta->addr);
+	}
 
 	/*
 	 * If the event handler tears the AP down, we've made sure above that
@@ -839,6 +870,12 @@ static uint32_t ap_send_mgmt_frame(struct ap_state *ap,
 					callback, user_data, NULL, NULL);
 }
 
+#define IP4_FROM_STR(str)						\
+	(__extension__ ({						\
+		struct in_addr ia;					\
+		inet_pton(AF_INET, str, &ia) == 1 ? ia.s_addr : 0;	\
+	}))
+
 static void ap_start_handshake(struct sta_state *sta, bool use_eapol_start,
 				const uint8_t *gtk_rsc)
 {
@@ -863,6 +900,9 @@ static void ap_start_handshake(struct sta_state *sta, bool use_eapol_start,
 		handshake_state_set_gtk(sta->hs, sta->ap->gtk,
 					sta->ap->gtk_index, gtk_rsc);
 
+	if (ap->netconfig_dhcp)
+		sta->hs->support_ip_allocation = true;
+
 	sta->sm = eapol_sm_new(sta->hs);
 	if (!sta->sm) {
 		ap_stop_handshake(sta);
@@ -882,16 +922,54 @@ error:
 	ap_del_station(sta, MMPDU_REASON_CODE_UNSPECIFIED, true);
 }
 
+static bool ap_sta_get_dhcp4_lease(struct sta_state *sta)
+{
+	if (sta->ip_alloc_lease)
+		return true;
+
+	if (!sta->ap->netconfig_dhcp)
+		return false;
+
+	sta->ip_alloc_lease = l_dhcp_server_discover(sta->ap->netconfig_dhcp,
+							0, NULL, sta->addr);
+	if (!sta->ip_alloc_lease) {
+		l_error("l_dhcp_server_discover() failed, see IWD_DHCP_DEBUG "
+			"output");
+		return false;
+	}
+
+	return true;
+}
+
 static void ap_handshake_event(struct handshake_state *hs,
 		enum handshake_event event, void *user_data, ...)
 {
 	struct sta_state *sta = user_data;
+	struct ap_state *ap = sta->ap;
 	va_list args;
 
 	va_start(args, user_data);
 
 	switch (event) {
 	case HANDSHAKE_EVENT_COMPLETE:
+		if (sta->ip_alloc_lease) {
+			if (hs->support_ip_allocation)
+				sta->ip_alloc_sent = true;
+
+			/*
+			 * Move the lease from offered to active state if the
+			 * client has actually used it.  In any case drop our
+			 * reference to the lease, the server owns the lease
+			 * and if we want to keep our reference we'd need to
+			 * react to relevant server events.
+			 */
+			if (sta->ip_alloc_sent)
+				l_dhcp_server_request(ap->netconfig_dhcp,
+							sta->ip_alloc_lease);
+
+			sta->ip_alloc_lease = NULL;
+		}
+
 		ap_new_rsna(sta);
 		break;
 	case HANDSHAKE_EVENT_FAILED:
@@ -900,6 +978,26 @@ static void ap_handshake_event(struct handshake_state *hs,
 	case HANDSHAKE_EVENT_SETTING_KEYS_FAILED:
 		sta->sm = NULL;
 		ap_remove_sta(sta);
+		break;
+	case HANDSHAKE_EVENT_P2P_IP_REQUEST:
+	{
+		L_AUTO_FREE_VAR(char *, lease_addr_str) = NULL;
+		L_AUTO_FREE_VAR(char *, lease_netmask_str) = NULL;
+		char own_addr_str[INET_ADDRSTRLEN];
+
+		if (!ap_sta_get_dhcp4_lease(sta))
+			break;
+
+		lease_addr_str = l_dhcp_lease_get_address(sta->ip_alloc_lease);
+		lease_netmask_str =
+			l_dhcp_lease_get_netmask(sta->ip_alloc_lease);
+		l_rtnl_address_get_address(ap->netconfig_addr4, own_addr_str);
+
+		sta->hs->client_ip_addr = IP4_FROM_STR(lease_addr_str);
+		sta->hs->subnet_mask = IP4_FROM_STR(lease_netmask_str);
+		sta->hs->go_ip_addr = IP4_FROM_STR(own_addr_str);
+		break;
+	}
 	default:
 		break;
 	}
@@ -1308,14 +1406,16 @@ static uint32_t ap_assoc_resp(struct ap_state *ap, struct sta_state *sta,
 				const uint8_t *dest,
 				enum mmpdu_reason_code status_code,
 				bool reassoc, const struct mmpdu_header *req,
-				size_t req_len, frame_xchg_cb_t callback)
+				size_t req_len,
+				const struct ie_fils_ip_addr_request_info *
+				ip_req_info, frame_xchg_cb_t callback)
 {
 	const uint8_t *addr = netdev_get_address(ap->netdev);
 	enum mpdu_management_subtype stype = reassoc ?
 		MPDU_MANAGEMENT_SUBTYPE_REASSOCIATION_RESPONSE :
 		MPDU_MANAGEMENT_SUBTYPE_ASSOCIATION_RESPONSE;
 	L_AUTO_FREE_VAR(uint8_t *, mpdu_buf) =
-		l_malloc(128 + ap_get_extra_ies_len(ap, stype, req, req_len));
+		l_malloc(256 + ap_get_extra_ies_len(ap, stype, req, req_len));
 	struct mmpdu_header *mpdu = (void *) mpdu_buf;
 	struct mmpdu_association_response *resp;
 	size_t ies_len = 0;
@@ -1360,6 +1460,64 @@ static uint32_t ap_assoc_resp(struct ap_state *ap, struct sta_state *sta,
 
 	ies_len += ap_write_extra_ies(ap, stype, req, req_len,
 					resp->ies + ies_len);
+
+	if (ip_req_info) {
+		struct ie_fils_ip_addr_response_info ip_resp_info = {};
+
+		if (ip_req_info->ipv4 && sta && ap_sta_get_dhcp4_lease(sta)) {
+			L_AUTO_FREE_VAR(char *, lease_addr_str) =
+				l_dhcp_lease_get_address(sta->ip_alloc_lease);
+			L_AUTO_FREE_VAR(char *, lease_netmask_str) =
+				l_dhcp_lease_get_netmask(sta->ip_alloc_lease);
+			uint32_t lease_lifetime =
+				l_dhcp_lease_get_lifetime(sta->ip_alloc_lease);
+			L_AUTO_FREE_VAR(char *, lease_gateway_str) =
+				l_dhcp_lease_get_gateway(sta->ip_alloc_lease);
+			char **lease_dns_str_list =
+				l_dhcp_lease_get_dns(sta->ip_alloc_lease);
+
+			ip_resp_info.ipv4_addr = IP4_FROM_STR(lease_addr_str);
+			ip_resp_info.ipv4_prefix_len =
+				__builtin_popcount(IP4_FROM_STR(
+							lease_netmask_str));
+
+			if (lease_lifetime != 0xffffffff)
+				ip_resp_info.ipv4_lifetime = lease_lifetime;
+
+			if (lease_gateway_str) {
+				ip_resp_info.ipv4_gateway =
+					IP4_FROM_STR(lease_gateway_str);
+				memcpy(ip_resp_info.ipv4_gateway_mac,
+					ap->netconfig_gateway4_mac, 6);
+			}
+
+			if (lease_dns_str_list && lease_dns_str_list[0]) {
+				ip_resp_info.ipv4_dns =
+					IP4_FROM_STR(lease_dns_str_list[0]);
+				memcpy(ip_resp_info.ipv4_dns_mac,
+					ap->netconfig_dns4_mac, 6);
+			}
+
+			l_strv_free(lease_dns_str_list);
+			sta->ip_alloc_sent = true;
+		} else if (ip_req_info->ipv4 || ip_req_info->ipv6) {
+			/*
+			 * 802.11ai-2016 Section 11.47.3.3: "If the AP is unable
+			 * to assign an IP address in the (Re)Association
+			 * Response frame, then the AP sets the IP address
+			 * assignment pending flag in the IP Address Response
+			 * Control field of the FILS IP Address Assignment
+			 * element to 1 and sets the IP address request timeout
+			 * to 0 in (Re)Association Response frame."
+			 */
+			ip_resp_info.response_pending = 1;
+			ip_resp_info.response_timeout = 0;
+		}
+
+		ie_build_fils_ip_addr_response(&ip_resp_info,
+							resp->ies + ies_len);
+		ies_len += 2 + resp->ies[ies_len + 1];
+	}
 
 	return ap_send_mgmt_frame(ap, mpdu, resp->ies + ies_len - mpdu_buf,
 					callback, sta);
@@ -1449,6 +1607,8 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 	struct ie_tlv_iter iter;
 	uint8_t *wsc_data = NULL;
 	ssize_t wsc_data_len;
+	bool fils_ip_req = false;
+	struct ie_fils_ip_addr_request_info fils_ip_req_info;
 
 	if (sta->assoc_resp_cmd_id)
 		return;
@@ -1494,6 +1654,17 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 			}
 
 			rsn = (const uint8_t *) ie_tlv_iter_get_data(&iter) - 2;
+			break;
+
+		case IE_TYPE_FILS_IP_ADDRESS:
+			if (fils_ip_req || ie_parse_fils_ip_addr_request(&iter,
+						&fils_ip_req_info) < 0) {
+				l_debug("Can't parse FILS IP Address Assignment"
+					" IE, ignoring it");
+				break;
+			}
+
+			fils_ip_req = true;
 			break;
 		}
 
@@ -1627,7 +1798,8 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 
 	sta->assoc_resp_cmd_id = ap_assoc_resp(ap, sta, sta->addr, 0, reassoc,
 						req, (void *) ies + ies_len -
-						(void *) req,
+						(void *) req, fils_ip_req ?
+						&fils_ip_req_info : NULL,
 						ap_success_assoc_resp_cb);
 	if (!sta->assoc_resp_cmd_id)
 		l_error("Sending success (Re)Association Response failed");
@@ -1660,7 +1832,7 @@ bad_frame:
 
 	if (!ap_assoc_resp(ap, sta, sta->addr, err, reassoc,
 				req, (void *) ies + ies_len - (void *) req,
-				ap_fail_assoc_resp_cb))
+				NULL, ap_fail_assoc_resp_cb))
 		l_error("Sending error (Re)Association Response failed");
 }
 
@@ -1685,7 +1857,7 @@ static void ap_assoc_req_cb(const struct mmpdu_header *hdr, const void *body,
 		if (!ap_assoc_resp(ap, NULL, from,
 				MMPDU_REASON_CODE_STA_REQ_ASSOC_WITHOUT_AUTH,
 				false, hdr, body + body_len - (void *) hdr,
-				ap_fail_assoc_resp_cb))
+				NULL, ap_fail_assoc_resp_cb))
 			l_error("Sending error Association Response failed");
 
 		return;
@@ -1733,7 +1905,7 @@ static void ap_reassoc_req_cb(const struct mmpdu_header *hdr, const void *body,
 bad_frame:
 	if (!ap_assoc_resp(ap, NULL, from, err, true,
 				hdr, body + body_len - (void *) hdr,
-				ap_fail_assoc_resp_cb))
+				NULL, ap_fail_assoc_resp_cb))
 		l_error("Sending error Reassociation Response failed");
 }
 
@@ -2409,6 +2581,104 @@ static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)
 	}
 }
 
+static void ap_get_gateway4_mac_cb(int error, const uint8_t *hwaddr,
+					size_t hwaddr_len, void *user_data)
+{
+	struct ap_state *ap = user_data;
+
+	ap->rtnl_get_gateway4_mac_cmd = 0;
+
+	if (error) {
+		l_debug("Error: %s (%i)", strerror(-error), -error);
+		return;
+	}
+
+	if (L_WARN_ON(unlikely(hwaddr_len != 6)))
+		return;
+
+	l_debug("Resolved mac to " MAC, MAC_STR(hwaddr));
+	memcpy(ap->netconfig_gateway4_mac, hwaddr, 6);
+}
+
+static void ap_get_dns4_mac_cb(int error, const uint8_t *hwaddr,
+					size_t hwaddr_len, void *user_data)
+{
+	struct ap_state *ap = user_data;
+
+	ap->rtnl_get_dns4_mac_cmd = 0;
+
+	if (error) {
+		l_debug("Error: %s (%i)", strerror(-error), -error);
+		return;
+	}
+
+	if (L_WARN_ON(unlikely(hwaddr_len != 6)))
+		return;
+
+	l_debug("Resolved mac to " MAC, MAC_STR(hwaddr));
+	memcpy(ap->netconfig_dns4_mac, hwaddr, 6);
+}
+
+static void ap_query_macs(struct ap_state *ap, const char *addr_str,
+				uint8_t prefix_len, const char *gateway_str,
+				const char **dns_str_list)
+{
+	uint32_t local = IP4_FROM_STR(addr_str);
+	uint32_t gateway = 0;
+	uint32_t dns = 0;
+	uint32_t ifindex = netdev_get_ifindex(ap->netdev);
+
+	/*
+	 * For simplicity only check the ARP/NDP tables to see if we already
+	 * have the MACs that we need.  There doesn't seem to be an API to
+	 * actually resolve addresses that are not in these tables other than
+	 * by triggering IP traffic to those hosts, such as a ping.  In a PC
+	 * or mobile device scenario we're likely to have these MACs already,
+	 * otherwise we give up as this is a pretty low-priority feature.
+	 */
+
+	if (gateway_str) {
+		gateway = IP4_FROM_STR(gateway_str);
+		if (L_WARN_ON(unlikely(!gateway)))
+			return;
+
+		if (gateway == local)
+			memcpy(ap->netconfig_gateway4_mac,
+				netdev_get_address(ap->netdev), 6);
+		else {
+			ap->rtnl_get_gateway4_mac_cmd =
+				l_rtnl_neighbor_get_hwaddr(rtnl, ifindex,
+							AF_INET, &gateway,
+							ap_get_gateway4_mac_cb,
+							ap, NULL);
+			if (!ap->rtnl_get_gateway4_mac_cmd)
+				l_debug("l_rtnl_neighbor_get_hwaddr() failed "
+					"for the gateway IP");
+		}
+	}
+
+	if (dns_str_list) {
+		dns = IP4_FROM_STR(dns_str_list[0]);
+		if (L_WARN_ON(unlikely(!dns)))
+			return;
+
+		/* TODO: can also skip query if dns == gateway */
+		if (dns == local)
+			memcpy(ap->netconfig_dns4_mac,
+				netdev_get_address(ap->netdev), 6);
+		else if (util_ip_subnet_match(prefix_len, &dns, &local)) {
+			ap->rtnl_get_dns4_mac_cmd =
+				l_rtnl_neighbor_get_hwaddr(rtnl, ifindex,
+							AF_INET, &dns,
+							ap_get_dns4_mac_cb,
+							ap, NULL);
+			if (!ap->rtnl_get_dns4_mac_cmd)
+				l_debug("l_rtnl_neighbor_get_hwaddr() failed "
+					"for the DNS IP");
+		}
+	}
+}
+
 #define AP_DEFAULT_IPV4_PREFIX_LEN 28
 
 static int ap_setup_netconfig4(struct ap_state *ap, const char **addr_str_list,
@@ -2536,6 +2806,8 @@ static int ap_setup_netconfig4(struct ap_state *ap, const char **addr_str_list,
 				!strcmp(addr_str_buf, addr_str_buf2))
 			ap->netconfig_set_addr4 = false;
 	}
+
+	ap_query_macs(ap, addr_str_buf, prefix_len, gateway_str, dns_str_list);
 
 cleanup:
 	l_dhcp_server_destroy(dhcp);

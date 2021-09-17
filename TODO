@@ -199,11 +199,6 @@ Wireless daemon
   Priority: Low
   Complexity: C4
 
-- Add support for 802.11u.  This is required for Passpoint 2.0 support.
-
-  Priority: Low
-  Complexity: C8
-
 - Add support for Wireless Network Management (WNM) from 802.11v.  Parts of
   this are needed for Passpoint support.
 
@@ -236,18 +231,6 @@ Wireless daemon
 
   Priority: Low
   Complexity: C4
-
-- Take EAP MSK size into consideration.
-
-  MSK is mandated to be 64 bytes long, and depending on the AKM, different parts
-  of the MSK are used to generate keys.  Some EAP methods produce MSKs with less
-  than 64 bytes of useable data.  For example, LEAP produces only 16 bytes and
-  MSCHAPv2 produces 32 bytes.  If the AKM requires MSK of a certain size, and
-  the EAP method does not provide enough data, then the handshake should be
-  aborted.
-
-  Priority: Medium
-  Complexity: C2
 
 - Implement Enrollee Session Overlap Detection after WSC Protocol Run
 
@@ -349,24 +332,18 @@ Wireless daemon
   Priority: Medium
   Complexity: C4
 
-- Support Diagnostics interface
 
-  The diagnostic interface for a particular Device would contain information
-  (and possibly operations) that would be meant for diagnostics applications
-  or other applications that require access to very low level details.  Such
-  applications would be expected how to interpret this information
-  appropriately.
+Network Configuration
+=====================
 
-  This interface would also be heavily utilized by the Auto-Test framework
-  in order to more easily ascertain the internal state of the hardware & the
-  daemon itself.
+- Support elements of RFC4436 - DNAv4
 
-  The list of possible information exposed via this interface includes:
-    - MAC address of the currently connected AP (in a Station)
-    - MAC addresses of currently connected clients (Adhoc, AP, etc)
-    - packet error rates or signal strength
-    - Throughput statistics
-    - FTM / direction finding operations
+  Assumption: netconfig is able to save lease information for networks that
+  have been joined previously and does not release the lease when the network
+  is left temporarily.
 
-  Priority: Medium
+  Attempt to re-assume the lease via methods described in DNAv4 if we attempt
+  to rejoin a network and the lease has not expired yet.
+
+  Priority: Low
   Complexity: C4

@@ -289,7 +289,7 @@ static int fils_derive_key_data(struct fils_sm *fils)
 		if (ie_parse_rsne_from_data(fils->hs->supplicant_ie,
 						fils->hs->supplicant_ie[1] + 2,
 						&rsn_info) < 0)
-			return -EBADMSG;
+			return -EPROTO;
 
 		rsn_info.num_pmkids = 1;
 		rsn_info.pmkids = fils->hs->pmk_r1_name;

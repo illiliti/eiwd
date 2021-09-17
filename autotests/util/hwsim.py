@@ -3,6 +3,7 @@ import dbus
 import sys
 import collections
 
+from weakref import WeakValueDictionary
 from abc import ABCMeta, abstractmethod
 from enum import Enum
 
@@ -152,6 +153,38 @@ class Rule(HwsimDBusAbstract):
                             reply_handler=self._success, error_handler=self._failure)
         self._wait_for_async_op()
 
+    @property
+    def match_times(self):
+        return self._properties['MatchTimes']
+
+    @match_times.setter
+    def match_times(self, value):
+        self._prop_proxy.Set(self._iface_name, 'MatchTimes', dbus.UInt16(value))
+
+    @property
+    def drop_ack(self):
+        return self._properties(['DropAck'])
+
+    @drop_ack.setter
+    def drop_ack(self, value):
+        self._prop_proxy.Set(self._iface_name, 'DropAck', value)
+
+    @property
+    def match(self):
+        return self._properties['MatchBytes']
+
+    @match.setter
+    def match(self, value):
+        self._prop_proxy.Set(self._iface_name, 'MatchBytes', dbus.ByteArray.fromhex(value))
+
+    @property
+    def match_offset(self):
+        return self._properties(['MatchBytesOffset'])
+
+    @match_offset.setter
+    def match_offset(self, value):
+        self._prop_proxy.Set(self._iface_name, 'MatchBytesOffset', dbus.UInt16(value))
+
     def remove(self):
         self._iface.Remove(reply_handler=self._success,
                 error_handler=self._failure)
@@ -297,7 +330,25 @@ class RadioList(collections.Mapping):
         return obj
 
 class Hwsim(iwd.AsyncOpAbstract):
+    _instances = WeakValueDictionary()
+
+    def __new__(cls, namespace=ctx):
+        key = id(namespace)
+
+        if key not in cls._instances.keys():
+            obj = object.__new__(cls)
+            obj._initialized = False
+
+            cls._instances[key] = obj
+
+        return cls._instances[key]
+
     def __init__(self, namespace=ctx):
+        if self._initialized:
+            return
+
+        self._initialized = True
+
         self._bus = namespace.get_bus()
 
         self._rule_manager_if = dbus.Interface(
@@ -335,14 +386,26 @@ class Hwsim(iwd.AsyncOpAbstract):
     def object_manager(self):
         return self._object_manager_if
 
+    @staticmethod
+    def _convert_address(address):
+        first = int(address[0:2], base=16)
+        first |= 0x40
+        first = format(first, 'x')
+
+        address = first + address[2:]
+
+        return address
+
     def spoof_disassociate(self, radio, freq, station):
         '''
             Send a spoofed disassociate frame to a station
         '''
+        dest = self._convert_address(radio.addresses[0].replace(':', ''))
+
         frame = 'a0 00 3a 01'
         frame += station.replace(':', '')
-        frame += radio.addresses[0].replace(':', '')
-        frame += radio.addresses[0].replace(':', '')
+        frame += dest
+        frame += dest
         frame += '30 01 07 00'
         self.spoof_frame(radio, freq, station, frame)
 

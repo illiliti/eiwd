@@ -38,7 +38,10 @@ class Test(unittest.TestCase):
         # Make AP go down ungracefully, when hostapd comes back up it should
         # send an unprotected disassociate frame so the client will re-auth.
         # This will kick off the SA Query procedure
-        hostapd.ungraceful_restart()
+        hostapd.interface.set_interface_state('down')
+        hostapd.interface.set_interface_state('up')
+
+        hostapd.wait_for_event('INTERFACE-ENABLED')
 
         condition = 'not obj.connected'
         wd.wait_for_object_condition(ordered_network.network_object, condition)

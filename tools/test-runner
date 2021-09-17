@@ -27,6 +27,7 @@ from collections import namedtuple
 from time import sleep
 import dbus.mainloop.glib
 from gi.repository import GLib
+from weakref import WeakValueDictionary
 
 libc = ctypes.cdll['libc.so.6']
 libc.mount.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, \
@@ -56,12 +57,9 @@ def dbg(*s, **kwargs):
 
 def exit_vm():
 	if config:
-		for p in config.ctx.processes:
-			print("Process %s still running!" % p.name)
+		for p in Process.get_all():
+			print("Process %s still running!" % p.args[0])
 			p.kill()
-			p = None
-
-		config.ctx.processes = []
 
 	if config.ctx and config.ctx.results:
 		print_results(config.ctx.results)
@@ -159,102 +157,103 @@ busconfig.dtd\">
 <allow eavesdrop=\"true\"/>
 </policy>
 '''
-class Process:
-	'''
-		Start a process. If 'wait' is True the constructor will start
-		the process and wait for it to exit. No PID is tracked in this
-		case.
-	'''
-	def __init__(self, args, wait=False, env=None, ctx=None, check=False,
-				outfile=None, namespace=None, need_out=False, cleanup=None):
-		self.killed = False
-		self.args = args
-		self.wait = wait
-		self.name = args[0]
-		self.ret = None
-		self.ctx = ctx
+
+class Process(subprocess.Popen):
+	processes = WeakValueDictionary()
+	ctx = None
+
+	def __new__(cls, *args, **kwargs):
+		obj = super().__new__(cls)
+		cls.processes[id(obj)] = obj
+		return obj
+
+	def __init__(self, args, namespace=None, outfile=None, env=None, check=False, cleanup=None):
 		self.write_fds = []
 		self.io_watch = None
 		self.cleanup = cleanup
 		self.verbose = False
 		self.out = ''
+		self.hup = False
+		self.killed = False
+		self.namespace = namespace
+
+		if not self.ctx:
+			global config
+			self.ctx = config.ctx
+
+		if self.ctx.is_verbose(args[0], log=False):
+			self.verbose = True
 
 		if namespace:
-			self.args = ['ip', 'netns', 'exec', namespace]
-			self.args.extend(args)
+			args = ['ip', 'netns', 'exec', namespace] + args
 
-		if ctx:
-			# Verbose requested, add stdout/stderr to write FD list.
-			# This will end up always returning true if logging is
-			# on which isn't desired so pass log=False as to only
-			# allow stdout to processes listed in --verbose.
-			if ctx.is_verbose(self.name, log=False):
-				self.verbose = True
+		if outfile:
+			# outfile is only used by iwmon, in which case we don't want
+			# to append to an existing file.
+			self._append_outfile(outfile, append=False)
 
-			# Add output file to FD list
-			if outfile:
-				try:
-					f = open(outfile, 'w')
-				except Exception as e:
-					dbg(e)
-					exit(0)
+		if self.ctx.args.log:
+			logfile = '%s/%s/%s' % (self.ctx.args.log,
+						os.path.basename(os.getcwd()),
+						args[0])
+			self._append_outfile(logfile)
 
-				if ctx.args.log_uid:
-					os.fchown(f.fileno(), int(ctx.args.log_uid), int(ctx.args.log_gid))
-
-				self.write_fds.append(f)
-
-			# Add log file to FD list
-			if ctx.args.log:
-				test = os.path.basename(os.getcwd())
-				test_dir = '%s/%s' % (ctx.args.log, test)
-
-				if not path_exists(test_dir):
-					os.mkdir(test_dir)
-					os.chown(test_dir, int(ctx.args.log_uid),
-								int(ctx.args.log_gid))
-
-				f = open('%s/%s' % (test_dir, args[0]), 'a+')
-				os.fchown(f.fileno(), int(ctx.args.log_uid), int(ctx.args.log_gid))
-				self.write_fds.append(f)
-
-		self.pid = subprocess.Popen(self.args, stdout=subprocess.PIPE,
-						stderr=subprocess.STDOUT,
-						env=env, cwd=os.getcwd())
+		super().__init__(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+					env=env, cwd=os.getcwd())
 
 		# Set as non-blocking so read() in the IO callback doesn't block forever
-		fl = fcntl.fcntl(self.pid.stdout, fcntl.F_GETFL)
-		fcntl.fcntl(self.pid.stdout, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+		fl = fcntl.fcntl(self.stdout, fcntl.F_GETFL)
+		fcntl.fcntl(self.stdout, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
-		if not wait and not check:
-			self.io_watch = GLib.io_add_watch(self.pid.stdout, GLib.IO_IN |
-						GLib.IO_HUP | GLib.IO_ERR, self.io_callback)
+		self.io_watch = GLib.io_add_watch(self.stdout, GLib.IO_IN |
+						GLib.IO_HUP | GLib.IO_ERR, self.process_io)
 
-		print("Starting process {}".format(self.pid.args))
+		print("Starting process {}".format(self.args))
 
-		if not wait and not check:
-			return
+		if check:
+			self.wait(10)
+			self.killed = True
+			if self.returncode != 0:
+				raise subprocess.CalledProcessError(returncode=self.returncode,
+									cmd=args)
 
-		Namespace.non_block_wait(self.wait_for_process, 10, 1)
-		self.killed = True
-		self.ret = self.pid.returncode
+	@classmethod
+	def get_all(cls):
+		return cls.processes.values()
 
-		self.process_io(self.pid.stdout)
+	@classmethod
+	def kill_all(cls):
+		for p in cls.processes.values():
+			p.kill()
 
-		self.write_fds = []
+	@staticmethod
+	def _write_io(instance, data, stdout=True):
+		for f in instance.write_fds:
+			f.write(data)
 
-		print("%s returned %d" % (args[0], self.ret))
-		if check and self.ret != 0:
-			raise subprocess.CalledProcessError(returncode=self.ret, cmd=self.args)
+			# Write out a separator so multiple process calls per
+			# test are easer to read.
+			if instance.hup:
+				f.write("Terminated: {}\n\n".format(instance.args))
 
-	def wait_for_process(self, timeout):
-		try:
-			self.pid.wait(timeout)
-			return True
-		except:
-			return False
+			f.flush()
 
-	def process_io(self, source):
+		if instance.verbose and stdout:
+			sys.__stdout__.write(data)
+			sys.__stdout__.flush()
+
+	@classmethod
+	def write_separators(cls, sep):
+		for proc in cls.processes.values():
+			if proc.killed:
+				continue
+
+			cls._write_io(proc, sep, stdout=False)
+
+	def process_io(self, source, condition):
+		if condition & GLib.IO_HUP:
+			self.hup = True
+
 		data = source.read()
 
 		if not data:
@@ -265,52 +264,61 @@ class Process:
 		# Save data away in case the caller needs it (e.g. list_sta)
 		self.out += data
 
-		for f in self.write_fds:
-			f.write(data)
-			f.flush()
-
-		if self.verbose:
-			sys.__stdout__.write(data)
-			sys.__stdout__.flush()
+		self._write_io(self, data)
 
 		return True
 
-	def io_callback(self, source, cb_condition):
-		return self.process_io(source)
+	def _append_outfile(self, file, append=True):
+		gid = int(self.ctx.args.log_gid)
+		uid = int(self.ctx.args.log_uid)
+		dir = os.path.dirname(file)
 
-	def __del__(self):
-		print("Del process %s" % self.args)
+		if not path_exists(dir):
+			os.mkdir(dir)
+			os.chown(dir, uid, gid)
 
-		if not self.killed:
-			self.kill()
+		file = os.path.join(dir,file)
 
-	def kill(self, force=False):
-		print("Killing process %s" % self.args)
-
-		if self.killed:
-			return
-
-		if force:
-			self.pid.kill()
+		# If the out file exists, append. Useful for processes like
+		# hostapd_cli where it is called multiple times independently.
+		if os.path.isfile(file) and append:
+			mode = 'a'
 		else:
-			self.pid.terminate()
+			mode = 'w'
 
 		try:
-			self.pid.wait(timeout=15)
+			f = open(os.path.join(dir, file), mode)
+		except Exception as e:
+			traceback.print_exc()
+			exit(0)
+
+		os.fchown(f.fileno(), uid, gid)
+
+		self.write_fds.append(f)
+
+	def wait_for_socket(self, socket, wait):
+		Namespace.non_block_wait(os.path.exists, wait, socket)
+
+	# Wait for both process termination and HUP signal
+	def __wait(self, timeout):
+		try:
+			super().wait(timeout)
+			if not self.hup:
+				return False
+
+			return True
 		except:
-			dbg("Process %s did not complete in 15 seconds!" % self.name)
-			self.pid.kill()
+			return False
 
-		if self.ctx and self in self.ctx.processes:
-			self.ctx.processes.remove(self)
+	# Override wait() so it can do so non-blocking
+	def wait(self, timeout=10):
+		Namespace.non_block_wait(self.__wait, timeout, 1)
+		self._cleanup()
 
+	def _cleanup(self):
 		if self.cleanup:
 			self.cleanup()
 
-		self.process_io(self.pid.stdout)
-
-		self.ctx = None
-		self.pid = None
 		self.write_fds = []
 
 		if self.io_watch:
@@ -320,8 +328,25 @@ class Process:
 		self.cleanup = None
 		self.killed = True
 
-	def wait_for_socket(self, socket, wait):
-		Namespace.non_block_wait(os.path.exists, wait, socket)
+	# Override kill()
+	def kill(self, force=False):
+		if self.killed:
+			return
+
+		print("Killing process {}".format(self.args))
+
+		if force:
+			super().kill()
+		else:
+			self.terminate()
+
+		try:
+			self.wait(timeout=15)
+		except:
+			dbg("Process %s did not complete in 15 seconds!" % self.name)
+			super().kill()
+
+		self._cleanup()
 
 	def __str__(self):
 		return str(self.args) + '\n'
@@ -333,10 +358,10 @@ class Interface:
 		self.config = config
 
 	def __del__(self):
-		Process(['iw', 'dev', self.name, 'del'], True)
+		Process(['iw', 'dev', self.name, 'del']).wait()
 
 	def set_interface_state(self, state):
-		Process(['ifconfig', self.name, state], True)
+		Process(['ifconfig', self.name, state]).wait()
 
 class Radio:
 	def __init__(self, name):
@@ -360,7 +385,7 @@ class Radio:
 		self.use = use
 
 		Process(['iw', 'phy', self.name, 'interface', 'add', ifname,
-				'type', 'managed'], True)
+				'type', 'managed']).wait()
 
 		return self.interface
 
@@ -381,17 +406,20 @@ class VirtualRadio(Radio):
 		TODO: Using D-Bus to create and destroy radios is more desireable
 		than the command line.
 	'''
-	def __init__(self, name, config=None):
+
+	def __init__(self, name, cfg=None):
+		global config
+
 		self.disable_cipher = None
 		self.disable_iftype = None
 
-		hwsim = importlib.import_module('hwsim').Hwsim()
+		self.hwsim = config.hwsim.Hwsim()
 
-		if config:
-			self.disable_iftype = config.get('iftype_disable', None)
-			self.disable_cipher = config.get('cipher_disable', None)
+		if cfg:
+			self.disable_iftype = cfg.get('iftype_disable', None)
+			self.disable_cipher = cfg.get('cipher_disable', None)
 
-		self._radio = hwsim.radios.create(name, p2p_device=True,
+		self._radio = self.hwsim.radios.create(name, p2p_device=True,
 					iftype_disable=self.disable_iftype,
 					cipher_disable=self.disable_cipher)
 
@@ -463,8 +491,8 @@ class Hostapd:
 
 		print("Initializing hostapd instances")
 
-		ctx.start_process(['ip', 'link', 'set', 'eth0', 'up'], wait=True)
-		ctx.start_process(['ip', 'link', 'set', 'eth1', 'up'], wait=True)
+		Process(['ip', 'link', 'set', 'eth0', 'up']).wait()
+		Process(['ip', 'link', 'set', 'eth1', 'up']).wait()
 
 		self.global_ctrl_iface = '/var/run/hostapd/ctrl'
 
@@ -495,7 +523,7 @@ class Hostapd:
 		if ctx.is_verbose('hostapd'):
 			args.append('-d')
 
-		self.process = ctx.start_process(args)
+		self.process = Process(args)
 
 		self.process.wait_for_socket(self.global_ctrl_iface, 30)
 
@@ -503,8 +531,10 @@ class Hostapd:
 			self.process.wait_for_socket(hapd.intf.ctrl_interface, 30)
 
 	def attach_cli(self):
+		global config
+
 		for hapd in self.instances:
-			hapd.cli = importlib.import_module('hostapd').HostapdCLI(config=hapd.config)
+			hapd.cli = config.hostapd.HostapdCLI(config=hapd.config)
 
 	def _rewrite_config(self, config):
 		'''
@@ -545,13 +575,6 @@ class Hostapd:
 		except:
 			print("Failed to remove %s" % self.global_ctrl_iface)
 
-		for hapd in self.instances:
-			if not hapd.cli:
-				continue
-
-			hapd.cli._instances[hapd.config] = None
-			hapd.cli = None
-
 		self.instances = None
 
 		# Hostapd may have already been stopped
@@ -570,14 +593,13 @@ dbus_count = 0
 class Namespace:
 	def __init__(self, args, name, radios):
 		self.dbus_address = None
-		self.processes = []
 		self.name = name
 		self.radios = radios
 		self.args = args
 
-		Process(['ip', 'netns', 'add', name], wait=True)
+		Process(['ip', 'netns', 'add', name]).wait()
 		for r in radios:
-			Process(['iw', 'phy', r.name, 'set', 'netns', 'name', name], wait=True)
+			Process(['iw', 'phy', r.name, 'set', 'netns', 'name', name]).wait()
 
 		self.start_dbus()
 
@@ -589,27 +611,17 @@ class Namespace:
 
 		self.radios = []
 
-		for p in list(self.processes):
-			print("Killing process %s" % p.name)
-			p.kill()
-
-		self.processes = []
+		Process.kill_all()
 
 	def __del__(self):
 		print("Removing namespace %s" % self.name)
 
-		Process(['ip', 'netns', 'del', self.name], wait=True)
+		Process(['ip', 'netns', 'del', self.name]).wait()
 
 	def get_bus(self):
 		return self._bus
 
 	def start_process(self, args, env=None, **kwargs):
-		# Special case for 'root' namespace (aka TestContext)
-		if self.name == "root":
-			ns = None
-		else:
-			ns = self.name
-
 		if not env:
 			env = os.environ.copy()
 
@@ -617,19 +629,14 @@ class Namespace:
 			# In case this process needs DBus...
 			env['DBUS_SYSTEM_BUS_ADDRESS'] = self.dbus_address
 
-		p = Process(args, ctx=self, namespace=ns, env=env, **kwargs)
-
-		if not kwargs.get('wait', False):
-			self.processes.append(p)
-
-		return p
+		return Process(args, namespace=self.name, env=env, **kwargs)
 
 	def stop_process(self, p, force=False):
 		p.kill(force)
 
 	def is_process_running(self, process):
-		for p in self.processes:
-			if p.name == process:
+		for p in Process.get_all():
+			if p.namespace == self.name and p.args[0] == process:
 				return True
 		return False
 
@@ -654,7 +661,7 @@ class Namespace:
 			f.write('</busconfig>\n')
 
 		p = self.start_process(['dbus-daemon', '--config-file=%s' % self.dbus_cfg],
-					wait=False, cleanup=self._cleanup_dbus)
+					cleanup=self._cleanup_dbus)
 
 		p.wait_for_socket(self.dbus_address.split('=')[1], 5)
 
@@ -687,8 +694,7 @@ class Namespace:
 		if self.is_verbose('iwd-acd'):
 			env['IWD_ACD_DEBUG'] = '1'
 
-		pid = self.start_process(args, env=env)
-		return pid
+		return self.start_process(args, env=env)
 
 	def is_verbose(self, process, log=True):
 		process = os.path.basename(process)
@@ -775,7 +781,7 @@ class Namespace:
 	def __str__(self):
 		ret = 'Namespace: %s\n' % self.name
 		ret += 'Processes:\n'
-		for p in self.processes:
+		for p in Process.get_all():
 			ret += '\t%s' % str(p)
 
 		ret += 'Radios:\n'
@@ -796,8 +802,7 @@ class TestContext(Namespace):
 		such as processes, radios, interfaces and test results.
 	'''
 	def __init__(self, args):
-		self.name = "root"
-		self.processes = []
+		self.name = None
 		self.args = args
 		self.hw_config = None
 		self.hostapd = None
@@ -865,7 +870,7 @@ class TestContext(Namespace):
 	def start_radios(self):
 		reg_domain = self.hw_config['SETUP'].get('reg_domain', None)
 		if reg_domain:
-			Process(['iw', 'reg', 'set', reg_domain], True)
+			Process(['iw', 'reg', 'set', reg_domain]).wait()
 
 		if self.args.hw:
 			self.discover_radios()
@@ -942,7 +947,7 @@ class TestContext(Namespace):
 			print("Ofono or Phonesim not found, skipping test")
 			return
 
-		Process(['ifconfig', 'lo', 'up'], wait=True)
+		Process(['ifconfig', 'lo', 'up']).wait()
 
 		os.environ['OFONO_PHONESIM_CONFIG'] = '/tmp/phonesim.conf'
 
@@ -1187,6 +1192,8 @@ def start_test(ctx, subtests, rqueue):
 
 					sys.__stdout__.flush()
 
+					Process.write_separators("\n====== %s:%s ======\n\n" % (file, func))
+
 					if not skip:
 						# Run test (setUp/tearDown run automatically)
 						result = t()
@@ -1327,7 +1334,7 @@ def post_test(ctx, to_copy):
 			else:
 				os.remove('/tmp/' + f)
 
-		Process(['ifconfig', 'lo', 'down'], wait=True)
+		Process(['ifconfig', 'lo', 'down']).wait()
 	except Exception as e:
 		print("Exception thrown in post_test")
 	finally:
@@ -1451,7 +1458,8 @@ def run_unit_tests(ctx, args):
 	units = build_unit_list(args)
 
 	for u in units:
-		if ctx.start_process([u], wait=True).ret != 0:
+		p = ctx.start_process([u]).wait()
+		if p.returncode != 0:
 			dbg("Unit test %s failed" % os.path.basename(u))
 		else:
 			dbg("Unit test %s passed" % os.path.basename(u))
@@ -1512,6 +1520,10 @@ def run_tests():
 	#
 	config = importlib.import_module('config')
 	config.ctx = TestContext(args)
+
+	# Must import these after config so ctx gets set
+	config.hwsim = importlib.import_module('hwsim')
+	config.hostapd = importlib.import_module('hostapd')
 
 	if args.log:
 		mount('logdir', args.log, '9p', 0, 'trans=virtio,version=9p2000.L,msize=10240')
@@ -1709,6 +1721,9 @@ class Main:
 
 			self.args.monitor = os.path.abspath(self.args.monitor)
 			mon_parent_dir = os.path.abspath(os.path.join(self.args.monitor, os.pardir))
+
+			options += ' --log-gid %u' % int(os.environ['SUDO_GID'])
+			options += ' --log-uid %u' % int(os.environ['SUDO_UID'])
 
 		denylist = [
 			'auto_tests',

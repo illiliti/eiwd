@@ -83,6 +83,8 @@ struct sae_sm {
 	sae_tx_associate_func_t tx_assoc;
 	void *user_data;
 	enum crypto_sae sae_type;
+
+	bool force_default_group : 1;
 };
 
 static enum mmpdu_status_code sae_status_code(struct sae_sm *sm)
@@ -139,6 +141,24 @@ static int sae_choose_next_group(struct sae_sm *sm)
 	const unsigned int *ecc_groups = l_ecc_supported_ike_groups();
 	bool reset = sm->group_retry >= 0;
 
+	/*
+	 * If this is a buggy AP in which group negotiation is broken use the
+	 * default group 19 and fail if this is a retry.
+	 */
+	if (sm->sae_type == CRYPTO_SAE_LOOPING && sm->force_default_group) {
+		if (sm->group_retry != -1) {
+			l_warn("Forced default group but was rejected!");
+			return -ENOENT;
+		}
+
+		l_debug("Forcing default SAE group 19");
+
+		sm->group_retry++;
+		sm->group = 19;
+
+		goto get_curve;
+	}
+
 	do {
 		sm->group_retry++;
 
@@ -151,6 +171,8 @@ static int sae_choose_next_group(struct sae_sm *sm)
 		sae_reset_state(sm);
 
 	sm->group = ecc_groups[sm->group_retry];
+
+get_curve:
 	sm->curve = l_ecc_curve_from_ike_group(sm->group);
 
 	return 0;
@@ -1137,6 +1159,31 @@ static int sae_verify_confirmed(struct sae_sm *sm, uint16_t trans,
 		return -EBADMSG;
 
 	/*
+	 * Because of kernel retransmit behavior on missed ACKs plus hostapd's
+	 * incorrect handling of confirm packets while in accepted state the
+	 * following can happen:
+	 *
+	 * 1. Client sends commit, not acked (committed state)
+	 * 2. AP receives commit, sends commit reply (committed state)
+	 * 3. Client retransmits original commit
+	 * 4. Client receives AP's commit, sends confirm (confirmed state)
+	 * 5. AP receives clients retransmitted commit, sends only commit
+	 * 6. AP receives clients confirm and accepts (accepted state)
+	 * 7. Client receives AP's commit and sends both commit + confirm
+	 *    (the code below).
+	 * 8. AP receives clients commit while in accepted state, and deauths
+	 *
+	 * Due to this, any commit received while in a confirmed state will be
+	 * ignored by IWD since it is probably caused by this retransmission
+	 * and sending the commit/confirm below would likely cause hostapd to
+	 * deauth us.
+	 *
+	 * As for non-sta (currently not used) we want to keep with the spec.
+	 */
+	if (!sm->handshake->authenticator)
+		return -EBADMSG;
+
+	/*
 	 * the protocol instance shall increment Sync, increment Sc, and
 	 * transmit its Commit and Confirm (with the new Sc value) messages.
 	 */
@@ -1160,10 +1207,32 @@ static int sae_verify_accepted(struct sae_sm *sm, uint16_t trans,
 {
 	uint16_t sc;
 
-	/* spec does not specify what to do here, so print and discard */
-	if (trans != SAE_STATE_CONFIRMED) {
+	/*
+	 * 12.4.8.6.1 Parent process behavior
+	 *
+	 * "Upon receipt of an SAE Commit message... and it is in Accepted
+	 * state, the scalar in the received frame is checked against the
+	 * peer-scalar used in authentication of the existing protocol instance
+	 * (in Accepted state). If it is identical, the frame shall be dropped"
+	 */
+	if (trans == SAE_STATE_COMMITTED) {
+		bool drop;
+		unsigned int nbytes = l_ecc_curve_get_scalar_bytes(sm->curve);
+		struct l_ecc_scalar *p_scalar;
+
+		if (len < nbytes + 2)
+			return -EMSGSIZE;
+
+		p_scalar = l_ecc_scalar_new(sm->curve, frame + 2, nbytes);
+
+		drop = l_ecc_scalars_are_equal(sm->p_scalar, p_scalar);
+		l_ecc_scalar_free(p_scalar);
+
+		if (drop)
+			return -EBADMSG;
+
 		l_error("received transaction %u in accepted state", trans);
-		return -EBADMSG;
+		return -EPROTO;
 	}
 
 	if (sm->sync > SAE_SYNC_MAX)
@@ -1204,10 +1273,28 @@ static int sae_verify_accepted(struct sae_sm *sm, uint16_t trans,
 	return -EAGAIN;
 }
 
+static const char *sae_state_to_str(enum sae_state state)
+{
+	switch (state) {
+	case SAE_STATE_NOTHING:
+		return "nothing";
+	case SAE_STATE_COMMITTED:
+		return "committed";
+	case SAE_STATE_CONFIRMED:
+		return "confirmed";
+	case SAE_STATE_ACCEPTED:
+		return "accepted";
+	}
+
+	return "unknown";
+}
+
 static int sae_verify_packet(struct sae_sm *sm, uint16_t trans,
 				uint16_t status, const uint8_t *frame,
 				size_t len)
 {
+	l_debug("rx trans=%u, state=%s", trans, sae_state_to_str(sm->state));
+
 	if (trans != SAE_STATE_COMMITTED && trans != SAE_STATE_CONFIRMED)
 		return -EBADMSG;
 
@@ -1296,6 +1383,13 @@ bool sae_sm_is_h2e(struct auth_proto *ap)
 	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
 
 	return sm->sae_type != CRYPTO_SAE_LOOPING;
+}
+
+void sae_sm_set_force_group_19(struct auth_proto *ap)
+{
+	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
+
+	sm->force_default_group = true;
 }
 
 static void sae_free(struct auth_proto *ap)

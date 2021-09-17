@@ -35,8 +35,8 @@ class Test(unittest.TestCase):
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
     def test_SAE(self):
-        self.hostapd.set_value('sae_pwe', '0');
-        self.hostapd.set_value('sae_groups', '19');
+        self.hostapd.set_value('sae_pwe', '0')
+        self.hostapd.set_value('sae_groups', '19')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
 
@@ -44,8 +44,8 @@ class Test(unittest.TestCase):
         self.validate_connection(wd)
 
     def test_SAE_H2E(self):
-        self.hostapd.set_value('sae_pwe', '1');
-        self.hostapd.set_value('sae_groups', '20');
+        self.hostapd.set_value('sae_pwe', '1')
+        self.hostapd.set_value('sae_groups', '20')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
         wd = IWD(True)

@@ -1053,7 +1053,7 @@ class IWD(AsyncOpAbstract):
         # reference so that __del__ gets called when it's released. This is only
         # done for the root namespace in order to allow testutil to function
         # correctly in non-namespace tests.
-        if self.namespace.name == "root":
+        if self.namespace.name is None:
             IWD._default_instance = weakref.ref(self)
 
     def __del__(self):

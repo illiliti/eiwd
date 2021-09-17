@@ -25,6 +25,7 @@
 #endif
 
 #include <errno.h>
+#include <arpa/inet.h>
 
 #include <ell/ell.h>
 
@@ -1363,6 +1364,32 @@ bool is_ie_wpa_ie(const uint8_t *data, uint8_t len)
 	return false;
 }
 
+/*
+ * List of vendor OUIs (prefixed with a length byte) which require forcing
+ * the default SAE group.
+ */
+static const uint8_t use_default_sae_group_ouis[][5] = {
+	{ 0x04, 0xf4, 0xf5, 0xe8, 0x05 },
+};
+
+bool is_ie_default_sae_group_oui(const uint8_t *data, uint16_t len)
+{
+	unsigned int i;
+	const uint8_t *oui;
+
+	for (i = 0; i < L_ARRAY_SIZE(use_default_sae_group_ouis); i++) {
+		oui = use_default_sae_group_ouis[i];
+
+		if (len < oui[0])
+			continue;
+
+		if (!memcmp(oui + 1, data, oui[0]))
+			return true;
+	}
+
+	return false;
+}
+
 int ie_parse_wpa(struct ie_tlv_iter *iter, struct ie_rsn_info *out_info)
 {
 	const uint8_t *data = iter->data;
@@ -2102,4 +2129,366 @@ bool ie_rsnxe_capable(const uint8_t *rsnxe, unsigned int bit)
 		return false;
 
 	return test_bit(rsnxe + 2, bit);
+}
+
+/* 802.11ai-2016 Tables 9-589r, 9-262d, 9-262e */
+enum ie_fils_ip_addr_req_ctrl_bits {
+	IE_FILS_IP_ADDR_REQ_CTRL_IPV4_MASK = 3 << 0,
+	IE_FILS_IP_ADDR_REQ_CTRL_IPV4_NONE = 0 << 0,
+	IE_FILS_IP_ADDR_REQ_CTRL_IPV4_NEW = 2 << 0,
+	IE_FILS_IP_ADDR_REQ_CTRL_IPV4_SPECIFIC = 3 << 0,
+	IE_FILS_IP_ADDR_REQ_CTRL_IPV6_MASK = 3 << 2,
+	IE_FILS_IP_ADDR_REQ_CTRL_IPV6_NONE = 0 << 2,
+	IE_FILS_IP_ADDR_REQ_CTRL_IPV6_NEW = 2 << 2,
+	IE_FILS_IP_ADDR_REQ_CTRL_IPV6_SPECIFIC = 3 << 2,
+	IE_FILS_IP_ADDR_REQ_CTRL_DNS = 1 << 4,
+};
+
+/* 802.11ai-2016 Table 9-262f */
+enum ie_fils_ip_addr_resp_ctrl_bits {
+	IE_FILS_IP_ADDR_RESP_CTRL_IP_PENDING = 1 << 0,
+	IE_FILS_IP_ADDR_RESP_CTRL_IPV4_ASSIGNED = 1 << 1,
+	IE_FILS_IP_ADDR_RESP_CTRL_IPV4_GW_INCLUDED = 1 << 2,
+	IE_FILS_IP_ADDR_RESP_CTRL_IPV6_ASSIGNED = 1 << 3,
+	IE_FILS_IP_ADDR_RESP_CTRL_IPV6_GW_INCLUDED = 1 << 4,
+	IE_FILS_IP_ADDR_RESP_CTRL_IPV4_LIFETIME_INCLUDED = 1 << 5,
+	IE_FILS_IP_ADDR_RESP_CTRL_IPV6_LIFETIME_INCLUDED = 1 << 6,
+};
+
+/* 802.11ai-2016 Table 9-262h */
+enum ie_fils_ip_addr_resp_dns_ctrl_bits {
+	IE_FILS_IP_ADDR_RESP_DNS_CTRL_IPV4_DNS_INCLUDED = 1 << 0,
+	IE_FILS_IP_ADDR_RESP_DNS_CTRL_IPV6_DNS_INCLUDED = 1 << 1,
+	IE_FILS_IP_ADDR_RESP_DNS_CTRL_IPV4_DNS_MAC_INCLUDED = 1 << 2,
+	IE_FILS_IP_ADDR_RESP_DNS_CTRL_IPV6_DNS_MAC_INCLUDED = 1 << 3,
+};
+
+int ie_parse_fils_ip_addr_request(struct ie_tlv_iter *iter,
+				struct ie_fils_ip_addr_request_info *out)
+{
+	unsigned int len = ie_tlv_iter_get_length(iter);
+	const uint8_t *data = ie_tlv_iter_get_data(iter);
+	struct ie_fils_ip_addr_request_info info = {};
+	bool ipv4_specific_addr = false;
+	bool ipv6_specific_addr = false;
+
+	if (len < 1)
+		return -EMSGSIZE;
+
+	if (L_IN_SET(data[0] & IE_FILS_IP_ADDR_REQ_CTRL_IPV4_MASK,
+			IE_FILS_IP_ADDR_REQ_CTRL_IPV4_NEW,
+			IE_FILS_IP_ADDR_REQ_CTRL_IPV4_SPECIFIC)) {
+		info.ipv4 = true;
+		ipv4_specific_addr =
+			(data[0] & IE_FILS_IP_ADDR_REQ_CTRL_IPV4_MASK) ==
+			IE_FILS_IP_ADDR_REQ_CTRL_IPV4_SPECIFIC;
+	} else if ((data[0] & IE_FILS_IP_ADDR_REQ_CTRL_IPV4_MASK) !=
+			IE_FILS_IP_ADDR_REQ_CTRL_IPV4_NONE)
+		return -EINVAL;
+
+	if (L_IN_SET(data[0] & IE_FILS_IP_ADDR_REQ_CTRL_IPV6_MASK,
+			IE_FILS_IP_ADDR_REQ_CTRL_IPV6_NEW,
+			IE_FILS_IP_ADDR_REQ_CTRL_IPV6_SPECIFIC)) {
+		info.ipv6 = true;
+		ipv6_specific_addr =
+			(data[0] & IE_FILS_IP_ADDR_REQ_CTRL_IPV6_MASK) ==
+			IE_FILS_IP_ADDR_REQ_CTRL_IPV6_SPECIFIC;
+	} else if ((data[0] & IE_FILS_IP_ADDR_REQ_CTRL_IPV6_MASK) !=
+			IE_FILS_IP_ADDR_REQ_CTRL_IPV6_NONE)
+		return -EINVAL;
+
+	info.dns = !!(*data++ & IE_FILS_IP_ADDR_REQ_CTRL_DNS);
+
+	if (len < 1 + (ipv4_specific_addr ? 4u : 0u) +
+			(ipv6_specific_addr ? 16u : 0u))
+		return -EMSGSIZE;
+
+	if (ipv4_specific_addr) {
+		info.ipv4_requested_addr = l_get_u32(data);
+		data += 4;
+
+		if (!info.ipv4_requested_addr)
+			return -EINVAL;
+	}
+
+	if (ipv6_specific_addr) {
+		memcpy(info.ipv6_requested_addr, data, 16);
+		data += 16;
+
+		if (l_memeqzero(info.ipv6_requested_addr, 16))
+			return -EINVAL;
+	}
+
+	memcpy(out, &info, sizeof(info));
+	return 0;
+}
+
+void ie_build_fils_ip_addr_request(
+				const struct ie_fils_ip_addr_request_info *info,
+				uint8_t *to)
+{
+	uint8_t *len;
+	uint8_t *ctrl;
+
+	*to++ = IE_TYPE_EXTENSION;
+	len = to++;
+	*to++ = IE_TYPE_FILS_IP_ADDRESS & 0xff;
+	ctrl = to++;
+
+	*ctrl = info->dns ? IE_FILS_IP_ADDR_REQ_CTRL_DNS : 0;
+
+	if (info->ipv4) {
+		if (info->ipv4_requested_addr) {
+			l_put_u32(info->ipv4_requested_addr, to);
+			to += 4;
+			*ctrl |= IE_FILS_IP_ADDR_REQ_CTRL_IPV4_SPECIFIC;
+		} else
+			*ctrl |= IE_FILS_IP_ADDR_REQ_CTRL_IPV4_NEW;
+	}
+
+	if (info->ipv6) {
+		if (!l_memeqzero(info->ipv6_requested_addr, 16)) {
+			memcpy(to, info->ipv6_requested_addr, 16);
+			to += 16;
+			*ctrl |= IE_FILS_IP_ADDR_REQ_CTRL_IPV6_SPECIFIC;
+		} else
+			*ctrl |= IE_FILS_IP_ADDR_REQ_CTRL_IPV6_NEW;
+	}
+
+	*len = to - (len + 1);
+}
+
+#define NEXT_FIELD(data, len, size) (__extension__ ({	\
+	const uint8_t *_ptr = data;			\
+							\
+	if (len < size)					\
+		return -EMSGSIZE;			\
+							\
+	data += size;					\
+	len -= size;					\
+	_ptr; }))
+
+int ie_parse_fils_ip_addr_response(struct ie_tlv_iter *iter,
+				struct ie_fils_ip_addr_response_info *out)
+{
+	unsigned int len = ie_tlv_iter_get_length(iter);
+	const uint8_t *data = ie_tlv_iter_get_data(iter);
+	struct ie_fils_ip_addr_response_info info = {};
+	const uint8_t *resp_ctrl;
+	const uint8_t *dns_ctrl;
+	const uint8_t *ptr;
+
+	resp_ctrl = NEXT_FIELD(data, len, 2);
+	dns_ctrl = resp_ctrl + 1;
+
+	info.response_pending =
+		!!(*resp_ctrl & IE_FILS_IP_ADDR_RESP_CTRL_IP_PENDING);
+
+	if (info.response_pending) {
+		info.response_timeout =
+			bit_field(*resp_ctrl, 1, 6); /* seconds */
+		return 0;
+	}
+
+	if (*resp_ctrl & IE_FILS_IP_ADDR_RESP_CTRL_IPV4_ASSIGNED) {
+		uint32_t netmask;
+
+		ptr = NEXT_FIELD(data, len, 8);
+		info.ipv4_addr = l_get_u32(ptr);
+		netmask = l_get_be32(ptr + 4);
+		info.ipv4_prefix_len = __builtin_popcount(netmask);
+
+		if (!info.ipv4_addr || info.ipv4_prefix_len > 30 || netmask !=
+				util_netmask_from_prefix(info.ipv4_prefix_len))
+			return -EINVAL;
+	}
+
+	if (*resp_ctrl & IE_FILS_IP_ADDR_RESP_CTRL_IPV4_GW_INCLUDED) {
+		ptr = NEXT_FIELD(data, len, 10);
+		info.ipv4_gateway = l_get_u32(ptr);
+		memcpy(info.ipv4_gateway_mac, ptr + 4, 6);
+
+		/* Check gateway is on the same subnet */
+		if (info.ipv4_addr &&
+				!util_ip_subnet_match(info.ipv4_prefix_len,
+							&info.ipv4_addr,
+							&info.ipv4_gateway))
+			return -EINVAL;
+	}
+
+	if (*resp_ctrl & IE_FILS_IP_ADDR_RESP_CTRL_IPV6_ASSIGNED) {
+		ptr = NEXT_FIELD(data, len, 17);
+		memcpy(info.ipv6_addr, ptr, 16);
+		info.ipv6_prefix_len = ptr[16];
+
+		if (l_memeqzero(info.ipv6_addr, 16) ||
+				info.ipv6_prefix_len > 126)
+			return -EINVAL;
+	}
+
+	if (*resp_ctrl & IE_FILS_IP_ADDR_RESP_CTRL_IPV6_GW_INCLUDED) {
+		ptr = NEXT_FIELD(data, len, 22);
+		memcpy(info.ipv6_gateway, ptr, 16);
+		memcpy(info.ipv6_gateway_mac, ptr + 16, 6);
+
+		/* Check gateway is on the same subnet */
+		if (!l_memeqzero(info.ipv6_addr, 16) &&
+				!util_ip_subnet_match(info.ipv6_prefix_len,
+							info.ipv6_addr,
+							info.ipv6_gateway))
+			return -EINVAL;
+	}
+
+	if (*resp_ctrl & IE_FILS_IP_ADDR_RESP_CTRL_IPV4_LIFETIME_INCLUDED)
+		info.ipv4_lifetime = *NEXT_FIELD(data, len, 1); /* seconds */
+
+	if (*resp_ctrl & IE_FILS_IP_ADDR_RESP_CTRL_IPV6_LIFETIME_INCLUDED)
+		info.ipv6_lifetime = *NEXT_FIELD(data, len, 1); /* seconds */
+
+	if (*dns_ctrl & IE_FILS_IP_ADDR_RESP_DNS_CTRL_IPV4_DNS_INCLUDED) {
+		info.ipv4_dns = l_get_u32(NEXT_FIELD(data, len, 4));
+
+		if (!info.ipv4_dns)
+			return -EINVAL;
+	}
+
+	if (*dns_ctrl & IE_FILS_IP_ADDR_RESP_DNS_CTRL_IPV6_DNS_INCLUDED) {
+		memcpy(info.ipv6_dns, NEXT_FIELD(data, len, 16), 16);
+
+		if (l_memeqzero(info.ipv6_dns, 16))
+			return -EINVAL;
+	}
+
+	if (*dns_ctrl & IE_FILS_IP_ADDR_RESP_DNS_CTRL_IPV4_DNS_MAC_INCLUDED)
+		memcpy(info.ipv4_dns_mac, NEXT_FIELD(data, len, 6), 6);
+
+	if (*dns_ctrl & IE_FILS_IP_ADDR_RESP_DNS_CTRL_IPV6_DNS_MAC_INCLUDED)
+		memcpy(info.ipv6_dns_mac, NEXT_FIELD(data, len, 6), 6);
+
+	memcpy(out, &info, sizeof(info));
+	return 0;
+}
+
+void ie_build_fils_ip_addr_response(
+			const struct ie_fils_ip_addr_response_info *info,
+			uint8_t *to)
+{
+	uint8_t *len;
+	uint8_t *resp_ctrl;
+	uint8_t *dns_ctrl;
+
+	*to++ = IE_TYPE_EXTENSION;
+	len = to++;
+	*to++ = IE_TYPE_FILS_IP_ADDRESS & 0xff;
+	resp_ctrl = to++;
+	dns_ctrl = to++;
+
+	*resp_ctrl = 0;
+	*dns_ctrl = 0;
+
+	if (info->response_pending) {
+		*resp_ctrl |= IE_FILS_IP_ADDR_RESP_CTRL_IP_PENDING;
+		*resp_ctrl |= info->response_timeout << 1;
+		goto done;
+	}
+
+	if (info->ipv4_addr) {
+		uint32_t netmask =
+			util_netmask_from_prefix(info->ipv4_prefix_len);
+
+		*resp_ctrl |= IE_FILS_IP_ADDR_RESP_CTRL_IPV4_ASSIGNED;
+
+		l_put_u32(info->ipv4_addr, to);
+		l_put_u32(htonl(netmask), to + 4);
+		to += 8;
+	}
+
+	if (info->ipv4_gateway) {
+		*resp_ctrl |= IE_FILS_IP_ADDR_RESP_CTRL_IPV4_GW_INCLUDED;
+
+		l_put_u32(info->ipv4_gateway, to);
+		memcpy(to + 4, info->ipv4_gateway_mac, 6);
+		to += 10;
+	}
+
+	if (!l_memeqzero(info->ipv6_addr, 16)) {
+		*resp_ctrl |= IE_FILS_IP_ADDR_RESP_CTRL_IPV6_ASSIGNED;
+
+		memcpy(to, info->ipv6_addr, 16);
+		to[16] = info->ipv6_prefix_len;
+		to += 17;
+	}
+
+	if (!l_memeqzero(info->ipv6_gateway, 16)) {
+		*resp_ctrl |= IE_FILS_IP_ADDR_RESP_CTRL_IPV6_GW_INCLUDED;
+
+		memcpy(to, info->ipv6_gateway, 16);
+		memcpy(to + 16, info->ipv6_gateway_mac, 6);
+		to += 22;
+	}
+
+	if (info->ipv4_lifetime) {
+		*resp_ctrl |= IE_FILS_IP_ADDR_RESP_CTRL_IPV4_LIFETIME_INCLUDED;
+
+		*to++ = info->ipv4_lifetime;
+	}
+
+	if (info->ipv6_lifetime) {
+		*resp_ctrl |= IE_FILS_IP_ADDR_RESP_CTRL_IPV6_LIFETIME_INCLUDED;
+
+		*to++ = info->ipv6_lifetime;
+	}
+
+	if (info->ipv4_dns) {
+		*dns_ctrl |= IE_FILS_IP_ADDR_RESP_DNS_CTRL_IPV4_DNS_INCLUDED;
+
+		l_put_u32(info->ipv4_dns, to);
+		to += 4;
+	}
+
+	if (!l_memeqzero(info->ipv6_dns, 16)) {
+		*dns_ctrl |= IE_FILS_IP_ADDR_RESP_DNS_CTRL_IPV6_DNS_INCLUDED;
+
+		memcpy(to, info->ipv6_dns, 16);
+		to += 16;
+	}
+
+	if (!l_memeqzero(info->ipv4_dns_mac, 6)) {
+		*dns_ctrl |=
+			IE_FILS_IP_ADDR_RESP_DNS_CTRL_IPV4_DNS_MAC_INCLUDED;
+
+		memcpy(to, info->ipv4_dns_mac, 6);
+		to += 6;
+	}
+
+	if (!l_memeqzero(info->ipv6_dns_mac, 6)) {
+		*dns_ctrl |=
+			IE_FILS_IP_ADDR_RESP_DNS_CTRL_IPV6_DNS_MAC_INCLUDED;
+
+		memcpy(to, info->ipv6_dns_mac, 6);
+		to += 6;
+	}
+
+done:
+	*len = to - (len + 1);
+}
+
+/*
+ * Parse Network Cost IE according to:
+ * https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-nct/88f0cdf4-cdf2-4455-b849-4abf1e5c11ac
+ */
+int ie_parse_network_cost(const void *data, size_t len,
+				uint16_t *level, uint16_t *flags)
+{
+	const uint8_t *ie = data;
+
+	if (len < 10 || ie[0] != IE_TYPE_VENDOR_SPECIFIC || ie[1] != 8)
+		return -ENOMSG;
+
+	if (memcmp(ie + 2, microsoft_oui, 3) || ie[5] != 0x11)
+		return -ENOMSG;
+
+	*level = l_get_le16(ie + 6);
+	*flags = l_get_le16(ie + 8);
+	return 0;
 }

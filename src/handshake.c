@@ -106,6 +106,8 @@ void handshake_state_free(struct handshake_state *s)
 	l_free(s->supplicant_rsnxe);
 	l_free(s->mde);
 	l_free(s->fte);
+	l_free(s->fils_ip_req_ie);
+	l_free(s->fils_ip_resp_ie);
 
 	if (s->erp_cache)
 		erp_cache_put(s->erp_cache);

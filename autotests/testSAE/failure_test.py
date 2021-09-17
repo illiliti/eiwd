@@ -8,11 +8,12 @@ import iwd
 from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
+from hostapd import HostapdCLI
 
 class Test(unittest.TestCase):
 
-    def validate_connection(self, wd):
-        psk_agent = PSKAgent("InvalidSecret")
+    def validate_connection(self, wd, passphrase):
+        psk_agent = PSKAgent(passphrase)
         wd.register_psk_agent(psk_agent)
 
         devices = wd.list_devices(1)
@@ -33,7 +34,15 @@ class Test(unittest.TestCase):
 
     def test_connection_success(self):
         wd = IWD(True)
-        self.validate_connection(wd)
+        self.validate_connection(wd, 'InvalidSecret')
+
+    def test_no_supported_groups(self):
+        hostapd = HostapdCLI(config='ssidSAE.conf')
+        hostapd.set_value('sae_groups', '1')
+        hostapd.reload()
+
+        wd = IWD(True)
+        self.validate_connection(wd, 'secret123')
 
     @classmethod
     def setUpClass(cls):

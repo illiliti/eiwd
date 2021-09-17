@@ -159,6 +159,7 @@ class Wpas:
         elif event['event'] == 'P2P-GROUP-STARTED':
             event.pop('event')
             event['ifname'] = event.pop('arg1')
+            event['role'] = event.pop('arg2')
             self.p2p_group = event
         elif event['event'] == 'P2P-GROUP-REMOVED':
             self.p2p_group = None

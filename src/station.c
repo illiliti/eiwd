@@ -755,6 +755,7 @@ static void station_handshake_event(struct handshake_state *hs,
 	case HANDSHAKE_EVENT_COMPLETE:
 	case HANDSHAKE_EVENT_SETTING_KEYS_FAILED:
 	case HANDSHAKE_EVENT_EAP_NOTIFY:
+	case HANDSHAKE_EVENT_P2P_IP_REQUEST:
 		/*
 		 * currently we don't care about any other events. The
 		 * netdev_connect_cb will notify us when the connection is
@@ -925,6 +926,7 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 	struct handshake_state *hs;
 	const struct iovec *vendor_ies;
 	size_t iov_elems = 0;
+	struct ie_fils_ip_addr_request_info fils_ip_req;
 
 	hs = netdev_handshake_state_new(station->netdev);
 
@@ -940,6 +942,16 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 
 	vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
 	handshake_state_set_vendor_ies(hs, vendor_ies, iov_elems);
+
+	/*
+	 * It can't hurt to try the FILS IP Address Assigment independent of
+	 * which auth-proto is actually used.
+	 */
+	if (station->netconfig && netconfig_get_fils_ip_req(station->netconfig,
+								&fils_ip_req)) {
+		hs->fils_ip_req_ie = l_malloc(32);
+		ie_build_fils_ip_addr_request(&fils_ip_req, hs->fils_ip_req_ie);
+	}
 
 	return hs;
 
@@ -2456,14 +2468,44 @@ static void station_connect_ok(struct station *station)
 
 	network_connected(station->connected_network);
 
-	if (station->netconfig)
-		netconfig_configure(station->netconfig,
-					network_get_settings(
-						station->connected_network),
-					netdev_get_address(station->netdev),
-					station_netconfig_event_handler,
-					station);
-	else
+	if (station->netconfig) {
+		if (hs->fils_ip_req_ie && hs->fils_ip_resp_ie) {
+			struct ie_fils_ip_addr_response_info info;
+			struct ie_tlv_iter iter;
+			int r;
+
+			ie_tlv_iter_init(&iter, hs->fils_ip_resp_ie,
+						hs->fils_ip_resp_ie[1] + 2);
+			if (!L_WARN_ON(unlikely(!ie_tlv_iter_next(&iter))))
+				r = ie_parse_fils_ip_addr_response(&iter,
+									&info);
+			else
+				r = -ENOMSG;
+
+			if (r != 0)
+				l_debug("Error parsing the FILS IP Address "
+					"Assignment response: %s (%i)",
+					strerror(-r), -r);
+			else if (info.response_pending &&
+					info.response_timeout)
+				l_debug("FILS IP Address Assignment response "
+					"is pending (unsupported)");
+			else if (info.response_pending)
+				l_debug("FILS IP Address Assignment failed");
+			else {
+				l_debug("FILS IP Address Assignment response "
+					"OK");
+				netconfig_handle_fils_ip_resp(
+							station->netconfig,
+							&info);
+			}
+		}
+
+		if (L_WARN_ON(!netconfig_configure(station->netconfig,
+						station_netconfig_event_handler,
+						station)))
+			return;
+	} else
 		station_enter_state(station, STATION_STATE_CONNECTED);
 }
 
@@ -2604,6 +2646,12 @@ int __station_connect_network(struct station *station, struct network *network,
 {
 	struct handshake_state *hs;
 	int r;
+
+	if (station->netconfig && !netconfig_load_settings(
+					station->netconfig,
+					network_get_settings(network),
+					netdev_get_address(station->netdev)))
+		return -EINVAL;
 
 	hs = station_handshake_setup(station, network, bss);
 	if (!hs)
@@ -3969,6 +4017,9 @@ static struct l_dbus_message *station_debug_scan(struct l_dbus *dbus,
 	freq_set = scan_freq_set_new();
 
 	for (i = 0; i < freqs_len; i++) {
+		if (scan_freq_set_contains(freq_set, (uint32_t)freqs[i]))
+			continue;
+
 		if (!scan_freq_set_add(freq_set, (uint32_t)freqs[i])) {
 			scan_freq_set_free(freq_set);
 			goto invalid_args;

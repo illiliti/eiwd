@@ -2,7 +2,6 @@
 
 import unittest
 import sys
-import netifaces
 import os
 import time
 
@@ -91,9 +90,10 @@ class Test(unittest.TestCase):
 
         wd.wait_for_object_condition(wpas, 'obj.p2p_group is not None', max_wait=3)
         peer_ifname = wpas.p2p_group['ifname']
+        self.assertEqual(wpas.p2p_group['role'], 'GO' if not go else 'client')
 
         if not go:
-            ctx.start_process(['ifconfig', peer_ifname, '192.168.1.20', 'netmask', '255.255.255.0'], wait=True)
+            ctx.start_process(['ifconfig', peer_ifname, '192.168.1.20', 'netmask', '255.255.255.0']).wait()
             os.system('> /tmp/dhcp.leases')
             dhcp = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf', '-lf', '/tmp/dhcp.leases', peer_ifname])
             self.dhcp = dhcp
@@ -102,22 +102,23 @@ class Test(unittest.TestCase):
             client = wpas.p2p_clients[request['peer_iface']]
             self.assertEqual(client['p2p_dev_addr'], wpas_peer['p2p_dev_addr'])
         else:
+            self.assertEqual(wpas.p2p_group['ip_addr'], '192.168.1.2')
+            self.assertEqual(wpas.p2p_group['ip_mask'], '255.255.255.240')
+            self.assertEqual(wpas.p2p_group['go_ip_addr'], '192.168.1.1')
             dhcp = ctx.start_process(['dhclient', '-v', '-d', '--no-pid', '-cf', '/dev/null', '-lf', '/tmp/dhcp.leases',
                 '-sf', '/tmp/dhclient-script', peer_ifname])
             self.dhcp = dhcp
 
         wd.wait_for_object_condition(peer, 'obj.connected', max_wait=15)
         time.sleep(1) # Give the client time to set the IP
-        our_ip = netifaces.ifaddresses(peer.connected_interface)[netifaces.AF_INET][0]['addr']
-        peer_ip = netifaces.ifaddresses(peer_ifname)[netifaces.AF_INET][0]['addr']
-        self.assertEqual(peer.connected_ip, peer_ip)
+        testutil.test_ip_address_match(peer_ifname, peer.connected_ip)
 
         if not go:
-            self.assertEqual(our_ip, '192.168.1.30')
-            self.assertEqual(peer_ip, '192.168.1.20')
+            testutil.test_ip_address_match(peer.connected_interface, '192.168.1.30')
+            self.assertEqual(peer.connected_ip, '192.168.1.20')
         else:
-            self.assertEqual(our_ip, '192.168.1.1')
-            self.assertEqual(peer_ip, '192.168.1.2')
+            testutil.test_ip_address_match(peer.connected_interface, '192.168.1.1')
+            self.assertEqual(peer.connected_ip, '192.168.1.2')
 
         testutil.test_iface_operstate(peer.connected_interface)
         testutil.test_ifaces_connected(peer.connected_interface, peer_ifname)
@@ -126,7 +127,7 @@ class Test(unittest.TestCase):
         if not go:
             wd.wait_for_object_condition(wpas, 'len(obj.p2p_clients) == 0', max_wait=3)
         else:
-            wd.wait_for_object_condition(wpas, 'obj.p2p_group is None', max_wait=3)
+            wd.wait_for_object_condition(wpas, 'obj.p2p_group is None', max_wait=15)
         self.assertEqual(peer.connected, False)
 
     def setUp(self):
@@ -136,7 +137,10 @@ class Test(unittest.TestCase):
 
     def tearDown(self):
         if self.p2p is not None:
-            self.p2p.enabled = False
+            try:
+                self.p2p.enabled = False
+            except:
+                pass
         if self.wpas is not None:
             self.wpas.clean_up()
             self.wpas = None

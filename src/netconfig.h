@@ -21,6 +21,8 @@
  */
 
 struct netconfig;
+struct ie_fils_ip_addr_request_info;
+struct ie_fils_ip_addr_response_info;
 
 enum netconfig_event {
 	NETCONFIG_EVENT_CONNECTED,
@@ -29,14 +31,19 @@ enum netconfig_event {
 typedef void (*netconfig_notify_func_t)(enum netconfig_event event,
 							void *user_data);
 
-bool netconfig_configure(struct netconfig *netconfig,
+bool netconfig_load_settings(struct netconfig *netconfig,
 				const struct l_settings *active_settings,
-				const uint8_t *mac_address,
+				const uint8_t *mac_address);
+bool netconfig_configure(struct netconfig *netconfig,
 				netconfig_notify_func_t notify,
 				void *user_data);
 bool netconfig_reconfigure(struct netconfig *netconfig);
 bool netconfig_reset(struct netconfig *netconfig);
 char *netconfig_get_dhcp_server_ipv4(struct netconfig *netconfig);
+bool netconfig_get_fils_ip_req(struct netconfig *netconfig,
+				struct ie_fils_ip_addr_request_info *info);
+void netconfig_handle_fils_ip_resp(struct netconfig *netconfig,
+			const struct ie_fils_ip_addr_response_info *info);
 
 struct netconfig *netconfig_new(uint32_t ifindex);
 void netconfig_destroy(struct netconfig *netconfig);

@@ -25,7 +25,7 @@ class Test(unittest.TestCase):
 
         wd.wait_for_object_condition(device, 'not obj.scanning')
 
-        device.scan()
+        device.debug_scan([2412])
 
         wd.wait_for_object_condition(device, 'obj.scanning')
         wd.wait_for_object_condition(device, 'not obj.scanning')
@@ -57,8 +57,21 @@ class Test(unittest.TestCase):
         wd.unregister_psk_agent(psk_agent)
 
     def test_SAE(self):
-        self.hostapd.set_value('sae_pwe', '0');
-        self.hostapd.set_value('sae_groups', '19');
+        self.hostapd.set_value('sae_pwe', '0')
+        self.hostapd.set_value('sae_groups', '19')
+        self.hostapd.set_value('vendor_elements', '')
+        self.hostapd.reload()
+        self.hostapd.wait_for_event("AP-ENABLED")
+        wd = IWD(True)
+        self.validate_connection(wd)
+        wd.clear_storage()
+
+    def test_SAE_force_group_19(self):
+        self.hostapd.set_value('sae_pwe', '0')
+        self.hostapd.set_value('sae_groups', '19')
+        # Vendor data from APs which require group 19 be used first
+        # TODO: (for all tests) verify the expected group was used
+        self.hostapd.set_value('vendor_elements', 'dd0cf4f5e8050500000000000000')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
         wd = IWD(True)
@@ -66,8 +79,9 @@ class Test(unittest.TestCase):
         wd.clear_storage()
 
     def test_SAE_Group20(self):
-        self.hostapd.set_value('sae_pwe', '0');
-        self.hostapd.set_value('sae_groups', '20');
+        self.hostapd.set_value('sae_pwe', '0')
+        self.hostapd.set_value('sae_groups', '20')
+        self.hostapd.set_value('vendor_elements', '')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
         wd = IWD(True)
@@ -75,8 +89,9 @@ class Test(unittest.TestCase):
         wd.clear_storage()
 
     def test_SAE_H2E(self):
-        self.hostapd.set_value('sae_pwe', '1');
-        self.hostapd.set_value('sae_groups', '19');
+        self.hostapd.set_value('sae_pwe', '1')
+        self.hostapd.set_value('sae_groups', '19')
+        self.hostapd.set_value('vendor_elements', '')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
         wd = IWD(True)
@@ -84,8 +99,9 @@ class Test(unittest.TestCase):
         wd.clear_storage()
 
     def test_SAE_H2E_Group20(self):
-        self.hostapd.set_value('sae_pwe', '1');
-        self.hostapd.set_value('sae_groups', '20');
+        self.hostapd.set_value('sae_pwe', '1')
+        self.hostapd.set_value('sae_groups', '20')
+        self.hostapd.set_value('vendor_elements', '')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
         wd = IWD(True)
