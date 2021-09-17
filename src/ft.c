@@ -323,7 +323,7 @@ static bool ft_verify_rsne(const uint8_t *rsne, const uint8_t *pmk_r0_name,
 				memcmp(msg2_rsne.pmkids, pmk_r0_name, 16))
 		return false;
 
-	if (!handshake_util_ap_ie_matches(rsne, authenticator_ie, false))
+	if (!handshake_util_ap_ie_matches(&msg2_rsne, authenticator_ie, false))
 		return false;
 
 	return true;
@@ -674,7 +674,8 @@ static int ft_rx_associate(struct auth_proto *ap, const uint8_t *frame,
 				memcmp(msg4_rsne.pmkids, hs->pmk_r1_name, 16))
 			return -EBADMSG;
 
-		if (!handshake_util_ap_ie_matches(rsne, hs->authenticator_ie,
+		if (!handshake_util_ap_ie_matches(&msg4_rsne,
+							hs->authenticator_ie,
 							false))
 			return -EBADMSG;
 	} else {

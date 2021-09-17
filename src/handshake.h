@@ -242,7 +242,7 @@ bool handshake_decode_fte_key(struct handshake_state *s, const uint8_t *wrapped,
 void handshake_state_set_gtk(struct handshake_state *s, const uint8_t *key,
 				unsigned int key_index, const uint8_t *rsc);
 
-bool handshake_util_ap_ie_matches(const uint8_t *msg_ie,
+bool handshake_util_ap_ie_matches(const struct ie_rsn_info *msg_info,
 					const uint8_t *scan_ie, bool is_wpa);
 
 const uint8_t *handshake_util_find_kde(enum handshake_kde selector,

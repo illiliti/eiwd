@@ -1623,11 +1623,13 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	const uint8_t *igtk = NULL;
 	size_t igtk_len;
 	const uint8_t *rsne;
+	struct ie_rsn_info rsn_info;
 	const uint8_t *optional_rsne = NULL;
 	const uint8_t *transition_disable;
 	size_t transition_disable_len;
 	uint8_t gtk_key_index;
 	uint16_t igtk_key_index;
+	int r;
 
 	l_debug("ifindex=%u", hs->ifindex);
 
@@ -1667,20 +1669,26 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	if (!rsne)
 		goto error_ie_different;
 
-	if (!handshake_util_ap_ie_matches(rsne, hs->authenticator_ie,
-						hs->wpa_ie))
+	if (!hs->wpa_ie)
+		r = ie_parse_rsne_from_data(rsne, rsne[1] + 2, &rsn_info);
+	else
+		r = ie_parse_wpa_from_data(rsne, rsne[1] + 2, &rsn_info);
+
+	if (r < 0)
+		goto error_ie_different;
+
+	if ((rsne[1] != hs->authenticator_ie[1] ||
+			memcmp(rsne + 2, hs->authenticator_ie + 2, rsne[1])) &&
+			!handshake_util_ap_ie_matches(&rsn_info,
+							hs->authenticator_ie,
+							hs->wpa_ie))
 		goto error_ie_different;
 
 	if (hs->akm_suite &
 			(IE_RSN_AKM_SUITE_FT_OVER_8021X |
 			 IE_RSN_AKM_SUITE_FT_USING_PSK |
 			 IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256)) {
-		struct ie_rsn_info ie_info;
-
-		if (ie_parse_rsne_from_data(rsne, rsne[1] + 2, &ie_info) < 0)
-			goto error_ie_different;
-
-		if (ie_info.num_pmkids != 1 || memcmp(ie_info.pmkids,
+		if (rsn_info.num_pmkids != 1 || memcmp(rsn_info.pmkids,
 						hs->pmk_r1_name, 16))
 			goto error_ie_different;
 
@@ -1727,12 +1735,8 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	 * RSNE or deauthenticates."
 	 */
 	if (optional_rsne) {
-		struct ie_rsn_info info1;
 		struct ie_rsn_info info2;
 		uint16_t override;
-
-		if (ie_parse_rsne_from_data(rsne, rsne[1] + 2, &info1) < 0)
-			goto error_ie_different;
 
 		if (ie_parse_rsne_from_data(optional_rsne, optional_rsne[1] + 2,
 						&info2) < 0)
@@ -1757,14 +1761,14 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 		 *   and rsne2
 		 * - Check that rsne2 pairwise_ciphers is a subset of rsne
 		 */
-		if (info1.akm_suites != info2.akm_suites ||
-				info1.group_cipher != info2.group_cipher)
+		if (rsn_info.akm_suites != info2.akm_suites ||
+				rsn_info.group_cipher != info2.group_cipher)
 			goto error_ie_different;
 
 		override = info2.pairwise_ciphers;
 
-		if (override == info1.pairwise_ciphers ||
-				!(info1.pairwise_ciphers & override) ||
+		if (override == rsn_info.pairwise_ciphers ||
+				!(rsn_info.pairwise_ciphers & override) ||
 				__builtin_popcount(override) != 1) {
 			handshake_failed(sm,
 				MMPDU_REASON_CODE_INVALID_PAIRWISE_CIPHER);

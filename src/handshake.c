@@ -759,90 +759,69 @@ void handshake_state_set_gtk(struct handshake_state *s, const uint8_t *key,
  * results vs the RSN/WPA IE obtained as part of the 4-way handshake.  If they
  * don't match, the EAPoL packet must be silently discarded.
  */
-bool handshake_util_ap_ie_matches(const uint8_t *msg_ie,
+bool handshake_util_ap_ie_matches(const struct ie_rsn_info *msg_info,
 					const uint8_t *scan_ie, bool is_wpa)
 {
-	struct ie_rsn_info msg_info;
 	struct ie_rsn_info scan_info;
+	int r;
 
-	/*
-	 * First check that the sizes match, if they do, run a bitwise
-	 * comparison.
-	 */
-	if (msg_ie[1] == scan_ie[1] &&
-			!memcmp(msg_ie + 2, scan_ie + 2, msg_ie[1]))
-		return true;
+	if (!is_wpa)
+		r = ie_parse_rsne_from_data(scan_ie,
+						scan_ie[1] + 2, &scan_info);
+	else
+		r = ie_parse_wpa_from_data(scan_ie, scan_ie[1] + 2, &scan_info);
 
-	/*
-	 * Otherwise we have to parse the IEs and compare the individual
-	 * fields
-	 */
-	if (!is_wpa) {
-		if (ie_parse_rsne_from_data(msg_ie, msg_ie[1] + 2,
-						&msg_info) < 0)
-			return false;
-
-		if (ie_parse_rsne_from_data(scan_ie, scan_ie[1] + 2,
-						&scan_info) < 0)
-			return false;
-	} else {
-		if (ie_parse_wpa_from_data(msg_ie, msg_ie[1] + 2,
-						&msg_info) < 0)
-			return false;
-
-		if (ie_parse_wpa_from_data(scan_ie, scan_ie[1] + 2,
-						&scan_info) < 0)
-			return false;
-	}
-
-	if (msg_info.group_cipher != scan_info.group_cipher)
+	if (r < 0)
 		return false;
 
-	if (msg_info.pairwise_ciphers != scan_info.pairwise_ciphers)
+	if (msg_info->group_cipher != scan_info.group_cipher)
 		return false;
 
-	if (msg_info.akm_suites != scan_info.akm_suites)
+	if (msg_info->pairwise_ciphers != scan_info.pairwise_ciphers)
 		return false;
 
-	if (msg_info.preauthentication != scan_info.preauthentication)
+	if (msg_info->akm_suites != scan_info.akm_suites)
 		return false;
 
-	if (msg_info.no_pairwise != scan_info.no_pairwise)
+	if (msg_info->preauthentication != scan_info.preauthentication)
 		return false;
 
-	if (msg_info.ptksa_replay_counter != scan_info.ptksa_replay_counter)
+	if (msg_info->no_pairwise != scan_info.no_pairwise)
 		return false;
 
-	if (msg_info.gtksa_replay_counter != scan_info.gtksa_replay_counter)
+	if (msg_info->ptksa_replay_counter != scan_info.ptksa_replay_counter)
 		return false;
 
-	if (msg_info.mfpr != scan_info.mfpr)
+	if (msg_info->gtksa_replay_counter != scan_info.gtksa_replay_counter)
 		return false;
 
-	if (msg_info.mfpc != scan_info.mfpc)
+	if (msg_info->mfpr != scan_info.mfpr)
 		return false;
 
-	if (msg_info.peerkey_enabled != scan_info.peerkey_enabled)
+	if (msg_info->mfpc != scan_info.mfpc)
 		return false;
 
-	if (msg_info.spp_a_msdu_capable != scan_info.spp_a_msdu_capable)
+	if (msg_info->peerkey_enabled != scan_info.peerkey_enabled)
 		return false;
 
-	if (msg_info.spp_a_msdu_required != scan_info.spp_a_msdu_required)
+	if (msg_info->spp_a_msdu_capable != scan_info.spp_a_msdu_capable)
 		return false;
 
-	if (msg_info.pbac != scan_info.pbac)
+	if (msg_info->spp_a_msdu_required != scan_info.spp_a_msdu_required)
 		return false;
 
-	if (msg_info.extended_key_id != scan_info.extended_key_id)
+	if (msg_info->pbac != scan_info.pbac)
 		return false;
 
-	if (msg_info.ocvc != scan_info.ocvc)
+	if (msg_info->extended_key_id != scan_info.extended_key_id)
+		return false;
+
+	if (msg_info->ocvc != scan_info.ocvc)
 		return false;
 
 	/* We don't check the PMKIDs since these might actually be different */
 
-	if (msg_info.group_management_cipher !=
+	if (msg_info->group_management_cipher !=
 			scan_info.group_management_cipher)
 		return false;
 
