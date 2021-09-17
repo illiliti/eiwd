@@ -837,6 +837,9 @@ bool handshake_util_ap_ie_matches(const uint8_t *msg_ie,
 	if (msg_info.extended_key_id != scan_info.extended_key_id)
 		return false;
 
+	if (msg_info.ocvc != scan_info.ocvc)
+		return false;
+
 	/* We don't check the PMKIDs since these might actually be different */
 
 	if (msg_info.group_management_cipher !=
