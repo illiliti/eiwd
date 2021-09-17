@@ -739,6 +739,7 @@ static int parse_ciphers(const uint8_t *data, size_t len,
 	out_info->spp_a_msdu_required = test_bit(data + 1, 3);
 	out_info->pbac = test_bit(data + 1, 4);
 	out_info->extended_key_id = test_bit(data + 1, 5);
+	out_info->ocvc = test_bit(data + 1, 6);
 
 	/*
 	 * BIP-default group management cipher suite in an RSNA with
@@ -1093,6 +1094,9 @@ static int build_ciphers_common(const struct ie_rsn_info *info, uint8_t *to,
 
 	if (info->extended_key_id)
 		to[pos] |= 0x20;
+
+	if (info->ocvc)
+		to[pos] |= 0x40;
 
 	pos += 1;
 

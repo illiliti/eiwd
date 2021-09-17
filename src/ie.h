@@ -394,6 +394,7 @@ struct ie_rsn_info {
 	bool spp_a_msdu_required:1;
 	bool pbac:1;
 	bool extended_key_id:1;
+	bool ocvc:1;
 	uint8_t num_pmkids;
 	const uint8_t *pmkids;
 	enum ie_rsn_cipher_suite group_management_cipher;
