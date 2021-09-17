@@ -29,11 +29,10 @@ struct handshake_state;
 enum crypto_cipher;
 
 enum handshake_kde {
-	/* 802.11-2016 Table 12-6 in section 12.7.2 */
+	/* 802.11-2020 Table 12-9 in section 12.7.2 */
 	HANDSHAKE_KDE_GTK		= 0x000fac01,
 	HANDSHAKE_KDE_MAC_ADDRESS	= 0x000fac03,
 	HANDSHAKE_KDE_PMKID		= 0x000fac04,
-	HANDSHAKE_KDE_SMK		= 0x000fac05,
 	HANDSHAKE_KDE_NONCE		= 0x000fac06,
 	HANDSHAKE_KDE_LIFETIME		= 0x000fac07,
 	HANDSHAKE_KDE_ERROR		= 0x000fac08,
@@ -41,6 +40,8 @@ enum handshake_kde {
 	HANDSHAKE_KDE_KEY_ID		= 0x000fac0a,
 	HANDSHAKE_KDE_MULTIBAND_GTK	= 0x000fac0b,
 	HANDSHAKE_KDE_MULTIBAND_KEY_ID	= 0x000fac0c,
+	HANDSHAKE_KDE_OCI		= 0x000fac0d,
+	HANDSHAKE_KDE_BIGTK		= 0x000fac0e,
 	/* Wi-Fi P2P Technical Specification v1.7 4.2.8 */
 	HANDSHAKE_KDE_IP_ADDRESS_REQ	= 0x506f9a04,
 	HANDSHAKE_KDE_IP_ADDRESS_ALLOC	= 0x506f9a05,
