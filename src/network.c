@@ -1745,6 +1745,14 @@ static void network_unregister(struct network *network, int reason)
 {
 	struct l_dbus *dbus = dbus_get_bus();
 
+	if (network->connect_after_anqp)
+		dbus_pending_reply(&network->connect_after_anqp,
+			dbus_error_aborted(network->connect_after_anqp));
+
+	if (network->connect_after_owe_hidden)
+		dbus_pending_reply(&network->connect_after_owe_hidden,
+			dbus_error_aborted(network->connect_after_owe_hidden));
+
 	agent_request_cancel(network->agent_request, reason);
 	network_settings_close(network);
 
