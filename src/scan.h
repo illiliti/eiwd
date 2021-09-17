@@ -147,6 +147,9 @@ uint32_t scan_active_full(uint64_t wdev_id,
 			const struct scan_parameters *params,
 			scan_trigger_func_t trigger, scan_notify_func_t notify,
 			void *userdata, scan_destroy_func_t destroy);
+uint32_t scan_owe_hidden(uint64_t wdev_id, struct l_queue *list,
+			scan_trigger_func_t trigger, scan_notify_func_t notify,
+			void *userdata, scan_destroy_func_t destroy);
 bool scan_cancel(uint64_t wdev_id, uint32_t id);
 
 void scan_periodic_start(uint64_t wdev_id, scan_trigger_func_t trigger,
