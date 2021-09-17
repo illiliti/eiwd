@@ -698,7 +698,7 @@ static const char *rsn_capabilities_bitfield[] = {
 	"SPP A-MSDU Required",
 	"PBAC",
 	"Extended Key ID for Individually Addressed Frames",
-	"Reserved",
+	"Operating Channel Validation Capable",
 	"Reserved",
 	NULL
 };
