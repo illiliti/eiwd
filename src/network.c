@@ -392,6 +392,11 @@ struct l_settings *network_get_settings(const struct network *network)
 	return network->settings;
 }
 
+struct station *network_get_station(const struct network *network)
+{
+	return network->station;
+}
+
 static bool network_set_8021x_secrets(struct network *network)
 {
 	const struct l_queue_entry *entry;

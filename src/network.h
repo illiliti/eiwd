@@ -44,6 +44,7 @@ enum security network_get_security(const struct network *network);
 bool network_set_passphrase(struct network *network, const char *passphrase);
 int network_get_signal_strength(const struct network *network);
 struct l_settings *network_get_settings(const struct network *network);
+struct station *network_get_station(const struct network *network);
 
 bool network_set_psk(struct network *network, const uint8_t *psk);
 
