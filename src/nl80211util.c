@@ -31,6 +31,7 @@
 #include "linux/nl80211.h"
 
 #include "src/nl80211util.h"
+#include "src/band.h"
 
 typedef bool (*attr_handler)(const void *data, uint16_t len, void *o);
 
@@ -138,6 +139,11 @@ static attr_handler handler_for_type(enum nl80211_attrs type)
 	case NL80211_ATTR_ACK:
 		return extract_flag;
 	case NL80211_ATTR_WIPHY_FREQ:
+	case NL80211_ATTR_WIPHY_FREQ_OFFSET:
+	case NL80211_ATTR_WIPHY_CHANNEL_TYPE:
+	case NL80211_ATTR_CHANNEL_WIDTH:
+	case NL80211_ATTR_CENTER_FREQ1:
+	case NL80211_ATTR_CENTER_FREQ2:
 		return extract_uint32;
 	default:
 		break;
@@ -429,4 +435,28 @@ struct l_genl_msg *nl80211_build_cmd_frame(uint32_t ifindex,
 	l_genl_msg_append_attrv(msg, NL80211_ATTR_FRAME, iovs, iov_len + 1);
 
 	return msg;
+}
+
+int nl80211_parse_chandef(struct l_genl_msg *msg, struct band_chandef *out)
+{
+	struct band_chandef t;
+
+	if (nl80211_parse_attrs(msg,
+			NL80211_ATTR_WIPHY_FREQ, &t.frequency,
+			NL80211_ATTR_CHANNEL_WIDTH, &t.channel_width,
+			NL80211_ATTR_CENTER_FREQ1, &t.center1_frequency,
+			NL80211_ATTR_UNSPEC) < 0)
+		return -ENOENT;
+
+	t.center2_frequency = 0;
+
+	/* Try to parse CENTER_FREQ2, but it is given only for 80P80 */
+	if (t.channel_width == NL80211_CHAN_WIDTH_80P80 &&
+			nl80211_parse_attrs(msg,
+				NL80211_ATTR_CENTER_FREQ2, &t.center2_frequency,
+				NL80211_ATTR_UNSPEC) < 0)
+		return -ENOENT;
+
+	memcpy(out, &t, sizeof(t));
+	return 0;
 }

@@ -22,6 +22,8 @@
 
 #include <ell/ell.h>
 
+struct band_chandef;
+
 int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...);
 
 struct l_genl_msg *nl80211_build_new_key_group(uint32_t ifindex,
@@ -51,3 +53,5 @@ struct l_genl_msg *nl80211_build_cmd_frame(uint32_t ifindex,
 						uint32_t freq,
 						struct iovec *iov,
 						size_t iov_len);
+
+int nl80211_parse_chandef(struct l_genl_msg *msg, struct band_chandef *out);

@@ -27,6 +27,22 @@ enum ofdm_channel_width {
 	OFDM_CHANNEL_WIDTH_160MHZ,
 };
 
+enum band_chandef_width {
+	BAND_CHANDEF_WIDTH_20NOHT = 0,
+	BAND_CHANDEF_WIDTH_20,
+	BAND_CHANDEF_WIDTH_40,
+	BAND_CHANDEF_WIDTH_80,
+	BAND_CHANDEF_WIDTH_80P80,
+	BAND_CHANDEF_WIDTH_160,
+};
+
+struct band_chandef {
+	uint32_t frequency;
+	uint32_t channel_width;
+	uint32_t center1_frequency;
+	uint32_t center2_frequency;
+};
+
 struct band {
 	uint8_t vht_mcs_set[8];
 	uint8_t vht_capabilities[4];
