@@ -64,6 +64,7 @@
 #include "src/auth-proto.h"
 #include "src/frame-xchg.h"
 #include "src/diagnostic.h"
+#include "src/band.h"
 
 #ifndef ENOTSUPP
 #define ENOTSUPP 524
@@ -129,6 +130,7 @@ struct netdev {
 	uint32_t rekey_offload_cmd_id;
 	uint32_t qos_map_cmd_id;
 	uint32_t mac_change_cmd_id;
+	uint32_t get_oci_cmd_id;
 	enum netdev_result result;
 	uint16_t last_code; /* reason or status, depending on result */
 	struct l_timeout *neighbor_report_timeout;
@@ -921,6 +923,11 @@ static void netdev_free(void *data)
 	if (netdev->get_station_cmd_id) {
 		l_genl_family_cancel(nl80211, netdev->get_station_cmd_id);
 		netdev->get_station_cmd_id = 0;
+	}
+
+	if (netdev->get_oci_cmd_id) {
+		l_genl_family_cancel(nl80211, netdev->get_oci_cmd_id);
+		netdev->get_oci_cmd_id = 0;
 	}
 
 	if (netdev->fw_roam_bss)
@@ -2038,6 +2045,57 @@ static void netdev_send_qos_map_set(struct netdev *netdev,
 						netdev, NULL);
 }
 
+static void netdev_get_oci_cb(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev = user_data;
+	int err = l_genl_msg_get_error(msg);
+	_auto_(l_free) struct band_chandef *chandef =
+						l_new(struct band_chandef, 1);
+
+	netdev->get_oci_cmd_id = 0;
+
+	if (err < 0) {
+		const char *ext_error = l_genl_msg_get_extended_error(msg);
+
+		l_error("Could not get OCI info: %s",
+				ext_error ? ext_error : strerror(-err));
+		goto done;
+	}
+
+	if (nl80211_parse_chandef(msg, chandef) < 0) {
+		l_debug("Couldn't parse operating channel info.");
+		goto done;
+	}
+
+	l_debug("Obtained OCI: freq: %u, width: %u, center1: %u, center2: %u",
+			chandef->frequency, chandef->channel_width,
+			chandef->center1_frequency, chandef->center2_frequency);
+
+	handshake_state_set_chandef(netdev->handshake, l_steal_ptr(chandef));
+
+done:
+	L_WARN_ON(!eapol_start(netdev->sm));
+}
+
+
+static int netdev_get_oci(struct netdev *netdev)
+{
+	struct l_genl_msg *msg =
+			l_genl_msg_new_sized(NL80211_CMD_GET_INTERFACE, 64);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
+
+	netdev->get_oci_cmd_id = l_genl_family_send(nl80211, msg,
+						netdev_get_oci_cb, netdev,
+						NULL);
+	if (!netdev->get_oci_cmd_id) {
+		l_genl_msg_unref(msg);
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static void parse_request_ies(struct netdev *netdev, const uint8_t *ies,
 				size_t ies_len)
 {
@@ -2523,11 +2581,7 @@ process_resp_ies:
 	}
 
 	if (netdev->sm) {
-		/*
-		 * Start processing EAPoL frames now that the state machine
-		 * has all the input data even in FT mode.
-		 */
-		if (L_WARN_ON(!eapol_start(netdev->sm)))
+		if (netdev_get_oci(netdev) < 0)
 			goto deauth;
 
 		return;
