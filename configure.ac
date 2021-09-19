@@ -129,6 +129,7 @@ AC_DEFINE_UNQUOTED(WIRED_STORAGEDIR, "${wired_storagedir}",
 
 AC_CHECK_FUNCS(explicit_bzero)
 AC_CHECK_FUNCS(rawmemchr)
+AC_CHECK_FUNCS(reallocarray)
 
 AC_CHECK_HEADERS(linux/types.h linux/if_alg.h)
 
