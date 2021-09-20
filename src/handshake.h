@@ -126,6 +126,8 @@ struct handshake_state {
 	bool wait_for_gtk : 1;
 	bool no_rekey : 1;
 	bool support_fils : 1;
+	bool authenticator_ocvc : 1;
+	bool supplicant_ocvc : 1;
 	uint8_t ssid[32];
 	size_t ssid_len;
 	char *passphrase;
@@ -143,6 +145,7 @@ struct handshake_state {
 	uint32_t go_ip_addr;
 	uint8_t *fils_ip_req_ie;
 	uint8_t *fils_ip_resp_ie;
+	struct band_chandef *chandef;
 	void *user_data;
 
 	void (*free)(struct handshake_state *s);
@@ -241,6 +244,11 @@ bool handshake_decode_fte_key(struct handshake_state *s, const uint8_t *wrapped,
 
 void handshake_state_set_gtk(struct handshake_state *s, const uint8_t *key,
 				unsigned int key_index, const uint8_t *rsc);
+
+void handshake_state_set_chandef(struct handshake_state *s,
+					struct band_chandef *chandef);
+int handshake_state_verify_oci(struct handshake_state *s, const uint8_t *oci,
+				size_t oci_len);
 
 bool handshake_util_ap_ie_matches(const struct ie_rsn_info *msg_info,
 					const uint8_t *scan_ie, bool is_wpa);

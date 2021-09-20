@@ -42,6 +42,7 @@
 #include "src/util.h"
 #include "src/handshake.h"
 #include "src/erp.h"
+#include "src/band.h"
 
 static inline unsigned int n_ecc_groups()
 {
@@ -111,6 +112,8 @@ void handshake_state_free(struct handshake_state *s)
 
 	if (s->erp_cache)
 		erp_cache_put(s->erp_cache);
+
+	l_free(s->chandef);
 
 	if (s->passphrase) {
 		explicit_bzero(s->passphrase, strlen(s->passphrase));
@@ -188,6 +191,8 @@ valid_ie:
 	l_free(s->authenticator_ie);
 	s->authenticator_ie = l_memdup(ie, ie[1] + 2u);
 
+	s->authenticator_ocvc = info.ocvc;
+
 	return true;
 }
 
@@ -228,6 +233,7 @@ valid_ie:
 	s->group_cipher = info.group_cipher;
 	s->group_management_cipher = info.group_management_cipher;
 	s->akm_suite = info.akm_suites;
+	s->supplicant_ocvc = info.ocvc;
 
 	/*
 	 * Don't set MFP for OSEN otherwise EAPoL will attempt to negotiate a
@@ -1013,4 +1019,52 @@ bool handshake_state_add_ecc_sae_pt(struct handshake_state *s,
 
 	s->ecc_sae_pts[i] = l_ecc_point_clone(pt);
 	return true;
+}
+
+void handshake_state_set_chandef(struct handshake_state *s,
+						struct band_chandef *chandef)
+{
+	s->chandef = chandef;
+}
+
+int handshake_state_verify_oci(struct handshake_state *s, const uint8_t *oci,
+				size_t oci_len)
+{
+	int r = -ENOENT;
+	bool ocvc;
+
+	l_debug("oci_len: %zu", oci ? oci_len : 0);
+
+	if (!oci)
+		goto done;
+
+	r = -EBADMSG;
+	if (oci_len != 3)
+		goto done;
+
+	l_debug("operating_class: %hu", oci[0]);
+	l_debug("primary_channel_number: %hu", oci[1]);
+	l_debug("frequency segment 1 channel number: %hu", oci[2]);
+
+	r = -EINVAL;
+
+	if (!s->chandef) {
+		l_debug("Own chandef unavailable");
+		goto done;
+	}
+
+	r = oci_verify(oci, s->chandef);
+	if (r < 0)
+		l_debug("OCI verification failed: %s", strerror(-r));
+
+done:
+	if (!r)
+		return r;
+
+	/* Only enforce validation if we're configured to do so */
+	ocvc = s->authenticator ? s->authenticator_ocvc : s->supplicant_ocvc;
+	if (!ocvc)
+		r = 0;
+
+	return r;
 }
