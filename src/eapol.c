@@ -1629,6 +1629,8 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	size_t transition_disable_len;
 	uint8_t gtk_key_index;
 	uint16_t igtk_key_index;
+	const uint8_t *oci = NULL;
+	size_t oci_len;
 	int r;
 
 	l_debug("ifindex=%u", hs->ifindex);
@@ -1684,6 +1686,9 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 							hs->wpa_ie))
 		goto error_ie_different;
 
+	oci = handshake_util_find_kde(HANDSHAKE_KDE_OCI, decrypted_key_data,
+					decrypted_key_data_size, &oci_len);
+
 	if (hs->akm_suite &
 			(IE_RSN_AKM_SUITE_FT_OVER_8021X |
 			 IE_RSN_AKM_SUITE_FT_USING_PSK |
@@ -1719,6 +1724,19 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 					IE_TYPE_RSNX,
 					hs->authenticator_rsnxe) < 0)
 		goto error_ie_different;
+
+	/*
+	 * 802.11-2020, Section 12.7.6.4
+	 * If dot11RSNAOperatingChannelValidationActivated is true and
+	 * Authenticator RSNE indicates OCVC capability, the Supplicant
+	 * silently discards message 3 if any of the following are true:
+	 *  - OCI KDE or FTE OCI subelement is missing in the message
+	 *  - Channel information in the OCI does not match current operating
+	 *    channel parameters (see 12.2.9)
+	 */
+	if (hs->authenticator_ocvc &&
+			handshake_state_verify_oci(hs, oci, oci_len) < 0)
+		return;
 
 	/*
 	 * If ptk_complete is set, then we are receiving Message 3 again.
@@ -1964,6 +1982,7 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 					size_t decrypted_key_data_size,
 					bool unencrypted)
 {
+	struct handshake_state *hs = sm->handshake;
 	const uint8_t *kck;
 	struct eapol_key *step2;
 	uint8_t mic[MIC_MAXLEN];
@@ -1973,13 +1992,33 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 	const uint8_t *igtk;
 	size_t igtk_len;
 	uint16_t igtk_key_index;
+	const uint8_t *oci = NULL;
+	size_t oci_len;
 
-	if (!eapol_verify_gtk_1_of_2(ek, sm->handshake->wpa_ie, sm->mic_len)) {
+	l_debug("ifindex=%u", hs->ifindex);
+
+	if (!eapol_verify_gtk_1_of_2(ek, hs->wpa_ie, sm->mic_len)) {
 		handshake_failed(sm, MMPDU_REASON_CODE_UNSPECIFIED);
 		return;
 	}
 
-	if (!sm->handshake->wpa_ie) {
+	oci = handshake_util_find_kde(HANDSHAKE_KDE_OCI, decrypted_key_data,
+					decrypted_key_data_size, &oci_len);
+
+	/*
+	 * 802.11-2020, Section 12.7.2.2
+	 * If dot11RSNAOperatingChannelValidationActivated is true and
+	 * Authenticator RSNE indicates OCVC capability, the Supplicant
+	 * silently discards message 1 if any of the following are true:
+	 *   - OCI KDE is missing in the message
+	 *   - Channel information in the OCI KDE does not match current
+	 *   operating channel parameters (see 12.2.9)
+	 */
+	if (hs->authenticator_ocvc &&
+			handshake_state_verify_oci(hs, oci, oci_len) < 0)
+		return;
+
+	if (!hs->wpa_ie) {
 		gtk = handshake_util_find_gtk_kde(decrypted_key_data,
 							decrypted_key_data_size,
 							&gtk_len);
@@ -2000,7 +2039,7 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 		gtk_key_index = ek->wpa_key_id;
 	}
 
-	if (sm->handshake->mfp) {
+	if (hs->mfp) {
 		igtk = handshake_util_find_igtk_kde(decrypted_key_data,
 							decrypted_key_data_size,
 							&igtk_len);
@@ -2034,14 +2073,14 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 	step2 = eapol_create_gtk_2_of_2(sm->protocol_version,
 					ek->key_descriptor_version,
 					sm->replay_counter,
-					sm->handshake->wpa_ie, ek->wpa_key_id,
+					hs->wpa_ie, ek->wpa_key_id,
 					sm->mic_len);
 
-	kck = handshake_state_get_kck(sm->handshake);
+	kck = handshake_state_get_kck(hs);
 
 	if (sm->mic_len) {
-		if (!eapol_calculate_mic(sm->handshake->akm_suite, kck,
-				step2, mic, sm->mic_len)) {
+		if (!eapol_calculate_mic(hs->akm_suite, kck,
+						step2, mic, sm->mic_len)) {
 			l_debug("MIC calculation failed");
 			l_free(step2);
 			handshake_failed(sm, MMPDU_REASON_CODE_UNSPECIFIED);
@@ -2050,10 +2089,9 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 
 		memcpy(EAPOL_KEY_MIC(step2), mic, sm->mic_len);
 	} else {
-		if (!eapol_aes_siv_encrypt(
-				handshake_state_get_kek(sm->handshake),
-				handshake_state_get_kek_len(sm->handshake),
-				step2, NULL, 0)) {
+		if (!eapol_aes_siv_encrypt(handshake_state_get_kek(hs),
+						handshake_state_get_kek_len(hs),
+						step2, NULL, 0)) {
 			l_debug("AES-SIV encryption failed");
 			l_free(step2);
 			handshake_failed(sm, MMPDU_REASON_CODE_UNSPECIFIED);
