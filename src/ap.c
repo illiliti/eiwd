@@ -1759,6 +1759,11 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 			err = MMPDU_REASON_CODE_INVALID_AKMP;
 			goto unsupported;
 		}
+
+		if (rsn_info.group_cipher != ap->group_cipher) {
+			err = MMPDU_REASON_CODE_INVALID_GROUP_CIPHER;
+			goto unsupported;
+		}
 	}
 
 	/* 802.11-2016 11.3.5.3 j) */
