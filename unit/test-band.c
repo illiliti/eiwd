@@ -282,6 +282,30 @@ static void band_test_vht_1(const void *data)
 	band_free(band);
 }
 
+struct oci2freq_data {
+	unsigned int op;
+	unsigned int chan;
+	int expected_freq;
+};
+
+static const struct oci2freq_data oci2freq_data_1 = { 129, 100, 5500 };
+static const struct oci2freq_data oci2freq_data_2 = { 129, 108, 5540 };
+static const struct oci2freq_data oci2freq_data_3 = { 129, 106, -EINVAL };
+static const struct oci2freq_data oci2freq_data_4 = { 81, 1, 2412 };
+static const struct oci2freq_data oci2freq_data_5 = { 82, 1, -EINVAL };
+static const struct oci2freq_data oci2freq_data_6 = { 82, 14, 2484 };
+static const struct oci2freq_data oci2freq_data_7 = { 88, 0, -ENOENT };
+static const struct oci2freq_data oci2freq_data_8 = { 128, 161, 5805 };
+
+static void test_oci2freq(const void *data)
+{
+	const struct oci2freq_data *test = data;
+	int r;
+
+	r = oci_to_frequency(test->op, test->chan);
+	assert(r == test->expected_freq);
+}
+
 int main(int argc, char *argv[])
 {
 	l_test_init(&argc, &argv);
@@ -291,6 +315,15 @@ int main(int argc, char *argv[])
 	l_test_add("/band/HT/test1", band_test_ht_1, NULL);
 
 	l_test_add("/band/VHT/test1", band_test_vht_1, NULL);
+
+	l_test_add("/band/oci2freq 1", test_oci2freq, &oci2freq_data_1);
+	l_test_add("/band/oci2freq 2", test_oci2freq, &oci2freq_data_2);
+	l_test_add("/band/oci2freq 3", test_oci2freq, &oci2freq_data_3);
+	l_test_add("/band/oci2freq 4", test_oci2freq, &oci2freq_data_4);
+	l_test_add("/band/oci2freq 5", test_oci2freq, &oci2freq_data_5);
+	l_test_add("/band/oci2freq 6", test_oci2freq, &oci2freq_data_6);
+	l_test_add("/band/oci2freq 7", test_oci2freq, &oci2freq_data_7);
+	l_test_add("/band/oci2freq 8", test_oci2freq, &oci2freq_data_8);
 
 	return l_test_run();
 }
