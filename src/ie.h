@@ -419,6 +419,7 @@ enum ie_bss_capability {
 
 struct ie_ft_info {
 	uint8_t mic_element_count;
+	bool rsnxe_used : 1;
 	uint8_t mic[24];
 	uint8_t anonce[32];
 	uint8_t snonce[32];

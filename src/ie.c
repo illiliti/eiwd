@@ -1732,6 +1732,7 @@ int ie_parse_fast_bss_transition(struct ie_tlv_iter *iter, uint32_t mic_len,
 
 	memset(info, 0, sizeof(*info));
 
+	info->rsnxe_used = test_bit(data, 0);
 	info->mic_element_count = data[1];
 
 	memcpy(info->mic, data + 2, mic_len);
