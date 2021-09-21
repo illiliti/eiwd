@@ -2262,6 +2262,23 @@ static void print_mobility_domain(unsigned int level, const char *label,
 		print_attr(level + 1, "Resource Request Protocol bit set");
 }
 
+static void print_rsnx(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	const uint8_t *ptr = data;
+	uint8_t field_size = bit_field(ptr[0], 0, 4);
+
+	print_attr(level, "%s", label);
+
+	print_attr(level + 1, "Field Size: %u", field_size);
+
+	if (test_bit(ptr, 4))
+		print_attr(level + 1, "Protected TWT Operations Support");
+
+	if (test_bit(ptr, 5))
+		print_attr(level + 1, "SAE Hash-to-Element");
+}
+
 static struct attr_entry ie_entry[] = {
 	{ IE_TYPE_SSID,				"SSID",
 		ATTR_CUSTOM,	{ .function = print_ie_ssid } },
@@ -2324,6 +2341,8 @@ static struct attr_entry ie_entry[] = {
 		ATTR_CUSTOM,	{ .function = print_fast_bss_transition } },
 	{ IE_TYPE_MOBILITY_DOMAIN,		"Mobility Domain",
 		ATTR_CUSTOM,	{ .function = print_mobility_domain } },
+	{ IE_TYPE_RSNX,				"RSNX",
+		ATTR_CUSTOM,	{ .function = print_rsnx } },
 	{ },
 };
 
