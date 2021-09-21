@@ -405,6 +405,7 @@ unit_test_eap_sim_SOURCES = unit/test-eap-sim.c \
 		src/util.h src/util.c \
 		src/simauth.h src/simauth.c \
 		src/erp.h src/erp.c \
+		src/band.h src/band.c \
 		src/eap-sim.c
 
 unit_test_eap_sim_LDADD = $(ell_ldadd)
@@ -465,6 +466,7 @@ unit_test_eapol_SOURCES = unit/test-eapol.c \
 				src/eap-md5.c src/util.c \
 				src/eap-tls-common.h src/eap-tls-common.c \
 				src/erp.h src/erp.c \
+				src/band.h src/band.c \
 				src/mschaputil.h src/mschaputil.c
 unit_test_eapol_LDADD = $(ell_ldadd)
 unit_test_eapol_DEPENDENCIES = $(ell_dependencies) \
@@ -492,6 +494,7 @@ unit_test_wsc_SOURCES = unit/test-wsc.c src/wscutil.h src/wscutil.c \
 				src/eap.h src/eap.c src/eap-private.h \
 				src/util.h src/util.c \
 				src/erp.h src/erp.c \
+				src/band.h src/band.c \
 				src/eap-wsc.h src/eap-wsc.c
 unit_test_wsc_LDADD = $(ell_ldadd)
 
@@ -520,6 +523,7 @@ unit_test_sae_SOURCES = unit/test-sae.c \
 				src/ie.h src/ie.c \
 				src/handshake.h src/handshake.c \
 				src/erp.h src/erp.c \
+				src/band.h src/band.c \
 				src/util.h src/util.c \
 				src/mpdu.h src/mpdu.c
 unit_test_sae_LDADD = $(ell_ldadd)
