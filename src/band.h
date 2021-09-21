@@ -73,3 +73,5 @@ int band_estimate_nonht_rate(const struct band *band,
 				int32_t rssi, uint64_t *out_data_rate);
 
 int oci_to_frequency(uint32_t operating_class, uint32_t channel);
+
+int oci_verify(const uint8_t oci[static 3], const struct band_chandef *own);

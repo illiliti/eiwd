@@ -466,6 +466,26 @@ try_vht80:
 	return -ENETUNREACH;
 }
 
+static int band_channel_info_get_bandwidth(const struct band_chandef *info)
+{
+	switch (info->channel_width) {
+	case BAND_CHANDEF_WIDTH_20NOHT:
+	case BAND_CHANDEF_WIDTH_20:
+		return 20;
+	case BAND_CHANDEF_WIDTH_40:
+		return 40;
+	case BAND_CHANDEF_WIDTH_80:
+		return 80;
+	case BAND_CHANDEF_WIDTH_80P80:
+	case BAND_CHANDEF_WIDTH_160:
+		return 160;
+	default:
+		break;
+	}
+
+	return -ENOTSUP;
+}
+
 struct operating_class_info {
 	uint32_t starting_frequency;
 	uint32_t flags;
@@ -685,4 +705,101 @@ int oci_to_frequency(uint32_t operating_class, uint32_t channel)
 		return -ENOENT;
 
 	return e4_channel_to_frequency(info, channel);
+}
+
+int oci_verify(const uint8_t oci[static 3], const struct band_chandef *own)
+{
+	const struct operating_class_info *info;
+	int oci_frequency;
+	int own_bandwidth;
+	int oci_bandwidth;
+
+	info = e4_find_opclass(oci[0]);
+	if (!info)
+		return -ENOENT;
+
+	/*
+	 * 802.11-2020, 12.2.9:
+	 * Verifying that the maximum bandwidth used by the STA to transmit or
+	 * receive PPDUs to/from the peer STA from which the OCI was received
+	 * is no greater than the bandwidth of the operating class specified
+	 * in the Operating Class field of the received OCI
+	 */
+	own_bandwidth = band_channel_info_get_bandwidth(own);
+	if (own_bandwidth < 0)
+		return own_bandwidth;
+
+	oci_bandwidth = info->channel_spacing;
+	if (info->flags & PLUS80)
+		oci_bandwidth *= 2;
+
+	if (own_bandwidth > oci_bandwidth)
+		return -EPERM;
+
+	/*
+	 * 802.11-2020, 12.2.9:
+	 * Verifying that the primary channel used by the STA to transmit or
+	 * receive PPDUs to/from the peer STA from which the OCI was received
+	 * is equal to the Primary Channel Number field (for the corresponding
+	 * operating class)
+	 */
+	oci_frequency = e4_channel_to_frequency(info, oci[1]);
+	if (oci_frequency < 0)
+		return oci_frequency;
+
+	if (oci_frequency != (int) own->frequency)
+		return -EPERM;
+
+	/*
+	 * 802.11-2020, 12.2.9:
+	 * Verifying that, when 40 MHz bandwidth is used by the STA to transmit
+	 * or receive PPDUs to/from the peer STA from which the OCI was
+	 * received, the nonprimary 20 MHz used matches the operating class
+	 * (i.e., upper/lower behavior) specified in the Operating Class field
+	 * of the received OCI
+	 *
+	 * NOTE: For now we only check this if the STA and peer are operating
+	 * on 40 Mhz channels.  If the STA is operating on 40 Mhz while the
+	 * peer is operating on 80 or 160 Mhz wide channels, then only the
+	 * primary channel validation is performed
+	 */
+	if (own_bandwidth == 40 && oci_bandwidth == 40) {
+		uint32_t behavior;
+
+		/*
+		 * - Primary Channel Upper Behavior -> Secondary channel below
+		 *   primary channel.  Or HT40MINUS.
+		 * - Primary Channel Lower Behavior -> Secondary channel above
+		 *   primary channel.  Or HT40PLUS.
+		 */
+		if (own->center1_frequency > own->frequency)
+			behavior = PRIMARY_CHANNEL_LOWER;
+		else
+			behavior = PRIMARY_CHANNEL_UPPER;
+
+		if ((info->flags & behavior) != behavior)
+			return -EPERM;
+	}
+
+	/*
+	 * 802.11-2020, 12.2.9:
+	 * Verifying that, if operating an 80+80 MHz operating class, the
+	 * frequency segment 1 channel number used by the STA to transmit or
+	 * receive PPDUs to/from the peer STA from which the OCI was received
+	 * is equal to the Frequency Segment 1 Channel Number field of the OCI.
+	 */
+	if (own->channel_width == BAND_CHANDEF_WIDTH_80P80) {
+		uint32_t freq_segment1_chan_num;
+
+		if (!(info->flags & PLUS80))
+			return -EPERM;
+
+		freq_segment1_chan_num = (own->center2_frequency -
+						info->starting_frequency) / 5;
+
+		if (freq_segment1_chan_num != oci[2])
+			return -EPERM;
+	}
+
+	return 0;
 }
