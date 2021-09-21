@@ -306,6 +306,29 @@ static void test_oci2freq(const void *data)
 	assert(r == test->expected_freq);
 }
 
+static const struct band_chandef cd_1 = {
+	.frequency = 5540,
+	.channel_width = BAND_CHANDEF_WIDTH_160,
+	.center1_frequency = 5570,
+};
+
+struct oci_data {
+	const struct band_chandef *cd;
+	uint8_t oci[3];
+	int expected_verify_error;
+};
+
+static const struct oci_data oci_data_1 = { &cd_1, { 129, 108, 0 } };
+
+static void test_oci_verify(const void *data)
+{
+	const struct oci_data *test = data;
+	int r;
+
+	r = oci_verify(test->oci, test->cd);
+	assert(r == test->expected_verify_error);
+}
+
 int main(int argc, char *argv[])
 {
 	l_test_init(&argc, &argv);
@@ -324,6 +347,8 @@ int main(int argc, char *argv[])
 	l_test_add("/band/oci2freq 6", test_oci2freq, &oci2freq_data_6);
 	l_test_add("/band/oci2freq 7", test_oci2freq, &oci2freq_data_7);
 	l_test_add("/band/oci2freq 8", test_oci2freq, &oci2freq_data_8);
+
+	l_test_add("/band/oci/verify 1", test_oci_verify, &oci_data_1);
 
 	return l_test_run();
 }
