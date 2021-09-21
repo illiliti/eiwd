@@ -2238,6 +2238,30 @@ static void print_fast_bss_transition(unsigned int level, const char *label,
 	}
 }
 
+static void print_mobility_domain(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	uint16_t mdid;
+	bool ft_over_ds;
+	bool resource_req;
+
+	print_attr(level, "%s", label);
+
+	if (ie_parse_mobility_domain_from_data(data - 2, size + 2, &mdid,
+					&ft_over_ds, &resource_req) < 0) {
+		print_attr(level + 1, "error parsing");
+		return;
+	}
+
+	print_attr(level + 1, "MDID: %04x", mdid);
+
+	if (ft_over_ds)
+		print_attr(level + 1, "FT-over-DS bit set");
+
+	if (resource_req)
+		print_attr(level + 1, "Resource Request Protocol bit set");
+}
+
 static struct attr_entry ie_entry[] = {
 	{ IE_TYPE_SSID,				"SSID",
 		ATTR_CUSTOM,	{ .function = print_ie_ssid } },
@@ -2298,6 +2322,8 @@ static struct attr_entry ie_entry[] = {
 		ATTR_CUSTOM,	{ .function = print_measurement_report } },
 	{ IE_TYPE_FAST_BSS_TRANSITION,		"Fast BSS Transition",
 		ATTR_CUSTOM,	{ .function = print_fast_bss_transition } },
+	{ IE_TYPE_MOBILITY_DOMAIN,		"Mobility Domain",
+		ATTR_CUSTOM,	{ .function = print_mobility_domain } },
 	{ },
 };
 
