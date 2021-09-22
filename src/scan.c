@@ -49,6 +49,7 @@
 #include "src/util.h"
 #include "src/p2putil.h"
 #include "src/mpdu.h"
+#include "src/band.h"
 #include "src/scan.h"
 
 /* User configurable options */
@@ -1060,14 +1061,18 @@ static void scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
 	}
 
 	if (is_ie_wfa_ie(data, len, IE_WFA_OI_OWE_TRANSITION)) {
-		bss->owe_trans = l_new(struct ie_owe_transition_info, 1);
+		_auto_(l_free) struct ie_owe_transition_info *owe_trans =
+				l_new(struct ie_owe_transition_info, 1);
 
-		if (ie_parse_owe_transition(data - 2, len + 2,
-						bss->owe_trans) < 0) {
-			l_free(bss->owe_trans);
-			bss->owe_trans = NULL;
-		}
+		if (ie_parse_owe_transition(data - 2, len + 2, owe_trans) < 0)
+			return;
 
+		if (owe_trans->oper_class &&
+				oci_to_frequency(owe_trans->oper_class,
+						owe_trans->channel) < 0)
+			return;
+
+		bss->owe_trans = l_steal_ptr(owe_trans);
 		return;
 	}
 
