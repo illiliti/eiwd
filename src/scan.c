@@ -671,6 +671,22 @@ uint32_t scan_active_full(uint64_t wdev_id,
 					trigger, notify, userdata, destroy);
 }
 
+static void scan_add_owe_freq(struct scan_freq_set *freqs,
+				const struct scan_bss *bss)
+{
+	int freq;
+
+	if (bss->owe_trans->oper_class)
+		freq = oci_to_frequency(bss->owe_trans->oper_class,
+					bss->owe_trans->channel);
+	else
+		freq = bss->frequency;
+
+	L_WARN_ON(freq < 0);
+
+	scan_freq_set_add(freqs, freq);
+}
+
 static void add_owe_scan_cmd(struct scan_context *sc, struct scan_request *sr,
 				bool ignore_flush,
 				struct scan_freq_set *freqs,
@@ -682,7 +698,9 @@ static void add_owe_scan_cmd(struct scan_context *sc, struct scan_request *sr,
 
 	if (!freqs) {
 		tmp = scan_freq_set_new();
-		scan_freq_set_add(tmp, bss->frequency);
+
+		scan_add_owe_freq(tmp, bss);
+
 		params.freqs = tmp;
 	} else
 		params.freqs = freqs;
@@ -733,7 +751,7 @@ uint32_t scan_owe_hidden(uint64_t wdev_id, struct l_queue *list,
 	for (entry = l_queue_get_entries(list); entry; entry = entry->next) {
 		bss = entry->data;
 
-		scan_freq_set_add(freqs, bss->frequency);
+		scan_add_owe_freq(freqs, bss);
 
 		/* First */
 		if (!ssid) {
