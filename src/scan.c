@@ -686,8 +686,8 @@ static void add_owe_scan_cmd(struct scan_context *sc, struct scan_request *sr,
 	} else
 		params.freqs = freqs;
 
-	params.ssid = bss->owe_trans_ssid;
-	params.ssid_len = bss->owe_trans_ssid_len;
+	params.ssid = bss->owe_trans->ssid;
+	params.ssid_len = bss->owe_trans->ssid_len;
 	params.flush = true;
 
 	cmd = scan_build_cmd(sc, ignore_flush, false, &params);
@@ -736,14 +736,14 @@ uint32_t scan_owe_hidden(uint64_t wdev_id, struct l_queue *list,
 
 		/* First */
 		if (!ssid) {
-			ssid = bss->owe_trans_ssid;
-			ssid_len = bss->owe_trans_ssid_len;
+			ssid = bss->owe_trans->ssid;
+			ssid_len = bss->owe_trans->ssid_len;
 			continue;
 		}
 
-		if (ssid_len == bss->owe_trans_ssid_len &&
-				!memcmp(ssid, bss->owe_trans_ssid,
-				bss->owe_trans_ssid_len))
+		if (ssid_len == bss->owe_trans->ssid_len &&
+				!memcmp(ssid, bss->owe_trans->ssid,
+				bss->owe_trans->ssid_len))
 			continue;
 
 		same_ssid = false;
@@ -1060,9 +1060,14 @@ static void scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
 	}
 
 	if (is_ie_wfa_ie(data, len, IE_WFA_OI_OWE_TRANSITION)) {
-		ie_parse_owe_transition(data - 2, len + 2, bss->owe_trans_bssid,
-					bss->owe_trans_ssid,
-					&bss->owe_trans_ssid_len);
+		bss->owe_trans = l_new(struct ie_owe_transition_info, 1);
+
+		if (ie_parse_owe_transition(data - 2, len + 2,
+						bss->owe_trans) < 0) {
+			l_free(bss->owe_trans);
+			bss->owe_trans = NULL;
+		}
+
 		return;
 	}
 
@@ -1511,6 +1516,7 @@ void scan_bss_free(struct scan_bss *bss)
 	l_free(bss->osen);
 	l_free(bss->rc_ie);
 	l_free(bss->wfd);
+	l_free(bss->owe_trans);
 
 	switch (bss->source_frame) {
 	case SCAN_BSS_PROBE_RESP:

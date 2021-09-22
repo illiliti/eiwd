@@ -2501,9 +2501,7 @@ int ie_parse_network_cost(const void *data, size_t len,
 }
 
 int ie_parse_owe_transition(const void *data, size_t len,
-				uint8_t bssid[static 6],
-				uint8_t ssid[static 32],
-				size_t *ssid_len)
+				struct ie_owe_transition_info *info)
 {
 	const uint8_t *ie = data;
 	size_t slen;
@@ -2535,10 +2533,10 @@ int ie_parse_owe_transition(const void *data, size_t len,
 	if (len != slen + 13)
 		return -ENOMSG;
 
-	memcpy(bssid, ie + 6, 6);
+	memcpy(info->bssid, ie + 6, 6);
 
-	memcpy(ssid, ie + 13, slen);
-	*ssid_len = slen;
+	memcpy(info->ssid, ie + 13, slen);
+	info->ssid_len = slen;
 
 	return 0;
 }

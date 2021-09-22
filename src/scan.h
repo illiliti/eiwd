@@ -22,6 +22,7 @@
 
 struct scan_freq_set;
 struct ie_rsn_info;
+struct ie_owe_transition_info;
 struct p2p_probe_resp;
 struct p2p_probe_req;
 struct p2p_beacon;
@@ -62,6 +63,7 @@ struct scan_bss {
 		struct p2p_probe_req *p2p_probe_req_info;
 		struct p2p_beacon *p2p_beacon_info;
 	};
+	struct ie_owe_transition_info *owe_trans;
 	uint8_t mde[3];
 	uint8_t ssid[32];
 	uint8_t ssid_len;
@@ -76,9 +78,6 @@ struct scan_bss {
 	uint64_t parent_tsf;
 	uint8_t *wfd;		/* Concatenated WFD IEs */
 	ssize_t wfd_size;	/* Size of Concatenated WFD IEs */
-	uint8_t owe_trans_ssid[32];
-	size_t owe_trans_ssid_len;
-	uint8_t owe_trans_bssid[6];
 	bool mde_present : 1;
 	bool cc_present : 1;
 	bool cap_rm_neighbor_report : 1;

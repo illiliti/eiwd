@@ -1110,11 +1110,6 @@ const struct l_queue_entry *network_bss_list_get_entries(
 	return l_queue_get_entries(network->bss_list);
 }
 
-static bool bss_is_owe(struct scan_bss *bss)
-{
-	return !l_memeqzero(bss->owe_trans_bssid, 6) && bss->rsne;
-}
-
 struct scan_bss *network_bss_select(struct network *network,
 						bool fallback_to_blacklist)
 {
@@ -1141,13 +1136,13 @@ struct scan_bss *network_bss_select(struct network *network,
 			candidate = bss;
 
 		/* OWE Transition BSS */
-		if (!l_memeqzero(bss->owe_trans_bssid, 6)) {
+		if (!bss->owe_trans) {
 			/* Don't want to connect to the Open BSS if possible */
 			if (!bss->rsne)
 				continue;
 
 			/* Candidate is not OWE, set this as new candidate */
-			if (!bss_is_owe(candidate))
+			if (!(candidate->owe_trans && candidate->rsne))
 				candidate = bss;
 		}
 

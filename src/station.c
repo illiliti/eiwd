@@ -400,8 +400,8 @@ static struct network *station_add_seen_bss(struct station *station,
 		return NULL;
 
 	/* Hidden OWE transition network */
-	if (security == SECURITY_NONE && bss->rsne &&
-					!l_memeqzero(bss->owe_trans_bssid, 6)) {
+	if (security == SECURITY_NONE && bss->rsne && bss->owe_trans) {
+		struct ie_owe_transition_info *info = bss->owe_trans;
 		/*
 		 * WiFi Alliance OWE Specification v1.1 - Section 2.2.1:
 		 *
@@ -420,18 +420,17 @@ static struct network *station_add_seen_bss(struct station *station,
 		 * we could not look up the network. Note that this is not true
 		 * for the open BSS IE, it can be non-utf8.
 		 */
-		if (!util_ssid_is_utf8(bss->owe_trans_ssid_len,
-					bss->owe_trans_ssid))
+		if (!util_ssid_is_utf8(info->ssid_len, info->ssid))
 			return NULL;
 
-		if (!memcmp(bss->owe_trans_ssid, bss->ssid, bss->ssid_len))
+		if (!memcmp(info->ssid, bss->ssid, bss->ssid_len))
 			return NULL;
 
-		if (!memcmp(bss->owe_trans_bssid, bss->addr, 6))
+		if (!memcmp(info->bssid, bss->addr, 6))
 			return NULL;
 
-		memcpy(ssid, bss->owe_trans_ssid, sizeof(bss->owe_trans_ssid));
-		ssid[bss->owe_trans_ssid_len] = '\0';
+		memcpy(ssid, info->ssid, info->ssid_len);
+		ssid[info->ssid_len] = '\0';
 
 		l_debug("Found hidden OWE network, using %s for network lookup",
 				ssid);
@@ -690,10 +689,12 @@ static bool station_start_anqp(struct station *station, struct network *network,
 static bool network_has_open_pair(struct network *network, struct scan_bss *owe)
 {
 	const struct l_queue_entry *entry;
+	struct ie_owe_transition_info *owe_info = owe->owe_trans;
 
 	for (entry = network_bss_list_get_entries(network); entry;
 				entry = entry->next) {
 		struct scan_bss *open = entry->data;
+		struct ie_owe_transition_info *open_info = open->owe_trans;
 
 		/*
 		 * Check if this is an Open/Hidden pair:
@@ -704,14 +705,14 @@ static bool network_has_open_pair(struct network *network, struct scan_bss *owe)
 		 * OWE SSID equals the SSID in Open IE
 		 * OWE BSSID equals the BSSID in Open IE
 		 */
-		if (open->ssid_len == owe->owe_trans_ssid_len &&
-				open->owe_trans_ssid_len == owe->ssid_len &&
-				!memcmp(open->ssid, owe->owe_trans_ssid,
+		if (open->ssid_len == owe_info->ssid_len &&
+				open_info->ssid_len == owe->ssid_len &&
+				!memcmp(open->ssid, owe_info->ssid,
 					open->ssid_len) &&
-				!memcmp(open->owe_trans_ssid, owe->ssid,
+				!memcmp(open_info->ssid, owe->ssid,
 					owe->ssid_len) &&
-				!memcmp(open->addr, owe->owe_trans_bssid, 6) &&
-				!memcmp(open->owe_trans_bssid, owe->addr, 6))
+				!memcmp(open->addr, owe_info->bssid, 6) &&
+				!memcmp(open_info->bssid, owe->addr, 6))
 			return true;
 	}
 
@@ -736,10 +737,10 @@ static bool station_owe_transition_results(int err, struct l_queue *bss_list,
 		 * Don't handle the open BSS, hidden BSS, BSS with no OWE
 		 * Transition IE, or an IE with a non-utf8 SSID
 		 */
-		if (!bss->rsne || l_memeqzero(bss->owe_trans_bssid, 6) ||
+		if (!bss->rsne || !bss->owe_trans ||
 				util_ssid_is_hidden(bss->ssid_len, bss->ssid) ||
-				!util_ssid_is_utf8(bss->owe_trans_ssid_len,
-							bss->owe_trans_ssid))
+				!util_ssid_is_utf8(bss->owe_trans->ssid_len,
+							bss->owe_trans->ssid))
 			goto free;
 
 
@@ -807,7 +808,7 @@ static void foreach_add_owe_scan(struct network *network, void *data)
 				entry = entry->next) {
 		struct scan_bss *open = entry->data;
 
-		if (l_memeqzero(open->owe_trans_bssid, 6))
+		if (!open->owe_trans)
 			continue;
 
 		/* only want the open networks with WFA OWE IE */
@@ -815,7 +816,7 @@ static void foreach_add_owe_scan(struct network *network, void *data)
 			continue;
 
 		/* BSS already in network object */
-		if (network_bss_find_by_addr(network, open->owe_trans_bssid))
+		if (network_bss_find_by_addr(network, open->owe_trans->bssid))
 			continue;
 
 		if (!list)
@@ -3037,7 +3038,7 @@ static bool station_hidden_network_scan_results(int err,
 					memcmp(bss->ssid, ssid, ssid_len))
 			goto next;
 
-		if (!l_memeqzero(bss->owe_trans_bssid, 6))
+		if (bss->owe_trans)
 			goto next;
 
 		/*
@@ -3134,7 +3135,7 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 		struct scan_bss *target = network_bss_select(network, true);
 
 		/* Treat OWE transition networks special */
-		if (!l_memeqzero(target->owe_trans_bssid, 6))
+		if (target->owe_trans)
 			goto not_hidden;
 
 		for (; entry; entry = entry->next) {
