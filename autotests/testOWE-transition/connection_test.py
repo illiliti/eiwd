@@ -196,6 +196,30 @@ class Test(unittest.TestCase):
         with self.assertRaises(iwd.NotFoundEx):
             self.validate(self.wd, self.hapd_owe, connect_hidden=True)
 
+    def test_owe_transition_band_info(self):
+        self.hapd_open.set_value('vendor_elements', 'dd17506f9a1c02000000f1000a6f77652d68696464656e5103')
+        self.hapd_open.reload()
+        self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000f0000a7472616e736974696f6e')
+        self.hapd_owe.set_value('channel', '3')
+        self.hapd_owe.reload()
+
+        self.hapd_owe2.disable()
+        self.hapd_open2.disable()
+
+        self.validate(self.wd, self.hapd_owe)
+
+    def test_owe_transition_wrong_band_info(self):
+        self.hapd_open.set_value('vendor_elements', 'dd17506f9a1c02000000f1000a6f77652d68696464656e5102')
+        self.hapd_open.reload()
+        self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000f0000a7472616e736974696f6e')
+        self.hapd_owe.set_value('channel', '3')
+        self.hapd_owe.reload()
+
+        self.hapd_owe2.disable()
+        self.hapd_open2.disable()
+
+        self.validate(self.wd, self.hapd_open)
+
     def setUp(self):
         self.wd = IWD(True)
         self.hapd_owe = HostapdCLI(config='ssidOWE.conf')
@@ -205,6 +229,8 @@ class Test(unittest.TestCase):
 
     def tearDown(self):
         IWD.clear_storage()
+
+        self.hapd_owe.set_value('channel', '1')
 
         self.wd = None
         self.hapd_open = None
