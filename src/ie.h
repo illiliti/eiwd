@@ -489,6 +489,12 @@ struct ie_fils_ip_addr_response_info {
 	uint8_t ipv6_lifetime;		/* Zero if not provided */
 };
 
+struct ie_owe_transition_info {
+	uint8_t bssid[6];
+	uint8_t ssid[32];
+	size_t ssid_len;
+};
+
 extern const unsigned char ieee_oui[3];
 extern const unsigned char microsoft_oui[3];
 extern const unsigned char wifi_alliance_oui[3];
