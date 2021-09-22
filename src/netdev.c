@@ -5210,7 +5210,7 @@ static void netdev_unicast_notify(struct l_genl_msg *msg, void *user_data)
 	if (!cmd)
 		return;
 
-	l_debug("Unicast notification %u", cmd);
+	l_debug("Unicast notification %s(%u)", nl80211cmd_to_string(cmd), cmd);
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
