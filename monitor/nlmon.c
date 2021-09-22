@@ -1012,17 +1012,16 @@ static void print_ipv4(unsigned int level, const char *label,
 static void print_ie_wfa_owe_transition(unsigned int level, const char *label,
 						const void *data, uint16_t size)
 {
-	uint8_t bssid[6];
-	uint8_t ssid[32];
-	size_t ssid_len;
+	struct ie_owe_transition_info info;
 
-	if (ie_parse_owe_transition(data, size, bssid, ssid, &ssid_len) < 0) {
+	if (ie_parse_owe_transition(data, size, &info) < 0) {
 		print_attr(level + 1, "Error parsing");
 		return;
 	}
 
-	print_attr(level + 1, "BSSID: "MAC, MAC_STR(bssid));
-	print_attr(level + 1, "SSID: %s", util_ssid_to_utf8(ssid_len, ssid));
+	print_attr(level + 1, "BSSID: "MAC, MAC_STR(info.bssid));
+	print_attr(level + 1, "SSID: %s", util_ssid_to_utf8(info.ssid_len,
+								info.ssid));
 }
 
 static void print_ie_vendor(unsigned int level, const char *label,
