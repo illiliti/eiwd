@@ -493,6 +493,8 @@ struct ie_owe_transition_info {
 	uint8_t bssid[6];
 	uint8_t ssid[32];
 	size_t ssid_len;
+	uint8_t oper_class;
+	uint8_t channel;
 };
 
 extern const unsigned char ieee_oui[3];

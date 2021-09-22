@@ -2504,6 +2504,10 @@ int ie_parse_owe_transition(const void *data, size_t len,
 				struct ie_owe_transition_info *info)
 {
 	const uint8_t *ie = data;
+	const uint8_t *bssid;
+	const uint8_t *ssid;
+	uint8_t oper_class = 0;
+	uint8_t channel = 0;
 	size_t slen;
 
 	if (len < 14 || ie[0] != IE_TYPE_VENDOR_SPECIFIC)
@@ -2521,22 +2525,23 @@ int ie_parse_owe_transition(const void *data, size_t len,
 	 *
 	 * "Band Info and Channel Info are optional fields. If configured,
 	 * both fields shall be included in an OWE Transition Mode element"
-	 *
-	 * TODO: Support Band/Channel bytes:
-	 * For the time being the OWE transition AP is assumed to be on the same
-	 * channel as the open AP. This means there should be no band/channel
-	 * bytes at the end of the IE. Currently hostapd has no support for this
-	 * so it can be skipped. In addition 802.11 Appendix E-1 needs to be
-	 * encoded as a table to map Country/operating class to channels to make
-	 * any sense of it.
 	 */
-	if (len != slen + 13)
+	if (len != slen + 13 && len != slen + 15)
 		return -ENOMSG;
 
-	memcpy(info->bssid, ie + 6, 6);
+	bssid = ie + 6;
+	ssid = ie + 13;
 
-	memcpy(info->ssid, ie + 13, slen);
+	if (len == slen + 15) {
+		oper_class = l_get_u8(ie + 13 + slen);
+		channel = l_get_u8(ie + 14 + slen);
+	}
+
+	memcpy(info->bssid, bssid, 6);
+	memcpy(info->ssid, ssid, slen);
 	info->ssid_len = slen;
+	info->oper_class = oper_class;
+	info->channel = channel;
 
 	return 0;
 }
