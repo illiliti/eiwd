@@ -696,6 +696,100 @@ static int e4_channel_to_frequency(const struct operating_class_info *info,
 	return -EINVAL;
 }
 
+static int e4_frequency_to_channel(const struct operating_class_info *info,
+					uint32_t frequency)
+{
+	return (frequency - info->starting_frequency) / 5;
+}
+
+static int e4_has_frequency(const struct operating_class_info *info,
+				uint32_t frequency)
+{
+	unsigned int i;
+	unsigned int channel = e4_frequency_to_channel(info, frequency);
+
+	for (i = 0; info->channel_set[i] &&
+				i < L_ARRAY_SIZE(info->channel_set); i++) {
+		if (info->channel_set[i] != channel)
+			continue;
+
+		return 0;
+	}
+
+	return -ENOENT;
+}
+
+static int e4_has_ccfi(const struct operating_class_info *info,
+				uint32_t center_frequency)
+{
+	unsigned int i;
+	unsigned int ccfi = e4_frequency_to_channel(info, center_frequency);
+
+	for (i = 0; info->center_frequencies[i] &&
+			i < L_ARRAY_SIZE(info->center_frequencies); i++) {
+		if (info->center_frequencies[i] != ccfi)
+			continue;
+
+		return 0;
+	}
+
+	return -ENOENT;
+}
+
+static int e4_class_matches(const struct operating_class_info *info,
+					const struct band_chandef *chandef)
+{
+	int own_bandwidth = band_channel_info_get_bandwidth(chandef);
+	int r;
+
+	if (own_bandwidth < 0)
+		return own_bandwidth;
+
+	switch (chandef->channel_width) {
+	case BAND_CHANDEF_WIDTH_20NOHT:
+	case BAND_CHANDEF_WIDTH_20:
+	case BAND_CHANDEF_WIDTH_40:
+		if (own_bandwidth != info->channel_spacing)
+			return -ENOENT;
+
+		if (own_bandwidth == 40) {
+			uint32_t behavior;
+
+			if (chandef->center1_frequency > chandef->frequency)
+				behavior = PRIMARY_CHANNEL_LOWER;
+			else
+				behavior = PRIMARY_CHANNEL_UPPER;
+
+			if ((info->flags & behavior) != behavior)
+				return -ENOENT;
+		}
+
+		return e4_has_frequency(info, chandef->frequency);
+	case BAND_CHANDEF_WIDTH_80:
+	case BAND_CHANDEF_WIDTH_160:
+		if (info->flags & PLUS80)
+			return -ENOENT;
+
+		if (own_bandwidth != info->channel_spacing)
+			return -ENOENT;
+
+		return e4_has_ccfi(info, chandef->center1_frequency);
+	case BAND_CHANDEF_WIDTH_80P80:
+		if (!(info->flags & PLUS80))
+			return -ENOENT;
+
+		r = e4_has_ccfi(info, chandef->center1_frequency);
+		if (r < 0)
+			return r;
+
+		return e4_has_ccfi(info, chandef->center2_frequency);
+	default:
+		break;
+	}
+
+	return -ENOTSUP;
+}
+
 int oci_to_frequency(uint32_t operating_class, uint32_t channel)
 {
 	const struct operating_class_info *info;
@@ -794,12 +888,38 @@ int oci_verify(const uint8_t oci[static 3], const struct band_chandef *own)
 		if (!(info->flags & PLUS80))
 			return -EPERM;
 
-		freq_segment1_chan_num = (own->center2_frequency -
-						info->starting_frequency) / 5;
+		freq_segment1_chan_num =
+			e4_frequency_to_channel(info, own->center2_frequency);
 
 		if (freq_segment1_chan_num != oci[2])
 			return -EPERM;
 	}
 
 	return 0;
+}
+
+int oci_from_chandef(const struct band_chandef *own, uint8_t oci[static 3])
+{
+	unsigned int i;
+
+	for (i = 0; i < L_ARRAY_SIZE(e4_operating_classes); i++) {
+		const struct operating_class_info *info =
+						&e4_operating_classes[i];
+
+		if (e4_class_matches(info, own) < 0)
+			continue;
+
+		oci[0] = info->operating_class;
+		oci[1] = e4_frequency_to_channel(info, own->frequency);
+
+		if (own->center2_frequency)
+			oci[2] = e4_frequency_to_channel(info,
+							own->center2_frequency);
+		else
+			oci[2] = 0;
+
+		return 0;
+	}
+
+	return -ENOENT;
 }
