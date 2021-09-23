@@ -1024,6 +1024,9 @@ bool handshake_state_add_ecc_sae_pt(struct handshake_state *s,
 void handshake_state_set_chandef(struct handshake_state *s,
 						struct band_chandef *chandef)
 {
+	if (s->chandef)
+		l_free(s->chandef);
+
 	s->chandef = chandef;
 }
 
