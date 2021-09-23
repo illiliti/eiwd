@@ -312,6 +312,25 @@ static const struct band_chandef cd_1 = {
 	.center1_frequency = 5570,
 };
 
+static const struct band_chandef cd_2 = {
+	.frequency = 5180,
+	.channel_width = BAND_CHANDEF_WIDTH_80P80,
+	.center1_frequency = 5210,
+	.center2_frequency = 5775,
+};
+
+static const struct band_chandef cd_3 = {
+	.frequency = 2437,
+	.channel_width = BAND_CHANDEF_WIDTH_20NOHT,
+	.center1_frequency = 2437,
+};
+
+static const struct band_chandef cd_4 = {
+	.frequency = 2437,
+	.channel_width = BAND_CHANDEF_WIDTH_40,
+	.center1_frequency = 2427,
+};
+
 struct oci_data {
 	const struct band_chandef *cd;
 	uint8_t oci[3];
@@ -319,6 +338,18 @@ struct oci_data {
 };
 
 static const struct oci_data oci_data_1 = { &cd_1, { 129, 108, 0 } };
+static const struct oci_data oci_data_2 = { &cd_2, { 130, 36, 155 } };
+static const struct oci_data oci_data_3 = { &cd_3, { 81, 6, 0 } };
+static const struct oci_data oci_data_4 = { &cd_4, { 84, 6, 0 } };
+
+static const struct oci_data oci_err_1 = { &cd_1, { 129, 36, 0 }, -EPERM };
+static const struct oci_data oci_err_2 = { &cd_1, { 121, 108, 0 }, -EPERM };
+static const struct oci_data oci_err_3 = { &cd_1, { 130, 36, 155 }, -EPERM };
+static const struct oci_data oci_err_4 = { &cd_3, { 81, 5 }, -EPERM };
+static const struct oci_data oci_err_5 = { &cd_3, { 80, 1 }, -ENOENT };
+static const struct oci_data oci_err_6 = { &cd_3, { 81, 15 }, -EINVAL };
+static const struct oci_data oci_err_7 = { &cd_4, { 84, 5 }, -EPERM };
+static const struct oci_data oci_err_8 = { &cd_4, { 83, 6 }, -EPERM };
 
 static void test_oci_verify(const void *data)
 {
@@ -327,6 +358,18 @@ static void test_oci_verify(const void *data)
 
 	r = oci_verify(test->oci, test->cd);
 	assert(r == test->expected_verify_error);
+}
+
+static void test_oci_from_chandef(const void *data)
+{
+	const struct oci_data *test = data;
+	uint8_t oci[3];
+	int r;
+
+	r = oci_from_chandef(test->cd, oci);
+	assert(!r);
+
+	assert(!memcmp(oci, test->oci, sizeof(oci)));
 }
 
 int main(int argc, char *argv[])
@@ -349,6 +392,23 @@ int main(int argc, char *argv[])
 	l_test_add("/band/oci2freq 8", test_oci2freq, &oci2freq_data_8);
 
 	l_test_add("/band/oci/verify 1", test_oci_verify, &oci_data_1);
+	l_test_add("/band/oci/verify 2", test_oci_verify, &oci_data_2);
+	l_test_add("/band/oci/verify 3", test_oci_verify, &oci_data_3);
+	l_test_add("/band/oci/verify 4", test_oci_verify, &oci_data_4);
+
+	l_test_add("/band/oci/noverify 1", test_oci_verify, &oci_err_1);
+	l_test_add("/band/oci/noverify 2", test_oci_verify, &oci_err_2);
+	l_test_add("/band/oci/noverify 3", test_oci_verify, &oci_err_3);
+	l_test_add("/band/oci/noverify 4", test_oci_verify, &oci_err_4);
+	l_test_add("/band/oci/noverify 5", test_oci_verify, &oci_err_5);
+	l_test_add("/band/oci/noverify 6", test_oci_verify, &oci_err_6);
+	l_test_add("/band/oci/noverify 7", test_oci_verify, &oci_err_7);
+	l_test_add("/band/oci/noverify 8", test_oci_verify, &oci_err_8);
+
+	l_test_add("/band/oci/chandef 1", test_oci_from_chandef, &oci_data_1);
+	l_test_add("/band/oci/chandef 2", test_oci_from_chandef, &oci_data_2);
+	l_test_add("/band/oci/chandef 3", test_oci_from_chandef, &oci_data_3);
+	l_test_add("/band/oci/chandef 4", test_oci_from_chandef, &oci_data_4);
 
 	return l_test_run();
 }
