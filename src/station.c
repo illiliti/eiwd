@@ -1708,6 +1708,9 @@ static void station_early_neighbor_report_cb(struct netdev *netdev, int err,
 {
 	struct station *station = user_data;
 
+	if (err == -ENODEV)
+		return;
+
 	l_debug("ifindex: %u, error: %d(%s)",
 			netdev_get_ifindex(station->netdev),
 			err, err < 0 ? strerror(-err) : "");
@@ -2279,6 +2282,9 @@ static void station_neighbor_report_cb(struct netdev *netdev, int err,
 	struct station *station = user_data;
 	struct scan_freq_set *freq_set;
 	int r;
+
+	if (err == -ENODEV)
+		return;
 
 	l_debug("ifindex: %u, error: %d(%s)",
 			netdev_get_ifindex(station->netdev),
