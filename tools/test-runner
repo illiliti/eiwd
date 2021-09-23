@@ -1416,6 +1416,7 @@ def run_auto_tests(ctx, args):
 				# a set of tests was passed in just start out in the first.
 				#
 				os.chdir(tests[0])
+				os.environ['DBUS_SYSTEM_BUS_ADDRESS'] = ctx.dbus_address
 				os.system('/bin/bash')
 				exit()
 
