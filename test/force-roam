@@ -3,14 +3,33 @@
 import sys
 import dbus
 
-if (len(sys.argv) != 3):
-    print("Usage: %s <device> <mac>" % (sys.argv[0]))
+if len(sys.argv) < 2 or len(sys.argv) > 3:
+    print("Usage: %s [device] <mac>" % (sys.argv[0]))
     sys.exit(1)
 
 bus = dbus.SystemBus()
-device = dbus.Interface(bus.get_object("net.connman.iwd", sys.argv[1]),
+device = None
+
+if len(sys.argv) == 2:
+    manager = dbus.Interface(bus.get_object("net.connman.iwd", "/"),
+                                "org.freedesktop.DBus.ObjectManager")
+    objects = manager.GetManagedObjects()
+    for path in objects:
+        for interface in objects[path]:
+            if interface == "net.connman.iwd.StationDebug":
+                device = dbus.Interface(bus.get_object("net.connman.iwd", path),
                                     "net.connman.iwd.StationDebug")
+                break
 
-mac = sys.argv[2].replace(':', '')
+    if not device:
+        print("StationDebug interface not found")
+        exit()
 
+    mac = sys.argv[1]
+else:
+    device = dbus.Interface(bus.get_object("net.connman.iwd", sys.argv[1]),
+                                    "net.connman.iwd.StationDebug")
+    mac = sys.argv[2]
+
+mac = mac.replace(':', '')
 device.Roam(dbus.ByteArray.fromhex(mac))
