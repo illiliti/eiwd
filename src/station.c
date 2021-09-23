@@ -4081,6 +4081,9 @@ static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 	if (mac_len != 6)
 		return dbus_error_invalid_args(message);
 
+	if (!station->connected_network)
+		return dbus_error_not_connected(message);
+
 	target = network_bss_find_by_addr(station->connected_network, mac);
 	if (!target || target == station->connected_bss)
 		return dbus_error_invalid_args(message);
