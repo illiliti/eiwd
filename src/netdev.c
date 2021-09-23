@@ -2077,7 +2077,6 @@ done:
 	L_WARN_ON(!eapol_start(netdev->sm));
 }
 
-
 static int netdev_get_oci(struct netdev *netdev)
 {
 	struct l_genl_msg *msg =

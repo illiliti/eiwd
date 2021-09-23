@@ -743,7 +743,6 @@ static bool station_owe_transition_results(int err, struct l_queue *bss_list,
 							bss->owe_trans->ssid))
 			goto free;
 
-
 		/* Check if we have an open BSS that matches */
 		if (!network_has_open_pair(network, bss))
 			goto free;

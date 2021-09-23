@@ -495,7 +495,6 @@ static int ft_process_ies(struct handshake_state *hs, const uint8_t *ies,
 	if (ft_parse_ies(hs, ies, ies_len, &mde, &fte) < 0)
 		goto ft_error;
 
-
 	if (!mde_equal(hs->mde, mde))
 		goto ft_error;
 

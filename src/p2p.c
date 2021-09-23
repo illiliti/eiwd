@@ -1167,7 +1167,6 @@ static size_t p2p_group_write_wfd_ie(struct p2p_device *dev,
 	return 0;
 }
 
-
 static size_t p2p_group_get_ies_len(enum mpdu_management_subtype type,
 					const struct mmpdu_header *client_frame,
 					size_t client_frame_len,
