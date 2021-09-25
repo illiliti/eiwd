@@ -497,6 +497,7 @@ static struct l_rtnl_route *netconfig_get_static6_gateway(
 {
 	L_AUTO_FREE_VAR(char *, gateway);
 	struct l_rtnl_route *ret;
+	const uint8_t *mac = NULL;
 
 	gateway = l_settings_get_string(netconfig->active_settings,
 						"IPv6", "Gateway");
@@ -508,7 +509,7 @@ static struct l_rtnl_route *netconfig_get_static6_gateway(
 					netconfig->fils_override->ipv6_gateway);
 
 		if (!l_memeqzero(netconfig->fils_override->ipv6_gateway_mac, 6))
-			*out_mac = netconfig->fils_override->ipv6_gateway_mac;
+			mac = netconfig->fils_override->ipv6_gateway_mac;
 	} else if (!gateway)
 		return NULL;
 
@@ -522,6 +523,7 @@ static struct l_rtnl_route *netconfig_get_static6_gateway(
 
 	l_rtnl_route_set_priority(ret, ROUTE_PRIORITY_OFFSET);
 	l_rtnl_route_set_protocol(ret, RTPROT_STATIC);
+	*out_mac = mac;
 
 	return ret;
 }
@@ -863,7 +865,7 @@ static void netconfig_ipv6_ifaddr_add_cmd_cb(int error, uint16_t type,
 {
 	struct netconfig *netconfig = user_data;
 	struct l_rtnl_route *gateway;
-	const uint8_t *gateway_mac = NULL;
+	const uint8_t *gateway_mac;
 
 	netconfig->addr6_add_cmd_id = 0;
 
