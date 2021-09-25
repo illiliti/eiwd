@@ -74,6 +74,7 @@ struct netconfig {
 	uint32_t addr4_add_cmd_id;
 	uint32_t addr6_add_cmd_id;
 	uint32_t route4_add_gateway_cmd_id;
+	uint32_t route6_add_cmd_id;
 };
 
 static struct l_netlink *rtnl;
@@ -739,6 +740,21 @@ static void netconfig_route_add_cmd_cb(int error, uint16_t type,
 	netconfig->notify = NULL;
 }
 
+static void netconfig_route6_add_cb(int error, uint16_t type,
+					const void *data, uint32_t len,
+					void *user_data)
+{
+	struct netconfig *netconfig = user_data;
+
+	netconfig->route6_add_cmd_id = 0;
+
+	if (error) {
+		l_error("netconfig: Failed to add route. Error %d: %s",
+						error, strerror(-error));
+		return;
+	}
+}
+
 static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 {
 	L_AUTO_FREE_VAR(char *, gateway) = NULL;
@@ -859,10 +875,12 @@ static void netconfig_ipv6_ifaddr_add_cmd_cb(int error, uint16_t type,
 
 	gateway = netconfig_get_static6_gateway(netconfig, &gateway_mac);
 	if (gateway) {
-		L_WARN_ON(!l_rtnl_route_add(rtnl, netconfig->ifindex,
-						gateway,
-						netconfig_route_generic_cb,
-						netconfig, NULL));
+		netconfig->route6_add_cmd_id = l_rtnl_route_add(rtnl,
+							netconfig->ifindex,
+							gateway,
+							netconfig_route6_add_cb,
+							netconfig, NULL);
+		L_WARN_ON(unlikely(!netconfig->route6_add_cmd_id));
 		l_rtnl_route_free(gateway);
 
 		if (gateway_mac && !l_rtnl_neighbor_set_hwaddr(rtnl,
@@ -1359,6 +1377,11 @@ bool netconfig_reset(struct netconfig *netconfig)
 	if (netconfig->route4_add_gateway_cmd_id) {
 		l_netlink_cancel(rtnl, netconfig->route4_add_gateway_cmd_id);
 		netconfig->route4_add_gateway_cmd_id = 0;
+	}
+
+	if (netconfig->route6_add_cmd_id) {
+		l_netlink_cancel(rtnl, netconfig->route6_add_cmd_id);
+		netconfig->route6_add_cmd_id = 0;
 	}
 
 	if (netconfig->addr4_add_cmd_id) {
