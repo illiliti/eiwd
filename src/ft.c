@@ -32,6 +32,7 @@
 #include "src/ft.h"
 #include "src/mpdu.h"
 #include "src/auth-proto.h"
+#include "src/band.h"
 
 struct ft_sm {
 	struct auth_proto ap;
@@ -272,6 +273,22 @@ static int ft_tx_reassociate(struct ft_sm *ft)
 		ft_info.r1khid_present = true;
 		memcpy(ft_info.anonce, hs->anonce, 32);
 		memcpy(ft_info.snonce, hs->snonce, 32);
+
+		/*
+		 * IEEE 802.11-2020 Section 13.7.1 FT reassociation in an RSN
+		 *
+		 * "If dot11RSNAOperatingChannelValidationActivated is true and
+		 *  the FTO indicates OCVC capability, the target AP shall
+		 *  ensure that OCI subelement of the FTE matches by ensuring
+		 *  that all of the following are true:
+		 *      - OCI subelement is present
+		 *      - Channel information in the OCI matches current
+		 *        operating channel parameters (see 12.2.9)"
+		 */
+		if (hs->supplicant_ocvc && hs->chandef) {
+			oci_from_chandef(hs->chandef, ft_info.oci);
+			ft_info.oci_present = true;
+		}
 
 		fte = alloca(256);
 		ie_build_fast_bss_transition(&ft_info, kck_len, fte);
