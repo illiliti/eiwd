@@ -29,7 +29,7 @@
 #define align_len(len, boundary) (((len)+(boundary)-1) & ~((boundary)-1))
 
 #define MAC "%02x:%02x:%02x:%02x:%02x:%02x"
-#define MAC_STR(a) a[0], a[1], a[2], a[3], a[4], a[5]
+#define MAC_STR(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
 
 const char *util_ssid_to_utf8(size_t len, const uint8_t *ssid);
 bool util_ssid_is_utf8(size_t len, const uint8_t *ssid);
