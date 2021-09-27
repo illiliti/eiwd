@@ -435,6 +435,8 @@ struct ie_ft_info {
 	uint8_t igtk_ipn[6];
 	uint8_t igtk_len;
 	uint8_t igtk[24];
+	bool oci_present:1;
+	uint8_t oci[3];
 };
 
 /* See chapter 8.4.2.47 for radio measurement capability details */

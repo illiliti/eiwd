@@ -1870,6 +1870,13 @@ bool ie_build_fast_bss_transition(const struct ie_ft_info *info,
 
 	L_WARN_ON(info->igtk_len); /* Not implemented */
 
+	if (info->oci_present) {
+		to[0] = 5;
+		to[1] = 3;
+		memcpy(to + 2, info->oci, sizeof(info->oci));
+		*len += 5;
+	}
+
 	return true;
 }
 
