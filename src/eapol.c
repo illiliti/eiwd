@@ -43,6 +43,7 @@
 #include "src/watchlist.h"
 #include "src/erp.h"
 #include "src/iwd.h"
+#include "src/band.h"
 
 static struct l_queue *state_machines;
 static struct l_queue *preauths;
@@ -1242,6 +1243,21 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 		l_put_be32(HANDSHAKE_KDE_IP_ADDRESS_REQ, ies + ies_len);
 		ies_len += 4;
 		ies[ies_len++] = 0x01;
+	}
+
+	/*
+	 * IEEE 802.11-2020 Section 12.7.6.3
+	 * "Additionally, contains an OCI KDE when
+	 *  dot11RSNAOperatingChannelValidationActivated is true on the
+	 *  Supplicant."
+	 */
+	if (sm->handshake->supplicant_ocvc && sm->handshake->chandef) {
+		ies[ies_len++] = IE_TYPE_VENDOR_SPECIFIC;
+		ies[ies_len++] = 4 + 3;
+		l_put_be32(HANDSHAKE_KDE_OCI, ies + ies_len);
+		ies_len += 4;
+		oci_from_chandef(sm->handshake->chandef, ies + ies_len++);
+		ies_len += 3;
 	}
 
 	/*
