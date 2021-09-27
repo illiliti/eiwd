@@ -4767,6 +4767,68 @@ static void print_rm_action_frame(unsigned int level, const uint8_t *body,
 	}
 }
 
+static void print_ft_request(unsigned int level,
+				const uint8_t *body, size_t body_len)
+{
+	struct ie_tlv_iter iter;
+
+	switch (body[0]) {
+	case 1:
+		if (body_len < 13)
+			return;
+
+		print_attr(level + 1, "FT Request");
+		break;
+	case 2:
+		if (body_len < 15)
+			return;
+
+		print_attr(level + 1, "FT Response");
+		break;
+	case 3:
+		/* FT Confirm/Ack are not yet supported */
+		print_attr(level + 1, "FT Confirm");
+		return;
+	case 4:
+		print_attr(level + 1, "FT ACK");
+		return;
+	}
+
+	print_attr(level + 1, "STA Address: "MAC, MAC_STR(body + 1));
+	print_attr(level + 1, "Target AP Address: "MAC, MAC_STR(body + 7));
+
+	if (body[0] == 2) {
+		print_attr(level + 1, "Status: %u", l_get_le16(body + 13));
+		body += 15;
+		body_len -= 15;
+	} else {
+		body += 13;
+		body_len -= 15;
+	}
+
+	ie_tlv_iter_init(&iter, body, body_len);
+
+	while (ie_tlv_iter_next(&iter)) {
+		uint8_t tag = ie_tlv_iter_get_tag(&iter);
+		size_t len = ie_tlv_iter_get_length(&iter);
+		const void *data = ie_tlv_iter_get_data(&iter);
+
+		switch (tag) {
+		case IE_TYPE_RSN:
+			print_ie_rsn(level + 1, "RSN", data, len);
+			break;
+		case IE_TYPE_MOBILITY_DOMAIN:
+			print_mobility_domain(level + 1, "Mobility Domain",
+						data, len);
+			break;
+		case IE_TYPE_FAST_BSS_TRANSITION:
+			print_fast_bss_transition(level + 1,
+						"Fast BSS Transition",
+						data, len);
+			break;
+		}
+	}
+}
 static void print_action_mgmt_frame(unsigned int level,
 					const struct mmpdu_header *mmpdu,
 					size_t total_len, bool no_ack)
@@ -4829,6 +4891,9 @@ static void print_action_mgmt_frame(unsigned int level,
 		if (!memcmp(oui, wifi_alliance_oui, 3) && oui[3] == 0x09)
 			print_p2p_action_frame(level + 1, body + 5,
 						body_len - 5);
+	} else if (body[0] == 6) {
+		print_ft_request(level, body + 1, body_len - 1);
+		return;
 	}
 
 	print_mpdu_frame_control(level + 1, &mmpdu->fc);
