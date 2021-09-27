@@ -4194,9 +4194,8 @@ static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
 		goto ft_error;
 	}
 
-	ret = ft_over_ds_parse_action_ies(&info->super, netdev->handshake,
-						ies, ies_len);
-	if (ret < 0)
+	if (!ft_over_ds_parse_action_ies(&info->super, netdev->handshake,
+						ies, ies_len))
 		goto ft_error;
 
 	info->parsed = true;
