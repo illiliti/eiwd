@@ -1046,6 +1046,7 @@ static void netconfig_ipv4_acd_event(enum l_acd_event event, void *user_data)
 
 static bool netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 {
+	struct netdev *netdev = netdev_find(netconfig->ifindex);
 	bool set_address = (netconfig->rtm_protocol == RTPROT_STATIC);
 
 	if (netconfig->rtm_protocol == RTPROT_DHCP &&
@@ -1106,6 +1107,9 @@ static bool netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 		return true;
 	}
 
+	l_dhcp_client_set_address(netconfig->dhcp_client, ARPHRD_ETHER,
+					netdev_get_address(netdev), ETH_ALEN);
+
 	if (l_dhcp_client_start(netconfig->dhcp_client))
 		return true;
 
@@ -1162,7 +1166,10 @@ static bool netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 		return true;
 	}
 
-	/* DHCP */
+	/* DHCPv6 or RA, update MAC */
+	l_dhcp6_client_set_address(netconfig->dhcp6_client, ARPHRD_ETHER,
+					netdev_get_address(netdev), ETH_ALEN);
+
 	return true;
 }
 
@@ -1196,8 +1203,7 @@ static int validate_dns_list(int family, char **dns_list)
 }
 
 bool netconfig_load_settings(struct netconfig *netconfig,
-				const struct l_settings *active_settings,
-				const uint8_t *mac_address)
+				const struct l_settings *active_settings)
 {
 	char *mdns;
 	bool send_hostname;
@@ -1301,11 +1307,6 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 
 	resolve_set_mdns(netconfig->resolve, mdns);
 	l_free(mdns);
-
-	l_dhcp_client_set_address(netconfig->dhcp_client, ARPHRD_ETHER,
-							mac_address, ETH_ALEN);
-	l_dhcp6_client_set_address(netconfig->dhcp6_client, ARPHRD_ETHER,
-							mac_address, ETH_ALEN);
 
 	netconfig->active_settings = active_settings;
 	netconfig->dns4_overrides = dns4_overrides;

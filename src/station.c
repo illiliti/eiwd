@@ -2868,8 +2868,7 @@ int __station_connect_network(struct station *station, struct network *network,
 
 	if (station->netconfig && !netconfig_load_settings(
 					station->netconfig,
-					network_get_settings(network),
-					netdev_get_address(station->netdev)))
+					network_get_settings(network)))
 		return -EINVAL;
 
 	hs = station_handshake_setup(station, network, bss);

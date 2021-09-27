@@ -32,8 +32,7 @@ typedef void (*netconfig_notify_func_t)(enum netconfig_event event,
 							void *user_data);
 
 bool netconfig_load_settings(struct netconfig *netconfig,
-				const struct l_settings *active_settings,
-				const uint8_t *mac_address);
+				const struct l_settings *active_settings);
 bool netconfig_configure(struct netconfig *netconfig,
 				netconfig_notify_func_t notify,
 				void *user_data);

@@ -1328,8 +1328,7 @@ static void p2p_start_client_netconfig(struct p2p_device *dev)
 
 	settings = dev->conn_netconfig_settings ?: p2p_dhcp_settings;
 
-	if (!netconfig_load_settings(dev->conn_netconfig, settings,
-					dev->conn_addr) ||
+	if (!netconfig_load_settings(dev->conn_netconfig, settings) ||
 			!netconfig_configure(dev->conn_netconfig,
 						p2p_netconfig_event_handler,
 						dev)) {
