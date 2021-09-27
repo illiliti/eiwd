@@ -2015,8 +2015,7 @@ static void station_transition_start(struct station *station,
 		vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
 		handshake_state_set_vendor_ies(hs, vendor_ies, iov_elems);
 
-		/* FT-over-DS can be better suited for these situations */
-		if ((hs->mde[4] & 1) && station->signal_low) {
+		if ((hs->mde[4] & 1)) {
 			ret = netdev_fast_transition_over_ds(station->netdev,
 					bss, station->connected_bss,
 					station_fast_transition_cb);
