@@ -1147,7 +1147,8 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 	 * send no PMKID KDE.
 	 */
 	if (!sm->eap_exchanged && !sm->handshake->wpa_ie &&
-			rsn_info.num_pmkids) {
+			rsn_info.num_pmkids &&
+			sm->require_handshake) {
 		bool found = false;
 		int i;
 
