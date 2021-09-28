@@ -2621,6 +2621,8 @@ error:
 	return;
 
 deauth:
+	netdev->result = NETDEV_RESULT_ASSOCIATION_FAILED;
+	netdev->last_code = MMPDU_STATUS_CODE_UNSPECIFIED;
 	msg = netdev_build_cmd_deauthenticate(netdev,
 						MMPDU_REASON_CODE_UNSPECIFIED);
 	netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
