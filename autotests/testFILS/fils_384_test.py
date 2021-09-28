@@ -55,6 +55,9 @@ class Test(unittest.TestCase):
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected(device.name, hapd.ifname)
 
+        hapd.rekey(device.address)
+        hapd.wait_for_event('EAPOL-4WAY-HS-COMPLETED')
+
         device.disconnect()
 
     @classmethod
