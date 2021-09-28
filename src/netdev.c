@@ -2077,8 +2077,9 @@ done:
 	L_WARN_ON(!eapol_start(netdev->sm));
 }
 
-static int netdev_get_oci(struct netdev *netdev)
+static int netdev_get_oci(void *user_data)
 {
+	struct netdev *netdev = user_data;
 	struct l_genl_msg *msg =
 			l_genl_msg_new_sized(NL80211_CMD_GET_INTERFACE, 64);
 
