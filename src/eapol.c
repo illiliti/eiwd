@@ -1256,7 +1256,7 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 		ies[ies_len++] = 4 + 3;
 		l_put_be32(HANDSHAKE_KDE_OCI, ies + ies_len);
 		ies_len += 4;
-		oci_from_chandef(sm->handshake->chandef, ies + ies_len++);
+		oci_from_chandef(sm->handshake->chandef, ies + ies_len);
 		ies_len += 3;
 	}
 
