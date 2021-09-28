@@ -95,6 +95,8 @@ struct eapol_key *eapol_create_gtk_2_of_2(
 				enum eapol_protocol_version protocol,
 				enum eapol_key_descriptor_version version,
 				uint64_t key_replay_counter,
+				size_t extra_len,
+				const uint8_t *extra_data,
 				bool is_wpa, uint8_t wpa_key_id,
 				size_t mic_len);
 

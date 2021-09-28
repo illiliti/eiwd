@@ -762,6 +762,8 @@ struct eapol_key *eapol_create_gtk_2_of_2(
 				enum eapol_protocol_version protocol,
 				enum eapol_key_descriptor_version version,
 				uint64_t key_replay_counter,
+				size_t extra_len,
+				const uint8_t *extra_data,
 				bool is_wpa, uint8_t wpa_key_id, size_t mic_len)
 {
 	uint8_t snonce[32];
@@ -770,7 +772,8 @@ struct eapol_key *eapol_create_gtk_2_of_2(
 	memset(snonce, 0, sizeof(snonce));
 	step2 = eapol_create_common(protocol, version, true,
 					key_replay_counter, snonce,
-					0, NULL, 0, is_wpa, mic_len);
+					extra_len, extra_data, 0, is_wpa,
+					mic_len);
 
 	if (!step2)
 		return step2;
@@ -2010,6 +2013,7 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 	uint16_t igtk_key_index;
 	const uint8_t *oci = NULL;
 	size_t oci_len;
+	uint8_t oci_out[9];
 
 	l_debug("ifindex=%u", hs->ifindex);
 
@@ -2069,6 +2073,22 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 		igtk = NULL;
 
 	/*
+	 * IEEE 802.11-2020 Section 12.7.7.3
+	 * "Key Data = OCI KDE when dot11RSNAOperatingChannelValidationActivated
+	 *  on the [Supplicant]"
+	 *
+	 * Note: The spec reads "Authenticator" but this is incorrect and
+	 * appears to be a copy-paste from a previous section. Above it has been
+	 * changed to Supplicant.
+	 */
+	if (sm->handshake->supplicant_ocvc && sm->handshake->chandef) {
+		oci_out[0] = IE_TYPE_VENDOR_SPECIFIC;
+		oci_out[1] = 4 + 3;
+		l_put_be32(HANDSHAKE_KDE_OCI, oci_out + 2);
+		oci_from_chandef(sm->handshake->chandef, oci_out + 6);
+	}
+
+	/*
 	 * 802.11-2016, Section 12.7.7.2:
 	 * "
 	 * a) Verifies that the Key Replay Counter field value has not yet been
@@ -2089,6 +2109,7 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 	step2 = eapol_create_gtk_2_of_2(sm->protocol_version,
 					ek->key_descriptor_version,
 					sm->replay_counter,
+					oci_out[1] + 2, oci_out,
 					hs->wpa_ie, ek->wpa_key_id,
 					sm->mic_len);
 
