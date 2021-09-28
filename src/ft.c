@@ -43,6 +43,8 @@ struct ft_sm {
 	ft_get_oci get_oci;
 
 	void *user_data;
+
+	bool over_ds : 1;
 };
 
 /*
@@ -235,6 +237,10 @@ static int ft_tx_reassociate(struct ft_sm *ft)
 
 		rsn_info.num_pmkids = 1;
 		rsn_info.pmkids = hs->pmk_r1_name;
+
+		/* Always set OCVC false for FT-over-DS */
+		if (ft->over_ds)
+			rsn_info.ocvc = false;
 
 		rsne = alloca(256);
 		ie_build_rsne(&rsn_info, rsne);
@@ -929,6 +935,7 @@ struct auth_proto *ft_over_ds_sm_new(struct handshake_state *hs,
 	ft->tx_assoc = tx_assoc;
 	ft->hs = hs;
 	ft->user_data = user_data;
+	ft->over_ds = true;
 
 	ft->ap.rx_associate = ft_rx_associate;
 	ft->ap.start = ft_over_ds_start;
