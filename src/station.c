@@ -995,14 +995,15 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 					struct network *network,
 					struct scan_bss *bss)
 {
+	const struct l_settings *settings = iwd_get_config();
 	enum security security = network_get_security(network);
 	bool add_mde = false;
 	struct erp_cache_entry *erp_cache = NULL;
-
 	struct ie_rsn_info bss_info;
 	uint8_t rsne_buf[256];
 	struct ie_rsn_info info;
 	uint8_t *ap_ie;
+	bool disable_ocv;
 
 	memset(&info, 0, sizeof(info));
 
@@ -1080,6 +1081,12 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 		goto not_supported;
 
 build_ie:
+	if (!l_settings_get_bool(settings, "General", "DisableOCV",
+					&disable_ocv))
+		disable_ocv = false;
+
+	info.ocvc = !disable_ocv;
+
 	/* RSN takes priority */
 	if (bss->rsne) {
 		ap_ie = bss->rsne;
