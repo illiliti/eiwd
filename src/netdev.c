@@ -3689,6 +3689,7 @@ static void netdev_connect_common(struct netdev *netdev,
 	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
 		netdev->ap = fils_sm_new(hs, netdev_fils_tx_authenticate,
 						netdev_fils_tx_associate,
+						netdev_get_oci,
 						netdev);
 		break;
 	default:
