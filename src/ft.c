@@ -616,6 +616,9 @@ void ft_ds_info_free(struct ft_ds_info *info)
 	if (info->fte)
 		l_free(info->fte);
 
+	if (info->authenticator_ie)
+		l_free(info->authenticator_ie);
+
 	if (destroy)
 		destroy(info);
 }

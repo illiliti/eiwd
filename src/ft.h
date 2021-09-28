@@ -36,6 +36,7 @@ struct ft_ds_info {
 	uint8_t snonce[32];
 	uint8_t mde[3];
 	uint8_t *fte;
+	uint8_t *authenticator_ie;
 
 	struct ie_ft_info ft_info;
 

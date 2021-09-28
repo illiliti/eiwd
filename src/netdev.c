@@ -4392,6 +4392,11 @@ int netdev_fast_transition_over_ds_action(struct netdev *netdev,
 	memcpy(info->super.spa, hs->spa, ETH_ALEN);
 	memcpy(info->super.aa, target_bss->addr, ETH_ALEN);
 	memcpy(info->super.mde, target_bss->mde, sizeof(info->super.mde));
+
+	if (target_bss->rsne)
+		info->super.authenticator_ie = l_memdup(target_bss->rsne,
+						target_bss->rsne[1] + 2);
+
 	l_getrandom(info->super.snonce, 32);
 	info->super.free = netdev_ft_ds_info_free;
 
@@ -4402,7 +4407,6 @@ int netdev_fast_transition_over_ds_action(struct netdev *netdev,
 
 	iovs[0].iov_base = ft_req;
 	iovs[0].iov_len = sizeof(ft_req);
-
 
 	if (!ft_build_authenticate_ies(hs, false, info->super.snonce,
 						buf, &len))
