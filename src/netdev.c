@@ -4400,7 +4400,9 @@ int netdev_fast_transition_over_ds_action(struct netdev *netdev,
 	iovs[0].iov_base = ft_req;
 	iovs[0].iov_len = sizeof(ft_req);
 
-	if (!ft_build_authenticate_ies(hs, info->super.snonce, buf, &len))
+
+	if (!ft_build_authenticate_ies(hs, false, info->super.snonce,
+						buf, &len))
 		goto failed;
 
 	iovs[1].iov_base = buf;

@@ -805,7 +805,7 @@ static bool ft_over_ds_start(struct auth_proto *ap)
 	return ft_tx_reassociate(ft) == 0;
 }
 
-bool ft_build_authenticate_ies(struct handshake_state *hs,
+bool ft_build_authenticate_ies(struct handshake_state *hs, bool ocvc,
 				const uint8_t *new_snonce, uint8_t *buf,
 				size_t *len)
 {
@@ -834,6 +834,7 @@ bool ft_build_authenticate_ies(struct handshake_state *hs,
 
 		rsn_info.num_pmkids = 1;
 		rsn_info.pmkids = hs->pmk_r0_name;
+		rsn_info.ocvc = ocvc;
 
 		ie_build_rsne(&rsn_info, ptr);
 		ptr += ptr[1] + 2;
@@ -884,7 +885,8 @@ static bool ft_start(struct auth_proto *ap)
 	uint8_t buf[512];
 	size_t len;
 
-	if (!ft_build_authenticate_ies(hs, hs->snonce, buf, &len))
+	if (!ft_build_authenticate_ies(hs, hs->supplicant_ocvc, hs->snonce,
+					buf, &len))
 		return false;
 
 	iov.iov_base = buf;
