@@ -2565,10 +2565,7 @@ process_resp_ies:
 			netdev->owe_sm = NULL;
 		}
 
-		/* FILS handles its own FT key derivation */
-		if (fte && !(netdev->handshake->akm_suite &
-				(IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |
-				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))) {
+		if (fte) {
 			uint32_t kck_len =
 				handshake_state_get_kck_len(netdev->handshake);
 			/*

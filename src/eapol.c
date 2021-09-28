@@ -231,6 +231,11 @@ static size_t eapol_get_mic_length(enum ie_rsn_akm_suite akm, size_t pmk_len)
 			l_error("Invalid PMK length of %zu for OWE", pmk_len);
 			return 0;
 		}
+	case IE_RSN_AKM_SUITE_FILS_SHA256:
+	case IE_RSN_AKM_SUITE_FILS_SHA384:
+	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
+	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
+		return 0;
 	default:
 		return 16;
 	}
@@ -254,6 +259,8 @@ uint8_t *eapol_decrypt_key_data(enum ie_rsn_akm_suite akm, const uint8_t *kek,
 		switch (akm) {
 		case IE_RSN_AKM_SUITE_FILS_SHA256:
 		case IE_RSN_AKM_SUITE_FILS_SHA384:
+		case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
+		case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
 			if (key_data_len < 16)
 				return NULL;
 
@@ -329,13 +336,16 @@ uint8_t *eapol_decrypt_key_data(enum ie_rsn_akm_suite akm, const uint8_t *kek,
 			break;
 		case IE_RSN_AKM_SUITE_FILS_SHA256:
 		case IE_RSN_AKM_SUITE_FILS_SHA384:
+		case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
+		case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
 		{
 			struct iovec ad[1];
 
 			ad[0].iov_base = (void *)frame;
 			ad[0].iov_len = key_data - (const uint8_t *)frame;
 
-			if (akm == IE_RSN_AKM_SUITE_FILS_SHA256)
+			if (akm == IE_RSN_AKM_SUITE_FILS_SHA256 || akm ==
+					IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256)
 				kek_len = 32;
 			else
 				kek_len = 64;
@@ -1220,10 +1230,7 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 			goto error_unspecified;
 	}
 
-	if (sm->handshake->akm_suite &
-			(IE_RSN_AKM_SUITE_FT_OVER_8021X |
-			 IE_RSN_AKM_SUITE_FT_USING_PSK |
-			 IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256)) {
+	if (IE_AKM_IS_FT(sm->handshake->akm_suite)) {
 		/*
 		 * Rebuild the RSNE to include the PMKR1Name and append
 		 * MDE + FTE.
