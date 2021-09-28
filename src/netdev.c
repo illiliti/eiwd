@@ -2074,6 +2074,21 @@ static void netdev_get_oci_cb(struct l_genl_msg *msg, void *user_data)
 	handshake_state_set_chandef(netdev->handshake, l_steal_ptr(chandef));
 
 done:
+	if (netdev->ap) {
+		/*
+		 * Cant do much here. IWD assumes every kernel/driver supports
+		 * this. There is no way of detecting support either.
+		 */
+		if (L_WARN_ON(err < 0))
+			netdev_connect_failed(netdev,
+					NETDEV_RESULT_AUTHENTICATION_FAILED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
+		else
+			auth_proto_rx_oci(netdev->ap);
+
+		return;
+	}
+
 	L_WARN_ON(!eapol_start(netdev->sm));
 }
 
@@ -2581,8 +2596,11 @@ process_resp_ies:
 	}
 
 	if (netdev->sm) {
-		if (netdev_get_oci(netdev) < 0)
-			goto deauth;
+		if (!netdev->handshake->chandef) {
+			if (netdev_get_oci(netdev) < 0)
+				goto deauth;
+		} else if (!eapol_start(netdev->sm))
+				goto deauth;
 
 		return;
 	}
@@ -4099,6 +4117,8 @@ static void prepare_ft(struct netdev *netdev, const struct scan_bss *target_bss)
 	netdev->operational = false;
 	netdev->in_ft = true;
 
+	handshake_state_set_chandef(netdev->handshake, NULL);
+
 	/*
 	 * Cancel commands that could be running because of EAPoL activity
 	 * like re-keying, this way the callbacks for those commands don't
@@ -4273,7 +4293,8 @@ int netdev_fast_transition(struct netdev *netdev,
 
 	netdev->ap = ft_over_air_sm_new(netdev->handshake,
 					netdev_ft_tx_authenticate,
-					netdev_ft_tx_associate, netdev);
+					netdev_ft_tx_associate,
+					netdev_get_oci, netdev);
 	memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
 
 	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,

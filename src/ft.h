@@ -26,6 +26,7 @@ typedef void (*ft_tx_authenticate_func_t)(struct iovec *iov, size_t iov_len,
 					void *user_data);
 typedef int (*ft_tx_associate_func_t)(struct iovec *ie_iov, size_t iov_len,
 					void *user_data);
+typedef int (*ft_get_oci)(void *user_data);
 
 typedef void (*ft_ds_free_func_t)(void *user_data);
 
@@ -60,6 +61,7 @@ bool ft_over_ds_parse_action_ies(struct ft_ds_info *info,
 struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
 				ft_tx_authenticate_func_t tx_auth,
 				ft_tx_associate_func_t tx_assoc,
+				ft_get_oci get_oci,
 				void *user_data);
 
 struct auth_proto *ft_over_ds_sm_new(struct handshake_state *hs,

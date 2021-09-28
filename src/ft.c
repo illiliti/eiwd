@@ -40,6 +40,7 @@ struct ft_sm {
 
 	ft_tx_authenticate_func_t tx_auth;
 	ft_tx_associate_func_t tx_assoc;
+	ft_get_oci get_oci;
 
 	void *user_data;
 };
@@ -640,7 +641,7 @@ static int ft_rx_authenticate(struct auth_proto *ap, const uint8_t *frame,
 	if (ret < 0)
 		goto auth_error;
 
-	return ft_tx_reassociate(ft);
+	return ft->get_oci(ft->user_data);
 
 auth_error:
 	return (int)status_code;
@@ -783,6 +784,13 @@ static int ft_rx_associate(struct auth_proto *ap, const uint8_t *frame,
 	return 0;
 }
 
+static int ft_rx_oci(struct auth_proto *ap)
+{
+	struct ft_sm *ft = l_container_of(ap, struct ft_sm, ap);
+
+	return ft_tx_reassociate(ft);
+}
+
 static void ft_sm_free(struct auth_proto *ap)
 {
 	struct ft_sm *ft = l_container_of(ap, struct ft_sm, ap);
@@ -890,12 +898,14 @@ static bool ft_start(struct auth_proto *ap)
 struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
 				ft_tx_authenticate_func_t tx_auth,
 				ft_tx_associate_func_t tx_assoc,
+				ft_get_oci get_oci,
 				void *user_data)
 {
 	struct ft_sm *ft = l_new(struct ft_sm, 1);
 
 	ft->tx_auth = tx_auth;
 	ft->tx_assoc = tx_assoc;
+	ft->get_oci = get_oci;
 	ft->hs = hs;
 	ft->user_data = user_data;
 
@@ -903,6 +913,7 @@ struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
 	ft->ap.rx_associate = ft_rx_associate;
 	ft->ap.start = ft_start;
 	ft->ap.free = ft_sm_free;
+	ft->ap.rx_oci = ft_rx_oci;
 
 	return &ft->ap;
 }
