@@ -1940,6 +1940,7 @@ static void eapol_wpa2_handshake_test(const void *data)
 	frame = eapol_create_gtk_2_of_2(EAPOL_PROTOCOL_VERSION_2004,
 				EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_SHA1_AES,
 				eapol_key_test_12.key_replay_counter,
+				0, NULL,
 				false, 0, 16);
 	assert(frame);
 	assert(eapol_calculate_mic(IE_RSN_AKM_SUITE_PSK, ptk, frame,
@@ -2061,8 +2062,8 @@ static void eapol_wpa_handshake_test(const void *data)
 
 	frame = eapol_create_gtk_2_of_2(EAPOL_PROTOCOL_VERSION_2004,
 				EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_MD5_ARC4,
-				eapol_key_test_18.key_replay_counter, true,
-				gtk_step1->wpa_key_id, 16);
+				eapol_key_test_18.key_replay_counter, 0, NULL,
+				true, gtk_step1->wpa_key_id, 16);
 	assert(frame);
 	assert(eapol_calculate_mic(IE_RSN_AKM_SUITE_PSK, ptk, frame,
 					mic, 16));
