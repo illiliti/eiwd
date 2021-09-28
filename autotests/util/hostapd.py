@@ -202,6 +202,12 @@ class HostapdCLI(object):
         cmd = self.cmdline + ['req_beacon', addr, request]
         ctx.start_process(cmd).wait()
 
+    def rekey(self, address):
+        cmd = 'REKEY_GTK'
+        self.ctrl_sock.sendall(cmd.encode('utf-8'))
+        cmd = 'REKEY_PTK %s' % address
+        self.ctrl_sock.sendall(cmd.encode('utf-8'))
+
     @property
     def bssid(self):
         cmd = self.cmdline + ['status']
