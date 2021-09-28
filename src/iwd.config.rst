@@ -181,6 +181,13 @@ The group ``[General]`` contains general settings.
        off by default.  If you want to easily utilize Hotspot 2.0 networks,
        then setting ``DisableANQP`` to ``false`` is recommended.
 
+   * - DisableOCV
+     - Value: **false**, true
+
+       Disable Operating Channel Validation. Support for this is not advertised
+       by the kernel so if kernels/drivers exist which don't support OCV it can
+       be disabled here.
+
 Network
 -------
 
