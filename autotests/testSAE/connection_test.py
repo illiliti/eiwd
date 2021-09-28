@@ -62,9 +62,7 @@ class Test(unittest.TestCase):
         self.hostapd.set_value('vendor_elements', '')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
-        wd = IWD(True)
-        self.validate_connection(wd)
-        wd.clear_storage()
+        self.validate_connection(self.wd)
 
     def test_SAE_force_group_19(self):
         self.hostapd.set_value('sae_pwe', '0')
@@ -74,9 +72,7 @@ class Test(unittest.TestCase):
         self.hostapd.set_value('vendor_elements', 'dd0cf4f5e8050500000000000000')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
-        wd = IWD(True)
-        self.validate_connection(wd)
-        wd.clear_storage()
+        self.validate_connection(self.wd)
 
     def test_SAE_Group20(self):
         self.hostapd.set_value('sae_pwe', '0')
@@ -84,9 +80,7 @@ class Test(unittest.TestCase):
         self.hostapd.set_value('vendor_elements', '')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
-        wd = IWD(True)
-        self.validate_connection(wd)
-        wd.clear_storage()
+        self.validate_connection(self.wd)
 
     def test_SAE_H2E(self):
         self.hostapd.set_value('sae_pwe', '1')
@@ -94,9 +88,7 @@ class Test(unittest.TestCase):
         self.hostapd.set_value('vendor_elements', '')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
-        wd = IWD(True)
-        self.validate_connection(wd)
-        wd.clear_storage()
+        self.validate_connection(self.wd)
 
     def test_SAE_H2E_Group20(self):
         self.hostapd.set_value('sae_pwe', '1')
@@ -104,9 +96,14 @@ class Test(unittest.TestCase):
         self.hostapd.set_value('vendor_elements', '')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
-        wd = IWD(True)
-        self.validate_connection(wd)
-        wd.clear_storage()
+        self.validate_connection(self.wd)
+
+    def setUp(self):
+        self.wd = IWD(True)
+
+    def tearDown(self):
+        self.wd.clear_storage()
+        self.wd = None
 
     @classmethod
     def setUpClass(cls):
