@@ -126,6 +126,17 @@ static int sysfs_write_ipv6_setting(const char *ifname, const char *setting,
 	return r;
 }
 
+static void netconfig_free_settings(struct netconfig *netconfig)
+{
+	l_rtnl_address_free(netconfig->v4_address);
+	netconfig->v4_address = NULL;
+
+	l_strfreev(netconfig->dns4_overrides);
+	netconfig->dns4_overrides = NULL;
+	l_strfreev(netconfig->dns6_overrides);
+	netconfig->dns6_overrides = NULL;
+}
+
 static void netconfig_free(void *data)
 {
 	struct netconfig *netconfig = data;
@@ -1308,12 +1319,7 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 	}
 
 	/* No more validation steps for now, commit new values */
-
-	if (v4_address) {
-		netconfig->v4_address = v4_address;
-		netconfig->rtm_protocol = RTPROT_STATIC;
-	} else
-		netconfig->rtm_protocol = RTPROT_DHCP;
+	netconfig->rtm_protocol = v4_address ? RTPROT_STATIC : RTPROT_DHCP;
 
 	if (!v6_enabled)
 		netconfig->rtm_v6_protocol = RTPROT_UNSPEC;
@@ -1327,6 +1333,11 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 
 	resolve_set_mdns(netconfig->resolve, mdns);
 	l_free(mdns);
+
+	netconfig_free_settings(netconfig);
+
+	if (netconfig->rtm_protocol == RTPROT_STATIC)
+		netconfig->v4_address = v4_address;
 
 	netconfig->active_settings = active_settings;
 	netconfig->dns4_overrides = dns4_overrides;
