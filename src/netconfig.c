@@ -60,6 +60,7 @@ struct netconfig {
 	struct l_rtnl_address *v4_address;
 	char **dns4_overrides;
 	char **dns6_overrides;
+	char *mdns;
 	struct ie_fils_ip_addr_response_info *fils_override;
 
 	const struct l_settings *active_settings;
@@ -135,6 +136,9 @@ static void netconfig_free_settings(struct netconfig *netconfig)
 	netconfig->dns4_overrides = NULL;
 	l_strfreev(netconfig->dns6_overrides);
 	netconfig->dns6_overrides = NULL;
+
+	l_free(netconfig->mdns);
+	netconfig->mdns = NULL;
 }
 
 static void netconfig_free(void *data)
@@ -1331,9 +1335,6 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 	if (send_hostname)
 		l_dhcp_client_set_hostname(netconfig->dhcp_client, hostname);
 
-	resolve_set_mdns(netconfig->resolve, mdns);
-	l_free(mdns);
-
 	netconfig_free_settings(netconfig);
 
 	if (netconfig->rtm_protocol == RTPROT_STATIC)
@@ -1342,6 +1343,7 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 	netconfig->active_settings = active_settings;
 	netconfig->dns4_overrides = dns4_overrides;
 	netconfig->dns6_overrides = dns6_overrides;
+	netconfig->mdns = mdns;
 	return true;
 
 err_v6_addr:
@@ -1366,6 +1368,8 @@ bool netconfig_configure(struct netconfig *netconfig,
 
 	if (unlikely(!netconfig_ipv6_select_and_install(netconfig)))
 		return false;
+
+	resolve_set_mdns(netconfig->resolve, netconfig->mdns);
 
 	return true;
 }
