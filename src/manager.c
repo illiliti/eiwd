@@ -68,25 +68,6 @@ struct wiphy_setup_state {
 
 static struct l_queue *pending_wiphys;
 
-/* With these drivers don't even try creating our interfaces */
-static const char *default_if_driver_list[] = {
-	/*
-	 * The out-of-tree rtl88x2bu crashes the kernel hard.  Seemingly
-	 * many other drivers are built from the same source code so
-	 * blacklist all of them.  Unfortunately there are in-tree drivers
-	 * that also match these names and may be fine.  Use
-	 * UseDefaultInterface to override.
-	 */
-	"rtl81*",
-	"rtl87*",
-	"rtl88*",
-	"rtw_*",
-	"brcmfmac",
-	"bcmsdh_sdmmc",
-
-	NULL,
-};
-
 static void wiphy_setup_state_free(void *data)
 {
 	struct wiphy_setup_state *state = data;
@@ -579,18 +560,9 @@ static void manager_wiphy_dump_done(void *user_data)
 		if (whitelist_filter || blacklist_filter)
 			state->use_default = true;
 
-		if (!state->use_default) {
-			const char *driver = wiphy_get_driver(state->wiphy);
-
-			if (driver) {
-				const char **e;
-
-				for (e = default_if_driver_list; *e; e++)
-					if (fnmatch(*e, driver, 0) == 0)
-						state->use_default = true;
-			} else
-				state->use_default = true;
-		}
+		if (!state->use_default)
+			state->use_default =
+				wiphy_uses_default_if(state->wiphy);
 
 		if (state->use_default)
 			l_info("Wiphy %s will only use the default interface",
