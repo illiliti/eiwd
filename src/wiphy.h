@@ -101,6 +101,7 @@ bool wiphy_supports_firmware_roam(struct wiphy *wiphy);
 const char *wiphy_get_driver(struct wiphy *wiphy);
 const char *wiphy_get_name(struct wiphy *wiphy);
 bool wiphy_uses_default_if(struct wiphy *wiphy);
+bool wiphy_control_port_capable(struct wiphy *wiphy);
 const uint8_t *wiphy_get_permanent_address(struct wiphy *wiphy);
 const uint8_t *wiphy_get_extended_capabilities(struct wiphy *wiphy,
 							uint32_t iftype);

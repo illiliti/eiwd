@@ -6096,9 +6096,7 @@ struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 		return NULL;
 	}
 
-	if (!wiphy_has_ext_feature(wiphy,
-			NL80211_EXT_FEATURE_CONTROL_PORT_OVER_NL80211) ||
-			!pae_over_nl80211) {
+	if (!pae_over_nl80211 || !wiphy_control_port_capable(wiphy)) {
 		pae_io = pae_open(ifindex);
 		if (!pae_io) {
 			l_error("Unable to open PAE interface");

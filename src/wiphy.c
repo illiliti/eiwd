@@ -69,6 +69,7 @@ static uint32_t work_ids;
 
 enum driver_flag {
 	DEFAULT_IF = 0x1,
+	FORCE_PAE = 0x2,
 };
 
 struct driver_info {
@@ -547,6 +548,19 @@ bool wiphy_uses_default_if(struct wiphy *wiphy)
 		return true;
 
 	return false;
+}
+
+bool wiphy_control_port_capable(struct wiphy *wiphy)
+{
+	if (wiphy->driver_info &&
+			wiphy->driver_info->flags & FORCE_PAE) {
+		l_info("Not using Control Port due to driver quirks: %s",
+				wiphy_get_driver(wiphy));
+		return false;
+	}
+
+	return wiphy_has_ext_feature(wiphy,
+			NL80211_EXT_FEATURE_CONTROL_PORT_OVER_NL80211);
 }
 
 const uint8_t *wiphy_get_permanent_address(struct wiphy *wiphy)
