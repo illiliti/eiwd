@@ -459,6 +459,11 @@ bool wiphy_can_transition_disable(struct wiphy *wiphy)
 	return true;
 }
 
+bool wiphy_supports_ext_key_id(struct wiphy *wiphy)
+{
+	return wiphy_has_ext_feature(wiphy, NL80211_EXT_FEATURE_EXT_KEY_ID);
+}
+
 bool wiphy_supports_cmds_auth_assoc(struct wiphy *wiphy)
 {
 	return wiphy->support_cmds_auth_assoc;
