@@ -5863,6 +5863,76 @@ static void print_scan_flags(unsigned int level, const char *label,
 	}
 }
 
+static void print_key_type(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	const uint8_t *ptr = data;
+	const char *str;
+
+	switch (*ptr) {
+	case NL80211_KEYTYPE_GROUP:
+		str = "Group";
+		break;
+	case NL80211_KEYTYPE_PAIRWISE:
+		str = "Pairwise";
+		break;
+	case NL80211_KEYTYPE_PEERKEY:
+		str = "Peerkey";
+		break;
+	default:
+		str = "Unknown";
+	}
+
+	print_attr(level, "%s: %s", label, str);
+}
+
+static void print_key_mode(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	const uint8_t *ptr = data;
+	const char *str;
+
+	switch (*ptr) {
+	case NL80211_KEY_RX_TX:
+		str = "RX/TX";
+		break;
+	case NL80211_KEY_NO_TX:
+		str = "RX Only";
+		break;
+	case NL80211_KEY_SET_TX:
+		str = "Set TX";
+		break;
+	default:
+		str = "Unknown";
+	}
+
+	print_attr(level, "%s: %s", label, str);
+}
+
+static const struct attr_entry default_key_type_table[] = {
+	{ NL80211_KEY_DEFAULT_TYPE_UNICAST, "Unicast", ATTR_FLAG },
+	{ NL80211_KEY_DEFAULT_TYPE_MULTICAST, "Multicast", ATTR_FLAG },
+	{ }
+};
+
+static const struct attr_entry key_table[] = {
+	{ NL80211_KEY_DATA,		"Key Data",		ATTR_BINARY },
+	{ NL80211_KEY_IDX,		"Key Index",		ATTR_U8 },
+	{ NL80211_KEY_CIPHER,		"Key Cipher",		ATTR_CUSTOM,
+					{ .function = print_cipher_suite } },
+	{ NL80211_KEY_SEQ,		"Key Sequence",		ATTR_BINARY },
+	{ NL80211_KEY_DEFAULT,		"Default",		ATTR_FLAG },
+	{ NL80211_KEY_DEFAULT_MGMT,	"Default Management",	ATTR_FLAG },
+	{ NL80211_KEY_TYPE,		"Key Type",		ATTR_CUSTOM,
+					{ .function = print_key_type} },
+	{ NL80211_KEY_DEFAULT_TYPES,	"Default Key Types",	ATTR_NESTED,
+					{ default_key_type_table } },
+	{ NL80211_KEY_MODE,		"Key Mode",		ATTR_CUSTOM,
+					{ .function = print_key_mode } },
+	{ NL80211_KEY_DEFAULT_BEACON,	"Default Beacon",	ATTR_FLAG },
+	{ }
+};
+
 static const struct attr_entry attr_table[] = {
 	{ NL80211_ATTR_WIPHY,
 			"Wiphy", ATTR_U32 },
@@ -6038,7 +6108,7 @@ static const struct attr_entry attr_table[] = {
 	{ NL80211_ATTR_PREV_BSSID,
 			"Previous BSSID", ATTR_ADDRESS },
 	{ NL80211_ATTR_KEY,
-			"Key" },
+			"Key", ATTR_NESTED, { key_table } },
 	{ NL80211_ATTR_KEYS,
 			"Keys" },
 	{ NL80211_ATTR_PID,
