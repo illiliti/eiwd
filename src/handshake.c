@@ -234,6 +234,7 @@ valid_ie:
 	s->group_management_cipher = info.group_management_cipher;
 	s->akm_suite = info.akm_suites;
 	s->supplicant_ocvc = info.ocvc;
+	s->ext_key_id_capable = info.extended_key_id;
 
 	/*
 	 * Don't set MFP for OSEN otherwise EAPoL will attempt to negotiate a

@@ -128,6 +128,7 @@ struct handshake_state {
 	bool support_fils : 1;
 	bool authenticator_ocvc : 1;
 	bool supplicant_ocvc : 1;
+	bool ext_key_id_capable : 1;
 	uint8_t ssid[32];
 	size_t ssid_len;
 	char *passphrase;
@@ -138,6 +139,7 @@ struct handshake_state {
 	uint8_t gtk_rsc[6];
 	uint8_t proto_version : 2;
 	unsigned int gtk_index;
+	uint8_t active_tk_index;
 	struct erp_cache_entry *erp_cache;
 	bool support_ip_allocation : 1;
 	uint32_t client_ip_addr;
