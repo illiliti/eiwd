@@ -555,8 +555,11 @@ bool wiphy_uses_default_if(struct wiphy *wiphy)
 	return false;
 }
 
-bool wiphy_control_port_capable(struct wiphy *wiphy)
+bool wiphy_control_port_enabled(struct wiphy *wiphy)
 {
+	const struct l_settings *settings = iwd_get_config();
+	bool enabled;
+
 	if (wiphy->driver_info &&
 			wiphy->driver_info->flags & FORCE_PAE) {
 		l_info("Not using Control Port due to driver quirks: %s",
@@ -564,8 +567,15 @@ bool wiphy_control_port_capable(struct wiphy *wiphy)
 		return false;
 	}
 
-	return wiphy_has_ext_feature(wiphy,
-			NL80211_EXT_FEATURE_CONTROL_PORT_OVER_NL80211);
+	if (!wiphy_has_ext_feature(wiphy,
+			NL80211_EXT_FEATURE_CONTROL_PORT_OVER_NL80211))
+		return false;
+
+	if (!l_settings_get_bool(settings, "General",
+					"ControlPortOverNL80211", &enabled))
+		enabled = true;
+
+	return enabled;
 }
 
 const uint8_t *wiphy_get_permanent_address(struct wiphy *wiphy)

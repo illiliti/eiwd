@@ -203,7 +203,6 @@ static struct l_netlink *rtnl = NULL;
 static struct l_genl_family *nl80211;
 static struct l_queue *netdev_list;
 static struct watchlist netdev_watches;
-static bool pae_over_nl80211;
 static bool mac_per_ssid;
 
 static unsigned int iov_ie_append(struct iovec *iov,
@@ -6096,7 +6095,7 @@ struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 		return NULL;
 	}
 
-	if (!pae_over_nl80211 || !wiphy_control_port_capable(wiphy)) {
+	if (!wiphy_control_port_enabled(wiphy)) {
 		pae_io = pae_open(ifindex);
 		if (!pae_io) {
 			l_error("Unable to open PAE interface");
@@ -6232,10 +6231,6 @@ static int netdev_init(void)
 	if (!l_settings_get_int(settings, "General", "RoamThreshold5G",
 					&LOW_SIGNAL_THRESHOLD_5GHZ))
 		LOW_SIGNAL_THRESHOLD_5GHZ = -76;
-
-	if (!l_settings_get_bool(settings, "General", "ControlPortOverNL80211",
-					&pae_over_nl80211))
-		pae_over_nl80211 = true;
 
 	rand_addr_str = l_settings_get_value(settings, "General",
 						"AddressRandomization");
