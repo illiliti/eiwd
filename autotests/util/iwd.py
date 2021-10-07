@@ -1133,7 +1133,8 @@ class IWD(AsyncOpAbstract):
                                        ' condition was not met in '\
                                        + str(max_wait) + ' sec'))
 
-    def wait(self, time):
+    @staticmethod
+    def wait(time):
         ctx.non_block_wait(lambda : False, time, exception=False)
 
     @staticmethod
