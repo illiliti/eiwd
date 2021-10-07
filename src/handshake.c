@@ -76,6 +76,7 @@ static handshake_get_nonce_func_t get_nonce = handshake_get_nonce;
 static handshake_install_tk_func_t install_tk = NULL;
 static handshake_install_gtk_func_t install_gtk = NULL;
 static handshake_install_igtk_func_t install_igtk = NULL;
+static handshake_install_ext_tk_func_t install_ext_tk = NULL;
 
 void __handshake_set_get_nonce_func(handshake_get_nonce_func_t func)
 {
@@ -95,6 +96,11 @@ void __handshake_set_install_gtk_func(handshake_install_gtk_func_t func)
 void __handshake_set_install_igtk_func(handshake_install_igtk_func_t func)
 {
 	install_igtk = func;
+}
+
+void __handshake_set_install_ext_tk_func(handshake_install_ext_tk_func_t func)
+{
+	install_ext_tk = func;
 }
 
 void handshake_state_free(struct handshake_state *s)
@@ -663,6 +669,23 @@ void handshake_state_install_ptk(struct handshake_state *s)
 		install_tk(s, handshake_get_tk(s), cipher);
 	}
 }
+
+void handshake_state_install_ext_ptk(struct handshake_state *s,
+				uint8_t key_idx,
+				struct eapol_frame *ek, uint16_t proto,
+				bool noencrypt)
+{
+	s->ptk_complete = true;
+
+	if (install_ext_tk) {
+		uint32_t cipher =
+			ie_rsn_cipher_suite_to_cipher(s->pairwise_cipher);
+
+		install_ext_tk(s, key_idx, handshake_get_tk(s), cipher, ek,
+				proto, noencrypt);
+	}
+}
+
 
 void handshake_state_install_gtk(struct handshake_state *s,
 					uint16_t gtk_key_index,

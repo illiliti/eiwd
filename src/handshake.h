@@ -27,6 +27,7 @@
 
 struct handshake_state;
 enum crypto_cipher;
+struct eapol_frame;
 
 enum handshake_kde {
 	/* 802.11-2020 Table 12-9 in section 12.7.2 */
@@ -78,11 +79,17 @@ typedef void (*handshake_install_igtk_func_t)(struct handshake_state *hs,
 					const uint8_t *igtk, uint8_t igtk_len,
 					const uint8_t *ipn, uint8_t ipn_len,
 					uint32_t cipher);
+typedef void (*handshake_install_ext_tk_func_t)(struct handshake_state *hs,
+					uint8_t key_idx, const uint8_t *tk,
+					uint32_t cipher,
+					const struct eapol_frame *step4,
+					uint16_t proto, bool noencrypt);
 
 void __handshake_set_get_nonce_func(handshake_get_nonce_func_t func);
 void __handshake_set_install_tk_func(handshake_install_tk_func_t func);
 void __handshake_set_install_gtk_func(handshake_install_gtk_func_t func);
 void __handshake_set_install_igtk_func(handshake_install_igtk_func_t func);
+void __handshake_set_install_ext_tk_func(handshake_install_ext_tk_func_t func);
 
 struct handshake_state {
 	uint32_t ifindex;
@@ -225,6 +232,11 @@ const uint8_t *handshake_state_get_kck(struct handshake_state *s);
 size_t handshake_state_get_kek_len(struct handshake_state *s);
 const uint8_t *handshake_state_get_kek(struct handshake_state *s);
 void handshake_state_install_ptk(struct handshake_state *s);
+
+void handshake_state_install_ext_ptk(struct handshake_state *s,
+				uint8_t key_idx,
+				struct eapol_frame *ek, uint16_t proto,
+				bool noencrypt);
 
 void handshake_state_install_gtk(struct handshake_state *s,
 					uint16_t gtk_key_index,
