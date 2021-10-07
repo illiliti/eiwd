@@ -81,7 +81,6 @@ class Test(unittest.TestCase):
                           (self.bss_hostapd[0].ifname, device.name, True, True))
 
         self.bss_hostapd[1].rekey(device.address)
-        self.bss_hostapd[1].wait_for_event('EAPOL-4WAY-HS-COMPLETED')
 
         device.roam(self.bss_hostapd[0].bssid)
 
