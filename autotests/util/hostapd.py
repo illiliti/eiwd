@@ -212,6 +212,10 @@ class HostapdCLI(object):
         cmd = 'REKEY_GTK'
         self.ctrl_sock.sendall(cmd.encode('utf-8'))
 
+    def resend_m3(self, address):
+        cmd = 'RESEND_M3 %s' % address
+        self.ctrl_sock.sendall(cmd.encode('utf-8'))
+
     @property
     def bssid(self):
         cmd = self.cmdline + ['status']
