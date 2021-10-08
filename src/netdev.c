@@ -4405,6 +4405,7 @@ static void prepare_ft(struct netdev *netdev, const struct scan_bss *target_bss)
 							target_bss->rsne);
 	memcpy(netdev->handshake->mde + 2, target_bss->mde, 3);
 
+	netdev->handshake->active_tk_index = 0;
 	netdev->associated = false;
 	netdev->operational = false;
 	netdev->in_ft = true;
