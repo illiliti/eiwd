@@ -1085,7 +1085,7 @@ build_ie:
 					&disable_ocv))
 		disable_ocv = false;
 
-	info.ocvc = !disable_ocv;
+	info.ocvc = !disable_ocv && bss_info.ocvc;
 
 	/* Extended Key IDs can only be used if supported by both AP and STA */
 	if (wiphy_supports_ext_key_id(wiphy) && bss_info.extended_key_id)
