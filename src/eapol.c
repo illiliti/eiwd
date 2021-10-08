@@ -1670,7 +1670,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 	size_t transition_disable_len;
 	uint8_t gtk_key_index;
 	uint16_t igtk_key_index;
-	const uint8_t *oci = NULL;
+	const uint8_t *oci;
 	size_t oci_len;
 	int r;
 
@@ -2079,7 +2079,7 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 	const uint8_t *igtk;
 	size_t igtk_len;
 	uint16_t igtk_key_index;
-	const uint8_t *oci = NULL;
+	const uint8_t *oci;
 	size_t oci_len;
 	uint8_t ies[1024];
 	size_t ies_len = 0;
