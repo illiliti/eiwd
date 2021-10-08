@@ -1087,6 +1087,10 @@ build_ie:
 
 	info.ocvc = !disable_ocv;
 
+	/* Extended Key IDs can only be used if supported by both AP and STA */
+	if (wiphy_supports_ext_key_id(wiphy) && bss_info.extended_key_id)
+		info.extended_key_id = true;
+
 	/* RSN takes priority */
 	if (bss->rsne) {
 		ap_ie = bss->rsne;
