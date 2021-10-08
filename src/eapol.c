@@ -1852,8 +1852,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 		gtk_key_index = bit_field(gtk[0], 0, 2);
 		gtk += 2;
 		gtk_len -= 2;
-	} else
-		gtk = NULL;
+	}
 
 	if (hs->mfp) {
 		igtk = handshake_util_find_igtk_kde(decrypted_key_data,
@@ -1867,8 +1866,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 		igtk_key_index = l_get_le16(igtk);
 		igtk += 2;
 		igtk_len -= 2;
-	} else
-		igtk = NULL;
+	}
 
 	key_id = handshake_util_find_kde(HANDSHAKE_KDE_KEY_ID,
 					decrypted_key_data,
