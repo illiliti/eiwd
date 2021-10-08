@@ -1122,6 +1122,20 @@ static inline size_t append_ie(uint8_t *ies, const uint8_t *ie)
 	return ie[1] + 2;
 }
 
+static size_t append_oci(uint8_t *ies, const struct band_chandef *chandef)
+{
+	unsigned int len = 0;
+
+	ies[len++] = IE_TYPE_VENDOR_SPECIFIC;
+	ies[len++] = 4 + 3;
+	l_put_be32(HANDSHAKE_KDE_OCI, ies + len);
+	len += 4;
+	oci_from_chandef(chandef, ies + len);
+	len += 3;
+
+	return len;
+}
+
 static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 					const struct eapol_key *ek,
 					bool unencrypted)
@@ -1266,14 +1280,8 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 	 *  dot11RSNAOperatingChannelValidationActivated is true on the
 	 *  Supplicant."
 	 */
-	if (sm->handshake->supplicant_ocvc && sm->handshake->chandef) {
-		ies[ies_len++] = IE_TYPE_VENDOR_SPECIFIC;
-		ies[ies_len++] = 4 + 3;
-		l_put_be32(HANDSHAKE_KDE_OCI, ies + ies_len);
-		ies_len += 4;
-		oci_from_chandef(sm->handshake->chandef, ies + ies_len);
-		ies_len += 3;
-	}
+	if (sm->handshake->supplicant_ocvc && sm->handshake->chandef)
+		ies_len += append_oci(ies + ies_len, sm->handshake->chandef);
 
 	/*
 	 * 802.11-2020, Section 12.7.6.3:
@@ -2075,7 +2083,8 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 	uint16_t igtk_key_index;
 	const uint8_t *oci = NULL;
 	size_t oci_len;
-	uint8_t oci_out[9];
+	uint8_t ies[1024];
+	size_t ies_len = 0;
 
 	l_debug("ifindex=%u", hs->ifindex);
 
@@ -2143,12 +2152,8 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 	 * appears to be a copy-paste from a previous section. Above it has been
 	 * changed to Supplicant.
 	 */
-	if (sm->handshake->supplicant_ocvc && sm->handshake->chandef) {
-		oci_out[0] = IE_TYPE_VENDOR_SPECIFIC;
-		oci_out[1] = 4 + 3;
-		l_put_be32(HANDSHAKE_KDE_OCI, oci_out + 2);
-		oci_from_chandef(sm->handshake->chandef, oci_out + 6);
-	}
+	if (sm->handshake->supplicant_ocvc && sm->handshake->chandef)
+		ies_len += append_oci(ies + ies_len, sm->handshake->chandef);
 
 	/*
 	 * 802.11-2016, Section 12.7.7.2:
@@ -2171,7 +2176,7 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 	step2 = eapol_create_gtk_2_of_2(sm->protocol_version,
 					ek->key_descriptor_version,
 					sm->replay_counter,
-					oci_out[1] + 2, oci_out,
+					ies_len, ies,
 					hs->wpa_ie, ek->wpa_key_id,
 					sm->mic_len);
 
