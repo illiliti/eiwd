@@ -2471,7 +2471,7 @@ static void eapol_sm_test_wpa_ptk_gtk_2(const void *data)
 	eapol_exit();
 }
 
-static void verify_install_tk(struct handshake_state *hs,
+static void verify_install_tk(struct handshake_state *hs, uint8_t key_index,
 				const uint8_t *tk, uint32_t cipher)
 {
 	struct test_handshake_state *ths =
@@ -3626,7 +3626,7 @@ static void test_ap_sta_hs_event(struct handshake_state *hs,
 	assert(event != HANDSHAKE_EVENT_FAILED);
 }
 
-static void test_ap_sta_install_tk(struct handshake_state *hs,
+static void test_ap_sta_install_tk(struct handshake_state *hs, uint8_t key_idx,
 					const uint8_t *tk, uint32_t cipher)
 {
 	struct test_ap_sta_hs *ths =
