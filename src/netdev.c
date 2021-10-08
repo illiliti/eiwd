@@ -1735,9 +1735,9 @@ static struct l_genl_msg *netdev_build_cmd_new_key_pairwise(
 							uint32_t cipher,
 							const uint8_t *aa,
 							const uint8_t *tk,
-							size_t tk_len)
+							size_t tk_len,
+							uint8_t key_id)
 {
-	uint8_t key_id = 0;
 	struct l_genl_msg *msg;
 
 	msg = l_genl_msg_new_sized(NL80211_CMD_NEW_KEY, 512);
@@ -1775,7 +1775,7 @@ static void netdev_group_timeout_cb(struct l_timeout *timeout, void *user_data)
 	netdev_connect_ok(nhs->netdev);
 }
 
-static void netdev_set_tk(struct handshake_state *hs,
+static void netdev_set_tk(struct handshake_state *hs, uint8_t key_index,
 				const uint8_t *tk, uint32_t cipher)
 {
 	struct netdev_handshake_state *nhs =
@@ -1823,7 +1823,8 @@ static void netdev_set_tk(struct handshake_state *hs,
 		goto invalid_key;
 
 	msg = netdev_build_cmd_new_key_pairwise(netdev, cipher, addr, tk_buf,
-						crypto_cipher_key_len(cipher));
+						crypto_cipher_key_len(cipher),
+						key_index);
 	nhs->pairwise_new_key_cmd_id =
 		l_genl_family_send(nl80211, msg, netdev_new_pairwise_key_cb,
 						nhs, NULL);

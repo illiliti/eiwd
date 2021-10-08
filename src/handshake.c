@@ -666,7 +666,7 @@ void handshake_state_install_ptk(struct handshake_state *s)
 
 		handshake_event(s, HANDSHAKE_EVENT_SETTING_KEYS);
 
-		install_tk(s, handshake_get_tk(s), cipher);
+		install_tk(s, s->active_tk_index, handshake_get_tk(s), cipher);
 	}
 }
 

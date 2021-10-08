@@ -68,6 +68,7 @@ typedef void (*handshake_event_func_t)(struct handshake_state *hs,
 
 typedef bool (*handshake_get_nonce_func_t)(uint8_t nonce[]);
 typedef void (*handshake_install_tk_func_t)(struct handshake_state *hs,
+					uint8_t key_index,
 					const uint8_t *tk, uint32_t cipher);
 typedef void (*handshake_install_gtk_func_t)(struct handshake_state *hs,
 					uint16_t key_index,
