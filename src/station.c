@@ -1087,8 +1087,13 @@ build_ie:
 
 	info.ocvc = !disable_ocv && bss_info.ocvc;
 
-	/* Extended Key IDs can only be used if supported by both AP and STA */
-	if (wiphy_supports_ext_key_id(wiphy) && bss_info.extended_key_id)
+	/*
+	 * IEEE 802.11-2020 9.4.2.24.4 states extended key IDs can only be used
+	 * with CCMP/GCMP cipher suites. We also only enable support if the AP
+	 * also indicates support.
+	 */
+	if (wiphy_supports_ext_key_id(wiphy) && bss_info.extended_key_id &&
+			info.pairwise_ciphers == IE_RSN_CIPHER_SUITE_CCMP)
 		info.extended_key_id = true;
 
 	/* RSN takes priority */
