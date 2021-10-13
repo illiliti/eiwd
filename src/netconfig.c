@@ -574,6 +574,39 @@ static struct l_rtnl_address *netconfig_get_dhcp4_address(
 	return ret;
 }
 
+static void netconfig_gateway_to_arp(struct netconfig *netconfig)
+{
+	const struct l_dhcp_lease *lease;
+	_auto_(l_free) char *server_id = NULL;
+	_auto_(l_free) char *gw = NULL;
+	const uint8_t *server_mac;
+	struct in_addr in_gw;
+
+	/* Can only do this for DHCP in certain network setups */
+	if (netconfig->rtm_protocol != RTPROT_DHCP)
+		return;
+
+	lease = l_dhcp_client_get_lease(netconfig->dhcp_client);
+	if (!lease)
+		return;
+
+	server_id = l_dhcp_lease_get_server_id(lease);
+	gw = l_dhcp_lease_get_gateway(lease);
+	server_mac = l_dhcp_lease_get_server_mac(lease);
+
+	if (strcmp(server_id, gw) || !server_mac)
+		return;
+
+	l_debug("Gateway MAC is known, setting into ARP cache");
+	in_gw.s_addr = l_dhcp_lease_get_gateway_u32(lease);
+
+	if (!l_rtnl_neighbor_set_hwaddr(rtnl, netconfig->ifindex, AF_INET,
+					&in_gw, server_mac, ETH_ALEN,
+					netconfig_set_neighbor_entry_cb, NULL,
+					NULL))
+		l_debug("l_rtnl_neighbor_set_hwaddr failed");
+}
+
 static void netconfig_ifaddr_added(struct netconfig *netconfig,
 					const struct ifaddrmsg *ifa,
 					uint32_t len)
@@ -860,6 +893,8 @@ static void netconfig_ipv4_ifaddr_add_cmd_cb(int error, uint16_t type,
 				"Error %d: %s", error, strerror(-error));
 		return;
 	}
+
+	netconfig_gateway_to_arp(netconfig);
 
 	if (!netconfig_ipv4_routes_install(netconfig)) {
 		l_error("netconfig: Failed to install IPv4 routes.");
@@ -1372,6 +1407,15 @@ bool netconfig_configure(struct netconfig *netconfig,
 
 bool netconfig_reconfigure(struct netconfig *netconfig)
 {
+	/*
+	 * Starting with kernel 4.20, ARP cache is flushed when the netdev
+	 * detects NO CARRIER.  This can result in unnecessarily long delays
+	 * (about 1 second on some networks) due to ARP query response being
+	 * lost or delayed.  Try to force the gateway into the ARP cache
+	 * to alleviate this
+	 */
+	netconfig_gateway_to_arp(netconfig);
+
 	if (netconfig->rtm_protocol == RTPROT_DHCP) {
 		/* TODO l_dhcp_client sending a DHCP inform request */
 	}
