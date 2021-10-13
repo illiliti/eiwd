@@ -981,20 +981,16 @@ static void ap_handshake_event(struct handshake_state *hs,
 		break;
 	case HANDSHAKE_EVENT_P2P_IP_REQUEST:
 	{
-		L_AUTO_FREE_VAR(char *, lease_addr_str) = NULL;
-		L_AUTO_FREE_VAR(char *, lease_netmask_str) = NULL;
 		char own_addr_str[INET_ADDRSTRLEN];
 
 		if (!ap_sta_get_dhcp4_lease(sta))
 			break;
 
-		lease_addr_str = l_dhcp_lease_get_address(sta->ip_alloc_lease);
-		lease_netmask_str =
-			l_dhcp_lease_get_netmask(sta->ip_alloc_lease);
+		sta->hs->client_ip_addr =
+			l_dhcp_lease_get_address_u32(sta->ip_alloc_lease);
+		sta->hs->subnet_mask =
+			l_dhcp_lease_get_netmask_u32(sta->ip_alloc_lease);
 		l_rtnl_address_get_address(ap->netconfig_addr4, own_addr_str);
-
-		sta->hs->client_ip_addr = IP4_FROM_STR(lease_addr_str);
-		sta->hs->subnet_mask = IP4_FROM_STR(lease_netmask_str);
 		sta->hs->go_ip_addr = IP4_FROM_STR(own_addr_str);
 		break;
 	}
@@ -1465,16 +1461,16 @@ static uint32_t ap_assoc_resp(struct ap_state *ap, struct sta_state *sta,
 		struct ie_fils_ip_addr_response_info ip_resp_info = {};
 
 		if (ip_req_info->ipv4 && sta && ap_sta_get_dhcp4_lease(sta)) {
-			L_AUTO_FREE_VAR(char *, lease_addr_str) =
-				l_dhcp_lease_get_address(sta->ip_alloc_lease);
 			uint32_t lease_lifetime =
 				l_dhcp_lease_get_lifetime(sta->ip_alloc_lease);
-			L_AUTO_FREE_VAR(char *, lease_gateway_str) =
-				l_dhcp_lease_get_gateway(sta->ip_alloc_lease);
+			uint32_t gw =
+				l_dhcp_lease_get_gateway_u32(
+							sta->ip_alloc_lease);
 			char **lease_dns_str_list =
 				l_dhcp_lease_get_dns(sta->ip_alloc_lease);
 
-			ip_resp_info.ipv4_addr = IP4_FROM_STR(lease_addr_str);
+			ip_resp_info.ipv4_addr = l_dhcp_lease_get_address_u32(
+							sta->ip_alloc_lease);
 			ip_resp_info.ipv4_prefix_len =
 				l_dhcp_lease_get_prefix_length(
 							sta->ip_alloc_lease);
@@ -1482,9 +1478,8 @@ static uint32_t ap_assoc_resp(struct ap_state *ap, struct sta_state *sta,
 			if (lease_lifetime != 0xffffffff)
 				ip_resp_info.ipv4_lifetime = lease_lifetime;
 
-			if (lease_gateway_str) {
-				ip_resp_info.ipv4_gateway =
-					IP4_FROM_STR(lease_gateway_str);
+			if (gw) {
+				ip_resp_info.ipv4_gateway = gw;
 				memcpy(ip_resp_info.ipv4_gateway_mac,
 					ap->netconfig_gateway4_mac, 6);
 			}
