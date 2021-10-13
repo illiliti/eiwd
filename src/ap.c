@@ -1467,8 +1467,6 @@ static uint32_t ap_assoc_resp(struct ap_state *ap, struct sta_state *sta,
 		if (ip_req_info->ipv4 && sta && ap_sta_get_dhcp4_lease(sta)) {
 			L_AUTO_FREE_VAR(char *, lease_addr_str) =
 				l_dhcp_lease_get_address(sta->ip_alloc_lease);
-			L_AUTO_FREE_VAR(char *, lease_netmask_str) =
-				l_dhcp_lease_get_netmask(sta->ip_alloc_lease);
 			uint32_t lease_lifetime =
 				l_dhcp_lease_get_lifetime(sta->ip_alloc_lease);
 			L_AUTO_FREE_VAR(char *, lease_gateway_str) =
@@ -1478,8 +1476,8 @@ static uint32_t ap_assoc_resp(struct ap_state *ap, struct sta_state *sta,
 
 			ip_resp_info.ipv4_addr = IP4_FROM_STR(lease_addr_str);
 			ip_resp_info.ipv4_prefix_len =
-				__builtin_popcount(IP4_FROM_STR(
-							lease_netmask_str));
+				l_dhcp_lease_get_prefix_length(
+							sta->ip_alloc_lease);
 
 			if (lease_lifetime != 0xffffffff)
 				ip_resp_info.ipv4_lifetime = lease_lifetime;
