@@ -549,9 +549,7 @@ static struct l_rtnl_address *netconfig_get_dhcp4_address(
 	const struct l_dhcp_lease *lease =
 			l_dhcp_client_get_lease(netconfig->dhcp_client);
 	L_AUTO_FREE_VAR(char *, ip) = NULL;
-	L_AUTO_FREE_VAR(char *, netmask) = NULL;
 	L_AUTO_FREE_VAR(char *, broadcast) = NULL;
-	struct in_addr in_addr;
 	uint32_t prefix_len;
 	struct l_rtnl_address *ret;
 
@@ -559,12 +557,10 @@ static struct l_rtnl_address *netconfig_get_dhcp4_address(
 		return NULL;
 
 	ip = l_dhcp_lease_get_address(lease);
-	netmask = l_dhcp_lease_get_netmask(lease);
 	broadcast = l_dhcp_lease_get_broadcast(lease);
 
-	if (netmask && inet_pton(AF_INET, netmask, &in_addr) > 0)
-		prefix_len = __builtin_popcountl(in_addr.s_addr);
-	else
+	prefix_len = l_dhcp_lease_get_prefix_length(lease);
+	if (!prefix_len)
 		prefix_len = 24;
 
 	ret = l_rtnl_address_new(ip, prefix_len);
