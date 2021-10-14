@@ -61,7 +61,8 @@ ell_headers = ell/util.h \
 			ell/path.h \
 			ell/icmp6.h \
 			ell/dhcp6.h \
-			ell/acd.h
+			ell/acd.h \
+			ell/cleanup.h
 
 ell_sources = ell/private.h \
 			ell/missing.h \
