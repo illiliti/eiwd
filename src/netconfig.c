@@ -594,7 +594,7 @@ static void netconfig_gateway_to_arp(struct netconfig *netconfig)
 	gw = l_dhcp_lease_get_gateway(lease);
 	server_mac = l_dhcp_lease_get_server_mac(lease);
 
-	if (strcmp(server_id, gw) || !server_mac)
+	if (!gw || strcmp(server_id, gw) || !server_mac)
 		return;
 
 	l_debug("Gateway MAC is known, setting into ARP cache");
