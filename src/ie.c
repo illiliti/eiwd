@@ -2552,3 +2552,23 @@ int ie_parse_owe_transition(const void *data, size_t len,
 
 	return 0;
 }
+
+int ie_parse_oci(const void *data, size_t len, const uint8_t **oci)
+{
+	struct ie_tlv_iter iter;
+
+	ie_tlv_iter_init(&iter, data, len);
+
+	if (!ie_tlv_iter_next(&iter))
+		return -EMSGSIZE;
+
+	if (ie_tlv_iter_get_length(&iter) != 3)
+		return -EMSGSIZE;
+
+	if (ie_tlv_iter_get_tag(&iter) != IE_TYPE_OCI)
+		return -EPROTOTYPE;
+
+	*oci = ie_tlv_iter_get_data(&iter);
+
+	return 0;
+}
