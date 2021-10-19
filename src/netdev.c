@@ -5114,8 +5114,10 @@ static void netdev_unprot_disconnect_event(struct l_genl_msg *msg,
 		return;
 
 	/* ignore excessive disassociate requests */
-	if (netdev->sa_query_timeout)
+	if (netdev->sa_query_timeout) {
+		l_debug("SA Query already in progress, ignoring");
 		return;
+	}
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
