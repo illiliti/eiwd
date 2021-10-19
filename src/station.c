@@ -1085,7 +1085,20 @@ build_ie:
 					&disable_ocv))
 		disable_ocv = false;
 
-	info.ocvc = !disable_ocv && bss_info.ocvc && info.mfpc;
+	/*
+	 * Obviously do not enable OCV if explicitly disabled or no AP support.
+	 *
+	 * Not obviously hostapd rejects OCV support if MFPC is not enabled.
+	 * This is not really specified by the spec, but we have to work around
+	 * this limitation.
+	 *
+	 * Another limitation is full mac cards. With limited testing it was
+	 * seen that they do not include the OCI in the 4-way handshake yet
+	 * still advertise the capability. Because of this OCV is disabled if
+	 * any offload features are detected (since IWD prefers to use offload).
+	 */
+	info.ocvc = !disable_ocv && bss_info.ocvc && info.mfpc &&
+			!wiphy_can_offload(wiphy);;
 
 	/*
 	 * IEEE 802.11-2020 9.4.2.24.4 states extended key IDs can only be used
