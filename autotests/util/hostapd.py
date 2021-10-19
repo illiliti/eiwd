@@ -216,6 +216,14 @@ class HostapdCLI(object):
         cmd = 'RESEND_M3 %s' % address
         self.ctrl_sock.sendall(cmd.encode('utf-8'))
 
+    def chan_switch(self, channel):
+        if channel > len(chan_freq_map):
+            raise Exception("Only 2.4GHz channels supported for chan_switch")
+
+        cmd = self.cmdline + ['chan_switch', '50', str(chan_freq_map[channel])]
+        ctx.start_process(cmd).wait()
+        self.wait_for_event('AP-CSA-FINISHED')
+
     @property
     def bssid(self):
         cmd = self.cmdline + ['status']
