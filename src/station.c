@@ -1085,7 +1085,7 @@ build_ie:
 					&disable_ocv))
 		disable_ocv = false;
 
-	info.ocvc = !disable_ocv && bss_info.ocvc;
+	info.ocvc = !disable_ocv && bss_info.ocvc && info.mfpc;
 
 	/*
 	 * IEEE 802.11-2020 9.4.2.24.4 states extended key IDs can only be used
