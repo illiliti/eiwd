@@ -4863,13 +4863,26 @@ static void netdev_sa_query_resp_cb(struct l_genl_msg *msg, void *user_data)
 			ext_error ? ext_error : strerror(-err));
 }
 
+static int netdev_build_oci(struct netdev *netdev, uint8_t *out)
+{
+	out[0] = IE_TYPE_EXTENSION;
+	out[1] = 4;
+	out[2] = IE_TYPE_OCI & 0xff;
+
+	return oci_from_chandef(netdev->handshake->chandef, out + 3);
+}
+
 static void netdev_sa_query_req_frame_event(const struct mmpdu_header *hdr,
 					const void *body, size_t body_len,
 					int rssi, void *user_data)
 {
-	uint8_t sa_resp[4];
+	uint8_t sa_resp[10];
+	uint8_t *ptr = sa_resp;
 	uint16_t transaction;
+	const uint8_t *oci;
 	struct netdev *netdev = user_data;
+	bool ocvc = netdev->handshake->supplicant_ocvc &&
+					netdev->handshake->authenticator_ocvc;
 
 	if (body_len < 4) {
 		l_debug("SA Query request too short");
@@ -4885,15 +4898,57 @@ static void netdev_sa_query_req_frame_event(const struct mmpdu_header *hdr,
 
 	transaction = l_get_u16(body + 2);
 
-	sa_resp[0] = 0x08;	/* SA Query */
-	sa_resp[1] = 0x01;	/* Response */
-	memcpy(sa_resp + 2, &transaction, 2);
+	body_len -= 4;
+
+	if (ocvc) {
+		/*
+		 * IEEE 802.11 Section 11.13
+		 *
+		 * "A STA that supports the SA Query procedure and receives an
+		 * SA Query Request frame shall respond with an SA Query
+		 * Response frame if none of the following are true...
+		 * - OCI element is not present in the request or
+		 * - Operating channel information indicated does not match the
+		 *   current channel information (see 12.2.9)."
+		 */
+		if (ie_parse_oci(body + 4, body_len, &oci) < 0) {
+			l_debug("Could not parse OCI");
+			return;
+		}
+
+		if (oci_verify(oci, netdev->handshake->chandef) < 0) {
+			l_debug("Could not verify OCI");
+			return;
+		}
+	}
+
+	ptr[0] = 0x08;	/* SA Query */
+	ptr[1] = 0x01;	/* Response */
+	memcpy(ptr + 2, &transaction, 2);
+
+	ptr += 4;
+
+	/*
+	 * IEEE 802.11 Section 11.13
+	 *
+	 * "A STA that responds with an SA Query Response frame to a STA that
+	 * indicated OCVC capability shall include OCI element in the response
+	 * frame if dot11RSNAOperatingChannelValidationActivated is true"
+	 */
+	if (ocvc) {
+		if (netdev_build_oci(netdev, ptr) < 0) {
+			l_debug("Could not build OCI");
+			return;
+		}
+
+		ptr += 6;
+	}
 
 	l_info("received SA Query request from "MAC", transaction=%u",
 			MAC_STR(hdr->address_2), transaction);
 
 	if (!netdev_send_action_frame(netdev, netdev->handshake->aa,
-			sa_resp, sizeof(sa_resp),
+			sa_resp, ptr - sa_resp,
 			netdev->frequency,
 			netdev_sa_query_resp_cb, netdev)) {
 		l_error("error sending SA Query response");
@@ -4906,15 +4961,22 @@ static void netdev_sa_query_resp_frame_event(const struct mmpdu_header *hdr,
 					int rssi, void *user_data)
 {
 	struct netdev *netdev = user_data;
+	const uint8_t *ptr = body;
+	const uint8_t *oci;
+
+	if (!netdev->connected)
+		return;
 
 	if (body_len < 4) {
 		l_debug("SA Query frame too short");
 		return;
 	}
 
+	ptr += 2;
+
 	l_debug("SA Query src="MAC" dest="MAC" bssid="MAC" transaction=%u",
 			MAC_STR(hdr->address_2), MAC_STR(hdr->address_1),
-			MAC_STR(hdr->address_3), l_get_u16(body + 2));
+			MAC_STR(hdr->address_3), l_get_u16(ptr));
 
 	if (!netdev->sa_query_timeout) {
 		l_debug("no SA Query request sent");
@@ -4927,11 +4989,39 @@ static void netdev_sa_query_resp_frame_event(const struct mmpdu_header *hdr,
 		return;
 	}
 
-	if (memcmp(body + 2, &netdev->sa_query_id, 2)) {
+	if (memcmp(ptr, &netdev->sa_query_id, 2)) {
 		l_debug("SA Query transaction ID's did not match");
 		return;
 	}
 
+	if (!(netdev->handshake->supplicant_ocvc &&
+				netdev->handshake->authenticator_ocvc))
+		goto keep_alive;
+
+	ptr += 2;
+	body_len -= 4;
+
+	/*
+	 * IEEE 802.11 Section 11.13
+	 *
+	 * "When a non-AP or non-PCP STA receives the SA Query Response frame
+	 * from a STA that indicated OCVC capability, it shall ensure that OCI
+	 * element is present in the response and the channel information in the
+	 * OCI element matches current operating channel parameters
+	 * (see 12.2.9). Otherwise, the receiving STA shall deem the response
+	 * as invalid and discard it"
+	 */
+	if (ie_parse_oci(ptr, body_len, &oci) < 0) {
+		l_debug("Invalid OCI element");
+		return;
+	}
+
+	if (oci_verify(oci, netdev->handshake->chandef) < 0) {
+		l_debug("Could not verify OCI element");
+		return;
+	}
+
+keep_alive:
 	l_info("SA Query response from connected BSS received, "
 			"keeping the connection active");
 
@@ -4981,7 +5071,8 @@ static void netdev_unprot_disconnect_event(struct l_genl_msg *msg,
 	uint16_t type;
 	uint16_t len;
 	const void *data;
-	uint8_t action_frame[4];
+	uint8_t action_frame[10];
+	uint8_t *ptr = action_frame;
 	uint8_t reason_code;
 
 	if (!netdev->connected)
@@ -5025,14 +5116,26 @@ static void netdev_unprot_disconnect_event(struct l_genl_msg *msg,
 		return;
 	}
 
-	action_frame[0] = 0x08; /* Category: SA Query */
-	action_frame[1] = 0x00; /* SA Query Action: Request */
+	ptr[0] = 0x08; /* Category: SA Query */
+	ptr[1] = 0x00; /* SA Query Action: Request */
 
 	/* Transaction ID */
-	l_getrandom(action_frame + 2, 2);
+	l_getrandom(ptr + 2, 2);
+
+	ptr += 4;
+
+	if (netdev->handshake->supplicant_ocvc &&
+					netdev->handshake->authenticator_ocvc) {
+		if (netdev_build_oci(netdev, ptr) < 0) {
+			l_debug("Could not build OCI");
+			return;
+		}
+
+		ptr += 6;
+	}
 
 	if (!netdev_send_action_frame(netdev, netdev->handshake->aa,
-			action_frame, sizeof(action_frame),
+			action_frame, ptr - action_frame,
 			netdev->frequency,
 			netdev_sa_query_req_cb, netdev)) {
 		l_error("error sending SA Query action frame");
