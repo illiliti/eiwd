@@ -459,6 +459,16 @@ bool wiphy_can_transition_disable(struct wiphy *wiphy)
 	return true;
 }
 
+/* Catch all for the offload features */
+bool wiphy_can_offload(struct wiphy *wiphy)
+{
+	return wiphy_has_ext_feature(wiphy,
+				NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK) ||
+		wiphy_has_ext_feature(wiphy,
+				NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_1X) ||
+		wiphy_has_ext_feature(wiphy, NL80211_EXT_FEATURE_SAE_OFFLOAD);
+}
+
 bool wiphy_supports_ext_key_id(struct wiphy *wiphy)
 {
 	return wiphy_has_ext_feature(wiphy, NL80211_EXT_FEATURE_EXT_KEY_ID);
