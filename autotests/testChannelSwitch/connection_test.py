@@ -39,6 +39,10 @@ class Test(unittest.TestCase):
         testutil.test_ifaces_connected()
 
         hapd.chan_switch(2)
+        # Make sure the SA Query is verified and IWD doesn't disconnect
+        with self.assertRaises(TimeoutError):
+            condition = 'obj.state == DeviceState.disconnected'
+            wd.wait_for_object_condition(device, condition, 4)
 
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
