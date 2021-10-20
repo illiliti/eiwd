@@ -570,7 +570,7 @@ static void rrm_handle_beacon_request(struct rrm_state *rrm,
 
 			break;
 		case RRM_BEACON_REQ_SUBELEM_ID_REPORTING_DETAIL:
-			if (length != 1) {
+			if (length < 1) {
 				l_error("Invalid length in reporting detail");
 				goto reject_refused;
 			}
