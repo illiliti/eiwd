@@ -1136,7 +1136,7 @@ struct scan_bss *network_bss_select(struct network *network,
 			candidate = bss;
 
 		/* OWE Transition BSS */
-		if (!bss->owe_trans) {
+		if (bss->owe_trans) {
 			/* Don't want to connect to the Open BSS if possible */
 			if (!bss->rsne)
 				continue;
