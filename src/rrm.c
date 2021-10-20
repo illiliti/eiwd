@@ -578,6 +578,11 @@ static void rrm_handle_beacon_request(struct rrm_state *rrm,
 			detail = l_get_u8(data);
 			break;
 		case RRM_BEACON_REQ_SUBELEM_ID_BEACON_REPORTING:
+			if (length < 2) {
+				l_error("Invalid length in Beacon Reporting");
+				goto reject_refused;
+			}
+
 			/*
 			 * 802.11-2016 9.4.2.21.7
 			 *
@@ -585,9 +590,19 @@ static void rrm_handle_beacon_request(struct rrm_state *rrm,
 			 *  present in a Beacon request for repeated
 			 *  measurements; otherwise it is not present"
 			 *
-			 * Since repeated measurements are not supported we can
-			 * reject this request now.
+			 * However, some implementations send an all-zero
+			 * Beacon Reporting subelement.  Reporting Condition
+			 * of zero is 'default, used when the Beacon Reporting
+			 * subelement is not included in a Beacon request).'
+			 * Treat such elements as if they're not present.
+			 *
+			 * Otherwise, since repeated measurements are not
+			 * supported we can reject this request now.
 			 */
+			if (l_get_u8(data) != 0)
+				goto reject_incapable;
+
+			break;
 		case RRM_BEACON_REQ_SUBELEM_ID_AP_CHAN_REPORT:
 			/*
 			 * Only supporting single channel requests
