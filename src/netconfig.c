@@ -1373,14 +1373,14 @@ static int validate_dns_list(int family, char **dns_list)
 bool netconfig_load_settings(struct netconfig *netconfig,
 				const struct l_settings *active_settings)
 {
-	char *mdns;
+	_auto_(l_free) char *mdns = NULL;
 	bool send_hostname;
 	bool v6_enabled;
 	char hostname[HOST_NAME_MAX + 1];
-	char **dns4_overrides = NULL;
-	char **dns6_overrides = NULL;
-	struct l_rtnl_address *v4_address = NULL;
-	struct l_rtnl_address *v6_address = NULL;
+	_auto_(l_strv_free) char **dns4_overrides = NULL;
+	_auto_(l_strv_free) char **dns6_overrides = NULL;
+	_auto_(l_rtnl_address_free) struct l_rtnl_address *v4_address = NULL;
+	_auto_(l_rtnl_address_free) struct l_rtnl_address *v6_address = NULL;
 
 	dns4_overrides = l_settings_get_string_list(active_settings,
 							"IPv4", "DNS", ' ');
@@ -1392,7 +1392,7 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 			dns4_overrides = NULL;
 
 			if (r < 0)
-				goto err_dns4;
+				return false;
 		}
 
 		if (r == 0)
@@ -1410,7 +1410,7 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 			dns6_overrides = NULL;
 
 			if (r < 0)
-				goto err_dns6;
+				return false;
 		}
 
 		if (r == 0)
@@ -1437,7 +1437,7 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 
 		if (unlikely(!v4_address)) {
 			l_error("netconfig: Can't parse IPv4 address");
-			goto err_v4_addr;
+			return false;
 		}
 	}
 
@@ -1450,7 +1450,7 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 
 		if (unlikely(!v6_address)) {
 			l_error("netconfig: Can't parse IPv6 address");
-			goto err_v6_addr;
+			return false;
 		}
 	}
 
@@ -1470,26 +1470,16 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 	netconfig_free_settings(netconfig);
 
 	if (netconfig->rtm_protocol == RTPROT_STATIC)
-		netconfig->v4_address = v4_address;
+		netconfig->v4_address = l_steal_ptr(v4_address);
 
 	if (netconfig->rtm_v6_protocol == RTPROT_STATIC)
-		netconfig->v6_address = v6_address;
+		netconfig->v6_address = l_steal_ptr(v6_address);
 
 	netconfig->active_settings = active_settings;
-	netconfig->dns4_overrides = dns4_overrides;
-	netconfig->dns6_overrides = dns6_overrides;
-	netconfig->mdns = mdns;
+	netconfig->dns4_overrides = l_steal_ptr(dns4_overrides);
+	netconfig->dns6_overrides = l_steal_ptr(dns6_overrides);
+	netconfig->mdns = l_steal_ptr(mdns);
 	return true;
-
-err_v6_addr:
-	l_rtnl_address_free(v4_address);
-err_v4_addr:
-	l_free(mdns);
-	l_strfreev(dns6_overrides);
-err_dns6:
-	l_strfreev(dns4_overrides);
-err_dns4:
-	return false;
 }
 
 bool netconfig_configure(struct netconfig *netconfig,
