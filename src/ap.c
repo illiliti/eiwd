@@ -53,6 +53,7 @@
 #include "src/wscutil.h"
 #include "src/eap-wsc.h"
 #include "src/ip-pool.h"
+#include "src/netconfig.h"
 #include "src/ap.h"
 #include "src/storage.h"
 #include "src/diagnostic.h"
@@ -132,7 +133,6 @@ struct ap_wsc_pbc_probe_record {
 	uint64_t timestamp;
 };
 
-static bool netconfig_enabled;
 static char **global_addr4_strs;
 static uint32_t netdev_watch;
 static struct l_netlink *rtnl;
@@ -2826,7 +2826,7 @@ static int ap_load_ipv4(struct ap_state *ap, const struct l_settings *config)
 	unsigned int lease_time = 0;
 	struct in_addr ia;
 
-	if (!l_settings_has_group(config, "IPv4") || !netconfig_enabled)
+	if (!l_settings_has_group(config, "IPv4") || !netconfig_enabled())
 		return 0;
 
 	if (l_settings_has_key(config, "IPv4", "Address")) {
@@ -3829,12 +3829,7 @@ static int ap_init(void)
 	 * Enable network configuration and DHCP only if
 	 * [General].EnableNetworkConfiguration is true.
 	 */
-	if (!l_settings_get_bool(settings, "General",
-					"EnableNetworkConfiguration",
-					&netconfig_enabled))
-		netconfig_enabled = false;
-
-	if (netconfig_enabled) {
+	if (netconfig_enabled()) {
 		if (l_settings_get_value(settings, "IPv4", "APAddressPool")) {
 			global_addr4_strs = l_settings_get_string_list(settings,
 								"IPv4",

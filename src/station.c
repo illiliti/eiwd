@@ -63,7 +63,6 @@ static uint32_t netdev_watch;
 static uint32_t mfp_setting;
 static uint32_t roam_retry_interval;
 static bool anqp_disabled;
-static bool netconfig_enabled;
 static struct watchlist event_watches;
 
 struct station {
@@ -3872,7 +3871,7 @@ static struct station *station_create(struct netdev *netdev)
 	l_dbus_object_add_interface(dbus, netdev_get_path(netdev),
 					IWD_STATION_INTERFACE, station);
 
-	if (netconfig_enabled)
+	if (netconfig_enabled())
 		station->netconfig = netconfig_new(netdev_get_ifindex(netdev));
 
 	station->anqp_pending = l_queue_new();
@@ -4455,12 +4454,7 @@ static int station_init(void)
 				&anqp_disabled))
 		anqp_disabled = true;
 
-	if (!l_settings_get_bool(iwd_get_config(), "General",
-					"EnableNetworkConfiguration",
-					&netconfig_enabled))
-			netconfig_enabled = false;
-
-	if (!netconfig_enabled)
+	if (!netconfig_enabled())
 		l_info("station: Network configuration is disabled.");
 
 	watchlist_init(&event_watches, NULL);

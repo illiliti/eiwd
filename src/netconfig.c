@@ -1581,6 +1581,15 @@ void netconfig_destroy(struct netconfig *netconfig)
 	netconfig_free(netconfig);
 }
 
+bool netconfig_enabled(void)
+{
+	bool enabled;
+
+	return l_settings_get_bool(iwd_get_config(), "General",
+					"EnableNetworkConfiguration",
+					&enabled) && enabled;
+}
+
 static int netconfig_init(void)
 {
 	uint32_t r;

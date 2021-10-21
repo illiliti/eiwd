@@ -46,3 +46,5 @@ void netconfig_handle_fils_ip_resp(struct netconfig *netconfig,
 
 struct netconfig *netconfig_new(uint32_t ifindex);
 void netconfig_destroy(struct netconfig *netconfig);
+
+bool netconfig_enabled(void);
