@@ -436,6 +436,8 @@ static char *netconfig_ipv4_get_gateway(struct netconfig *netconfig,
 {
 	const struct l_dhcp_lease *lease;
 	char *gateway;
+	const struct ie_fils_ip_addr_response_info *fils =
+		netconfig->fils_override;
 
 	switch (netconfig->rtm_protocol) {
 	case RTPROT_STATIC:
@@ -449,15 +451,12 @@ static char *netconfig_ipv4_get_gateway(struct netconfig *netconfig,
 		return gateway;
 
 	case RTPROT_DHCP:
-		if (netconfig->fils_override &&
-				netconfig->fils_override->ipv4_gateway) {
-			gateway = netconfig_ipv4_to_string(
-					netconfig->fils_override->ipv4_gateway);
+		if (fils && fils->ipv4_gateway) {
+			gateway = netconfig_ipv4_to_string(fils->ipv4_gateway);
 
-			if (gateway && !l_memeqzero(netconfig->fils_override->
-							ipv4_gateway_mac, 6))
-				*out_mac = netconfig->fils_override->
-					ipv4_gateway_mac;
+			if (gateway && out_mac &&
+					!l_memeqzero(fils->ipv4_gateway_mac, 6))
+				*out_mac = fils->ipv4_gateway_mac;
 
 			return gateway;
 		}
