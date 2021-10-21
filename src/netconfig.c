@@ -58,6 +58,7 @@ struct netconfig {
 	uint8_t rtm_protocol;
 	uint8_t rtm_v6_protocol;
 	struct l_rtnl_address *v4_address;
+	struct l_rtnl_address *v6_address;
 	char **dns4_overrides;
 	char **dns6_overrides;
 	char *mdns;
@@ -131,6 +132,8 @@ static void netconfig_free_settings(struct netconfig *netconfig)
 {
 	l_rtnl_address_free(netconfig->v4_address);
 	netconfig->v4_address = NULL;
+	l_rtnl_address_free(netconfig->v6_address);
+	netconfig->v6_address = NULL;
 
 	l_strfreev(netconfig->dns4_overrides);
 	netconfig->dns4_overrides = NULL;
@@ -1031,13 +1034,28 @@ static void netconfig_dhcp6_event_handler(struct l_dhcp6_client *client,
 	case L_DHCP6_CLIENT_EVENT_IP_CHANGED:
 	case L_DHCP6_CLIENT_EVENT_LEASE_OBTAINED:
 	case L_DHCP6_CLIENT_EVENT_LEASE_RENEWED:
+	{
+		const struct l_dhcp6_lease *lease =
+			l_dhcp6_client_get_lease(netconfig->dhcp6_client);
+		_auto_(l_free) char *addr_str =
+			l_dhcp6_lease_get_address(lease);
+		struct l_rtnl_address *address;
+
+		address = l_rtnl_address_new(addr_str,
+					l_dhcp6_lease_get_prefix_length(lease));
+		l_rtnl_address_free(netconfig->v6_address);
+		netconfig->v6_address = address;
+
 		netconfig_set_dns(netconfig);
 		netconfig_set_domains(netconfig);
 		break;
+	}
 	case L_DHCP6_CLIENT_EVENT_LEASE_EXPIRED:
 		l_debug("Lease for interface %u expired", netconfig->ifindex);
 		netconfig_set_dns(netconfig);
 		netconfig_set_domains(netconfig);
+		l_rtnl_address_free(netconfig->v6_address);
+		netconfig->v6_address = NULL;
 
 		/* Fall through */
 	case L_DHCP6_CLIENT_EVENT_NO_LEASE:
@@ -1187,7 +1205,6 @@ static bool netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 static bool netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 {
 	struct netdev *netdev = netdev_find(netconfig->ifindex);
-	struct l_rtnl_address *address = NULL;
 
 	if (netconfig->rtm_v6_protocol == RTPROT_UNSPEC) {
 		l_debug("IPV6 configuration disabled");
@@ -1196,10 +1213,7 @@ static bool netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 
 	sysfs_write_ipv6_setting(netdev_get_name(netdev), "disable_ipv6", "0");
 
-	if (netconfig->rtm_v6_protocol == RTPROT_STATIC)
-		address = netconfig_get_static6_address(
-						netconfig->active_settings);
-	else if (netconfig->rtm_v6_protocol == RTPROT_DHCP &&
+	if (netconfig->rtm_v6_protocol == RTPROT_DHCP &&
 			netconfig->fils_override &&
 			!l_memeqzero(netconfig->fils_override->ipv6_addr, 16)) {
 		uint8_t prefix_len = netconfig->fils_override->ipv6_prefix_len;
@@ -1209,11 +1223,12 @@ static bool netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 		if (unlikely(!addr_str))
 			return false;
 
-		if (L_WARN_ON(unlikely(!(address = l_rtnl_address_new(addr_str,
-								prefix_len)))))
+		netconfig->v6_address = l_rtnl_address_new(addr_str,
+								prefix_len);
+		if (L_WARN_ON(unlikely(!netconfig->v6_address)))
 			return false;
 
-		l_rtnl_address_set_noprefixroute(address, true);
+		l_rtnl_address_set_noprefixroute(netconfig->v6_address, true);
 
 		/*
 		 * TODO: If netconfig->fils_override->ipv6_lifetime is set,
@@ -1223,12 +1238,12 @@ static bool netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 		 */
 	}
 
-	if (address) {
+	if (netconfig->v6_address) {
 		L_WARN_ON(!(netconfig->addr6_add_cmd_id =
-			l_rtnl_ifaddr_add(rtnl, netconfig->ifindex, address,
+			l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
+					netconfig->v6_address,
 					netconfig_ipv6_ifaddr_add_cmd_cb,
 					netconfig, NULL)));
-		l_rtnl_address_free(address);
 		return true;
 	}
 
@@ -1345,7 +1360,6 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 
 	if (l_settings_has_key(active_settings, "IPv6", "Address")) {
 		v6_address = netconfig_get_static6_address(active_settings);
-		l_rtnl_address_free(v6_address);
 
 		if (unlikely(!v6_address)) {
 			l_error("netconfig: Can't parse IPv6 address");
@@ -1370,6 +1384,9 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 
 	if (netconfig->rtm_protocol == RTPROT_STATIC)
 		netconfig->v4_address = v4_address;
+
+	if (netconfig->rtm_v6_protocol == RTPROT_STATIC)
+		netconfig->v6_address = v6_address;
 
 	netconfig->active_settings = active_settings;
 	netconfig->dns4_overrides = dns4_overrides;
@@ -1457,6 +1474,9 @@ bool netconfig_reset(struct netconfig *netconfig)
 	netconfig_reset_v4(netconfig);
 
 	if (netconfig->rtm_v6_protocol) {
+		l_rtnl_address_free(netconfig->v6_address);
+		netconfig->v6_address = NULL;
+
 		l_strfreev(netconfig->dns6_overrides);
 		netconfig->dns6_overrides = NULL;
 
