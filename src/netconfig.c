@@ -63,6 +63,8 @@ struct netconfig {
 	char **dns6_overrides;
 	char *mdns;
 	struct ie_fils_ip_addr_response_info *fils_override;
+	char *v4_gateway_str;
+	char *v6_gateway_str;
 
 	const struct l_settings *active_settings;
 
@@ -510,6 +512,7 @@ no_prefix_len:
 
 static struct l_rtnl_route *netconfig_get_static6_gateway(
 						struct netconfig *netconfig,
+						char **out_str,
 						const uint8_t **out_mac)
 {
 	L_AUTO_FREE_VAR(char *, gateway);
@@ -540,6 +543,7 @@ static struct l_rtnl_route *netconfig_get_static6_gateway(
 
 	l_rtnl_route_set_priority(ret, ROUTE_PRIORITY_OFFSET);
 	l_rtnl_route_set_protocol(ret, RTPROT_STATIC);
+	*out_str = l_steal_ptr(gateway);
 	*out_mac = mac;
 
 	return ret;
@@ -923,7 +927,9 @@ static void netconfig_ipv6_ifaddr_add_cmd_cb(int error, uint16_t type,
 		return;
 	}
 
-	gateway = netconfig_get_static6_gateway(netconfig, &gateway_mac);
+	gateway = netconfig_get_static6_gateway(netconfig,
+						&netconfig->v6_gateway_str,
+						&gateway_mac);
 	if (gateway) {
 		netconfig->route6_add_cmd_id = l_rtnl_route_add(rtnl,
 							netconfig->ifindex,
@@ -980,10 +986,24 @@ static void netconfig_ipv4_dhcp_event_handler(struct l_dhcp_client *client,
 					netconfig->v4_address,
 					netconfig_ifaddr_del_cmd_cb,
 					netconfig, NULL));
-		l_rtnl_address_free(netconfig->v4_address);
 		/* Fall through. */
 	case L_DHCP_CLIENT_EVENT_LEASE_OBTAINED:
-		netconfig->v4_address = netconfig_get_dhcp4_address(netconfig);
+	{
+		char *gateway_str;
+		struct l_rtnl_address *address;
+
+		gateway_str = netconfig_ipv4_get_gateway(netconfig, NULL);
+		if (l_streq0(netconfig->v4_gateway_str, gateway_str))
+			l_free(gateway_str);
+		else {
+			l_free(netconfig->v4_gateway_str);
+			netconfig->v4_gateway_str = gateway_str;
+		}
+
+		address = netconfig_get_dhcp4_address(netconfig);
+		l_rtnl_address_free(netconfig->v4_address);
+		netconfig->v4_address = address;
+
 		if (!netconfig->v4_address) {
 			l_error("netconfig: Failed to obtain IP addresses from "
 							"DHCPv4 lease.");
@@ -996,6 +1016,7 @@ static void netconfig_ipv4_dhcp_event_handler(struct l_dhcp_client *client,
 					netconfig_ipv4_ifaddr_add_cmd_cb,
 					netconfig, NULL)));
 		break;
+	}
 	case L_DHCP_CLIENT_EVENT_LEASE_RENEWED:
 		break;
 	case L_DHCP_CLIENT_EVENT_LEASE_EXPIRED:
@@ -1005,6 +1026,7 @@ static void netconfig_ipv4_dhcp_event_handler(struct l_dhcp_client *client,
 					netconfig, NULL));
 		l_rtnl_address_free(netconfig->v4_address);
 		netconfig->v4_address = NULL;
+		l_free(l_steal_ptr(netconfig->v4_gateway_str));
 
 		/* Fall through. */
 	case L_DHCP_CLIENT_EVENT_NO_LEASE:
@@ -1039,6 +1061,18 @@ static void netconfig_dhcp6_event_handler(struct l_dhcp6_client *client,
 		_auto_(l_free) char *addr_str =
 			l_dhcp6_lease_get_address(lease);
 		struct l_rtnl_address *address;
+		struct l_icmp6_client *icmp6 =
+			l_dhcp6_client_get_icmp6(netconfig->dhcp6_client);
+		const struct l_icmp6_router *router =
+			l_icmp6_client_get_router(icmp6);
+		char *gateway_str = l_icmp6_router_get_address(router);
+
+		if (l_streq0(netconfig->v6_gateway_str, gateway_str))
+			l_free(gateway_str);
+		else {
+			l_free(netconfig->v6_gateway_str);
+			netconfig->v6_gateway_str = gateway_str;
+		}
 
 		address = l_rtnl_address_new(addr_str,
 					l_dhcp6_lease_get_prefix_length(lease));
@@ -1055,6 +1089,7 @@ static void netconfig_dhcp6_event_handler(struct l_dhcp6_client *client,
 		netconfig_set_domains(netconfig);
 		l_rtnl_address_free(netconfig->v6_address);
 		netconfig->v6_address = NULL;
+		l_free(l_steal_ptr(netconfig->v6_gateway_str));
 
 		/* Fall through */
 	case L_DHCP6_CLIENT_EVENT_NO_LEASE:
@@ -1091,6 +1126,8 @@ static void netconfig_reset_v4(struct netconfig *netconfig)
 
 		l_acd_destroy(netconfig->acd);
 		netconfig->acd = NULL;
+
+		l_free(l_steal_ptr(netconfig->v4_gateway_str));
 	}
 }
 
@@ -1484,6 +1521,8 @@ bool netconfig_reset(struct netconfig *netconfig)
 
 		sysfs_write_ipv6_setting(netdev_get_name(netdev),
 						"disable_ipv6", "1");
+
+		l_free(l_steal_ptr(netconfig->v6_gateway_str));
 	}
 
 	l_free(l_steal_ptr(netconfig->fils_override));
