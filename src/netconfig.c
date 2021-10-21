@@ -494,7 +494,7 @@ static struct l_rtnl_address *netconfig_get_static6_address(
 	prefix_len = strtoul(p, NULL, 10);
 	if (!unlikely(errno == EINVAL || errno == ERANGE ||
 			!prefix_len || prefix_len > 128)) {
-		l_error("netconfig: Invalid prefix '%s'  provided in network"
+		l_error("netconfig: Invalid prefix '%s' provided in network"
 				" configuration file", p);
 		return NULL;
 	}
