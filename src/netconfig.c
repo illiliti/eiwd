@@ -67,6 +67,8 @@ struct netconfig {
 	struct ie_fils_ip_addr_response_info *fils_override;
 	char *v4_gateway_str;
 	char *v6_gateway_str;
+	char *v4_domain;
+	char **v6_domains;
 
 	const struct l_settings *active_settings;
 
@@ -353,47 +355,71 @@ static void append_domain(char **domains, unsigned int *n_domains,
 	*n_domains += 1;
 }
 
-static int netconfig_set_domains(struct netconfig *netconfig)
+static void netconfig_set_domains(struct netconfig *netconfig)
 {
 	char *domains[31];
 	unsigned int n_domains = 0;
-	char *v4_domain = NULL;
-	char **v6_domains = NULL;
 	char **p;
 
 	memset(domains, 0, sizeof(domains));
 
-	/* Allow to override the DHCP domain name with setting entry. */
-	v4_domain = l_settings_get_string(netconfig->active_settings,
-							"IPv4", "DomainName");
-	if (!v4_domain && netconfig->rtm_protocol == RTPROT_DHCP) {
-		const struct l_dhcp_lease *lease =
-			l_dhcp_client_get_lease(netconfig->dhcp_client);
-
-		if (lease)
-			v4_domain = l_dhcp_lease_get_domain_name(lease);
-	}
-
 	append_domain(domains, &n_domains,
-					L_ARRAY_SIZE(domains) - 1, v4_domain);
+			L_ARRAY_SIZE(domains) - 1, netconfig->v4_domain);
 
-	if (netconfig->rtm_v6_protocol == RTPROT_DHCP) {
-		const struct l_dhcp6_lease *lease =
-			l_dhcp6_client_get_lease(netconfig->dhcp6_client);
-
-		if (lease)
-			v6_domains = l_dhcp6_lease_get_domains(lease);
-	}
-
-	for (p = v6_domains; p && *p; p++)
+	for (p = netconfig->v6_domains; p && *p; p++)
 		append_domain(domains, &n_domains,
-					L_ARRAY_SIZE(domains) - 1, *p);
+				L_ARRAY_SIZE(domains) - 1, *p);
 
 	resolve_set_domains(netconfig->resolve, domains);
-	l_strv_free(v6_domains);
-	l_free(v4_domain);
+}
 
-	return 0;
+static bool netconfig_domains_update(struct netconfig *netconfig, uint8_t af)
+{
+	bool changed = false;
+
+	if (af == AF_INET) {
+		/* Allow to override the DHCP domain name with setting entry. */
+		char *v4_domain = l_settings_get_string(
+						netconfig->active_settings,
+						"IPv4", "DomainName");
+
+		if (!v4_domain && netconfig->rtm_protocol == RTPROT_DHCP) {
+			const struct l_dhcp_lease *lease =
+				l_dhcp_client_get_lease(netconfig->dhcp_client);
+
+			if (lease)
+				v4_domain = l_dhcp_lease_get_domain_name(lease);
+		}
+
+		if (l_streq0(v4_domain, netconfig->v4_domain))
+			l_free(v4_domain);
+		else {
+			l_free(netconfig->v4_domain);
+			netconfig->v4_domain = v4_domain;
+			changed = true;
+		}
+	} else {
+		char **v6_domains = NULL;
+
+		if (netconfig->rtm_v6_protocol == RTPROT_DHCP) {
+			const struct l_dhcp6_lease *lease =
+				l_dhcp6_client_get_lease(
+						netconfig->dhcp6_client);
+
+			if (lease)
+				v6_domains = l_dhcp6_lease_get_domains(lease);
+		}
+
+		if (l_strv_eq(netconfig->v6_domains, v6_domains))
+			l_strv_free(v6_domains);
+		else {
+			l_strv_free(netconfig->v6_domains);
+			netconfig->v6_domains = v6_domains;
+			changed = true;
+		}
+	}
+
+	return changed;
 }
 
 static struct l_rtnl_address *netconfig_get_static4_address(
@@ -1022,6 +1048,7 @@ static void netconfig_ipv4_dhcp_event_handler(struct l_dhcp_client *client,
 		}
 
 		netconfig_dns_list_update(netconfig, AF_INET);
+		netconfig_domains_update(netconfig, AF_INET);
 
 		L_WARN_ON(!(netconfig->addr4_add_cmd_id =
 				l_rtnl_ifaddr_add(rtnl, netconfig->ifindex,
@@ -1093,6 +1120,7 @@ static void netconfig_dhcp6_event_handler(struct l_dhcp6_client *client,
 		netconfig->v6_address = address;
 
 		netconfig_dns_list_update(netconfig, AF_INET6);
+		netconfig_domains_update(netconfig, AF_INET6);
 		netconfig_set_dns(netconfig);
 		netconfig_set_domains(netconfig);
 		break;
@@ -1100,6 +1128,7 @@ static void netconfig_dhcp6_event_handler(struct l_dhcp6_client *client,
 	case L_DHCP6_CLIENT_EVENT_LEASE_EXPIRED:
 		l_debug("Lease for interface %u expired", netconfig->ifindex);
 		netconfig_dns_list_update(netconfig, AF_INET6);
+		netconfig_domains_update(netconfig, AF_INET6);
 		netconfig_set_dns(netconfig);
 		netconfig_set_domains(netconfig);
 		l_rtnl_address_free(netconfig->v6_address);
@@ -1143,6 +1172,8 @@ static void netconfig_reset_v4(struct netconfig *netconfig)
 		netconfig->acd = NULL;
 
 		l_free(l_steal_ptr(netconfig->v4_gateway_str));
+
+		l_free(l_steal_ptr(netconfig->v4_domain));
 	}
 }
 
@@ -1220,6 +1251,7 @@ static bool netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 			return false;
 
 		netconfig_dns_list_update(netconfig, AF_INET);
+		netconfig_domains_update(netconfig, AF_INET);
 
 		netconfig->acd = l_acd_new(netconfig->ifindex);
 		l_acd_set_event_handler(netconfig->acd,
@@ -1542,6 +1574,8 @@ bool netconfig_reset(struct netconfig *netconfig)
 						"disable_ipv6", "1");
 
 		l_free(l_steal_ptr(netconfig->v6_gateway_str));
+
+		l_strv_free(l_steal_ptr(netconfig->v6_domains));
 	}
 
 	l_free(l_steal_ptr(netconfig->fils_override));
