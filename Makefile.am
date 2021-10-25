@@ -293,7 +293,9 @@ client_iwctl_SOURCES = client/main.c \
 			client/network.h client/network.c \
 			client/properties.h client/properties.c \
 			client/wsc.c client/station.c \
-			client/diagnostic.c client/diagnostic.h
+			client/diagnostic.c client/diagnostic.h \
+			client/daemon.c client/daemon.h
+
 client_iwctl_LDADD = $(ell_ldadd) $(READLINE_LIBS)
 
 if MANUAL_PAGES
