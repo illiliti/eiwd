@@ -24,6 +24,9 @@
 #include <config.h>
 #endif
 
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+
 #include <ell/ell.h>
 
 #include "client/command.h"
@@ -32,6 +35,7 @@
 #include "client/network.h"
 #include "client/display.h"
 #include "client/diagnostic.h"
+#include "client/daemon.h"
 
 struct station {
 	bool scanning;
@@ -597,6 +601,65 @@ static enum cmd_status cmd_scan(const char *device_name,
 	return CMD_STATUS_TRIGGERED;
 }
 
+static void display_addresses(const char *device_name)
+{
+	struct ifaddrs *ifa;
+	struct ifaddrs *cur;
+	bool have_address = false;
+	char addrstr[INET6_ADDRSTRLEN];
+	int r;
+
+	if (getifaddrs(&ifa) == -1)
+		return;
+
+	for (cur = ifa; cur; cur = cur->ifa_next) {
+		if (cur->ifa_addr == NULL)
+			continue;
+
+		if (strcmp(cur->ifa_name, device_name))
+			continue;
+
+		if (cur->ifa_addr->sa_family == AF_INET6) {
+			struct sockaddr_in6 *si6 =
+					(struct sockaddr_in6 *) cur->ifa_addr;
+
+			if (IN6_IS_ADDR_LINKLOCAL(&si6->sin6_addr))
+				continue;
+
+			if (!inet_ntop(AF_INET6, &si6->sin6_addr,
+						addrstr, sizeof(addrstr)))
+				continue;
+
+			have_address = true;
+			display("%s%*s  %-*s%-*s\n", MARGIN, 8, "", 20,
+				"IPv6 address", 47, addrstr);
+		} else if (cur->ifa_addr->sa_family == AF_INET) {
+			struct sockaddr_in *si =
+					(struct sockaddr_in *) cur->ifa_addr;
+
+			if (!inet_ntop(AF_INET, &si->sin_addr,
+					addrstr, sizeof(addrstr)))
+				continue;
+
+			have_address = true;
+			display("%s%*s  %-*s%-*s\n", MARGIN, 8, "", 20,
+				"IPv4 address", 47, addrstr);
+		}
+	}
+
+	freeifaddrs(ifa);
+
+	if (have_address)
+		return;
+
+	r = daemon_netconfig_enabled();
+	if (r < 0 || r == 1)
+		return;
+
+	display("%s%*s  %-*s%-*s\n", MARGIN, 8, "", 20,
+			"No IP addresses", 47, "Is DHCP client configured?");
+}
+
 static void get_diagnostics_callback(struct l_dbus_message *message,
 					void *user_data)
 {
@@ -632,6 +695,7 @@ static enum cmd_status cmd_show(const char *device_name,
 	}
 
 	display_station(device_name, station);
+	display_addresses(device_name);
 
 	/*
 	 * No need to query additional diagnostic information if IWD has
