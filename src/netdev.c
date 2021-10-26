@@ -142,6 +142,7 @@ struct netdev {
 	uint16_t last_code; /* reason or status, depending on result */
 	struct l_timeout *neighbor_report_timeout;
 	struct l_timeout *sa_query_timeout;
+	struct l_timeout *sa_query_delay;
 	struct l_timeout *group_handshake_timeout;
 	uint16_t sa_query_id;
 	uint8_t prev_snonce[32];
@@ -795,6 +796,11 @@ static void netdev_connect_free(struct netdev *netdev)
 	if (netdev->sa_query_timeout) {
 		l_timeout_remove(netdev->sa_query_timeout);
 		netdev->sa_query_timeout = NULL;
+	}
+
+	if (netdev->sa_query_delay) {
+		l_timeout_remove(netdev->sa_query_delay);
+		netdev->sa_query_delay = NULL;
 	}
 
 	if (netdev->group_handshake_timeout) {
@@ -5351,6 +5357,17 @@ failed:
 
 }
 
+static void netdev_send_sa_query_delay(struct l_timeout *timeout,
+					void *user_data)
+{
+	struct netdev *netdev = user_data;
+
+	netdev_send_sa_query_request(netdev);
+
+	l_timeout_remove(netdev->sa_query_delay);
+	netdev->sa_query_delay = NULL;
+}
+
 static void netdev_channel_switch_event(struct l_genl_msg *msg,
 					struct netdev *netdev)
 {
@@ -5368,7 +5385,20 @@ static void netdev_channel_switch_event(struct l_genl_msg *msg,
 
 	handshake_state_set_chandef(netdev->handshake, l_steal_ptr(chandef));
 
-	netdev_send_sa_query_request(netdev);
+	/*
+	 * IEEE 802.11-2020 11.9.3.2
+	 * "If the STA chooses to perform the specified switch and
+	 * dot11RSNAOperatingChannelValidationActivated is true and the AP has
+	 * indicated OCVC capability, after switching to the new channel the STA
+	 * shall wait a random delay uniformly-distributed in the range between
+	 * zero and 5000us, and then initiate the SA query procedure"
+	 */
+	if (netdev->handshake->supplicant_ocvc &&
+					netdev->handshake->authenticator_ocvc)
+		netdev->sa_query_delay = l_timeout_create_ms(
+						l_getrandom_uint32() % 5,
+						netdev_send_sa_query_delay,
+						netdev, NULL);
 
 	if (!netdev->event_filter)
 		return;
