@@ -927,12 +927,32 @@ class TestContext(Namespace):
 		return frequencies
 
 	def start_wpas_interfaces(self):
+
 		if 'WPA_SUPPLICANT' not in self.hw_config:
 			return
 
 		settings = self.hw_config['WPA_SUPPLICANT']
-		wpas_radios = [rad for rad in self.radios if rad.name in settings]
-		self.wpas_interfaces = [rad.create_interface(settings[rad.name], 'wpas') for rad in wpas_radios]
+
+		if self.args.hw:
+			nradios = len(settings.items())
+
+			wpas_radios = self.radios[:nradios]
+			self.wpas_interfaces = []
+
+			#
+			# Physical radios most likely will use a different name
+			# than 'rad#' but the config file is referenced by these
+			# 'rad#' names. Iterate through both the settings and
+			# physical radios to create interfaces associated with
+			# each config file.
+			#
+			for vrad, hwrad in zip(settings.items(), wpas_radios):
+				self.wpas_interfaces.append(hwrad.create_interface(vrad[1], 'wpas'))
+
+		else:
+			wpas_radios = [rad for rad in self.radios if rad.name in settings]
+			self.wpas_interfaces = [rad.create_interface('wpa_supplicant.conf', 'wpas') \
+						for rad in wpas_radios]
 
 	def start_ofono(self):
 		sim_keys = self.hw_config['SETUP'].get('sim_keys', None)
