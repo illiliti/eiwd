@@ -1649,6 +1649,7 @@ class Main:
 
 	def start(self):
 		usb_adapters = None
+		pci_adapters = None
 
 		qemu_table = [
 			'qemu-system-x86_64',
@@ -1691,13 +1692,16 @@ class Main:
 		if self.args.hw:
 			hw_conf = ConfigParser()
 			hw_conf.read(self.args.hw)
-			# TODO: Parse PCI adapters
+
 			if hw_conf.has_section('USBAdapters'):
 				# The actual key name of the adapter
 				# doesn't matter since all we need is the
 				# bus/address. This gets named by the kernel
 				# anyways once in the VM.
 				usb_adapters = [v for v in hw_conf['USBAdapters'].values()]
+
+			if hw_conf.has_section('PCIAdapters'):
+				pci_adapters = [v for v in hw_conf['PCIAdapters'].values()]
 
 		#
 		# Additional arguments not provided to test-runner which are
@@ -1828,6 +1832,11 @@ class Main:
 							'-device',
 							'usb-host,hostbus=%s,hostaddr=%s' % \
 							(bus, addr)])
+		if pci_adapters:
+			qemu_cmdline.extend(['-enable-kvm'])
+			for addr in pci_adapters:
+				qemu_cmdline.extend(['-device', 'vfio-pci,host=%s' % addr])
+
 		if self.args.log:
 			#
 			# Creates a virtfs device that can be mounted. This mount
