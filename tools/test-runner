@@ -1806,7 +1806,7 @@ class Main:
 			'-display', 'none', '-m', '%dM' % ram, '-nographic', '-vga',
 			'none', '-no-acpi', '-no-hpet',
 			'-no-reboot', '-fsdev',
-			'local,id=fsdev-root,path=/,readonly,security_model=none,multidevs=remap',
+			'local,id=fsdev-root,path=/,readonly=on,security_model=none,multidevs=remap',
 			'-device',
 			'virtio-9p-pci,fsdev=fsdev-root,mount_tag=/dev/root',
 			'-chardev', 'stdio,id=chardev-serial0,signal=off',
