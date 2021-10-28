@@ -853,7 +853,11 @@ class TestContext(Namespace):
 
 	def discover_radios(self):
 		phys = []
-		iw = pyroute2.iwutil.IW()
+
+		try:
+			iw = pyroute2.iwutil.IW()
+		except:
+			iw = pyroute2.IW()
 
 		attrs = [phy['attrs'] for phy in iw.list_wiphy()]
 
