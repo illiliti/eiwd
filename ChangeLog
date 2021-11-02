@@ -1,3 +1,10 @@
+ver 1.19:
+	Fix issue with handling OCV if offloading is supported.
+	Fix issue with handling SA Query on channel switch event.
+	Fix issue with starting FT-over-DS actions after roaming.
+	Add support for OWE transition networks.
+	Add support for extended key IDs.
+
 ver 1.18:
 	Fix issue with handling faulty SAE duplicate commits.
 	Add support for Access Point FILS IP Address Assignment IE.
