@@ -45,7 +45,7 @@ TIOCSTTY = 0x540E
 config = None
 intf_id = 0
 
-TEST_MAX_TIMEOUT = 120
+TEST_MAX_TIMEOUT = 240
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
