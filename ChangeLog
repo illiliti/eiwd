@@ -1,8 +1,8 @@
 ver 1.18:
+	Fix issue with handling faulty SAE duplicate commits.
 	Add support for Access Point FILS IP Address Assignment IE.
 	Add support for P2P GO-side 4-way handshake IP allocation.
 	Add support for forcing SAE group 19 if BSS requires it.
-	Fix issue with handling faulty SAE duplicate commits.
 
 ver 1.17:
 	Fix issue with sending additional and vendor IEs.
