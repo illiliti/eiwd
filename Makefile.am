@@ -246,6 +246,7 @@ src_iwd_SOURCES = src/main.c linux/nl80211.h src/iwd.h src/missing.h \
 					src/diagnostic.h src/diagnostic.c \
 					src/ip-pool.h src/ip-pool.c \
 					src/band.h src/band.c \
+					src/sysfs.h src/sysfs.c \
 					$(eap_sources) \
 					$(builtin_sources)
 
