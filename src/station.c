@@ -57,12 +57,15 @@
 #include "src/anqputil.h"
 #include "src/diagnostic.h"
 #include "src/frame-xchg.h"
+#include "src/sysfs.h"
 
 static struct l_queue *station_list;
 static uint32_t netdev_watch;
 static uint32_t mfp_setting;
 static uint32_t roam_retry_interval;
 static bool anqp_disabled;
+static bool supports_arp_evict_nocarrier;
+static bool supports_ndisc_evict_nocarrier;
 static struct watchlist event_watches;
 
 struct station {
@@ -1384,6 +1387,19 @@ static const char *station_state_to_string(enum station_state state)
 	return "invalid";
 }
 
+static void station_set_evict_nocarrier(struct station *station, bool value)
+{
+	char *v = value ? "1" : "0";
+
+	if (supports_arp_evict_nocarrier)
+		sysfs_write_ipv4_setting(netdev_get_name(station->netdev),
+					"arp_evict_nocarrier", v);
+
+	if (supports_ndisc_evict_nocarrier)
+		sysfs_write_ipv6_setting(netdev_get_name(station->netdev),
+					"ndisc_evict_nocarrier", v);
+}
+
 static void station_enter_state(struct station *station,
 						enum station_state state)
 {
@@ -1431,19 +1447,21 @@ static void station_enter_state(struct station *station,
 
 		periodic_scan_stop(station);
 		break;
-	case STATION_STATE_DISCONNECTED:
-		periodic_scan_stop(station);
-		break;
 	case STATION_STATE_CONNECTED:
 		l_dbus_object_add_interface(dbus,
 					netdev_get_path(station->netdev),
 					IWD_STATION_DIAGNOSTIC_INTERFACE,
 					station);
+		/* Fall through */
+	case STATION_STATE_DISCONNECTED:
 		periodic_scan_stop(station);
+
+		station_set_evict_nocarrier(station, true);
 		break;
 	case STATION_STATE_DISCONNECTING:
 		break;
 	case STATION_STATE_ROAMING:
+		station_set_evict_nocarrier(station, false);
 		break;
 	}
 
@@ -4456,6 +4474,11 @@ static int station_init(void)
 
 	if (!netconfig_enabled())
 		l_info("station: Network configuration is disabled.");
+
+	supports_arp_evict_nocarrier = sysfs_supports_ipv4_setting("all",
+						"arp_evict_nocarrier");
+	supports_ndisc_evict_nocarrier = sysfs_supports_ipv6_setting("all",
+						"ndisc_evict_nocarrier");
 
 	watchlist_init(&event_watches, NULL);
 
