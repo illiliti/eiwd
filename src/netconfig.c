@@ -50,6 +50,7 @@
 #include "src/util.h"
 #include "src/ie.h"
 #include "src/netconfig.h"
+#include "src/sysfs.h"
 
 struct netconfig {
 	uint32_t ifindex;
@@ -100,38 +101,6 @@ static void do_debug(const char *str, void *user_data)
 	const char *prefix = user_data;
 
 	l_info("%s%s", prefix, str);
-}
-
-static int write_string(const char *file, const char *value)
-{
-	size_t l = strlen(value);
-	int fd;
-	int r;
-
-	fd = L_TFR(open(file, O_WRONLY));
-	if (fd < 0)
-		return -errno;
-
-	r = L_TFR(write(fd, value, l));
-	L_TFR(close(fd));
-
-	return r;
-}
-
-static int sysfs_write_ipv6_setting(const char *ifname, const char *setting,
-					const char *value)
-{
-	int r;
-
-	L_AUTO_FREE_VAR(char *, file) =
-		l_strdup_printf("/proc/sys/net/ipv6/conf/%s/%s",
-							ifname, setting);
-
-	r = write_string(file, value);
-	if (r < 0)
-		l_error("Unable to write %s to %s", setting, file);
-
-	return r;
 }
 
 static void netconfig_free_settings(struct netconfig *netconfig)
