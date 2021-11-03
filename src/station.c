@@ -1851,7 +1851,8 @@ static void station_roamed(struct station *station)
 		station_roam_timeout_rearm(station, roam_retry_interval);
 
 	if (station->netconfig)
-		netconfig_reconfigure(station->netconfig);
+		netconfig_reconfigure(station->netconfig,
+					!supports_arp_evict_nocarrier);
 
 	if (station->roam_freqs) {
 		scan_freq_set_free(station->roam_freqs);

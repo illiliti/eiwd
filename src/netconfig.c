@@ -1468,7 +1468,7 @@ bool netconfig_configure(struct netconfig *netconfig,
 	return true;
 }
 
-bool netconfig_reconfigure(struct netconfig *netconfig)
+bool netconfig_reconfigure(struct netconfig *netconfig, bool set_arp_gw)
 {
 	/*
 	 * Starting with kernel 4.20, ARP cache is flushed when the netdev
@@ -1477,7 +1477,8 @@ bool netconfig_reconfigure(struct netconfig *netconfig)
 	 * lost or delayed.  Try to force the gateway into the ARP cache
 	 * to alleviate this
 	 */
-	netconfig_gateway_to_arp(netconfig);
+	if (set_arp_gw)
+		netconfig_gateway_to_arp(netconfig);
 
 	if (netconfig->rtm_protocol == RTPROT_DHCP) {
 		/* TODO l_dhcp_client sending a DHCP inform request */
