@@ -1058,6 +1058,7 @@ static void scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
 {
 	uint16_t cost_level;
 	uint16_t cost_flags;
+	bool dgaf_disable;
 
 	if (!bss->wpa && is_ie_wpa_ie(data, len)) {
 		bss->wpa = l_memdup(data - 2, len + 2);
@@ -1072,9 +1073,10 @@ static void scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
 	if (is_ie_wfa_ie(data, len, IE_WFA_OI_HS20_INDICATION)) {
 		if (ie_parse_hs20_indication_from_data(data - 2, len + 2,
 					&bss->hs20_version, NULL, NULL,
-					NULL) < 0)
+					&dgaf_disable) < 0)
 			return;
 
+		bss->hs20_dgaf_disable = dgaf_disable;
 		bss->hs20_capable = true;
 		return;
 	}
