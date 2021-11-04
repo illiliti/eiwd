@@ -1252,6 +1252,23 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 			bss->rc_ie = l_memdup(iter.data - 2, iter.len + 2);
 
 			break;
+
+		case IE_TYPE_EXTENDED_CAPABILITIES:
+			/* 802.11-2020 9.4.2.26
+			 *
+			 * "The length of the Extended Capabilities field is
+			 * variable. If fewer bits are received in an Extended
+			 * Capabilities field than shown in Table 9-153, the
+			 * rest of the Extended Capabilities field bits are
+			 * assumed to be zero"
+			 *
+			 * Currently only Proxy ARP bit (12) is checked, and if
+			 * not found, this is not a fatal error.
+			 */
+			if (iter.len < 2)
+				break;
+
+			bss->proxy_arp = test_bit(iter.data, 12);
 		}
 	}
 

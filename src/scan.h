@@ -86,6 +86,7 @@ struct scan_bss {
 	bool anqp_capable : 1;
 	bool hs20_capable : 1;
 	bool force_default_sae_group : 1;
+	bool proxy_arp : 1;
 	uint8_t cost_level : 3;
 	uint8_t cost_flags : 4;
 };
