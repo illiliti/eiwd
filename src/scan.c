@@ -1071,7 +1071,8 @@ static void scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
 
 	if (is_ie_wfa_ie(data, len, IE_WFA_OI_HS20_INDICATION)) {
 		if (ie_parse_hs20_indication_from_data(data - 2, len + 2,
-					&bss->hs20_version, NULL, NULL) < 0)
+					&bss->hs20_version, NULL, NULL,
+					NULL) < 0)
 			return;
 
 		bss->hs20_capable = true;
