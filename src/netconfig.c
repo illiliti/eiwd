@@ -1098,6 +1098,7 @@ static void netconfig_dhcp6_event_handler(struct l_dhcp6_client *client,
 	{
 		const struct l_dhcp6_lease *lease =
 			l_dhcp6_client_get_lease(netconfig->dhcp6_client);
+		if (!lease) return;
 		_auto_(l_free) char *addr_str =
 			l_dhcp6_lease_get_address(lease);
 		struct l_rtnl_address *address;
