@@ -25,6 +25,8 @@ class TestWpaNetwork(unittest.TestCase):
         tca.validate('ssidHiddenWPA', False, None, True)
         tca.validate('ssidHiddenWPA', True, None, True)
 
+    @classmethod
+    def tearDownClass(cls):
         IWD.clear_storage()
 
 if __name__ == '__main__':

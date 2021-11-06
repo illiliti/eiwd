@@ -152,6 +152,9 @@ class HostapdCLI(object):
         ctx.start_process(self.cmdline + ['disable']).wait()
         ctx.start_process(self.cmdline + ['enable']).wait()
 
+    def disable(self):
+        ctx.start_process(self.cmdline + ['disable']).wait()
+
     def list_sta(self):
         proc = ctx.start_process(self.cmdline + ['list_sta'])
         proc.wait()
@@ -198,6 +201,28 @@ class HostapdCLI(object):
         '''
         cmd = self.cmdline + ['req_beacon', addr, request]
         ctx.start_process(cmd).wait()
+
+    def rekey(self, address=None):
+        if address:
+            cmd = 'REKEY_PTK %s' % address
+            self.ctrl_sock.sendall(cmd.encode('utf-8'))
+            self.wait_for_event('EAPOL-4WAY-HS-COMPLETED')
+            return
+
+        cmd = 'REKEY_GTK'
+        self.ctrl_sock.sendall(cmd.encode('utf-8'))
+
+    def resend_m3(self, address):
+        cmd = 'RESEND_M3 %s' % address
+        self.ctrl_sock.sendall(cmd.encode('utf-8'))
+
+    def chan_switch(self, channel):
+        if channel > len(chan_freq_map):
+            raise Exception("Only 2.4GHz channels supported for chan_switch")
+
+        cmd = self.cmdline + ['chan_switch', '50', str(chan_freq_map[channel])]
+        ctx.start_process(cmd).wait()
+        self.wait_for_event('AP-CSA-FINISHED')
 
     @property
     def bssid(self):

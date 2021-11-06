@@ -2345,7 +2345,7 @@ static bool random_nonce(uint8_t nonce[])
 	return l_getrandom(nonce, 32);
 }
 
-static void test_ap_sta_install_tk(struct handshake_state *hs,
+static void test_ap_sta_install_tk(struct handshake_state *hs, uint8_t key_idx,
 					const uint8_t *tk, uint32_t cipher)
 {
 	assert(false);

@@ -34,6 +34,7 @@
 #include "src/iwd.h"
 #include "src/module.h"
 #include "src/netdev.h"
+#include "src/netconfig.h"
 #include "src/ip-pool.h"
 
 struct ip_pool_addr4_record {
@@ -357,15 +358,7 @@ static void ip_pool_addr4_dump_cb(int error,
 
 static int ip_pool_init(void)
 {
-	const struct l_settings *settings = iwd_get_config();
-	bool netconfig_enabled;
-
-	if (!l_settings_get_bool(settings, "General",
-				"EnableNetworkConfiguration",
-				&netconfig_enabled))
-		netconfig_enabled = false;
-
-	if (!netconfig_enabled)
+	if (!netconfig_enabled())
 		return 0;
 
 	rtnl = iwd_get_rtnl();

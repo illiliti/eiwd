@@ -32,6 +32,7 @@
 #include "src/ft.h"
 #include "src/mpdu.h"
 #include "src/auth-proto.h"
+#include "src/band.h"
 
 struct ft_sm {
 	struct auth_proto ap;
@@ -39,8 +40,11 @@ struct ft_sm {
 
 	ft_tx_authenticate_func_t tx_auth;
 	ft_tx_associate_func_t tx_assoc;
+	ft_get_oci get_oci;
 
 	void *user_data;
+
+	bool over_ds : 1;
 };
 
 /*
@@ -234,6 +238,10 @@ static int ft_tx_reassociate(struct ft_sm *ft)
 		rsn_info.num_pmkids = 1;
 		rsn_info.pmkids = hs->pmk_r1_name;
 
+		/* Always set OCVC false for FT-over-DS */
+		if (ft->over_ds)
+			rsn_info.ocvc = false;
+
 		rsne = alloca(256);
 		ie_build_rsne(&rsn_info, rsne);
 
@@ -272,6 +280,22 @@ static int ft_tx_reassociate(struct ft_sm *ft)
 		ft_info.r1khid_present = true;
 		memcpy(ft_info.anonce, hs->anonce, 32);
 		memcpy(ft_info.snonce, hs->snonce, 32);
+
+		/*
+		 * IEEE 802.11-2020 Section 13.7.1 FT reassociation in an RSN
+		 *
+		 * "If dot11RSNAOperatingChannelValidationActivated is true and
+		 *  the FTO indicates OCVC capability, the target AP shall
+		 *  ensure that OCI subelement of the FTE matches by ensuring
+		 *  that all of the following are true:
+		 *      - OCI subelement is present
+		 *      - Channel information in the OCI matches current
+		 *        operating channel parameters (see 12.2.9)"
+		 */
+		if (hs->supplicant_ocvc && hs->chandef) {
+			oci_from_chandef(hs->chandef, ft_info.oci);
+			ft_info.oci_present = true;
+		}
 
 		fte = alloca(256);
 		ie_build_fast_bss_transition(&ft_info, kck_len, fte);
@@ -323,13 +347,14 @@ static bool ft_verify_rsne(const uint8_t *rsne, const uint8_t *pmk_r0_name,
 				memcmp(msg2_rsne.pmkids, pmk_r0_name, 16))
 		return false;
 
-	if (!handshake_util_ap_ie_matches(rsne, authenticator_ie, false))
+	if (!handshake_util_ap_ie_matches(&msg2_rsne, authenticator_ie, false))
 		return false;
 
 	return true;
 }
 
 static int ft_parse_ies(struct handshake_state *hs,
+			const uint8_t *authenticator_ie,
 			const uint8_t *ies, size_t ies_len,
 			const uint8_t **mde_out,
 			const uint8_t **fte_out)
@@ -370,8 +395,7 @@ static int ft_parse_ies(struct handshake_state *hs,
 	is_rsn = hs->supplicant_ie != NULL;
 
 	if (is_rsn) {
-		if (!ft_verify_rsne(rsne, hs->pmk_r0_name,
-					hs->authenticator_ie))
+		if (!ft_verify_rsne(rsne, hs->pmk_r0_name, authenticator_ie))
 			goto ft_error;
 	} else if (rsne)
 		goto ft_error;
@@ -461,7 +485,8 @@ bool ft_over_ds_parse_action_ies(struct ft_ds_info *info,
 	const uint8_t *fte = NULL;
 	bool is_rsn = hs->supplicant_ie != NULL;
 
-	if (ft_parse_ies(hs, ies, ies_len, &mde, &fte) < 0)
+	if (ft_parse_ies(hs, info->authenticator_ie, ies, ies_len,
+				&mde, &fte) < 0)
 		return false;
 
 	if (!mde_equal(info->mde, mde))
@@ -492,9 +517,9 @@ static int ft_process_ies(struct handshake_state *hs, const uint8_t *ies,
 	if (!ies)
 		goto ft_error;
 
-	if (ft_parse_ies(hs, ies, ies_len, &mde, &fte) < 0)
+	if (ft_parse_ies(hs, hs->authenticator_ie, ies, ies_len,
+				&mde, &fte) < 0)
 		goto ft_error;
-
 
 	if (!mde_equal(hs->mde, mde))
 		goto ft_error;
@@ -593,6 +618,9 @@ void ft_ds_info_free(struct ft_ds_info *info)
 	if (info->fte)
 		l_free(info->fte);
 
+	if (info->authenticator_ie)
+		l_free(info->authenticator_ie);
+
 	if (destroy)
 		destroy(info);
 }
@@ -624,7 +652,7 @@ static int ft_rx_authenticate(struct auth_proto *ap, const uint8_t *frame,
 	if (ret < 0)
 		goto auth_error;
 
-	return ft_tx_reassociate(ft);
+	return ft->get_oci(ft->user_data);
 
 auth_error:
 	return (int)status_code;
@@ -674,7 +702,8 @@ static int ft_rx_associate(struct auth_proto *ap, const uint8_t *frame,
 				memcmp(msg4_rsne.pmkids, hs->pmk_r1_name, 16))
 			return -EBADMSG;
 
-		if (!handshake_util_ap_ie_matches(rsne, hs->authenticator_ie,
+		if (!handshake_util_ap_ie_matches(&msg4_rsne,
+							hs->authenticator_ie,
 							false))
 			return -EBADMSG;
 	} else {
@@ -766,6 +795,13 @@ static int ft_rx_associate(struct auth_proto *ap, const uint8_t *frame,
 	return 0;
 }
 
+static int ft_rx_oci(struct auth_proto *ap)
+{
+	struct ft_sm *ft = l_container_of(ap, struct ft_sm, ap);
+
+	return ft_tx_reassociate(ft);
+}
+
 static void ft_sm_free(struct auth_proto *ap)
 {
 	struct ft_sm *ft = l_container_of(ap, struct ft_sm, ap);
@@ -780,7 +816,7 @@ static bool ft_over_ds_start(struct auth_proto *ap)
 	return ft_tx_reassociate(ft) == 0;
 }
 
-bool ft_build_authenticate_ies(struct handshake_state *hs,
+bool ft_build_authenticate_ies(struct handshake_state *hs, bool ocvc,
 				const uint8_t *new_snonce, uint8_t *buf,
 				size_t *len)
 {
@@ -809,6 +845,7 @@ bool ft_build_authenticate_ies(struct handshake_state *hs,
 
 		rsn_info.num_pmkids = 1;
 		rsn_info.pmkids = hs->pmk_r0_name;
+		rsn_info.ocvc = ocvc;
 
 		ie_build_rsne(&rsn_info, ptr);
 		ptr += ptr[1] + 2;
@@ -859,7 +896,8 @@ static bool ft_start(struct auth_proto *ap)
 	uint8_t buf[512];
 	size_t len;
 
-	if (!ft_build_authenticate_ies(hs, hs->snonce, buf, &len))
+	if (!ft_build_authenticate_ies(hs, hs->supplicant_ocvc, hs->snonce,
+					buf, &len))
 		return false;
 
 	iov.iov_base = buf;
@@ -873,12 +911,14 @@ static bool ft_start(struct auth_proto *ap)
 struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
 				ft_tx_authenticate_func_t tx_auth,
 				ft_tx_associate_func_t tx_assoc,
+				ft_get_oci get_oci,
 				void *user_data)
 {
 	struct ft_sm *ft = l_new(struct ft_sm, 1);
 
 	ft->tx_auth = tx_auth;
 	ft->tx_assoc = tx_assoc;
+	ft->get_oci = get_oci;
 	ft->hs = hs;
 	ft->user_data = user_data;
 
@@ -886,6 +926,7 @@ struct auth_proto *ft_over_air_sm_new(struct handshake_state *hs,
 	ft->ap.rx_associate = ft_rx_associate;
 	ft->ap.start = ft_start;
 	ft->ap.free = ft_sm_free;
+	ft->ap.rx_oci = ft_rx_oci;
 
 	return &ft->ap;
 }
@@ -899,6 +940,7 @@ struct auth_proto *ft_over_ds_sm_new(struct handshake_state *hs,
 	ft->tx_assoc = tx_assoc;
 	ft->hs = hs;
 	ft->user_data = user_data;
+	ft->over_ds = true;
 
 	ft->ap.rx_associate = ft_rx_associate;
 	ft->ap.start = ft_over_ds_start;

@@ -698,7 +698,7 @@ static const char *rsn_capabilities_bitfield[] = {
 	"SPP A-MSDU Required",
 	"PBAC",
 	"Extended Key ID for Individually Addressed Frames",
-	"Reserved",
+	"Operating Channel Validation Capable",
 	"Reserved",
 	NULL
 };
@@ -1009,6 +1009,21 @@ static void print_ipv4(unsigned int level, const char *label,
 			addr[0], addr[1], addr[2], addr[3]);
 }
 
+static void print_ie_wfa_owe_transition(unsigned int level, const char *label,
+						const void *data, uint16_t size)
+{
+	struct ie_owe_transition_info info;
+
+	if (ie_parse_owe_transition(data, size, &info) < 0) {
+		print_attr(level + 1, "Error parsing");
+		return;
+	}
+
+	print_attr(level + 1, "BSSID: "MAC, MAC_STR(info.bssid));
+	print_attr(level + 1, "SSID: %s", util_ssid_to_utf8(info.ssid_len,
+								info.ssid));
+}
+
 static void print_ie_vendor(unsigned int level, const char *label,
 				const void *data, uint16_t size)
 {
@@ -1053,6 +1068,10 @@ static void print_ie_vendor(unsigned int level, const char *label,
 			return;
 		case 0x12:
 			print_ie_rsn_suites(level + 1, label, data, size);
+			return;
+		case 0x1c:
+			print_ie_wfa_owe_transition(level + 1, label,
+							data - 6, size + 6);
 			return;
 		default:
 			return;
@@ -2157,6 +2176,108 @@ static void print_measurement_report(unsigned int level, const char *label,
 	}
 }
 
+static void print_fast_bss_transition(unsigned int level, const char *label,
+							const void *data,
+							uint16_t size)
+{
+	struct ie_ft_info ft_info;
+	uint32_t mic_len = 16;
+
+	/* Most likely the MIC is 16 bytes */
+	if (ie_parse_fast_bss_transition_from_data(data - 2, size + 2,
+						mic_len, &ft_info) < 0) {
+		mic_len = 24;
+
+		/* Must be FILS, try 24 */
+		if (ie_parse_fast_bss_transition_from_data(data - 2, size + 2,
+						mic_len, &ft_info) < 0) {
+			print_attr(level + 1, "error parsing");
+			return;
+		}
+	}
+
+	print_attr(level, "%s", label);
+
+	if (ft_info.rsnxe_used)
+		print_attr(level + 1, "RSNXE Used set");
+
+	print_attr(level + 1, "MIC Element Count: %u",
+			ft_info.mic_element_count);
+	print_attr(level + 1, "MIC:");
+	print_hexdump(level + 2, ft_info.mic, mic_len);
+	print_attr(level + 1, "ANONCE:");
+	print_hexdump(level + 2, ft_info.anonce, sizeof(ft_info.anonce));
+	print_attr(level + 1, "SNONCE:");
+	print_hexdump(level + 2, ft_info.snonce, sizeof(ft_info.snonce));
+	print_attr(level + 1, "R0KHID:");
+	print_hexdump(level + 2, ft_info.r0khid, ft_info.r0khid_len);
+
+	if (ft_info.r1khid_present) {
+		print_attr(level + 1, "R1KHID:");
+		print_hexdump(level + 2, ft_info.r1khid,
+						sizeof(ft_info.r1khid));
+	}
+
+	if (ft_info.gtk_len) {
+		print_attr(level + 1, "GTK Key ID: %u", ft_info.gtk_key_id);
+		print_attr(level + 1, "GTK RSC:");
+		print_hexdump(level + 2, ft_info.gtk_rsc,
+						sizeof(ft_info.gtk_rsc));
+		print_attr(level + 1, "GTK:");
+		print_hexdump(level + 2, ft_info.gtk, ft_info.gtk_len);
+	}
+
+	if (ft_info.igtk_len) {
+		print_attr(level + 1, "IGTK Key ID: %u", ft_info.igtk_key_id);
+		print_attr(level + 1, "IGTK IPN:");
+		print_hexdump(level + 2, ft_info.igtk_ipn,
+						sizeof(ft_info.igtk_ipn));
+		print_attr(level + 1, "IGTK:");
+		print_hexdump(level + 2, ft_info.igtk, ft_info.igtk_len);
+	}
+}
+
+static void print_mobility_domain(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	uint16_t mdid;
+	bool ft_over_ds;
+	bool resource_req;
+
+	print_attr(level, "%s", label);
+
+	if (ie_parse_mobility_domain_from_data(data - 2, size + 2, &mdid,
+					&ft_over_ds, &resource_req) < 0) {
+		print_attr(level + 1, "error parsing");
+		return;
+	}
+
+	print_attr(level + 1, "MDID: %04x", mdid);
+
+	if (ft_over_ds)
+		print_attr(level + 1, "FT-over-DS bit set");
+
+	if (resource_req)
+		print_attr(level + 1, "Resource Request Protocol bit set");
+}
+
+static void print_rsnx(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	const uint8_t *ptr = data;
+	uint8_t field_size = bit_field(ptr[0], 0, 4);
+
+	print_attr(level, "%s", label);
+
+	print_attr(level + 1, "Field Size: %u", field_size);
+
+	if (test_bit(ptr, 4))
+		print_attr(level + 1, "Protected TWT Operations Support");
+
+	if (test_bit(ptr, 5))
+		print_attr(level + 1, "SAE Hash-to-Element");
+}
+
 static struct attr_entry ie_entry[] = {
 	{ IE_TYPE_SSID,				"SSID",
 		ATTR_CUSTOM,	{ .function = print_ie_ssid } },
@@ -2215,6 +2336,12 @@ static struct attr_entry ie_entry[] = {
 		ATTR_CUSTOM,	{ .function = print_measurement_request } },
 	{ IE_TYPE_MEASUREMENT_REPORT,		"Measurement Report",
 		ATTR_CUSTOM,	{ .function = print_measurement_report } },
+	{ IE_TYPE_FAST_BSS_TRANSITION,		"Fast BSS Transition",
+		ATTR_CUSTOM,	{ .function = print_fast_bss_transition } },
+	{ IE_TYPE_MOBILITY_DOMAIN,		"Mobility Domain",
+		ATTR_CUSTOM,	{ .function = print_mobility_domain } },
+	{ IE_TYPE_RSNX,				"RSNX",
+		ATTR_CUSTOM,	{ .function = print_rsnx } },
 	{ },
 };
 
@@ -4640,6 +4767,68 @@ static void print_rm_action_frame(unsigned int level, const uint8_t *body,
 	}
 }
 
+static void print_ft_request(unsigned int level,
+				const uint8_t *body, size_t body_len)
+{
+	struct ie_tlv_iter iter;
+
+	switch (body[0]) {
+	case 1:
+		if (body_len < 13)
+			return;
+
+		print_attr(level + 1, "FT Request");
+		break;
+	case 2:
+		if (body_len < 15)
+			return;
+
+		print_attr(level + 1, "FT Response");
+		break;
+	case 3:
+		/* FT Confirm/Ack are not yet supported */
+		print_attr(level + 1, "FT Confirm");
+		return;
+	case 4:
+		print_attr(level + 1, "FT ACK");
+		return;
+	}
+
+	print_attr(level + 1, "STA Address: "MAC, MAC_STR(body + 1));
+	print_attr(level + 1, "Target AP Address: "MAC, MAC_STR(body + 7));
+
+	if (body[0] == 2) {
+		print_attr(level + 1, "Status: %u", l_get_le16(body + 13));
+		body += 15;
+		body_len -= 15;
+	} else {
+		body += 13;
+		body_len -= 15;
+	}
+
+	ie_tlv_iter_init(&iter, body, body_len);
+
+	while (ie_tlv_iter_next(&iter)) {
+		uint8_t tag = ie_tlv_iter_get_tag(&iter);
+		size_t len = ie_tlv_iter_get_length(&iter);
+		const void *data = ie_tlv_iter_get_data(&iter);
+
+		switch (tag) {
+		case IE_TYPE_RSN:
+			print_ie_rsn(level + 1, "RSN", data, len);
+			break;
+		case IE_TYPE_MOBILITY_DOMAIN:
+			print_mobility_domain(level + 1, "Mobility Domain",
+						data, len);
+			break;
+		case IE_TYPE_FAST_BSS_TRANSITION:
+			print_fast_bss_transition(level + 1,
+						"Fast BSS Transition",
+						data, len);
+			break;
+		}
+	}
+}
 static void print_action_mgmt_frame(unsigned int level,
 					const struct mmpdu_header *mmpdu,
 					size_t total_len, bool no_ack)
@@ -4702,6 +4891,9 @@ static void print_action_mgmt_frame(unsigned int level,
 		if (!memcmp(oui, wifi_alliance_oui, 3) && oui[3] == 0x09)
 			print_p2p_action_frame(level + 1, body + 5,
 						body_len - 5);
+	} else if (body[0] == 6) {
+		print_ft_request(level, body + 1, body_len - 1);
+		return;
 	}
 
 	print_mpdu_frame_control(level + 1, &mmpdu->fc);
@@ -5671,6 +5863,76 @@ static void print_scan_flags(unsigned int level, const char *label,
 	}
 }
 
+static void print_key_type(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	const uint8_t *ptr = data;
+	const char *str;
+
+	switch (*ptr) {
+	case NL80211_KEYTYPE_GROUP:
+		str = "Group";
+		break;
+	case NL80211_KEYTYPE_PAIRWISE:
+		str = "Pairwise";
+		break;
+	case NL80211_KEYTYPE_PEERKEY:
+		str = "Peerkey";
+		break;
+	default:
+		str = "Unknown";
+	}
+
+	print_attr(level, "%s: %s", label, str);
+}
+
+static void print_key_mode(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	const uint8_t *ptr = data;
+	const char *str;
+
+	switch (*ptr) {
+	case NL80211_KEY_RX_TX:
+		str = "RX/TX";
+		break;
+	case NL80211_KEY_NO_TX:
+		str = "RX Only";
+		break;
+	case NL80211_KEY_SET_TX:
+		str = "Set TX";
+		break;
+	default:
+		str = "Unknown";
+	}
+
+	print_attr(level, "%s: %s", label, str);
+}
+
+static const struct attr_entry default_key_type_table[] = {
+	{ NL80211_KEY_DEFAULT_TYPE_UNICAST, "Unicast", ATTR_FLAG },
+	{ NL80211_KEY_DEFAULT_TYPE_MULTICAST, "Multicast", ATTR_FLAG },
+	{ }
+};
+
+static const struct attr_entry key_table[] = {
+	{ NL80211_KEY_DATA,		"Key Data",		ATTR_BINARY },
+	{ NL80211_KEY_IDX,		"Key Index",		ATTR_U8 },
+	{ NL80211_KEY_CIPHER,		"Key Cipher",		ATTR_CUSTOM,
+					{ .function = print_cipher_suite } },
+	{ NL80211_KEY_SEQ,		"Key Sequence",		ATTR_BINARY },
+	{ NL80211_KEY_DEFAULT,		"Default",		ATTR_FLAG },
+	{ NL80211_KEY_DEFAULT_MGMT,	"Default Management",	ATTR_FLAG },
+	{ NL80211_KEY_TYPE,		"Key Type",		ATTR_CUSTOM,
+					{ .function = print_key_type} },
+	{ NL80211_KEY_DEFAULT_TYPES,	"Default Key Types",	ATTR_NESTED,
+					{ default_key_type_table } },
+	{ NL80211_KEY_MODE,		"Key Mode",		ATTR_CUSTOM,
+					{ .function = print_key_mode } },
+	{ NL80211_KEY_DEFAULT_BEACON,	"Default Beacon",	ATTR_FLAG },
+	{ }
+};
+
 static const struct attr_entry attr_table[] = {
 	{ NL80211_ATTR_WIPHY,
 			"Wiphy", ATTR_U32 },
@@ -5846,7 +6108,7 @@ static const struct attr_entry attr_table[] = {
 	{ NL80211_ATTR_PREV_BSSID,
 			"Previous BSSID", ATTR_ADDRESS },
 	{ NL80211_ATTR_KEY,
-			"Key" },
+			"Key", ATTR_NESTED, { key_table } },
 	{ NL80211_ATTR_KEYS,
 			"Keys" },
 	{ NL80211_ATTR_PID,

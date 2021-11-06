@@ -1,5 +1,5 @@
 AC_PREREQ(2.60)
-AC_INIT(iwd, 1.18)
+AC_INIT(iwd, 1.19)
 
 AC_CONFIG_HEADERS(config.h)
 AC_CONFIG_AUX_DIR(build-aux)
@@ -129,6 +129,7 @@ AC_DEFINE_UNQUOTED(WIRED_STORAGEDIR, "${wired_storagedir}",
 
 AC_CHECK_FUNCS(explicit_bzero)
 AC_CHECK_FUNCS(rawmemchr)
+AC_CHECK_FUNCS(reallocarray)
 
 AC_CHECK_HEADERS(linux/types.h linux/if_alg.h)
 
@@ -267,7 +268,7 @@ if (test "${enable_external_ell}" = "yes"); then
 			test "${enable_monitor}" != "no" ||
 			test "${enable_wired}" = "yes" ||
 			test "${enable_hwsim}" = "yes"); then
-		ell_min_version="0.44"
+		ell_min_version="0.45"
 	else
 		ell_min_version="0.5"
 	fi

@@ -59,6 +59,9 @@ class Test(unittest.TestCase):
         self.assertRaises(Exception, testutil.test_ifaces_connected,
                           (self.bss_hostapd[1].ifname, device.name, True, True))
 
+        if over_ds:
+            self.rule0.enabled = True
+
         device.roam(self.bss_hostapd[1].bssid)
 
         condition = 'obj.state == DeviceState.roaming'
@@ -76,6 +79,8 @@ class Test(unittest.TestCase):
         testutil.test_ifaces_connected(self.bss_hostapd[1].ifname, device.name)
         self.assertRaises(Exception, testutil.test_ifaces_connected,
                           (self.bss_hostapd[0].ifname, device.name, True, True))
+
+        self.bss_hostapd[1].rekey(device.address)
 
         device.roam(self.bss_hostapd[0].bssid)
 
@@ -100,11 +105,13 @@ class Test(unittest.TestCase):
 
         self.bss_hostapd[0].set_value('wpa_key_mgmt', 'FT-PSK')
         self.bss_hostapd[0].set_value('ft_over_ds', '0')
+        self.bss_hostapd[0].set_value('ocv', '1')
         self.bss_hostapd[0].reload()
         self.bss_hostapd[0].wait_for_event("AP-ENABLED")
 
         self.bss_hostapd[1].set_value('wpa_key_mgmt', 'FT-PSK')
         self.bss_hostapd[1].set_value('ft_over_ds', '0')
+        self.bss_hostapd[0].set_value('ocv', '1')
         self.bss_hostapd[1].reload()
         self.bss_hostapd[1].wait_for_event("AP-ENABLED")
 
@@ -115,11 +122,13 @@ class Test(unittest.TestCase):
 
         self.bss_hostapd[0].set_value('wpa_key_mgmt', 'FT-PSK')
         self.bss_hostapd[0].set_value('ft_over_ds', '1')
+        self.bss_hostapd[0].set_value('ocv', '1')
         self.bss_hostapd[0].reload()
         self.bss_hostapd[0].wait_for_event("AP-ENABLED")
 
         self.bss_hostapd[1].set_value('wpa_key_mgmt', 'FT-PSK')
         self.bss_hostapd[1].set_value('ft_over_ds', '1')
+        self.bss_hostapd[1].set_value('ocv', '1')
         self.bss_hostapd[1].reload()
         self.bss_hostapd[1].wait_for_event("AP-ENABLED")
 
@@ -146,12 +155,24 @@ class Test(unittest.TestCase):
         os.system('ifconfig "' + self.bss_hostapd[0].ifname + '" up')
         os.system('ifconfig "' + self.bss_hostapd[1].ifname + '" up')
 
+        self.rule0.enabled = False
+
     @classmethod
     def setUpClass(cls):
+        hwsim = Hwsim()
+
         IWD.copy_to_storage('TestFT.psk')
 
         cls.bss_hostapd = [ HostapdCLI(config='ft-psk-ccmp-1.conf'),
                             HostapdCLI(config='ft-psk-ccmp-2.conf') ]
+        rad2 = hwsim.get_radio('rad2')
+
+        cls.rule0 = hwsim.rules.create()
+        cls.rule0.source = rad2.addresses[0]
+        cls.rule0.bidirectional = True
+        cls.rule0.signal = -2000
+        cls.rule0.prefix = 'b0'
+        cls.rule0.drop = True
 
         # Set interface addresses to those expected by hostapd config files
         os.system('ifconfig "' + cls.bss_hostapd[0].ifname +

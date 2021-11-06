@@ -67,6 +67,31 @@ static int mac_randomize_bytes = 6;
 static char regdom_country[2];
 static uint32_t work_ids;
 
+enum driver_flag {
+	DEFAULT_IF = 0x1,
+	FORCE_PAE = 0x2,
+};
+
+struct driver_info {
+	const char *prefix;
+	unsigned int flags;
+};
+
+/*
+ * The out-of-tree rtl88x2bu crashes the kernel hard if default interface is
+ * destroyed.  It seems many other drivers are built from the same source code
+ * so we set the DEFAULT_IF flag for all of them.  Unfortunately there are
+ * in-tree drivers that also match these names and may be fine.
+ */
+static const struct driver_info driver_infos[] = {
+	{ "rtl81*",          DEFAULT_IF },
+	{ "rtl87*",          DEFAULT_IF },
+	{ "rtl88*",          DEFAULT_IF },
+	{ "rtw_*",           DEFAULT_IF },
+	{ "brcmfmac",        DEFAULT_IF },
+	{ "bcmsdh_sdmmc",    DEFAULT_IF },
+};
+
 struct wiphy {
 	uint32_t id;
 	char name[20];
@@ -84,6 +109,7 @@ struct wiphy {
 	char *model_str;
 	char *vendor_str;
 	char *driver_str;
+	const struct driver_info *driver_info;
 	struct watchlist state_watches;
 	uint8_t extended_capabilities[EXT_CAP_LEN + 2]; /* max bitmap size + IE header */
 	uint8_t *iftype_extended_capabilities[NUM_NL80211_IFTYPES];
@@ -433,6 +459,21 @@ bool wiphy_can_transition_disable(struct wiphy *wiphy)
 	return true;
 }
 
+/* Catch all for the offload features */
+bool wiphy_can_offload(struct wiphy *wiphy)
+{
+	return wiphy_has_ext_feature(wiphy,
+				NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK) ||
+		wiphy_has_ext_feature(wiphy,
+				NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_1X) ||
+		wiphy_has_ext_feature(wiphy, NL80211_EXT_FEATURE_SAE_OFFLOAD);
+}
+
+bool wiphy_supports_ext_key_id(struct wiphy *wiphy)
+{
+	return wiphy_has_ext_feature(wiphy, NL80211_EXT_FEATURE_EXT_KEY_ID);
+}
+
 bool wiphy_supports_cmds_auth_assoc(struct wiphy *wiphy)
 {
 	return wiphy->support_cmds_auth_assoc;
@@ -510,6 +551,41 @@ const char *wiphy_get_driver(struct wiphy *wiphy)
 const char *wiphy_get_name(struct wiphy *wiphy)
 {
 	return wiphy->name;
+}
+
+bool wiphy_uses_default_if(struct wiphy *wiphy)
+{
+	if (!wiphy_get_driver(wiphy))
+		return true;
+
+	if (wiphy->driver_info &&
+			wiphy->driver_info->flags & DEFAULT_IF)
+		return true;
+
+	return false;
+}
+
+bool wiphy_control_port_enabled(struct wiphy *wiphy)
+{
+	const struct l_settings *settings = iwd_get_config();
+	bool enabled;
+
+	if (wiphy->driver_info &&
+			wiphy->driver_info->flags & FORCE_PAE) {
+		l_info("Not using Control Port due to driver quirks: %s",
+				wiphy_get_driver(wiphy));
+		return false;
+	}
+
+	if (!wiphy_has_ext_feature(wiphy,
+			NL80211_EXT_FEATURE_CONTROL_PORT_OVER_NL80211))
+		return false;
+
+	if (!l_settings_get_bool(settings, "General",
+					"ControlPortOverNL80211", &enabled))
+		enabled = true;
+
+	return enabled;
 }
 
 const uint8_t *wiphy_get_permanent_address(struct wiphy *wiphy)
@@ -1340,6 +1416,7 @@ static bool wiphy_get_driver_name(struct wiphy *wiphy)
 	L_AUTO_FREE_VAR(char *, driver_link) = NULL;
 	char driver_path[256];
 	ssize_t len;
+	unsigned int i;
 
 	driver_link = l_strdup_printf("/sys/class/ieee80211/%s/device/driver",
 					wiphy->name);
@@ -1352,6 +1429,11 @@ static bool wiphy_get_driver_name(struct wiphy *wiphy)
 
 	driver_path[len] = '\0';
 	wiphy->driver_str = l_strdup(basename(driver_path));
+
+	for (i = 0; i < L_ARRAY_SIZE(driver_infos); i++)
+		if (!fnmatch(driver_infos[i].prefix, wiphy->driver_str, 0))
+			wiphy->driver_info = &driver_infos[i];
+
 	return true;
 }
 

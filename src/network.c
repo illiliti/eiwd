@@ -59,7 +59,7 @@
 #define SAE_PT_SETTING "SAE-PT-Group%u"
 
 static uint32_t known_networks_watch;
-static uint32_t anqp_watch;
+static uint32_t event_watch;
 
 struct network {
 	char ssid[33];
@@ -83,11 +83,13 @@ struct network {
 	bool ask_passphrase:1; /* Whether we should force-ask agent */
 	bool is_hs20:1;
 	bool anqp_pending:1;	/* Set if there is a pending ANQP request */
+	bool owe_hidden_pending:1;
 	uint8_t transition_disable; /* Temporary cache until info is set */
 	bool have_transition_disable:1;
 	int rank;
 	/* Holds DBus Connect() message if it comes in before ANQP finishes */
 	struct l_dbus_message *connect_after_anqp;
+	struct l_dbus_message *connect_after_owe_hidden;
 };
 
 static bool network_settings_load(struct network *network)
@@ -390,6 +392,11 @@ struct l_settings *network_get_settings(const struct network *network)
 	return network->settings;
 }
 
+struct station *network_get_station(const struct network *network)
+{
+	return network->station;
+}
+
 static bool network_set_8021x_secrets(struct network *network)
 {
 	const struct l_queue_entry *entry;
@@ -465,7 +472,7 @@ static int network_set_handshake_secrets_psk(struct network *network,
 	return 0;
 }
 
-int network_handshake_setup(struct network *network,
+int network_handshake_setup(struct network *network, struct scan_bss *bss,
 						struct handshake_state *hs)
 {
 	struct station *station = network->station;
@@ -492,8 +499,7 @@ int network_handshake_setup(struct network *network,
 		return -ENOTSUP;
 	}
 
-	handshake_state_set_ssid(hs, (void *) network->ssid,
-						strlen(network->ssid));
+	handshake_state_set_ssid(hs, bss->ssid, bss->ssid_len);
 
 	if (settings && l_settings_get_uint(settings, "EAPoL",
 						"ProtocolVersion",
@@ -1131,6 +1137,17 @@ struct scan_bss *network_bss_select(struct network *network,
 		if (!candidate)
 			candidate = bss;
 
+		/* OWE Transition BSS */
+		if (bss->owe_trans) {
+			/* Don't want to connect to the Open BSS if possible */
+			if (!bss->rsne)
+				continue;
+
+			/* Candidate is not OWE, set this as new candidate */
+			if (!(candidate->owe_trans && candidate->rsne))
+				candidate = bss;
+		}
+
 		/* check if temporarily blacklisted */
 		if (l_queue_find(network->blacklist, match_bss, bss))
 			continue;
@@ -1515,6 +1532,17 @@ struct l_dbus_message *__network_connect(struct network *network,
 	case SECURITY_PSK:
 		return network_connect_psk(network, bss, message);
 	case SECURITY_NONE:
+		if (network->connect_after_owe_hidden)
+			return dbus_error_busy(message);
+
+		/* Save message and connect after OWE hidden scan is done */
+		if (network->owe_hidden_pending) {
+			network->connect_after_owe_hidden =
+						l_dbus_message_ref(message);
+			l_debug("Pending OWE hidden scan, delaying connect");
+			return NULL;
+		}
+
 		station_connect_network(station, network, bss, message);
 		return NULL;
 	case SECURITY_8021X:
@@ -1724,6 +1752,14 @@ static void network_unregister(struct network *network, int reason)
 	struct l_dbus *dbus = dbus_get_bus();
 #endif
 
+	if (network->connect_after_anqp)
+		dbus_pending_reply(&network->connect_after_anqp,
+			dbus_error_aborted(network->connect_after_anqp));
+
+	if (network->connect_after_owe_hidden)
+		dbus_pending_reply(&network->connect_after_owe_hidden,
+			dbus_error_aborted(network->connect_after_owe_hidden));
+
 	agent_request_cancel(network->agent_request, reason);
 	network_settings_close(network);
 
@@ -1913,13 +1949,20 @@ static void known_networks_changed(enum known_networks_event event,
 	}
 }
 
-static void anqp_watch_changed(enum station_anqp_state state,
+static void event_watch_changed(enum station_event state,
 				struct network *network, void *user_data)
 {
-	network->anqp_pending = state == STATION_ANQP_STARTED;
+	struct l_dbus_message *reply;
 
-	if (state == STATION_ANQP_FINISHED && network->connect_after_anqp) {
-		struct l_dbus_message *reply;
+	switch (state) {
+	case STATION_EVENT_ANQP_STARTED:
+		network->anqp_pending = true;
+		break;
+	case STATION_EVENT_ANQP_FINISHED:
+		network->anqp_pending = false;
+
+		if (!network->connect_after_anqp)
+			return;
 
 		l_debug("ANQP complete, resuming connect to %s", network->ssid);
 
@@ -1943,6 +1986,25 @@ static void anqp_watch_changed(enum station_anqp_state state,
 		l_dbus_message_unref(network->connect_after_anqp);
 #endif
 		network->connect_after_anqp = NULL;
+
+		break;
+	case STATION_EVENT_OWE_HIDDEN_STARTED:
+		network->owe_hidden_pending = true;
+		break;
+	case STATION_EVENT_OWE_HIDDEN_FINISHED:
+		network->owe_hidden_pending = false;
+
+		if (!network->connect_after_owe_hidden)
+			return;
+
+		station_connect_network(network->station, network,
+					network_bss_select(network, true),
+					network->connect_after_owe_hidden);
+
+		l_dbus_message_unref(network->connect_after_owe_hidden);
+		network->connect_after_owe_hidden = NULL;
+
+		break;
 	}
 }
 
@@ -1981,7 +2043,7 @@ static int network_init(void)
 	known_networks_watch =
 		known_networks_watch_add(known_networks_changed, NULL, NULL);
 
-	anqp_watch = station_add_anqp_watch(anqp_watch_changed, NULL, NULL);
+	event_watch = station_add_event_watch(event_watch_changed, NULL, NULL);
 
 	return 0;
 }
@@ -1991,8 +2053,8 @@ static void network_exit(void)
 	known_networks_watch_remove(known_networks_watch);
 	known_networks_watch = 0;
 
-	station_remove_anqp_watch(anqp_watch);
-	anqp_watch = 0;
+	station_remove_event_watch(event_watch);
+	event_watch = 0;
 
 #ifdef HAVE_DBUS
 	l_dbus_unregister_interface(dbus_get_bus(), IWD_NETWORK_INTERFACE);

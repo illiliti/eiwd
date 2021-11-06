@@ -739,6 +739,7 @@ static int parse_ciphers(const uint8_t *data, size_t len,
 	out_info->spp_a_msdu_required = test_bit(data + 1, 3);
 	out_info->pbac = test_bit(data + 1, 4);
 	out_info->extended_key_id = test_bit(data + 1, 5);
+	out_info->ocvc = test_bit(data + 1, 6);
 
 	/*
 	 * BIP-default group management cipher suite in an RSNA with
@@ -1094,6 +1095,9 @@ static int build_ciphers_common(const struct ie_rsn_info *info, uint8_t *to,
 	if (info->extended_key_id)
 		to[pos] |= 0x20;
 
+	if (info->ocvc)
+		to[pos] |= 0x40;
+
 	pos += 1;
 
 	/* Short hand the generated RSNE if possible */
@@ -1342,6 +1346,8 @@ bool is_ie_wfa_ie(const uint8_t *data, uint8_t len, uint8_t oi_type)
 	if (oi_type == IE_WFA_OI_OSEN && len < 22)
 		return false;
 	else if (oi_type == IE_WFA_OI_HS20_INDICATION && len != 5 && len != 7)
+		return false;
+	else if (oi_type == IE_WFA_OI_OWE_TRANSITION && len < 12)
 		return false;
 	else if (len < 4) /* OI not handled, but at least check length */
 		return false;
@@ -1726,6 +1732,7 @@ int ie_parse_fast_bss_transition(struct ie_tlv_iter *iter, uint32_t mic_len,
 
 	memset(info, 0, sizeof(*info));
 
+	info->rsnxe_used = test_bit(data, 0);
 	info->mic_element_count = data[1];
 
 	memcpy(info->mic, data + 2, mic_len);
@@ -1862,6 +1869,13 @@ bool ie_build_fast_bss_transition(const struct ie_ft_info *info,
 	}
 
 	L_WARN_ON(info->igtk_len); /* Not implemented */
+
+	if (info->oci_present) {
+		to[0] = 5;
+		to[1] = 3;
+		memcpy(to + 2, info->oci, sizeof(info->oci));
+		*len += 5;
+	}
 
 	return true;
 }
@@ -2490,5 +2504,71 @@ int ie_parse_network_cost(const void *data, size_t len,
 
 	*level = l_get_le16(ie + 6);
 	*flags = l_get_le16(ie + 8);
+	return 0;
+}
+
+int ie_parse_owe_transition(const void *data, size_t len,
+				struct ie_owe_transition_info *info)
+{
+	const uint8_t *ie = data;
+	const uint8_t *bssid;
+	const uint8_t *ssid;
+	uint8_t oper_class = 0;
+	uint8_t channel = 0;
+	size_t slen;
+
+	if (len < 14 || ie[0] != IE_TYPE_VENDOR_SPECIFIC)
+		return -ENOMSG;
+
+	if (!is_ie_wfa_ie(ie + 2, len - 2, IE_WFA_OI_OWE_TRANSITION))
+		return -ENOMSG;
+
+	slen = l_get_u8(ie + 12);
+	if (slen > 32)
+		return -ENOMSG;
+
+	/*
+	 * WFA OWE Specification 2.3.1
+	 *
+	 * "Band Info and Channel Info are optional fields. If configured,
+	 * both fields shall be included in an OWE Transition Mode element"
+	 */
+	if (len != slen + 13 && len != slen + 15)
+		return -ENOMSG;
+
+	bssid = ie + 6;
+	ssid = ie + 13;
+
+	if (len == slen + 15) {
+		oper_class = l_get_u8(ie + 13 + slen);
+		channel = l_get_u8(ie + 14 + slen);
+	}
+
+	memcpy(info->bssid, bssid, 6);
+	memcpy(info->ssid, ssid, slen);
+	info->ssid_len = slen;
+	info->oper_class = oper_class;
+	info->channel = channel;
+
+	return 0;
+}
+
+int ie_parse_oci(const void *data, size_t len, const uint8_t **oci)
+{
+	struct ie_tlv_iter iter;
+
+	ie_tlv_iter_init(&iter, data, len);
+
+	if (!ie_tlv_iter_next(&iter))
+		return -EMSGSIZE;
+
+	if (ie_tlv_iter_get_length(&iter) != 3)
+		return -EMSGSIZE;
+
+	if (ie_tlv_iter_get_tag(&iter) != IE_TYPE_OCI)
+		return -EPROTOTYPE;
+
+	*oci = ie_tlv_iter_get_data(&iter);
+
 	return 0;
 }

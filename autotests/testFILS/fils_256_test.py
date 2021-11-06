@@ -55,6 +55,8 @@ class Test(unittest.TestCase):
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected(device.name, hapd.ifname)
 
+        hapd.rekey(device.address)
+
         device.disconnect()
 
     @classmethod

@@ -465,3 +465,461 @@ try_vht80:
 
 	return -ENETUNREACH;
 }
+
+static int band_channel_info_get_bandwidth(const struct band_chandef *info)
+{
+	switch (info->channel_width) {
+	case BAND_CHANDEF_WIDTH_20NOHT:
+	case BAND_CHANDEF_WIDTH_20:
+		return 20;
+	case BAND_CHANDEF_WIDTH_40:
+		return 40;
+	case BAND_CHANDEF_WIDTH_80:
+		return 80;
+	case BAND_CHANDEF_WIDTH_80P80:
+	case BAND_CHANDEF_WIDTH_160:
+		return 160;
+	default:
+		break;
+	}
+
+	return -ENOTSUP;
+}
+
+struct operating_class_info {
+	uint32_t starting_frequency;
+	uint32_t flags;
+	uint8_t channel_set[20];
+	uint8_t center_frequencies[8];
+	uint16_t channel_spacing;
+	uint8_t operating_class;
+};
+
+enum operating_class_flags {
+	PRIMARY_CHANNEL_UPPER = 0x1,
+	PRIMARY_CHANNEL_LOWER = 0x2,
+	PLUS80 = 0x4,
+};
+
+static const struct operating_class_info e4_operating_classes[] = {
+	{
+		.operating_class = 81,
+		.starting_frequency = 2407,
+		.channel_set = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 },
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 82,
+		.starting_frequency = 2414,
+		.channel_set = { 14 },
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 83,
+		.starting_frequency = 2407,
+		.channel_set = { 1, 2, 3, 4, 5, 6, 7, 8, 9 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_LOWER,
+	},
+	{
+		.operating_class = 84,
+		.starting_frequency = 2407,
+		.channel_set = { 5, 6, 7, 8, 9, 10, 11, 12, 13 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_UPPER,
+	},
+	{
+		.operating_class = 115,
+		.starting_frequency = 5000,
+		.channel_set = { 36, 40, 44, 48},
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 116,
+		.starting_frequency = 5000,
+		.channel_set = { 36, 44 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_LOWER,
+	},
+	{
+		.operating_class = 117,
+		.starting_frequency = 5000,
+		.channel_set = { 40, 48 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_UPPER,
+	},
+	{
+		.operating_class = 118,
+		.starting_frequency = 5000,
+		.channel_set = { 52, 56, 60, 64},
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 119,
+		.starting_frequency = 5000,
+		.channel_set = { 52, 60 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_LOWER,
+	},
+	{
+		.operating_class = 120,
+		.starting_frequency = 5000,
+		.channel_set = { 56, 64 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_UPPER,
+	},
+	{
+		.operating_class = 121,
+		.starting_frequency = 5000,
+		.channel_set = { 100, 104, 108, 112, 116, 120,
+					124, 128, 132, 136, 140, 144 },
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 122,
+		.starting_frequency = 5000,
+		.channel_set = { 100, 108, 116, 124, 132, 140},
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_LOWER,
+	},
+	{
+		.operating_class = 123,
+		.starting_frequency = 5000,
+		.channel_set = { 104, 112, 120, 128, 136, 144 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_UPPER,
+	},
+	{
+		.operating_class = 124,
+		.starting_frequency = 5000,
+		.channel_set = { 149, 153, 157, 161 },
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 125,
+		.starting_frequency = 5000,
+		.channel_set = { 149, 153, 157, 161, 165, 169, 173},
+		.channel_spacing = 20,
+	},
+	{
+		.operating_class = 126,
+		.starting_frequency = 5000,
+		.channel_set = { 149, 157, 165},
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_LOWER,
+	},
+	{
+		.operating_class = 127,
+		.starting_frequency = 5000,
+		.channel_set = { 153, 161, 169 },
+		.channel_spacing = 40,
+		.flags = PRIMARY_CHANNEL_UPPER,
+	},
+	{
+		.operating_class = 128,
+		.starting_frequency = 5000,
+		.channel_spacing = 80,
+		.center_frequencies = { 42, 58, 106, 122, 138, 155 },
+	},
+	{
+		.operating_class = 129,
+		.starting_frequency = 5000,
+		.channel_spacing = 160,
+		.center_frequencies = { 50, 114 },
+	},
+	{
+		.operating_class = 130,
+		.starting_frequency = 5000,
+		.channel_spacing = 80,
+		.center_frequencies = { 42, 58, 106, 122, 138, 155 },
+		.flags = PLUS80,
+	},
+};
+
+static const struct operating_class_info *e4_find_opclass(uint32_t opclass)
+{
+	unsigned int i;
+
+	for (i = 0; i < L_ARRAY_SIZE(e4_operating_classes); i++) {
+		if (e4_operating_classes[i].operating_class != opclass)
+			continue;
+
+		return &e4_operating_classes[i];
+	}
+
+	return NULL;
+}
+
+static int e4_channel_to_frequency(const struct operating_class_info *info,
+					uint32_t channel)
+{
+	unsigned int i;
+	unsigned int offset;
+
+	for (i = 0; info->channel_set[i] &&
+				i < L_ARRAY_SIZE(info->channel_set); i++) {
+		if (info->channel_set[i] != channel)
+			continue;
+
+		return channel * 5 + info->starting_frequency;
+	}
+
+	/*
+	 * Only classes in Table E4 with center frequencies are 128-130,
+	 * which use 20 Mhz wide channels.  Since E4 gives a center frequency,
+	 * calculate the channel offset based on channel spacing.
+	 *
+	 * Typically +/- 6 for 80 Mhz channels and +/- 14 for 160 Mhz channels
+	 */
+	offset = (info->channel_spacing - 20) / 5 / 2;
+
+	/*
+	 * Check that the channel is in the frequency range given by one of
+	 * the center frequencies listed for the operating class.  The channel
+	 * must be a valid channel for a lower operating class and spaced
+	 * 20 mhz apart
+	 */
+	for (i = 0; info->center_frequencies[i] &&
+			i < L_ARRAY_SIZE(info->center_frequencies); i++) {
+
+		unsigned int upper = info->center_frequencies[i] + offset;
+		unsigned int j = info->center_frequencies[i] - offset;
+
+		while (j <= upper && channel >= j) {
+			if (channel == j)
+				return channel * 5 + info->starting_frequency;
+
+			j += 4;
+		}
+	}
+
+	return -EINVAL;
+}
+
+static int e4_frequency_to_channel(const struct operating_class_info *info,
+					uint32_t frequency)
+{
+	return (frequency - info->starting_frequency) / 5;
+}
+
+static int e4_has_frequency(const struct operating_class_info *info,
+				uint32_t frequency)
+{
+	unsigned int i;
+	unsigned int channel = e4_frequency_to_channel(info, frequency);
+
+	for (i = 0; info->channel_set[i] &&
+				i < L_ARRAY_SIZE(info->channel_set); i++) {
+		if (info->channel_set[i] != channel)
+			continue;
+
+		return 0;
+	}
+
+	return -ENOENT;
+}
+
+static int e4_has_ccfi(const struct operating_class_info *info,
+				uint32_t center_frequency)
+{
+	unsigned int i;
+	unsigned int ccfi = e4_frequency_to_channel(info, center_frequency);
+
+	for (i = 0; info->center_frequencies[i] &&
+			i < L_ARRAY_SIZE(info->center_frequencies); i++) {
+		if (info->center_frequencies[i] != ccfi)
+			continue;
+
+		return 0;
+	}
+
+	return -ENOENT;
+}
+
+static int e4_class_matches(const struct operating_class_info *info,
+					const struct band_chandef *chandef)
+{
+	int own_bandwidth = band_channel_info_get_bandwidth(chandef);
+	int r;
+
+	if (own_bandwidth < 0)
+		return own_bandwidth;
+
+	switch (chandef->channel_width) {
+	case BAND_CHANDEF_WIDTH_20NOHT:
+	case BAND_CHANDEF_WIDTH_20:
+	case BAND_CHANDEF_WIDTH_40:
+		if (own_bandwidth != info->channel_spacing)
+			return -ENOENT;
+
+		if (own_bandwidth == 40) {
+			uint32_t behavior;
+
+			if (chandef->center1_frequency > chandef->frequency)
+				behavior = PRIMARY_CHANNEL_LOWER;
+			else
+				behavior = PRIMARY_CHANNEL_UPPER;
+
+			if ((info->flags & behavior) != behavior)
+				return -ENOENT;
+		}
+
+		return e4_has_frequency(info, chandef->frequency);
+	case BAND_CHANDEF_WIDTH_80:
+	case BAND_CHANDEF_WIDTH_160:
+		if (info->flags & PLUS80)
+			return -ENOENT;
+
+		if (own_bandwidth != info->channel_spacing)
+			return -ENOENT;
+
+		return e4_has_ccfi(info, chandef->center1_frequency);
+	case BAND_CHANDEF_WIDTH_80P80:
+		if (!(info->flags & PLUS80))
+			return -ENOENT;
+
+		r = e4_has_ccfi(info, chandef->center1_frequency);
+		if (r < 0)
+			return r;
+
+		return e4_has_ccfi(info, chandef->center2_frequency);
+	default:
+		break;
+	}
+
+	return -ENOTSUP;
+}
+
+int oci_to_frequency(uint32_t operating_class, uint32_t channel)
+{
+	const struct operating_class_info *info;
+
+	info = e4_find_opclass(operating_class);
+	if (!info)
+		return -ENOENT;
+
+	return e4_channel_to_frequency(info, channel);
+}
+
+int oci_verify(const uint8_t oci[static 3], const struct band_chandef *own)
+{
+	const struct operating_class_info *info;
+	int oci_frequency;
+	int own_bandwidth;
+	int oci_bandwidth;
+
+	info = e4_find_opclass(oci[0]);
+	if (!info)
+		return -ENOENT;
+
+	/*
+	 * 802.11-2020, 12.2.9:
+	 * Verifying that the maximum bandwidth used by the STA to transmit or
+	 * receive PPDUs to/from the peer STA from which the OCI was received
+	 * is no greater than the bandwidth of the operating class specified
+	 * in the Operating Class field of the received OCI
+	 */
+	own_bandwidth = band_channel_info_get_bandwidth(own);
+	if (own_bandwidth < 0)
+		return own_bandwidth;
+
+	oci_bandwidth = info->channel_spacing;
+	if (info->flags & PLUS80)
+		oci_bandwidth *= 2;
+
+	if (own_bandwidth > oci_bandwidth)
+		return -EPERM;
+
+	/*
+	 * 802.11-2020, 12.2.9:
+	 * Verifying that the primary channel used by the STA to transmit or
+	 * receive PPDUs to/from the peer STA from which the OCI was received
+	 * is equal to the Primary Channel Number field (for the corresponding
+	 * operating class)
+	 */
+	oci_frequency = e4_channel_to_frequency(info, oci[1]);
+	if (oci_frequency < 0)
+		return oci_frequency;
+
+	if (oci_frequency != (int) own->frequency)
+		return -EPERM;
+
+	/*
+	 * 802.11-2020, 12.2.9:
+	 * Verifying that, when 40 MHz bandwidth is used by the STA to transmit
+	 * or receive PPDUs to/from the peer STA from which the OCI was
+	 * received, the nonprimary 20 MHz used matches the operating class
+	 * (i.e., upper/lower behavior) specified in the Operating Class field
+	 * of the received OCI
+	 *
+	 * NOTE: For now we only check this if the STA and peer are operating
+	 * on 40 Mhz channels.  If the STA is operating on 40 Mhz while the
+	 * peer is operating on 80 or 160 Mhz wide channels, then only the
+	 * primary channel validation is performed
+	 */
+	if (own_bandwidth == 40 && oci_bandwidth == 40) {
+		uint32_t behavior;
+
+		/*
+		 * - Primary Channel Upper Behavior -> Secondary channel below
+		 *   primary channel.  Or HT40MINUS.
+		 * - Primary Channel Lower Behavior -> Secondary channel above
+		 *   primary channel.  Or HT40PLUS.
+		 */
+		if (own->center1_frequency > own->frequency)
+			behavior = PRIMARY_CHANNEL_LOWER;
+		else
+			behavior = PRIMARY_CHANNEL_UPPER;
+
+		if ((info->flags & behavior) != behavior)
+			return -EPERM;
+	}
+
+	/*
+	 * 802.11-2020, 12.2.9:
+	 * Verifying that, if operating an 80+80 MHz operating class, the
+	 * frequency segment 1 channel number used by the STA to transmit or
+	 * receive PPDUs to/from the peer STA from which the OCI was received
+	 * is equal to the Frequency Segment 1 Channel Number field of the OCI.
+	 */
+	if (own->channel_width == BAND_CHANDEF_WIDTH_80P80) {
+		uint32_t freq_segment1_chan_num;
+
+		if (!(info->flags & PLUS80))
+			return -EPERM;
+
+		freq_segment1_chan_num =
+			e4_frequency_to_channel(info, own->center2_frequency);
+
+		if (freq_segment1_chan_num != oci[2])
+			return -EPERM;
+	}
+
+	return 0;
+}
+
+int oci_from_chandef(const struct band_chandef *own, uint8_t oci[static 3])
+{
+	unsigned int i;
+
+	for (i = 0; i < L_ARRAY_SIZE(e4_operating_classes); i++) {
+		const struct operating_class_info *info =
+						&e4_operating_classes[i];
+
+		if (e4_class_matches(info, own) < 0)
+			continue;
+
+		oci[0] = info->operating_class;
+		oci[1] = e4_frequency_to_channel(info, own->frequency);
+
+		if (own->center2_frequency)
+			oci[2] = e4_frequency_to_channel(info,
+							own->center2_frequency);
+		else
+			oci[2] = 0;
+
+		return 0;
+	}
+
+	return -ENOENT;
+}

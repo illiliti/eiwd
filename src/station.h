@@ -45,14 +45,16 @@ enum station_state {
 	STATION_STATE_ROAMING
 };
 
-enum station_anqp_state {
-	STATION_ANQP_STARTED,
-	STATION_ANQP_FINISHED,
+enum station_event {
+	STATION_EVENT_ANQP_STARTED,
+	STATION_EVENT_ANQP_FINISHED,
+	STATION_EVENT_OWE_HIDDEN_STARTED,
+	STATION_EVENT_OWE_HIDDEN_FINISHED,
 };
 
 typedef void (*station_foreach_func_t)(struct station *, void *data);
 typedef void (*station_state_watch_func_t)(enum station_state, void *userdata);
-typedef void (*station_anqp_watch_func_t)(enum station_anqp_state,
+typedef void (*station_event_watch_func_t)(enum station_event,
 						struct network *network,
 						void *user_data);
 typedef void (*station_destroy_func_t)(void *userdata);
@@ -77,10 +79,10 @@ uint32_t station_add_state_watch(struct station *station,
 					station_destroy_func_t destroy);
 bool station_remove_state_watch(struct station *station, uint32_t id);
 
-uint32_t station_add_anqp_watch(station_anqp_watch_func_t func,
+uint32_t station_add_event_watch(station_event_watch_func_t func,
 				void *user_data,
 				station_destroy_func_t destroy);
-void station_remove_anqp_watch(uint32_t id);
+void station_remove_event_watch(uint32_t id);
 
 bool station_set_autoconnect(struct station *station, bool autoconnect);
 

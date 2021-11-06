@@ -64,6 +64,7 @@
 #include "src/auth-proto.h"
 #include "src/frame-xchg.h"
 #include "src/diagnostic.h"
+#include "src/band.h"
 
 #ifndef ENOTSUPP
 #define ENOTSUPP 524
@@ -86,6 +87,7 @@ struct netdev_handshake_state {
 	uint32_t group_management_new_key_cmd_id;
 	uint32_t set_station_cmd_id;
 	uint32_t set_pmk_cmd_id;
+	uint32_t pairwise_set_key_tx_cmd_id;
 	bool ptk_installed;
 	bool gtk_installed;
 	bool igtk_installed;
@@ -99,6 +101,12 @@ struct netdev_ft_over_ds_info {
 	struct netdev *netdev;
 
 	bool parsed : 1;
+};
+
+struct netdev_ext_key_info {
+	uint16_t proto;
+	bool noencrypt;
+	struct eapol_frame frame[0];
 };
 
 struct netdev {
@@ -129,10 +137,12 @@ struct netdev {
 	uint32_t rekey_offload_cmd_id;
 	uint32_t qos_map_cmd_id;
 	uint32_t mac_change_cmd_id;
+	uint32_t get_oci_cmd_id;
 	enum netdev_result result;
 	uint16_t last_code; /* reason or status, depending on result */
 	struct l_timeout *neighbor_report_timeout;
 	struct l_timeout *sa_query_timeout;
+	struct l_timeout *sa_query_delay;
 	struct l_timeout *group_handshake_timeout;
 	uint16_t sa_query_id;
 	uint8_t prev_snonce[32];
@@ -168,6 +178,8 @@ struct netdev {
 
 	struct l_queue *ft_ds_list;
 
+	struct netdev_ext_key_info *ext_key_info;
+
 	bool connected : 1;
 	bool associated : 1;
 	bool operational : 1;
@@ -201,7 +213,6 @@ static struct l_netlink *rtnl = NULL;
 static struct l_genl_family *nl80211;
 static struct l_queue *netdev_list;
 static struct watchlist netdev_watches;
-static bool pae_over_nl80211;
 static bool mac_per_ssid;
 
 static unsigned int iov_ie_append(struct iovec *iov,
@@ -334,6 +345,11 @@ static void netdev_handshake_state_cancel_all(
 	if (nhs->set_pmk_cmd_id) {
 		l_genl_family_cancel(nl80211, nhs->set_pmk_cmd_id);
 		nhs->set_pmk_cmd_id = 0;
+	}
+
+	if (nhs->pairwise_set_key_tx_cmd_id) {
+		l_genl_family_cancel(nl80211, nhs->pairwise_set_key_tx_cmd_id);
+		nhs->pairwise_set_key_tx_cmd_id = 0;
 	}
 }
 
@@ -765,6 +781,11 @@ static void netdev_connect_free(struct netdev *netdev)
 		netdev->handshake = NULL;
 	}
 
+	if (netdev->ext_key_info) {
+		l_free(netdev->ext_key_info);
+		netdev->ext_key_info = NULL;
+	}
+
 	if (netdev->neighbor_report_cb) {
 		netdev->neighbor_report_cb(netdev, -ENOTCONN, NULL, 0,
 						netdev->user_data);
@@ -775,6 +796,11 @@ static void netdev_connect_free(struct netdev *netdev)
 	if (netdev->sa_query_timeout) {
 		l_timeout_remove(netdev->sa_query_timeout);
 		netdev->sa_query_timeout = NULL;
+	}
+
+	if (netdev->sa_query_delay) {
+		l_timeout_remove(netdev->sa_query_delay);
+		netdev->sa_query_delay = NULL;
 	}
 
 	if (netdev->group_handshake_timeout) {
@@ -921,6 +947,11 @@ static void netdev_free(void *data)
 	if (netdev->get_station_cmd_id) {
 		l_genl_family_cancel(nl80211, netdev->get_station_cmd_id);
 		netdev->get_station_cmd_id = 0;
+	}
+
+	if (netdev->get_oci_cmd_id) {
+		l_genl_family_cancel(nl80211, netdev->get_oci_cmd_id);
+		netdev->get_oci_cmd_id = 0;
 	}
 
 	if (netdev->fw_roam_bss)
@@ -1687,6 +1718,24 @@ static void netdev_set_igtk(struct handshake_state *hs, uint16_t key_index,
 	netdev_setting_keys_failed(nhs, -EIO);
 }
 
+static struct l_genl_msg *netdev_build_cmd_set_key_tx(struct netdev *netdev)
+{
+	uint8_t key_mode = NL80211_KEY_SET_TX;
+	struct l_genl_msg *msg = l_genl_msg_new_sized(NL80211_CMD_SET_KEY, 512);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN,
+					netdev->handshake->aa);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
+
+	l_genl_msg_enter_nested(msg, NL80211_ATTR_KEY);
+	l_genl_msg_append_attr(msg, NL80211_KEY_IDX, 1,
+				&netdev->handshake->active_tk_index);
+	l_genl_msg_append_attr(msg, NL80211_KEY_MODE, 1, &key_mode);
+	l_genl_msg_leave_nested(msg);
+
+	return msg;
+}
+
 static void netdev_new_pairwise_key_cb(struct l_genl_msg *msg, void *data)
 {
 	struct netdev_handshake_state *nhs = data;
@@ -1724,14 +1773,171 @@ error:
 	netdev_setting_keys_failed(nhs, err);
 }
 
+static struct l_genl_msg *netdev_build_control_port_frame(struct netdev *netdev,
+							const uint8_t *to,
+							uint16_t proto,
+							bool unencrypted,
+							const void *body,
+							size_t body_len)
+{
+	struct l_genl_msg *msg;
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_CONTROL_PORT_FRAME,
+							128 + body_len);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_FRAME, body_len, body);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_CONTROL_PORT_ETHERTYPE, 2,
+				&proto);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, to);
+
+	if (unencrypted)
+		l_genl_msg_append_attr(msg,
+				NL80211_ATTR_CONTROL_PORT_NO_ENCRYPT, 0, NULL);
+
+	return msg;
+}
+
+static void netdev_control_port_frame_cb(struct l_genl_msg *msg,
+							void *user_data)
+{
+	int err = l_genl_msg_get_error(msg);
+	const char *ext_error;
+
+	if (err >= 0)
+		return;
+
+	ext_error = l_genl_msg_get_extended_error(msg);
+	l_error("CMD_CONTROL_PORT failed: %s",
+			ext_error ? ext_error : strerror(-err));
+}
+
+static int netdev_control_port_write_pae(struct netdev *netdev,
+						const uint8_t *dest,
+						uint16_t proto,
+						const struct eapol_frame *ef,
+						bool noencrypt)
+{
+	int fd = l_io_get_fd(netdev->pae_io);
+	struct sockaddr_ll sll;
+	size_t frame_size = sizeof(struct eapol_header) +
+					L_BE16_TO_CPU(ef->header.packet_len);
+	ssize_t r;
+
+	memset(&sll, 0, sizeof(sll));
+	sll.sll_family = AF_PACKET;
+	sll.sll_ifindex = netdev->index;
+	sll.sll_protocol = htons(proto);
+	sll.sll_halen = ETH_ALEN;
+	memcpy(sll.sll_addr, dest, ETH_ALEN);
+
+	r = sendto(fd, ef, frame_size, 0,
+			(struct sockaddr *) &sll, sizeof(sll));
+	if (r < 0)
+		l_error("EAPoL write socket: %s", strerror(errno));
+
+	return r;
+}
+
+static int netdev_control_port_frame(uint32_t ifindex,
+					const uint8_t *dest, uint16_t proto,
+					const struct eapol_frame *ef,
+					bool noencrypt,
+					void *user_data)
+{
+	struct l_genl_msg *msg;
+	struct netdev *netdev;
+	size_t frame_size;
+
+	netdev = netdev_find(ifindex);
+	if (!netdev)
+		return -ENOENT;
+
+	frame_size = sizeof(struct eapol_header) +
+			L_BE16_TO_CPU(ef->header.packet_len);
+
+	if (!netdev->pae_over_nl80211)
+		return netdev_control_port_write_pae(netdev, dest, proto,
+							ef, noencrypt);
+
+	msg = netdev_build_control_port_frame(netdev, dest, proto, noencrypt,
+						ef, frame_size);
+	if (!msg)
+		return -ENOMEM;
+
+	if (!l_genl_family_send(nl80211, msg, netdev_control_port_frame_cb,
+				netdev, NULL)) {
+		l_genl_msg_unref(msg);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int netdev_set_key_tx(struct netdev *netdev)
+{
+	struct netdev_handshake_state *nhs = l_container_of(netdev->handshake,
+					struct netdev_handshake_state, super);
+	struct l_genl_msg *msg = netdev_build_cmd_set_key_tx(netdev);
+
+	nhs->pairwise_set_key_tx_cmd_id = l_genl_family_send(nl80211, msg,
+						netdev_new_pairwise_key_cb,
+						nhs, NULL);
+	if (nhs->pairwise_set_key_tx_cmd_id > 0)
+		return 0;
+
+	l_genl_msg_unref(msg);
+
+	return -EIO;
+}
+
+static void netdev_new_rx_pairwise_key_cb(struct l_genl_msg *msg, void *data)
+{
+	struct netdev_handshake_state *nhs = data;
+	struct netdev *netdev = nhs->netdev;
+	struct netdev_ext_key_info *info = netdev->ext_key_info;
+	int err = l_genl_msg_get_error(msg);
+
+	nhs->pairwise_new_key_cmd_id = 0;
+
+	if (err < 0) {
+		const char *ext_error = l_genl_msg_get_extended_error(msg);
+
+		l_error("New Key for RX Pairwise Key failed for ifindex: %d:%s",
+				netdev->index,
+				ext_error ? ext_error : strerror(-err));
+		goto error;
+	}
+
+	if (!info)
+		return;
+
+	err = netdev_control_port_write_pae(netdev, nhs->super.aa, info->proto,
+						info->frame, info->noencrypt);
+	l_free(netdev->ext_key_info);
+	netdev->ext_key_info = NULL;
+
+	if (err < 0)
+		goto error;
+
+	err = netdev_set_key_tx(netdev);
+	if (err < 0)
+		goto error;
+
+	return;
+
+error:
+	netdev_setting_keys_failed(nhs, err);
+}
+
 static struct l_genl_msg *netdev_build_cmd_new_key_pairwise(
 							struct netdev *netdev,
 							uint32_t cipher,
 							const uint8_t *aa,
 							const uint8_t *tk,
-							size_t tk_len)
+							size_t tk_len,
+							uint8_t key_id)
 {
-	uint8_t key_id = 0;
 	struct l_genl_msg *msg;
 
 	msg = l_genl_msg_new_sized(NL80211_CMD_NEW_KEY, 512);
@@ -1741,6 +1947,36 @@ static struct l_genl_msg *netdev_build_cmd_new_key_pairwise(
 	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, aa);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_KEY_IDX, 1, &key_id);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
+
+	return msg;
+}
+
+static struct l_genl_msg *netdev_build_cmd_new_rx_key_pairwise(
+							struct netdev *netdev,
+							uint32_t cipher,
+							const uint8_t *aa,
+							const uint8_t *tk,
+							size_t tk_len,
+							uint8_t key_id)
+{
+	uint8_t key_mode = NL80211_KEY_NO_TX;
+	uint32_t key_type = NL80211_KEYTYPE_PAIRWISE;
+	struct l_genl_msg *msg;
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_NEW_KEY, 512);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, aa);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
+
+	l_genl_msg_enter_nested(msg, NL80211_ATTR_KEY);
+
+	l_genl_msg_append_attr(msg, NL80211_KEY_DATA, tk_len, tk);
+	l_genl_msg_append_attr(msg, NL80211_KEY_CIPHER, 4, &cipher);
+	l_genl_msg_append_attr(msg, NL80211_KEY_IDX, 1, &key_id);
+	l_genl_msg_append_attr(msg, NL80211_KEY_MODE, 1, &key_mode);
+	l_genl_msg_append_attr(msg, NL80211_KEY_TYPE, 4, &key_type);
+
+	l_genl_msg_leave_nested(msg);
 
 	return msg;
 }
@@ -1769,7 +2005,7 @@ static void netdev_group_timeout_cb(struct l_timeout *timeout, void *user_data)
 	netdev_connect_ok(nhs->netdev);
 }
 
-static void netdev_set_tk(struct handshake_state *hs,
+static void netdev_set_tk(struct handshake_state *hs, uint8_t key_index,
 				const uint8_t *tk, uint32_t cipher)
 {
 	struct netdev_handshake_state *nhs =
@@ -1817,7 +2053,8 @@ static void netdev_set_tk(struct handshake_state *hs,
 		goto invalid_key;
 
 	msg = netdev_build_cmd_new_key_pairwise(netdev, cipher, addr, tk_buf,
-						crypto_cipher_key_len(cipher));
+						crypto_cipher_key_len(cipher),
+						key_index);
 	nhs->pairwise_new_key_cmd_id =
 		l_genl_family_send(nl80211, msg, netdev_new_pairwise_key_cb,
 						nhs, NULL);
@@ -1827,6 +2064,74 @@ static void netdev_set_tk(struct handshake_state *hs,
 	err = -EIO;
 	l_genl_msg_unref(msg);
 invalid_key:
+	netdev_setting_keys_failed(nhs, err);
+}
+
+static void netdev_set_ext_tk(struct handshake_state *hs, uint8_t key_idx,
+				const uint8_t *tk, uint32_t cipher,
+				const struct eapol_frame *step4, uint16_t proto,
+				bool noencrypt)
+{
+	struct netdev_handshake_state *nhs =
+		l_container_of(hs, struct netdev_handshake_state, super);
+	uint8_t tk_buf[32];
+	struct netdev *netdev = nhs->netdev;
+	struct l_genl_msg *msg;
+	const uint8_t *addr = netdev_choose_key_address(nhs);
+	int err;
+	size_t frame_size = sizeof(struct eapol_header) +
+				L_BE16_TO_CPU(step4->header.packet_len);
+
+	err = -ENOENT;
+	if (!netdev_copy_tk(tk_buf, tk, cipher, false))
+		goto error;
+
+	msg = netdev_build_cmd_new_rx_key_pairwise(netdev, cipher, addr, tk_buf,
+						crypto_cipher_key_len(cipher),
+						hs->active_tk_index);
+	nhs->pairwise_new_key_cmd_id =
+		l_genl_family_send(nl80211, msg, netdev_new_rx_pairwise_key_cb,
+						nhs, NULL);
+
+	if (!nhs->pairwise_new_key_cmd_id)
+		goto io_error;
+
+	/*
+	 * Without control port we cannot guarantee the order that messages go
+	 * out and must wait for NEW_KEY to call back before sending message 4
+	 */
+	if (!netdev->pae_over_nl80211) {
+		netdev->ext_key_info = l_malloc(
+					sizeof(struct netdev_ext_key_info) +
+					frame_size);
+		memcpy(netdev->ext_key_info->frame, step4, frame_size);
+		netdev->ext_key_info->proto = proto;
+		netdev->ext_key_info->noencrypt = noencrypt;
+		return;
+	}
+
+	/*
+	 * Otherwise, order of messages will be guaranteed. Therefore we can
+	 * send send message 4, and set the TK to TX (below) without waiting for
+	 * any callbacks
+	 */
+	err = netdev_control_port_frame(netdev->index, netdev->handshake->aa,
+					proto, step4, noencrypt, NULL);
+	if (err < 0)
+		goto error;
+
+	/* Then toggle to RX + TX */
+	err = netdev_set_key_tx(netdev);
+	if (err < 0)
+		goto error;
+
+	return;
+
+io_error:
+	err = -EIO;
+	l_genl_msg_unref(msg);
+
+error:
 	netdev_setting_keys_failed(nhs, err);
 }
 
@@ -2036,6 +2341,72 @@ static void netdev_send_qos_map_set(struct netdev *netdev,
 	netdev->qos_map_cmd_id = l_genl_family_send(nl80211, msg,
 						netdev_qos_map_cb,
 						netdev, NULL);
+}
+
+static void netdev_get_oci_cb(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev = user_data;
+	int err = l_genl_msg_get_error(msg);
+	_auto_(l_free) struct band_chandef *chandef =
+						l_new(struct band_chandef, 1);
+
+	netdev->get_oci_cmd_id = 0;
+
+	if (err < 0) {
+		const char *ext_error = l_genl_msg_get_extended_error(msg);
+
+		l_error("Could not get OCI info: %s",
+				ext_error ? ext_error : strerror(-err));
+		goto done;
+	}
+
+	if (nl80211_parse_chandef(msg, chandef) < 0) {
+		l_debug("Couldn't parse operating channel info.");
+		goto done;
+	}
+
+	l_debug("Obtained OCI: freq: %u, width: %u, center1: %u, center2: %u",
+			chandef->frequency, chandef->channel_width,
+			chandef->center1_frequency, chandef->center2_frequency);
+
+	handshake_state_set_chandef(netdev->handshake, l_steal_ptr(chandef));
+
+done:
+	if (netdev->ap) {
+		/*
+		 * Cant do much here. IWD assumes every kernel/driver supports
+		 * this. There is no way of detecting support either.
+		 */
+		if (L_WARN_ON(err < 0))
+			netdev_connect_failed(netdev,
+					NETDEV_RESULT_AUTHENTICATION_FAILED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
+		else
+			auth_proto_rx_oci(netdev->ap);
+
+		return;
+	}
+
+	L_WARN_ON(!eapol_start(netdev->sm));
+}
+
+static int netdev_get_oci(void *user_data)
+{
+	struct netdev *netdev = user_data;
+	struct l_genl_msg *msg =
+			l_genl_msg_new_sized(NL80211_CMD_GET_INTERFACE, 64);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
+
+	netdev->get_oci_cmd_id = l_genl_family_send(nl80211, msg,
+						netdev_get_oci_cb, netdev,
+						NULL);
+	if (!netdev->get_oci_cmd_id) {
+		l_genl_msg_unref(msg);
+		return -EIO;
+	}
+
+	return 0;
 }
 
 static void parse_request_ies(struct netdev *netdev, const uint8_t *ies,
@@ -2492,10 +2863,7 @@ process_resp_ies:
 			netdev->owe_sm = NULL;
 		}
 
-		/* FILS handles its own FT key derivation */
-		if (fte && !(netdev->handshake->akm_suite &
-				(IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |
-				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))) {
+		if (fte) {
 			uint32_t kck_len =
 				handshake_state_get_kck_len(netdev->handshake);
 			/*
@@ -2523,12 +2891,11 @@ process_resp_ies:
 	}
 
 	if (netdev->sm) {
-		/*
-		 * Start processing EAPoL frames now that the state machine
-		 * has all the input data even in FT mode.
-		 */
-		if (L_WARN_ON(!eapol_start(netdev->sm)))
-			goto deauth;
+		if (!netdev->handshake->chandef) {
+			if (netdev_get_oci(netdev) < 0)
+				goto deauth;
+		} else if (!eapol_start(netdev->sm))
+				goto deauth;
 
 		return;
 	}
@@ -2549,6 +2916,8 @@ error:
 	return;
 
 deauth:
+	netdev->result = NETDEV_RESULT_ASSOCIATION_FAILED;
+	netdev->last_code = MMPDU_STATUS_CODE_UNSPECIFIED;
 	msg = netdev_build_cmd_deauthenticate(netdev,
 						MMPDU_REASON_CODE_UNSPECIFIED);
 	netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
@@ -3617,6 +3986,7 @@ static void netdev_connect_common(struct netdev *netdev,
 	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
 		netdev->ap = fils_sm_new(hs, netdev_fils_tx_authenticate,
 						netdev_fils_tx_associate,
+						netdev_get_oci,
 						netdev);
 		break;
 	default:
@@ -4041,9 +4411,12 @@ static void prepare_ft(struct netdev *netdev, const struct scan_bss *target_bss)
 							target_bss->rsne);
 	memcpy(netdev->handshake->mde + 2, target_bss->mde, 3);
 
+	netdev->handshake->active_tk_index = 0;
 	netdev->associated = false;
 	netdev->operational = false;
 	netdev->in_ft = true;
+
+	handshake_state_set_chandef(netdev->handshake, NULL);
 
 	/*
 	 * Cancel commands that could be running because of EAPoL activity
@@ -4141,9 +4514,8 @@ static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
 		goto ft_error;
 	}
 
-	ret = ft_over_ds_parse_action_ies(&info->super, netdev->handshake,
-						ies, ies_len);
-	if (ret < 0)
+	if (!ft_over_ds_parse_action_ies(&info->super, netdev->handshake,
+						ies, ies_len))
 		goto ft_error;
 
 	info->parsed = true;
@@ -4220,7 +4592,8 @@ int netdev_fast_transition(struct netdev *netdev,
 
 	netdev->ap = ft_over_air_sm_new(netdev->handshake,
 					netdev_ft_tx_authenticate,
-					netdev_ft_tx_associate, netdev);
+					netdev_ft_tx_associate,
+					netdev_get_oci, netdev);
 	memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
 
 	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
@@ -4315,6 +4688,11 @@ int netdev_fast_transition_over_ds_action(struct netdev *netdev,
 	memcpy(info->super.spa, hs->spa, ETH_ALEN);
 	memcpy(info->super.aa, target_bss->addr, ETH_ALEN);
 	memcpy(info->super.mde, target_bss->mde, sizeof(info->super.mde));
+
+	if (target_bss->rsne)
+		info->super.authenticator_ie = l_memdup(target_bss->rsne,
+						target_bss->rsne[1] + 2);
+
 	l_getrandom(info->super.snonce, 32);
 	info->super.free = netdev_ft_ds_info_free;
 
@@ -4326,7 +4704,8 @@ int netdev_fast_transition_over_ds_action(struct netdev *netdev,
 	iovs[0].iov_base = ft_req;
 	iovs[0].iov_len = sizeof(ft_req);
 
-	if (!ft_build_authenticate_ies(hs, info->super.snonce, buf, &len))
+	if (!ft_build_authenticate_ies(hs, false, info->super.snonce,
+						buf, &len))
 		goto failed;
 
 	iovs[1].iov_base = buf;
@@ -4490,97 +4869,13 @@ static void netdev_sa_query_resp_cb(struct l_genl_msg *msg, void *user_data)
 			ext_error ? ext_error : strerror(-err));
 }
 
-static void netdev_sa_query_req_frame_event(const struct mmpdu_header *hdr,
-					const void *body, size_t body_len,
-					int rssi, void *user_data)
+static int netdev_build_oci(struct netdev *netdev, uint8_t *out)
 {
-	uint8_t sa_resp[4];
-	uint16_t transaction;
-	struct netdev *netdev = user_data;
+	out[0] = IE_TYPE_EXTENSION;
+	out[1] = 4;
+	out[2] = IE_TYPE_OCI & 0xff;
 
-	if (body_len < 4) {
-		l_debug("SA Query request too short");
-		return;
-	}
-
-	if (!netdev->connected)
-		return;
-
-	/* only care about SA Queries from our connected AP */
-	if (memcmp(hdr->address_2, netdev->handshake->aa, 6))
-		return;
-
-	transaction = l_get_u16(body + 2);
-
-	sa_resp[0] = 0x08;	/* SA Query */
-	sa_resp[1] = 0x01;	/* Response */
-	memcpy(sa_resp + 2, &transaction, 2);
-
-	l_info("received SA Query request from "MAC", transaction=%u",
-			MAC_STR(hdr->address_2), transaction);
-
-	if (!netdev_send_action_frame(netdev, netdev->handshake->aa,
-			sa_resp, sizeof(sa_resp),
-			netdev->frequency,
-			netdev_sa_query_resp_cb, netdev)) {
-		l_error("error sending SA Query response");
-		return;
-	}
-}
-
-static void netdev_sa_query_resp_frame_event(const struct mmpdu_header *hdr,
-					const void *body, size_t body_len,
-					int rssi, void *user_data)
-{
-	struct netdev *netdev = user_data;
-
-	if (body_len < 4) {
-		l_debug("SA Query frame too short");
-		return;
-	}
-
-	l_debug("SA Query src="MAC" dest="MAC" bssid="MAC" transaction=%u",
-			MAC_STR(hdr->address_2), MAC_STR(hdr->address_1),
-			MAC_STR(hdr->address_3), l_get_u16(body + 2));
-
-	if (!netdev->sa_query_timeout) {
-		l_debug("no SA Query request sent");
-		return;
-	}
-
-	/* check if this is from our connected BSS */
-	if (memcmp(hdr->address_2, netdev->handshake->aa, 6)) {
-		l_debug("received SA Query from non-connected AP");
-		return;
-	}
-
-	if (memcmp(body + 2, &netdev->sa_query_id, 2)) {
-		l_debug("SA Query transaction ID's did not match");
-		return;
-	}
-
-	l_info("SA Query response from connected BSS received, "
-			"keeping the connection active");
-
-	l_timeout_remove(netdev->sa_query_timeout);
-	netdev->sa_query_timeout = NULL;
-}
-
-static void netdev_sa_query_req_cb(struct l_genl_msg *msg, void *user_data)
-{
-	struct netdev *netdev = user_data;
-	int err = l_genl_msg_get_error(msg);
-	const char *ext_error;
-
-	if (err >= 0)
-		return;
-
-	ext_error = l_genl_msg_get_extended_error(msg);
-	l_debug("error sending SA Query request: %s",
-			ext_error ? ext_error : strerror(-err));
-
-	l_timeout_remove(netdev->sa_query_timeout);
-	netdev->sa_query_timeout = NULL;
+	return oci_from_chandef(netdev->handshake->chandef, out + 3);
 }
 
 static void netdev_sa_query_timeout(struct l_timeout *timeout,
@@ -4600,6 +4895,217 @@ static void netdev_sa_query_timeout(struct l_timeout *timeout,
 			netdev_disconnect_cb, netdev, NULL);
 }
 
+static void netdev_sa_query_req_cb(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev = user_data;
+	int err = l_genl_msg_get_error(msg);
+	const char *ext_error;
+
+	if (err >= 0)
+		return;
+
+	ext_error = l_genl_msg_get_extended_error(msg);
+	l_debug("error sending SA Query request: %s",
+			ext_error ? ext_error : strerror(-err));
+
+	l_timeout_remove(netdev->sa_query_timeout);
+	netdev->sa_query_timeout = NULL;
+}
+
+static bool netdev_send_sa_query_request(struct netdev *netdev)
+{
+	uint8_t req[10];
+	uint8_t *ptr = req;
+
+	ptr[0] = 0x08; /* Category: SA Query */
+	ptr[1] = 0x00; /* SA Query Action: Request */
+
+	/* Transaction ID */
+	l_getrandom(ptr + 2, 2);
+
+	ptr += 4;
+
+	if (netdev->handshake->supplicant_ocvc &&
+					netdev->handshake->authenticator_ocvc) {
+		if (netdev_build_oci(netdev, ptr) < 0) {
+			l_debug("Could not build OCI");
+			return false;
+		}
+
+		ptr += 6;
+	}
+
+	if (!netdev_send_action_frame(netdev, netdev->handshake->aa, req,
+			ptr - req, netdev->frequency,
+			netdev_sa_query_req_cb, netdev)) {
+		l_error("error sending SA Query action frame");
+		return false;
+	}
+
+	netdev->sa_query_id = l_get_u16(req + 2);
+	netdev->sa_query_timeout = l_timeout_create(3,
+			netdev_sa_query_timeout, netdev, NULL);
+
+	return true;
+}
+
+static void netdev_sa_query_req_frame_event(const struct mmpdu_header *hdr,
+					const void *body, size_t body_len,
+					int rssi, void *user_data)
+{
+	uint8_t sa_resp[10];
+	uint8_t *ptr = sa_resp;
+	uint16_t transaction;
+	const uint8_t *oci;
+	struct netdev *netdev = user_data;
+	bool ocvc = netdev->handshake->supplicant_ocvc &&
+					netdev->handshake->authenticator_ocvc;
+
+	if (body_len < 4) {
+		l_debug("SA Query request too short");
+		return;
+	}
+
+	if (!netdev->connected)
+		return;
+
+	/* only care about SA Queries from our connected AP */
+	if (memcmp(hdr->address_2, netdev->handshake->aa, 6))
+		return;
+
+	transaction = l_get_u16(body + 2);
+
+	body_len -= 4;
+
+	if (ocvc) {
+		/*
+		 * IEEE 802.11 Section 11.13
+		 *
+		 * "A STA that supports the SA Query procedure and receives an
+		 * SA Query Request frame shall respond with an SA Query
+		 * Response frame if none of the following are true...
+		 * - OCI element is not present in the request or
+		 * - Operating channel information indicated does not match the
+		 *   current channel information (see 12.2.9)."
+		 */
+		if (ie_parse_oci(body + 4, body_len, &oci) < 0) {
+			l_debug("Could not parse OCI");
+			return;
+		}
+
+		if (oci_verify(oci, netdev->handshake->chandef) < 0) {
+			l_debug("Could not verify OCI");
+			return;
+		}
+	}
+
+	ptr[0] = 0x08;	/* SA Query */
+	ptr[1] = 0x01;	/* Response */
+	memcpy(ptr + 2, &transaction, 2);
+
+	ptr += 4;
+
+	/*
+	 * IEEE 802.11 Section 11.13
+	 *
+	 * "A STA that responds with an SA Query Response frame to a STA that
+	 * indicated OCVC capability shall include OCI element in the response
+	 * frame if dot11RSNAOperatingChannelValidationActivated is true"
+	 */
+	if (ocvc) {
+		if (netdev_build_oci(netdev, ptr) < 0) {
+			l_debug("Could not build OCI");
+			return;
+		}
+
+		ptr += 6;
+	}
+
+	l_info("received SA Query request from "MAC", transaction=%u",
+			MAC_STR(hdr->address_2), transaction);
+
+	if (!netdev_send_action_frame(netdev, netdev->handshake->aa,
+			sa_resp, ptr - sa_resp,
+			netdev->frequency,
+			netdev_sa_query_resp_cb, netdev)) {
+		l_error("error sending SA Query response");
+		return;
+	}
+}
+
+static void netdev_sa_query_resp_frame_event(const struct mmpdu_header *hdr,
+					const void *body, size_t body_len,
+					int rssi, void *user_data)
+{
+	struct netdev *netdev = user_data;
+	const uint8_t *ptr = body;
+	const uint8_t *oci;
+
+	if (!netdev->connected)
+		return;
+
+	if (body_len < 4) {
+		l_debug("SA Query frame too short");
+		return;
+	}
+
+	ptr += 2;
+
+	l_debug("SA Query src="MAC" dest="MAC" bssid="MAC" transaction=%u",
+			MAC_STR(hdr->address_2), MAC_STR(hdr->address_1),
+			MAC_STR(hdr->address_3), l_get_u16(ptr));
+
+	if (!netdev->sa_query_timeout) {
+		l_debug("no SA Query request sent");
+		return;
+	}
+
+	/* check if this is from our connected BSS */
+	if (memcmp(hdr->address_2, netdev->handshake->aa, 6)) {
+		l_debug("received SA Query from non-connected AP");
+		return;
+	}
+
+	if (memcmp(ptr, &netdev->sa_query_id, 2)) {
+		l_debug("SA Query transaction ID's did not match");
+		return;
+	}
+
+	if (!(netdev->handshake->supplicant_ocvc &&
+				netdev->handshake->authenticator_ocvc))
+		goto keep_alive;
+
+	ptr += 2;
+	body_len -= 4;
+
+	/*
+	 * IEEE 802.11 Section 11.13
+	 *
+	 * "When a non-AP or non-PCP STA receives the SA Query Response frame
+	 * from a STA that indicated OCVC capability, it shall ensure that OCI
+	 * element is present in the response and the channel information in the
+	 * OCI element matches current operating channel parameters
+	 * (see 12.2.9). Otherwise, the receiving STA shall deem the response
+	 * as invalid and discard it"
+	 */
+	if (ie_parse_oci(ptr, body_len, &oci) < 0) {
+		l_debug("Invalid OCI element");
+		return;
+	}
+
+	if (oci_verify(oci, netdev->handshake->chandef) < 0) {
+		l_debug("Could not verify OCI element");
+		return;
+	}
+
+keep_alive:
+	l_info("SA Query response from connected BSS received, "
+			"keeping the connection active");
+
+	l_timeout_remove(netdev->sa_query_timeout);
+	netdev->sa_query_timeout = NULL;
+}
+
 static void netdev_unprot_disconnect_event(struct l_genl_msg *msg,
 		struct netdev *netdev)
 {
@@ -4608,15 +5114,16 @@ static void netdev_unprot_disconnect_event(struct l_genl_msg *msg,
 	uint16_t type;
 	uint16_t len;
 	const void *data;
-	uint8_t action_frame[4];
 	uint8_t reason_code;
 
 	if (!netdev->connected)
 		return;
 
 	/* ignore excessive disassociate requests */
-	if (netdev->sa_query_timeout)
+	if (netdev->sa_query_timeout) {
+		l_debug("SA Query already in progress, ignoring");
 		return;
+	}
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
@@ -4652,23 +5159,7 @@ static void netdev_unprot_disconnect_event(struct l_genl_msg *msg,
 		return;
 	}
 
-	action_frame[0] = 0x08; /* Category: SA Query */
-	action_frame[1] = 0x00; /* SA Query Action: Request */
-
-	/* Transaction ID */
-	l_getrandom(action_frame + 2, 2);
-
-	if (!netdev_send_action_frame(netdev, netdev->handshake->aa,
-			action_frame, sizeof(action_frame),
-			netdev->frequency,
-			netdev_sa_query_req_cb, netdev)) {
-		l_error("error sending SA Query action frame");
-		return;
-	}
-
-	netdev->sa_query_id = l_get_u16(action_frame + 2);
-	netdev->sa_query_timeout = l_timeout_create(3,
-			netdev_sa_query_timeout, netdev, NULL);
+	netdev_send_sa_query_request(netdev);
 }
 
 static void netdev_station_event(struct l_genl_msg *msg,
@@ -4866,42 +5357,54 @@ failed:
 
 }
 
+static void netdev_send_sa_query_delay(struct l_timeout *timeout,
+					void *user_data)
+{
+	struct netdev *netdev = user_data;
+
+	netdev_send_sa_query_request(netdev);
+
+	l_timeout_remove(netdev->sa_query_delay);
+	netdev->sa_query_delay = NULL;
+}
+
 static void netdev_channel_switch_event(struct l_genl_msg *msg,
 					struct netdev *netdev)
 {
-	struct l_genl_attr attr;
-	uint16_t type, len;
-	const void *data;
-	uint32_t *freq = NULL;
+	_auto_(l_free) struct band_chandef *chandef =
+						l_new(struct band_chandef, 1);
 
-	l_debug("");
-
-	if (!l_genl_attr_init(&attr, msg))
+	if (nl80211_parse_chandef(msg, chandef) < 0) {
+		l_debug("Couldn't parse operating channel info.");
 		return;
-
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
-		switch (type) {
-		case NL80211_ATTR_WIPHY_FREQ:
-			if (len != 4)
-				continue;
-
-			freq = (uint32_t *) data;
-			break;
-		}
 	}
 
-	if (!freq)
-		return;
+	netdev->frequency = chandef->frequency;
 
-	l_debug("Channel switch event, frequency: %u", *freq);
+	l_debug("Channel switch event, frequency: %u", netdev->frequency);
 
-	netdev->frequency = *freq;
+	handshake_state_set_chandef(netdev->handshake, l_steal_ptr(chandef));
+
+	/*
+	 * IEEE 802.11-2020 11.9.3.2
+	 * "If the STA chooses to perform the specified switch and
+	 * dot11RSNAOperatingChannelValidationActivated is true and the AP has
+	 * indicated OCVC capability, after switching to the new channel the STA
+	 * shall wait a random delay uniformly-distributed in the range between
+	 * zero and 5000us, and then initiate the SA query procedure"
+	 */
+	if (netdev->handshake->supplicant_ocvc &&
+					netdev->handshake->authenticator_ocvc)
+		netdev->sa_query_delay = l_timeout_create_ms(
+						l_getrandom_uint32() % 5,
+						netdev_send_sa_query_delay,
+						netdev, NULL);
 
 	if (!netdev->event_filter)
 		return;
 
-	netdev->event_filter(netdev, NETDEV_EVENT_CHANNEL_SWITCHED, freq,
-				netdev->user_data);
+	netdev->event_filter(netdev, NETDEV_EVENT_CHANNEL_SWITCHED,
+				&netdev->frequency, netdev->user_data);
 }
 
 static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
@@ -5043,107 +5546,6 @@ static void netdev_control_port_frame_event(struct l_genl_msg *msg,
 						frame, frame_len, unencrypted);
 }
 
-static struct l_genl_msg *netdev_build_control_port_frame(struct netdev *netdev,
-							const uint8_t *to,
-							uint16_t proto,
-							bool unencrypted,
-							const void *body,
-							size_t body_len)
-{
-	struct l_genl_msg *msg;
-
-	msg = l_genl_msg_new_sized(NL80211_CMD_CONTROL_PORT_FRAME,
-							128 + body_len);
-
-	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_FRAME, body_len, body);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_CONTROL_PORT_ETHERTYPE, 2,
-				&proto);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, to);
-
-	if (unencrypted)
-		l_genl_msg_append_attr(msg,
-				NL80211_ATTR_CONTROL_PORT_NO_ENCRYPT, 0, NULL);
-
-	return msg;
-}
-
-static void netdev_control_port_frame_cb(struct l_genl_msg *msg,
-							void *user_data)
-{
-	int err = l_genl_msg_get_error(msg);
-	const char *ext_error;
-
-	if (err >= 0)
-		return;
-
-	ext_error = l_genl_msg_get_extended_error(msg);
-	l_error("CMD_CONTROL_PORT failed: %s",
-			ext_error ? ext_error : strerror(-err));
-}
-
-static int netdev_control_port_write_pae(struct netdev *netdev,
-						const uint8_t *dest,
-						uint16_t proto,
-						const struct eapol_frame *ef,
-						bool noencrypt)
-{
-	int fd = l_io_get_fd(netdev->pae_io);
-	struct sockaddr_ll sll;
-	size_t frame_size = sizeof(struct eapol_header) +
-					L_BE16_TO_CPU(ef->header.packet_len);
-	ssize_t r;
-
-	memset(&sll, 0, sizeof(sll));
-	sll.sll_family = AF_PACKET;
-	sll.sll_ifindex = netdev->index;
-	sll.sll_protocol = htons(proto);
-	sll.sll_halen = ETH_ALEN;
-	memcpy(sll.sll_addr, dest, ETH_ALEN);
-
-	r = sendto(fd, ef, frame_size, 0,
-			(struct sockaddr *) &sll, sizeof(sll));
-	if (r < 0)
-		l_error("EAPoL write socket: %s", strerror(errno));
-
-	return r;
-}
-
-static int netdev_control_port_frame(uint32_t ifindex,
-					const uint8_t *dest, uint16_t proto,
-					const struct eapol_frame *ef,
-					bool noencrypt,
-					void *user_data)
-{
-	struct l_genl_msg *msg;
-	struct netdev *netdev;
-	size_t frame_size;
-
-	netdev = netdev_find(ifindex);
-	if (!netdev)
-		return -ENOENT;
-
-	frame_size = sizeof(struct eapol_header) +
-			L_BE16_TO_CPU(ef->header.packet_len);
-
-	if (!netdev->pae_over_nl80211)
-		return netdev_control_port_write_pae(netdev, dest, proto,
-							ef, noencrypt);
-
-	msg = netdev_build_control_port_frame(netdev, dest, proto, noencrypt,
-						ef, frame_size);
-	if (!msg)
-		return -ENOMEM;
-
-	if (!l_genl_family_send(nl80211, msg, netdev_control_port_frame_cb,
-				netdev, NULL)) {
-		l_genl_msg_unref(msg);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
 static void netdev_unicast_notify(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = NULL;
@@ -5156,7 +5558,7 @@ static void netdev_unicast_notify(struct l_genl_msg *msg, void *user_data)
 	if (!cmd)
 		return;
 
-	l_debug("Unicast notification %u", cmd);
+	l_debug("Unicast notification %s(%u)", nl80211cmd_to_string(cmd), cmd);
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
@@ -6016,9 +6418,7 @@ struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 		return NULL;
 	}
 
-	if (!wiphy_has_ext_feature(wiphy,
-			NL80211_EXT_FEATURE_CONTROL_PORT_OVER_NL80211) ||
-			!pae_over_nl80211) {
+	if (!wiphy_control_port_enabled(wiphy)) {
 		pae_io = pae_open(ifindex);
 		if (!pae_io) {
 			l_error("Unable to open PAE interface");
@@ -6155,10 +6555,6 @@ static int netdev_init(void)
 					&LOW_SIGNAL_THRESHOLD_5GHZ))
 		LOW_SIGNAL_THRESHOLD_5GHZ = -76;
 
-	if (!l_settings_get_bool(settings, "General", "ControlPortOverNL80211",
-					&pae_over_nl80211))
-		pae_over_nl80211 = true;
-
 	rand_addr_str = l_settings_get_value(settings, "General",
 						"AddressRandomization");
 	if (rand_addr_str && !strcmp(rand_addr_str, "network"))
@@ -6170,6 +6566,7 @@ static int netdev_init(void)
 	__handshake_set_install_tk_func(netdev_set_tk);
 	__handshake_set_install_gtk_func(netdev_set_gtk);
 	__handshake_set_install_igtk_func(netdev_set_igtk);
+	__handshake_set_install_ext_tk_func(netdev_set_ext_tk);
 
 	__eapol_set_rekey_offload_func(netdev_set_rekey_offload);
 	__eapol_set_tx_packet_func(netdev_control_port_frame);

@@ -1171,7 +1171,6 @@ static size_t p2p_group_write_wfd_ie(struct p2p_device *dev,
 	return 0;
 }
 
-
 static size_t p2p_group_get_ies_len(enum mpdu_management_subtype type,
 					const struct mmpdu_header *client_frame,
 					size_t client_frame_len,
@@ -1333,8 +1332,7 @@ static void p2p_start_client_netconfig(struct p2p_device *dev)
 
 	settings = dev->conn_netconfig_settings ?: p2p_dhcp_settings;
 
-	if (!netconfig_load_settings(dev->conn_netconfig, settings,
-					dev->conn_addr) ||
+	if (!netconfig_load_settings(dev->conn_netconfig, settings) ||
 			!netconfig_configure(dev->conn_netconfig,
 						p2p_netconfig_event_handler,
 						dev)) {
@@ -1984,7 +1982,8 @@ static void p2p_provision_scan_start(struct p2p_device *dev)
 
 	params.flush = true;
 	params.no_cck_rates = true;
-	params.ssid = dev->go_group_id.ssid;
+	params.ssid = (const uint8_t *)dev->go_group_id.ssid;
+	params.ssid_len = strlen(dev->go_group_id.ssid);
 	params.extra_ie = p2p_build_scan_ies(dev, buf, sizeof(buf),
 						&params.extra_ie_size);
 	L_WARN_ON(!params.extra_ie);
@@ -3787,7 +3786,8 @@ static bool p2p_device_scan_start(struct p2p_device *dev)
 	L_WARN_ON(!params.extra_ie);
 	params.flush = true;
 	/* P2P Wildcard SSID because we don't need legacy networks to reply */
-	params.ssid = "DIRECT-";
+	params.ssid = (const uint8_t *)"DIRECT-";
+	params.ssid_len = strlen("DIRECT-");
 	/*
 	 * Must send probe requests at 6Mb/s, OFDM only.  The no-CCK rates
 	 * flag forces the drivers to do exactly this for 2.4GHz frames.
@@ -4718,6 +4718,18 @@ static bool p2p_peer_get_name(struct l_dbus *dbus,
 	return true;
 }
 
+static bool p2p_peer_get_addr(struct l_dbus *dbus,
+				struct l_dbus_message *message,
+				struct l_dbus_message_builder *builder,
+				void *user_data)
+{
+	struct p2p_peer *peer = user_data;
+	const char *addr = util_address_to_string(peer->device_addr);
+
+	l_dbus_message_builder_append_basic(builder, 's', addr);
+	return true;
+}
+
 static bool p2p_peer_get_device(struct l_dbus *dbus,
 				struct l_dbus_message *message,
 				struct l_dbus_message_builder *builder,
@@ -4835,6 +4847,8 @@ static void p2p_peer_interface_setup(struct l_dbus_interface *interface)
 {
 	l_dbus_interface_property(interface, "Name", 0, "s",
 					p2p_peer_get_name, NULL);
+	l_dbus_interface_property(interface, "Address", 0, "s",
+					p2p_peer_get_addr, NULL);
 	l_dbus_interface_property(interface, "Device", 0, "o",
 					p2p_peer_get_device, NULL);
 	l_dbus_interface_property(interface, "DeviceCategory", 0, "s",

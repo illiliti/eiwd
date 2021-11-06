@@ -53,6 +53,7 @@
 #include "src/wscutil.h"
 #include "src/eap-wsc.h"
 #include "src/ip-pool.h"
+#include "src/netconfig.h"
 #include "src/ap.h"
 #include "src/storage.h"
 #include "src/diagnostic.h"
@@ -132,7 +133,6 @@ struct ap_wsc_pbc_probe_record {
 	uint64_t timestamp;
 };
 
-static bool netconfig_enabled;
 static char **global_addr4_strs;
 static uint32_t netdev_watch;
 static struct l_netlink *rtnl;
@@ -981,20 +981,16 @@ static void ap_handshake_event(struct handshake_state *hs,
 		break;
 	case HANDSHAKE_EVENT_P2P_IP_REQUEST:
 	{
-		L_AUTO_FREE_VAR(char *, lease_addr_str) = NULL;
-		L_AUTO_FREE_VAR(char *, lease_netmask_str) = NULL;
 		char own_addr_str[INET_ADDRSTRLEN];
 
 		if (!ap_sta_get_dhcp4_lease(sta))
 			break;
 
-		lease_addr_str = l_dhcp_lease_get_address(sta->ip_alloc_lease);
-		lease_netmask_str =
-			l_dhcp_lease_get_netmask(sta->ip_alloc_lease);
+		sta->hs->client_ip_addr =
+			l_dhcp_lease_get_address_u32(sta->ip_alloc_lease);
+		sta->hs->subnet_mask =
+			l_dhcp_lease_get_netmask_u32(sta->ip_alloc_lease);
 		l_rtnl_address_get_address(ap->netconfig_addr4, own_addr_str);
-
-		sta->hs->client_ip_addr = IP4_FROM_STR(lease_addr_str);
-		sta->hs->subnet_mask = IP4_FROM_STR(lease_netmask_str);
 		sta->hs->go_ip_addr = IP4_FROM_STR(own_addr_str);
 		break;
 	}
@@ -1465,28 +1461,25 @@ static uint32_t ap_assoc_resp(struct ap_state *ap, struct sta_state *sta,
 		struct ie_fils_ip_addr_response_info ip_resp_info = {};
 
 		if (ip_req_info->ipv4 && sta && ap_sta_get_dhcp4_lease(sta)) {
-			L_AUTO_FREE_VAR(char *, lease_addr_str) =
-				l_dhcp_lease_get_address(sta->ip_alloc_lease);
-			L_AUTO_FREE_VAR(char *, lease_netmask_str) =
-				l_dhcp_lease_get_netmask(sta->ip_alloc_lease);
 			uint32_t lease_lifetime =
 				l_dhcp_lease_get_lifetime(sta->ip_alloc_lease);
-			L_AUTO_FREE_VAR(char *, lease_gateway_str) =
-				l_dhcp_lease_get_gateway(sta->ip_alloc_lease);
+			uint32_t gw =
+				l_dhcp_lease_get_gateway_u32(
+							sta->ip_alloc_lease);
 			char **lease_dns_str_list =
 				l_dhcp_lease_get_dns(sta->ip_alloc_lease);
 
-			ip_resp_info.ipv4_addr = IP4_FROM_STR(lease_addr_str);
+			ip_resp_info.ipv4_addr = l_dhcp_lease_get_address_u32(
+							sta->ip_alloc_lease);
 			ip_resp_info.ipv4_prefix_len =
-				__builtin_popcount(IP4_FROM_STR(
-							lease_netmask_str));
+				l_dhcp_lease_get_prefix_length(
+							sta->ip_alloc_lease);
 
 			if (lease_lifetime != 0xffffffff)
 				ip_resp_info.ipv4_lifetime = lease_lifetime;
 
-			if (lease_gateway_str) {
-				ip_resp_info.ipv4_gateway =
-					IP4_FROM_STR(lease_gateway_str);
+			if (gw) {
+				ip_resp_info.ipv4_gateway = gw;
 				memcpy(ip_resp_info.ipv4_gateway_mac,
 					ap->netconfig_gateway4_mac, 6);
 			}
@@ -1757,6 +1750,11 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 
 		if (rsn_info.akm_suites != IE_RSN_AKM_SUITE_PSK) {
 			err = MMPDU_REASON_CODE_INVALID_AKMP;
+			goto unsupported;
+		}
+
+		if (rsn_info.group_cipher != ap->group_cipher) {
+			err = MMPDU_REASON_CODE_INVALID_GROUP_CIPHER;
 			goto unsupported;
 		}
 	}
@@ -2828,7 +2826,7 @@ static int ap_load_ipv4(struct ap_state *ap, const struct l_settings *config)
 	unsigned int lease_time = 0;
 	struct in_addr ia;
 
-	if (!l_settings_has_group(config, "IPv4") || !netconfig_enabled)
+	if (!l_settings_has_group(config, "IPv4") || !netconfig_enabled())
 		return 0;
 
 	if (l_settings_has_key(config, "IPv4", "Address")) {
@@ -3835,12 +3833,7 @@ static int ap_init(void)
 	 * Enable network configuration and DHCP only if
 	 * [General].EnableNetworkConfiguration is true.
 	 */
-	if (!l_settings_get_bool(settings, "General",
-					"EnableNetworkConfiguration",
-					&netconfig_enabled))
-		netconfig_enabled = false;
-
-	if (netconfig_enabled) {
+	if (netconfig_enabled()) {
 		if (l_settings_get_value(settings, "IPv4", "APAddressPool")) {
 			global_addr4_strs = l_settings_get_string_list(settings,
 								"IPv4",

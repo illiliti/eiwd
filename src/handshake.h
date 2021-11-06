@@ -27,13 +27,13 @@
 
 struct handshake_state;
 enum crypto_cipher;
+struct eapol_frame;
 
 enum handshake_kde {
-	/* 802.11-2016 Table 12-6 in section 12.7.2 */
+	/* 802.11-2020 Table 12-9 in section 12.7.2 */
 	HANDSHAKE_KDE_GTK		= 0x000fac01,
 	HANDSHAKE_KDE_MAC_ADDRESS	= 0x000fac03,
 	HANDSHAKE_KDE_PMKID		= 0x000fac04,
-	HANDSHAKE_KDE_SMK		= 0x000fac05,
 	HANDSHAKE_KDE_NONCE		= 0x000fac06,
 	HANDSHAKE_KDE_LIFETIME		= 0x000fac07,
 	HANDSHAKE_KDE_ERROR		= 0x000fac08,
@@ -41,6 +41,8 @@ enum handshake_kde {
 	HANDSHAKE_KDE_KEY_ID		= 0x000fac0a,
 	HANDSHAKE_KDE_MULTIBAND_GTK	= 0x000fac0b,
 	HANDSHAKE_KDE_MULTIBAND_KEY_ID	= 0x000fac0c,
+	HANDSHAKE_KDE_OCI		= 0x000fac0d,
+	HANDSHAKE_KDE_BIGTK		= 0x000fac0e,
 	/* Wi-Fi P2P Technical Specification v1.7 4.2.8 */
 	HANDSHAKE_KDE_IP_ADDRESS_REQ	= 0x506f9a04,
 	HANDSHAKE_KDE_IP_ADDRESS_ALLOC	= 0x506f9a05,
@@ -66,6 +68,7 @@ typedef void (*handshake_event_func_t)(struct handshake_state *hs,
 
 typedef bool (*handshake_get_nonce_func_t)(uint8_t nonce[]);
 typedef void (*handshake_install_tk_func_t)(struct handshake_state *hs,
+					uint8_t key_index,
 					const uint8_t *tk, uint32_t cipher);
 typedef void (*handshake_install_gtk_func_t)(struct handshake_state *hs,
 					uint16_t key_index,
@@ -77,11 +80,17 @@ typedef void (*handshake_install_igtk_func_t)(struct handshake_state *hs,
 					const uint8_t *igtk, uint8_t igtk_len,
 					const uint8_t *ipn, uint8_t ipn_len,
 					uint32_t cipher);
+typedef void (*handshake_install_ext_tk_func_t)(struct handshake_state *hs,
+					uint8_t key_idx, const uint8_t *tk,
+					uint32_t cipher,
+					const struct eapol_frame *step4,
+					uint16_t proto, bool noencrypt);
 
 void __handshake_set_get_nonce_func(handshake_get_nonce_func_t func);
 void __handshake_set_install_tk_func(handshake_install_tk_func_t func);
 void __handshake_set_install_gtk_func(handshake_install_gtk_func_t func);
 void __handshake_set_install_igtk_func(handshake_install_igtk_func_t func);
+void __handshake_set_install_ext_tk_func(handshake_install_ext_tk_func_t func);
 
 struct handshake_state {
 	uint32_t ifindex;
@@ -125,6 +134,9 @@ struct handshake_state {
 	bool wait_for_gtk : 1;
 	bool no_rekey : 1;
 	bool support_fils : 1;
+	bool authenticator_ocvc : 1;
+	bool supplicant_ocvc : 1;
+	bool ext_key_id_capable : 1;
 	uint8_t ssid[32];
 	size_t ssid_len;
 	char *passphrase;
@@ -135,6 +147,7 @@ struct handshake_state {
 	uint8_t gtk_rsc[6];
 	uint8_t proto_version : 2;
 	unsigned int gtk_index;
+	uint8_t active_tk_index;
 	struct erp_cache_entry *erp_cache;
 	bool support_ip_allocation : 1;
 	uint32_t client_ip_addr;
@@ -142,6 +155,7 @@ struct handshake_state {
 	uint32_t go_ip_addr;
 	uint8_t *fils_ip_req_ie;
 	uint8_t *fils_ip_resp_ie;
+	struct band_chandef *chandef;
 	void *user_data;
 
 	void (*free)(struct handshake_state *s);
@@ -220,6 +234,11 @@ size_t handshake_state_get_kek_len(struct handshake_state *s);
 const uint8_t *handshake_state_get_kek(struct handshake_state *s);
 void handshake_state_install_ptk(struct handshake_state *s);
 
+void handshake_state_install_ext_ptk(struct handshake_state *s,
+				uint8_t key_idx,
+				struct eapol_frame *ek, uint16_t proto,
+				bool noencrypt);
+
 void handshake_state_install_gtk(struct handshake_state *s,
 					uint16_t gtk_key_index,
 					const uint8_t *gtk, size_t gtk_len,
@@ -241,7 +260,12 @@ bool handshake_decode_fte_key(struct handshake_state *s, const uint8_t *wrapped,
 void handshake_state_set_gtk(struct handshake_state *s, const uint8_t *key,
 				unsigned int key_index, const uint8_t *rsc);
 
-bool handshake_util_ap_ie_matches(const uint8_t *msg_ie,
+void handshake_state_set_chandef(struct handshake_state *s,
+					struct band_chandef *chandef);
+int handshake_state_verify_oci(struct handshake_state *s, const uint8_t *oci,
+				size_t oci_len);
+
+bool handshake_util_ap_ie_matches(const struct ie_rsn_info *msg_info,
 					const uint8_t *scan_ie, bool is_wpa);
 
 const uint8_t *handshake_util_find_kde(enum handshake_kde selector,

@@ -37,6 +37,7 @@
 #include "src/missing.h"
 #include "src/erp.h"
 #include "src/auth-proto.h"
+#include "src/band.h"
 
 #define FILS_NONCE_LEN		16
 #define FILS_SESSION_LEN	8
@@ -49,6 +50,7 @@ struct fils_sm {
 
 	fils_tx_authenticate_func_t auth;
 	fils_tx_associate_func_t assoc;
+	fils_get_oci_func_t get_oci;
 
 	uint8_t nonce[FILS_NONCE_LEN];
 	uint8_t anonce[FILS_NONCE_LEN];
@@ -148,12 +150,13 @@ static int fils_derive_key_data(struct fils_sm *fils)
 	uint8_t data[44];
 	uint8_t *ptr = data;
 	size_t hash_len;
-	struct iovec iov[4];
+	struct iovec iov[5];
 	size_t iov_elems = 0;
 	size_t fils_ft_len = 0;
 	bool sha384;
 	size_t ie_len;
 	uint8_t *rsne = NULL;
+	uint8_t oci[6];
 
 	rmsk = erp_get_rmsk(fils->erp, &rmsk_len);
 
@@ -302,6 +305,23 @@ static int fils_derive_key_data(struct fils_sm *fils)
 		iov_elems += 1;
 	}
 
+	/*
+	 * IEEE 802.11 Section 12.11.2.6.2
+	 * "If dot11RSNAOperatingChannelValidationActivated is true and AP
+	 * indicates OCVC capability, the STA shall include OCI element in the
+	 * request"
+	 */
+	if (fils->hs->supplicant_ocvc && fils->hs->chandef) {
+		oci[0] = IE_TYPE_EXTENSION;
+		oci[1] = 4;
+		oci[2] = IE_TYPE_OCI & 0xff;
+		oci_from_chandef(fils->hs->chandef, oci + 3);
+
+		iov[iov_elems].iov_base = oci;
+		iov[iov_elems].iov_len = 6;
+		iov_elems++;
+	}
+
 	memcpy(data, fils->nonce, sizeof(fils->nonce));
 	memcpy(data + sizeof(fils->nonce), fils->anonce, sizeof(fils->anonce));
 
@@ -436,10 +456,18 @@ static int fils_rx_authenticate(struct auth_proto *driver, const uint8_t *frame,
 	if (erp_rx_packet(fils->erp, wrapped, wrapped_len) < 0)
 		goto invalid_ies;
 
-	return fils_derive_key_data(fils);
+	return fils->get_oci(fils->user_data);
+
 
 invalid_ies:
 	return MMPDU_STATUS_CODE_INVALID_ELEMENT;
+}
+
+static int fils_rx_oci(struct auth_proto *driver)
+{
+	struct fils_sm *fils = l_container_of(driver, struct fils_sm, ap);
+
+	return fils_derive_key_data(fils);
 }
 
 static int fils_rx_associate(struct auth_proto *driver, const uint8_t *frame,
@@ -564,6 +592,7 @@ invalid_ies:
 struct auth_proto *fils_sm_new(struct handshake_state *hs,
 				fils_tx_authenticate_func_t auth,
 				fils_tx_associate_func_t assoc,
+				fils_get_oci_func_t get_oci,
 				void *user_data)
 {
 	struct fils_sm *fils;
@@ -572,11 +601,13 @@ struct auth_proto *fils_sm_new(struct handshake_state *hs,
 
 	fils->auth = auth;
 	fils->assoc = assoc;
+	fils->get_oci = get_oci;
 	fils->user_data = user_data;
 	fils->hs = hs;
 
 	fils->ap.start = fils_start;
 	fils->ap.free = fils_free;
+	fils->ap.rx_oci = fils_rx_oci;
 	fils->ap.rx_authenticate = fils_rx_authenticate;
 	fils->ap.rx_associate = fils_rx_associate;
 

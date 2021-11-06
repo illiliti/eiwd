@@ -22,6 +22,7 @@
 
 struct scan_freq_set;
 struct ie_rsn_info;
+struct ie_owe_transition_info;
 struct p2p_probe_resp;
 struct p2p_probe_req;
 struct p2p_beacon;
@@ -62,6 +63,7 @@ struct scan_bss {
 		struct p2p_probe_req *p2p_probe_req_info;
 		struct p2p_beacon *p2p_beacon_info;
 	};
+	struct ie_owe_transition_info *owe_trans;
 	uint8_t mde[3];
 	uint8_t ssid[32];
 	uint8_t ssid_len;
@@ -97,7 +99,8 @@ struct scan_parameters {
 	bool randomize_mac_addr_hint : 1;
 	bool no_cck_rates : 1;
 	bool duration_mandatory : 1;
-	const char *ssid;	/* Used for direct probe request */
+	const uint8_t *ssid;	/* Used for direct probe request */
+	size_t ssid_len;
 	const uint8_t *source_mac;
 };
 
@@ -141,6 +144,9 @@ uint32_t scan_active(uint64_t wdev_id, uint8_t *extra_ie, size_t extra_ie_size,
 			scan_destroy_func_t destroy);
 uint32_t scan_active_full(uint64_t wdev_id,
 			const struct scan_parameters *params,
+			scan_trigger_func_t trigger, scan_notify_func_t notify,
+			void *userdata, scan_destroy_func_t destroy);
+uint32_t scan_owe_hidden(uint64_t wdev_id, struct l_queue *list,
 			scan_trigger_func_t trigger, scan_notify_func_t notify,
 			void *userdata, scan_destroy_func_t destroy);
 bool scan_cancel(uint64_t wdev_id, uint32_t id);

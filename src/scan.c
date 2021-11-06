@@ -49,6 +49,7 @@
 #include "src/util.h"
 #include "src/p2putil.h"
 #include "src/mpdu.h"
+#include "src/band.h"
 #include "src/scan.h"
 
 /* User configurable options */
@@ -542,7 +543,7 @@ static void scan_cmds_add(struct l_queue *cmds, struct scan_context *sc,
 	if (params->ssid) {
 		/* direct probe request scan */
 		l_genl_msg_append_attr(cmd, NL80211_ATTR_SSID,
-					strlen(params->ssid), params->ssid);
+					params->ssid_len, params->ssid);
 		l_genl_msg_leave_nested(cmd);
 
 		l_queue_push_tail(cmds, cmd);
@@ -583,6 +584,27 @@ static const struct wiphy_radio_work_item_ops work_ops = {
 	.destroy = scan_request_free,
 };
 
+static struct scan_request *scan_request_new(struct scan_context *sc,
+						bool passive,
+						scan_trigger_func_t trigger,
+						scan_notify_func_t notify,
+						void *userdata,
+						scan_destroy_func_t destroy)
+{
+	struct scan_request *sr;
+
+	sr = l_new(struct scan_request, 1);
+	sr->sc = sc;
+	sr->trigger = trigger;
+	sr->callback = notify;
+	sr->userdata = userdata;
+	sr->destroy = destroy;
+	sr->passive = passive;
+	sr->cmds = l_queue_new();
+
+	return sr;
+}
+
 static uint32_t scan_common(uint64_t wdev_id, bool passive,
 				const struct scan_parameters *params,
 				scan_trigger_func_t trigger,
@@ -597,14 +619,7 @@ static uint32_t scan_common(uint64_t wdev_id, bool passive,
 	if (!sc)
 		return 0;
 
-	sr = l_new(struct scan_request, 1);
-	sr->sc = sc;
-	sr->trigger = trigger;
-	sr->callback = notify;
-	sr->userdata = userdata;
-	sr->destroy = destroy;
-	sr->passive = passive;
-	sr->cmds = l_queue_new();
+	sr = scan_request_new(sc, passive, trigger, notify, userdata, destroy);
 
 	scan_cmds_add(sr->cmds, sc, passive, params);
 
@@ -654,6 +669,133 @@ uint32_t scan_active_full(uint64_t wdev_id,
 {
 	return scan_common(wdev_id, false, params,
 					trigger, notify, userdata, destroy);
+}
+
+static void scan_add_owe_freq(struct scan_freq_set *freqs,
+				const struct scan_bss *bss)
+{
+	int freq;
+
+	if (bss->owe_trans->oper_class)
+		freq = oci_to_frequency(bss->owe_trans->oper_class,
+					bss->owe_trans->channel);
+	else
+		freq = bss->frequency;
+
+	L_WARN_ON(freq < 0);
+
+	scan_freq_set_add(freqs, freq);
+}
+
+static void add_owe_scan_cmd(struct scan_context *sc, struct scan_request *sr,
+				bool ignore_flush,
+				struct scan_freq_set *freqs,
+				const struct scan_bss *bss)
+{
+	struct l_genl_msg *cmd;
+	struct scan_parameters params = {};
+	struct scan_freq_set *tmp;
+
+	if (!freqs) {
+		tmp = scan_freq_set_new();
+
+		scan_add_owe_freq(tmp, bss);
+
+		params.freqs = tmp;
+	} else
+		params.freqs = freqs;
+
+	params.ssid = bss->owe_trans->ssid;
+	params.ssid_len = bss->owe_trans->ssid_len;
+	params.flush = true;
+
+	cmd = scan_build_cmd(sc, ignore_flush, false, &params);
+
+	l_genl_msg_enter_nested(cmd, NL80211_ATTR_SCAN_SSIDS);
+	l_genl_msg_append_attr(cmd, 0, params.ssid_len, params.ssid);
+	l_genl_msg_leave_nested(cmd);
+
+	l_queue_push_tail(sr->cmds, cmd);
+
+	if (!freqs)
+		scan_freq_set_free(tmp);
+}
+
+uint32_t scan_owe_hidden(uint64_t wdev_id, struct l_queue *list,
+			scan_trigger_func_t trigger, scan_notify_func_t notify,
+			void *userdata, scan_destroy_func_t destroy)
+{
+	struct scan_context *sc;
+	struct scan_request *sr;
+	struct scan_freq_set *freqs;
+	const struct l_queue_entry *entry;
+	const uint8_t *ssid = NULL;
+	size_t ssid_len;
+	bool same_ssid = true;
+	struct scan_bss *bss;
+	bool ignore_flush = false;
+
+	sc = l_queue_find(scan_contexts, scan_context_match, &wdev_id);
+
+	if (!sc)
+		return 0;
+
+	sr = scan_request_new(sc, false, trigger, notify, userdata, destroy);
+
+	freqs = scan_freq_set_new();
+
+	/*
+	 * Start building up a frequency list if all SSIDs are the same. This
+	 * is hopefully the common case and will allow a single scan command.
+	 */
+	for (entry = l_queue_get_entries(list); entry; entry = entry->next) {
+		bss = entry->data;
+
+		scan_add_owe_freq(freqs, bss);
+
+		/* First */
+		if (!ssid) {
+			ssid = bss->owe_trans->ssid;
+			ssid_len = bss->owe_trans->ssid_len;
+			continue;
+		}
+
+		if (ssid_len == bss->owe_trans->ssid_len &&
+				!memcmp(ssid, bss->owe_trans->ssid,
+				bss->owe_trans->ssid_len))
+			continue;
+
+		same_ssid = false;
+		break;
+	}
+
+	if (same_ssid) {
+		bss = l_queue_peek_head(list);
+
+		add_owe_scan_cmd(sc, sr, ignore_flush, freqs, bss);
+
+		scan_freq_set_free(freqs);
+
+		goto done;
+	}
+
+	scan_freq_set_free(freqs);
+
+	/* SSIDs differed, use separate scan commands. */
+	for (entry = l_queue_get_entries(list); entry; entry = entry->next) {
+		bss = entry->data;
+
+		add_owe_scan_cmd(sc, sr, ignore_flush, NULL, bss);
+
+		/* Ignore flush on all subsequent commands */
+		if (!ignore_flush)
+			ignore_flush = true;
+	}
+
+done:
+	l_queue_push_tail(sc->requests, sr);
+
+	return wiphy_radio_work_insert(sc->wiphy, &sr->work, 2, &work_ops);
 }
 
 bool scan_cancel(uint64_t wdev_id, uint32_t id)
@@ -933,6 +1075,22 @@ static void scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
 			return;
 
 		bss->hs20_capable = true;
+		return;
+	}
+
+	if (is_ie_wfa_ie(data, len, IE_WFA_OI_OWE_TRANSITION)) {
+		_auto_(l_free) struct ie_owe_transition_info *owe_trans =
+				l_new(struct ie_owe_transition_info, 1);
+
+		if (ie_parse_owe_transition(data - 2, len + 2, owe_trans) < 0)
+			return;
+
+		if (owe_trans->oper_class &&
+				oci_to_frequency(owe_trans->oper_class,
+						owe_trans->channel) < 0)
+			return;
+
+		bss->owe_trans = l_steal_ptr(owe_trans);
 		return;
 	}
 
@@ -1381,6 +1539,7 @@ void scan_bss_free(struct scan_bss *bss)
 	l_free(bss->osen);
 	l_free(bss->rc_ie);
 	l_free(bss->wfd);
+	l_free(bss->owe_trans);
 
 	switch (bss->source_frame) {
 	case SCAN_BSS_PROBE_RESP:

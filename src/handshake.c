@@ -42,6 +42,7 @@
 #include "src/util.h"
 #include "src/handshake.h"
 #include "src/erp.h"
+#include "src/band.h"
 
 static inline unsigned int n_ecc_groups()
 {
@@ -75,6 +76,7 @@ static handshake_get_nonce_func_t get_nonce = handshake_get_nonce;
 static handshake_install_tk_func_t install_tk = NULL;
 static handshake_install_gtk_func_t install_gtk = NULL;
 static handshake_install_igtk_func_t install_igtk = NULL;
+static handshake_install_ext_tk_func_t install_ext_tk = NULL;
 
 void __handshake_set_get_nonce_func(handshake_get_nonce_func_t func)
 {
@@ -96,6 +98,11 @@ void __handshake_set_install_igtk_func(handshake_install_igtk_func_t func)
 	install_igtk = func;
 }
 
+void __handshake_set_install_ext_tk_func(handshake_install_ext_tk_func_t func)
+{
+	install_ext_tk = func;
+}
+
 void handshake_state_free(struct handshake_state *s)
 {
 	__typeof__(s->free) destroy = s->free;
@@ -111,6 +118,8 @@ void handshake_state_free(struct handshake_state *s)
 
 	if (s->erp_cache)
 		erp_cache_put(s->erp_cache);
+
+	l_free(s->chandef);
 
 	if (s->passphrase) {
 		explicit_bzero(s->passphrase, strlen(s->passphrase));
@@ -170,83 +179,77 @@ void handshake_state_set_8021x_config(struct handshake_state *s,
 	s->settings_8021x = settings;
 }
 
-static bool handshake_state_setup_own_ciphers(struct handshake_state *s,
-						const struct ie_rsn_info *info)
-{
-	if (__builtin_popcount(info->akm_suites) != 1)
-		return false;
-
-	s->akm_suite = info->akm_suites;
-	s->group_cipher = info->group_cipher;
-	s->group_management_cipher = info->group_management_cipher;
-
-	/*
-	 * Don't set MFP for OSEN otherwise EAPoL will attempt to negotiate a
-	 * iGTK which is not allowed for OSEN.
-	 */
-	if (!s->osen_ie)
-		s->mfp = info->mfpc;
-
-	return true;
-}
-
 bool handshake_state_set_authenticator_ie(struct handshake_state *s,
 						const uint8_t *ie)
 {
 	struct ie_rsn_info info;
 
+	if (!ie_parse_rsne_from_data(ie, ie[1] + 2, &info))
+		goto valid_ie;
+
+	if (!ie_parse_wpa_from_data(ie, ie[1] + 2, &info))
+		goto valid_ie;
+
+	if (ie_parse_osen_from_data(ie, ie[1] + 2, &info) < 0)
+		return false;
+
+valid_ie:
 	l_free(s->authenticator_ie);
 	s->authenticator_ie = l_memdup(ie, ie[1] + 2u);
-	s->wpa_ie = is_ie_wpa_ie(ie + 2, ie[1]);
-	s->osen_ie = is_ie_wfa_ie(ie + 2, ie[1], IE_WFA_OI_OSEN);
 
-	if (!s->authenticator)
-		return true;
+	s->authenticator_ocvc = info.ocvc;
 
-	if (s->wpa_ie) {
-		if (ie_parse_wpa_from_data(ie, ie[1] + 2, &info) < 0)
-			return false;
-	} else if (s->osen_ie) {
-		if (ie_parse_osen_from_data(ie, ie[1] + 2, &info) < 0)
-			return false;
-	} else {
-		if (ie_parse_rsne_from_data(ie, ie[1] + 2, &info) < 0)
-			return false;
-	}
-
-	return handshake_state_setup_own_ciphers(s, &info);
+	return true;
 }
 
 bool handshake_state_set_supplicant_ie(struct handshake_state *s,
 						const uint8_t *ie)
 {
 	struct ie_rsn_info info;
+	bool wpa_ie = false;
+	bool osen_ie = false;
 
-	l_free(s->supplicant_ie);
-	s->supplicant_ie = l_memdup(ie, ie[1] + 2u);
-	s->wpa_ie = is_ie_wpa_ie(ie + 2, ie[1]);
-	s->osen_ie = is_ie_wfa_ie(ie + 2, ie[1], IE_WFA_OI_OSEN);
+	if (!ie_parse_rsne_from_data(ie, ie[1] + 2, &info))
+		goto valid_ie;
 
-	if (s->wpa_ie) {
-		if (ie_parse_wpa_from_data(ie, ie[1] + 2, &info) < 0)
-			return false;
-	} else if (s->osen_ie) {
-		if (ie_parse_osen_from_data(ie, ie[1] + 2, &info) < 0)
-			return false;
-	} else {
-		if (ie_parse_rsne_from_data(ie, ie[1] + 2, &info) < 0)
-			return false;
+	if (!ie_parse_wpa_from_data(ie, ie[1] + 2, &info)) {
+		wpa_ie = true;
+		goto valid_ie;
 	}
 
+	if (ie_parse_osen_from_data(ie, ie[1] + 2, &info) < 0)
+		return false;
+
+	osen_ie = true;
+
+valid_ie:
 	if (__builtin_popcount(info.pairwise_ciphers) != 1)
 		return false;
 
+	if (__builtin_popcount(info.akm_suites) != 1)
+		return false;
+
+	l_free(s->supplicant_ie);
+	s->supplicant_ie = l_memdup(ie, ie[1] + 2u);
+
+	s->osen_ie = osen_ie;
+	s->wpa_ie = wpa_ie;
+
 	s->pairwise_cipher = info.pairwise_ciphers;
+	s->group_cipher = info.group_cipher;
+	s->group_management_cipher = info.group_management_cipher;
+	s->akm_suite = info.akm_suites;
+	s->supplicant_ocvc = info.ocvc;
+	s->ext_key_id_capable = info.extended_key_id;
 
-	if (s->authenticator)
-		return true;
+	/*
+	 * Don't set MFP for OSEN otherwise EAPoL will attempt to negotiate a
+	 * iGTK which is not allowed for OSEN.
+	 */
+	if (!s->osen_ie)
+		s->mfp = info.mfpc;
 
-	return handshake_state_setup_own_ciphers(s, &info);
+	return true;
 }
 
 static void replace_ie(uint8_t **old, const uint8_t *new)
@@ -663,9 +666,26 @@ void handshake_state_install_ptk(struct handshake_state *s)
 
 		handshake_event(s, HANDSHAKE_EVENT_SETTING_KEYS);
 
-		install_tk(s, handshake_get_tk(s), cipher);
+		install_tk(s, s->active_tk_index, handshake_get_tk(s), cipher);
 	}
 }
+
+void handshake_state_install_ext_ptk(struct handshake_state *s,
+				uint8_t key_idx,
+				struct eapol_frame *ek, uint16_t proto,
+				bool noencrypt)
+{
+	s->ptk_complete = true;
+
+	if (install_ext_tk) {
+		uint32_t cipher =
+			ie_rsn_cipher_suite_to_cipher(s->pairwise_cipher);
+
+		install_ext_tk(s, key_idx, handshake_get_tk(s), cipher, ek,
+				proto, noencrypt);
+	}
+}
+
 
 void handshake_state_install_gtk(struct handshake_state *s,
 					uint16_t gtk_key_index,
@@ -759,87 +779,69 @@ void handshake_state_set_gtk(struct handshake_state *s, const uint8_t *key,
  * results vs the RSN/WPA IE obtained as part of the 4-way handshake.  If they
  * don't match, the EAPoL packet must be silently discarded.
  */
-bool handshake_util_ap_ie_matches(const uint8_t *msg_ie,
+bool handshake_util_ap_ie_matches(const struct ie_rsn_info *msg_info,
 					const uint8_t *scan_ie, bool is_wpa)
 {
-	struct ie_rsn_info msg_info;
 	struct ie_rsn_info scan_info;
+	int r;
 
-	/*
-	 * First check that the sizes match, if they do, run a bitwise
-	 * comparison.
-	 */
-	if (msg_ie[1] == scan_ie[1] &&
-			!memcmp(msg_ie + 2, scan_ie + 2, msg_ie[1]))
-		return true;
+	if (!is_wpa)
+		r = ie_parse_rsne_from_data(scan_ie,
+						scan_ie[1] + 2, &scan_info);
+	else
+		r = ie_parse_wpa_from_data(scan_ie, scan_ie[1] + 2, &scan_info);
 
-	/*
-	 * Otherwise we have to parse the IEs and compare the individual
-	 * fields
-	 */
-	if (!is_wpa) {
-		if (ie_parse_rsne_from_data(msg_ie, msg_ie[1] + 2,
-						&msg_info) < 0)
-			return false;
-
-		if (ie_parse_rsne_from_data(scan_ie, scan_ie[1] + 2,
-						&scan_info) < 0)
-			return false;
-	} else {
-		if (ie_parse_wpa_from_data(msg_ie, msg_ie[1] + 2,
-						&msg_info) < 0)
-			return false;
-
-		if (ie_parse_wpa_from_data(scan_ie, scan_ie[1] + 2,
-						&scan_info) < 0)
-			return false;
-	}
-
-	if (msg_info.group_cipher != scan_info.group_cipher)
+	if (r < 0)
 		return false;
 
-	if (msg_info.pairwise_ciphers != scan_info.pairwise_ciphers)
+	if (msg_info->group_cipher != scan_info.group_cipher)
 		return false;
 
-	if (msg_info.akm_suites != scan_info.akm_suites)
+	if (msg_info->pairwise_ciphers != scan_info.pairwise_ciphers)
 		return false;
 
-	if (msg_info.preauthentication != scan_info.preauthentication)
+	if (msg_info->akm_suites != scan_info.akm_suites)
 		return false;
 
-	if (msg_info.no_pairwise != scan_info.no_pairwise)
+	if (msg_info->preauthentication != scan_info.preauthentication)
 		return false;
 
-	if (msg_info.ptksa_replay_counter != scan_info.ptksa_replay_counter)
+	if (msg_info->no_pairwise != scan_info.no_pairwise)
 		return false;
 
-	if (msg_info.gtksa_replay_counter != scan_info.gtksa_replay_counter)
+	if (msg_info->ptksa_replay_counter != scan_info.ptksa_replay_counter)
 		return false;
 
-	if (msg_info.mfpr != scan_info.mfpr)
+	if (msg_info->gtksa_replay_counter != scan_info.gtksa_replay_counter)
 		return false;
 
-	if (msg_info.mfpc != scan_info.mfpc)
+	if (msg_info->mfpr != scan_info.mfpr)
 		return false;
 
-	if (msg_info.peerkey_enabled != scan_info.peerkey_enabled)
+	if (msg_info->mfpc != scan_info.mfpc)
 		return false;
 
-	if (msg_info.spp_a_msdu_capable != scan_info.spp_a_msdu_capable)
+	if (msg_info->peerkey_enabled != scan_info.peerkey_enabled)
 		return false;
 
-	if (msg_info.spp_a_msdu_required != scan_info.spp_a_msdu_required)
+	if (msg_info->spp_a_msdu_capable != scan_info.spp_a_msdu_capable)
 		return false;
 
-	if (msg_info.pbac != scan_info.pbac)
+	if (msg_info->spp_a_msdu_required != scan_info.spp_a_msdu_required)
 		return false;
 
-	if (msg_info.extended_key_id != scan_info.extended_key_id)
+	if (msg_info->pbac != scan_info.pbac)
+		return false;
+
+	if (msg_info->extended_key_id != scan_info.extended_key_id)
+		return false;
+
+	if (msg_info->ocvc != scan_info.ocvc)
 		return false;
 
 	/* We don't check the PMKIDs since these might actually be different */
 
-	if (msg_info.group_management_cipher !=
+	if (msg_info->group_management_cipher !=
 			scan_info.group_management_cipher)
 		return false;
 
@@ -1041,4 +1043,55 @@ bool handshake_state_add_ecc_sae_pt(struct handshake_state *s,
 
 	s->ecc_sae_pts[i] = l_ecc_point_clone(pt);
 	return true;
+}
+
+void handshake_state_set_chandef(struct handshake_state *s,
+						struct band_chandef *chandef)
+{
+	if (s->chandef)
+		l_free(s->chandef);
+
+	s->chandef = chandef;
+}
+
+int handshake_state_verify_oci(struct handshake_state *s, const uint8_t *oci,
+				size_t oci_len)
+{
+	int r = -ENOENT;
+	bool ocvc;
+
+	l_debug("oci_len: %zu", oci ? oci_len : 0);
+
+	if (!oci)
+		goto done;
+
+	r = -EBADMSG;
+	if (oci_len != 3)
+		goto done;
+
+	l_debug("operating_class: %hu", oci[0]);
+	l_debug("primary_channel_number: %hu", oci[1]);
+	l_debug("frequency segment 1 channel number: %hu", oci[2]);
+
+	r = -EINVAL;
+
+	if (!s->chandef) {
+		l_debug("Own chandef unavailable");
+		goto done;
+	}
+
+	r = oci_verify(oci, s->chandef);
+	if (r < 0)
+		l_debug("OCI verification failed: %s", strerror(-r));
+
+done:
+	if (!r)
+		return r;
+
+	/* Only enforce validation if we're configured to do so */
+	ocvc = s->authenticator ? s->authenticator_ocvc : s->supplicant_ocvc;
+	if (!ocvc)
+		r = 0;
+
+	return r;
 }

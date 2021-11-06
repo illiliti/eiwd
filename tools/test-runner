@@ -853,7 +853,11 @@ class TestContext(Namespace):
 
 	def discover_radios(self):
 		phys = []
-		iw = pyroute2.iwutil.IW()
+
+		try:
+			iw = pyroute2.iwutil.IW()
+		except:
+			iw = pyroute2.IW()
 
 		attrs = [phy['attrs'] for phy in iw.list_wiphy()]
 
@@ -927,12 +931,32 @@ class TestContext(Namespace):
 		return frequencies
 
 	def start_wpas_interfaces(self):
+
 		if 'WPA_SUPPLICANT' not in self.hw_config:
 			return
 
 		settings = self.hw_config['WPA_SUPPLICANT']
-		wpas_radios = [rad for rad in self.radios if rad.name in settings]
-		self.wpas_interfaces = [rad.create_interface(settings[rad.name], 'wpas') for rad in wpas_radios]
+
+		if self.args.hw:
+			nradios = len(settings.items())
+
+			wpas_radios = self.radios[:nradios]
+			self.wpas_interfaces = []
+
+			#
+			# Physical radios most likely will use a different name
+			# than 'rad#' but the config file is referenced by these
+			# 'rad#' names. Iterate through both the settings and
+			# physical radios to create interfaces associated with
+			# each config file.
+			#
+			for vrad, hwrad in zip(settings.items(), wpas_radios):
+				self.wpas_interfaces.append(hwrad.create_interface(vrad[1], 'wpas'))
+
+		else:
+			wpas_radios = [rad for rad in self.radios if rad.name in settings]
+			self.wpas_interfaces = [rad.create_interface('wpa_supplicant.conf', 'wpas') \
+						for rad in wpas_radios]
 
 	def start_ofono(self):
 		sim_keys = self.hw_config['SETUP'].get('sim_keys', None)
@@ -1416,6 +1440,7 @@ def run_auto_tests(ctx, args):
 				# a set of tests was passed in just start out in the first.
 				#
 				os.chdir(tests[0])
+				os.environ['DBUS_SYSTEM_BUS_ADDRESS'] = ctx.dbus_address
 				os.system('/bin/bash')
 				exit()
 
@@ -1628,6 +1653,7 @@ class Main:
 
 	def start(self):
 		usb_adapters = None
+		pci_adapters = None
 
 		qemu_table = [
 			'qemu-system-x86_64',
@@ -1670,13 +1696,16 @@ class Main:
 		if self.args.hw:
 			hw_conf = ConfigParser()
 			hw_conf.read(self.args.hw)
-			# TODO: Parse PCI adapters
+
 			if hw_conf.has_section('USBAdapters'):
 				# The actual key name of the adapter
 				# doesn't matter since all we need is the
 				# bus/address. This gets named by the kernel
 				# anyways once in the VM.
 				usb_adapters = [v for v in hw_conf['USBAdapters'].values()]
+
+			if hw_conf.has_section('PCIAdapters'):
+				pci_adapters = [v for v in hw_conf['PCIAdapters'].values()]
 
 		#
 		# Additional arguments not provided to test-runner which are
@@ -1777,7 +1806,7 @@ class Main:
 			'-display', 'none', '-m', '%dM' % ram, '-nographic', '-vga',
 			'none', '-no-acpi', '-no-hpet',
 			'-no-reboot', '-fsdev',
-			'local,id=fsdev-root,path=/,readonly,security_model=none,multidevs=remap',
+			'local,id=fsdev-root,path=/,readonly=on,security_model=none,multidevs=remap',
 			'-device',
 			'virtio-9p-pci,fsdev=fsdev-root,mount_tag=/dev/root',
 			'-chardev', 'stdio,id=chardev-serial0,signal=off',
@@ -1807,6 +1836,11 @@ class Main:
 							'-device',
 							'usb-host,hostbus=%s,hostaddr=%s' % \
 							(bus, addr)])
+		if pci_adapters:
+			qemu_cmdline.extend(['-enable-kvm'])
+			for addr in pci_adapters:
+				qemu_cmdline.extend(['-device', 'vfio-pci,host=%s' % addr])
+
 		if self.args.log:
 			#
 			# Creates a virtfs device that can be mounted. This mount

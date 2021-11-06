@@ -37,3 +37,10 @@ _Pragma("GCC diagnostic ignored \"-Wstringop-overflow=\"")
 _Pragma("GCC diagnostic pop")
 }
 #endif
+
+#ifndef HAVE_REALLOCARRAY
+static inline void *reallocarray(void *ptr, size_t nmemb, size_t size)
+{
+	return realloc(ptr, nmemb * size);
+}
+#endif

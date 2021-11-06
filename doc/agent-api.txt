@@ -7,19 +7,23 @@ Object path	/net/connman/iwd
 
 Methods		void RegisterAgent(object path)
 
-			Register new agent for handling user requests.
+			Register new agent for handling user secrets requests.
+			The agent object's methods on the net.connman.iwd.Agent
+			interface will be called when IWD needs to request
+			credentials for a connection to a network in station
+			mode.
 
-			Possible Errors: [service].Error.InvalidArguments
-					 [service].Error.Failed
-					 [service].Error.AlreadyExists
+			Possible Errors: [service].InvalidArguments
+					 [service].Failed
+					 [service].AlreadyExists
 
 		void UnregisterAgent(object path)
 
 			Unregister an existing agent.
 
-			Possible Errors: [service].Error.InvalidArguments
-					 [service].Error.Failed
-					 [service].Error.NotFound
+			Possible Errors: [service].InvalidArguments
+					 [service].Failed
+					 [service].NotFound
 
 
 Agent hierarchy
@@ -80,5 +84,5 @@ Methods		void Release() [noreply]
 
 Examples	Requesting a passphrase for WPA2 network
 
-			RequestPassphrase("/network1")
+			RequestPassphrase("/net/connman/iwd/0/3/54657374_psk")
 			==> "secret123"

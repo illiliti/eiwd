@@ -63,8 +63,7 @@ static uint32_t netdev_watch;
 static uint32_t mfp_setting;
 static uint32_t roam_retry_interval;
 static bool anqp_disabled;
-static bool netconfig_enabled;
-static struct watchlist anqp_watches;
+static struct watchlist event_watches;
 
 struct station {
 	enum station_state state;
@@ -87,6 +86,7 @@ struct station {
 	uint32_t dbus_scan_id;
 	uint32_t quick_scan_id;
 	uint32_t hidden_network_scan_id;
+	struct l_queue *owe_hidden_scan_ids;
 
 	/* Roaming related members */
 	struct timespec roam_min_time;
@@ -114,6 +114,7 @@ struct station {
 	bool ap_directed_roaming : 1;
 	bool scanning : 1;
 	bool autoconnect : 1;
+	bool autoconnect_can_start : 1;
 };
 
 struct anqp_entry {
@@ -189,10 +190,21 @@ static void station_property_set_scanning(struct station *station,
 static void station_enter_state(struct station *station,
 						enum station_state state);
 
+static void network_add_foreach(struct network *network, void *user_data)
+{
+	struct station *station = user_data;
+
+	l_queue_insert(station->autoconnect_list, network,
+				network_rank_compare, NULL);
+}
+
 static int station_autoconnect_next(struct station *station)
 {
 	struct network *network;
 	int r;
+
+	if (!station->autoconnect_list)
+		return -ENOENT;
 
 	while ((network = l_queue_pop_head(station->autoconnect_list))) {
 		const char *ssid = network_get_ssid(network);
@@ -229,6 +241,31 @@ static int station_autoconnect_next(struct station *station)
 	}
 
 	return -ENOENT;
+}
+
+static void station_autoconnect_start(struct station *station)
+{
+	l_debug("");
+
+	if (!station->autoconnect_can_start)
+		return;
+
+	if (!station_is_autoconnecting(station))
+		return;
+
+	if (!l_queue_isempty(station->anqp_pending))
+		return;
+
+	if (!l_queue_isempty(station->owe_hidden_scan_ids))
+		return;
+
+	if (L_WARN_ON(station->autoconnect_list))
+		l_queue_destroy(station->autoconnect_list, NULL);
+
+	station->autoconnect_list = l_queue_new();
+	station_network_foreach(station, network_add_foreach, station);
+	station_autoconnect_next(station);
+	station->autoconnect_can_start = false;
 }
 
 static void bss_free(void *data)
@@ -363,6 +400,43 @@ static struct network *station_add_seen_bss(struct station *station,
 	if (station_parse_bss_security(station, bss, &security) < 0)
 		return NULL;
 
+	/* Hidden OWE transition network */
+	if (security == SECURITY_NONE && bss->rsne && bss->owe_trans) {
+		struct ie_owe_transition_info *info = bss->owe_trans;
+		/*
+		 * WiFi Alliance OWE Specification v1.1 - Section 2.2.1:
+		 *
+		 * "2. An OWE AP shall use two different SSIDs, one for OWE
+		 *     and one for Open"
+		 *
+		 * "4. The OWE BSS shall include the OWE Transition Mode element
+		 *     in all Beacon and Probe Response frames to encapsulate
+		 *     the BSSID and SSID of the Open BSS"
+		 *
+		 * Meaning the hidden SSID should not match the SSID in the
+		 * hidden network's OWE IE. Might as well restrict BSSID as well
+		 * to be safe.
+		 *
+		 * In addition this SSID must be a valid utf8 string otherwise
+		 * we could not look up the network. Note that this is not true
+		 * for the open BSS IE, it can be non-utf8.
+		 */
+		if (!util_ssid_is_utf8(info->ssid_len, info->ssid))
+			return NULL;
+
+		if (!memcmp(info->ssid, bss->ssid, bss->ssid_len))
+			return NULL;
+
+		if (!memcmp(info->bssid, bss->addr, 6))
+			return NULL;
+
+		memcpy(ssid, info->ssid, info->ssid_len);
+		ssid[info->ssid_len] = '\0';
+
+		l_debug("Found hidden OWE network, using %s for network lookup",
+				ssid);
+	}
+
 	path = iwd_network_get_path(station, ssid, security);
 
 	network = l_hashmap_lookup(station->networks, path);
@@ -458,14 +532,6 @@ static bool match_nai_realms(const struct network_info *info, void *user_data)
 	return true;
 }
 
-static void network_add_foreach(struct network *network, void *user_data)
-{
-	struct station *station = user_data;
-
-	l_queue_insert(station->autoconnect_list, network,
-				network_rank_compare, NULL);
-}
-
 static bool match_pending(const void *a, const void *b)
 {
 	const struct anqp_entry *entry = a;
@@ -487,8 +553,8 @@ static bool anqp_entry_foreach(void *data, void *user_data)
 {
 	struct anqp_entry *e = data;
 
-	WATCHLIST_NOTIFY(&anqp_watches, station_anqp_watch_func_t,
-				STATION_ANQP_FINISHED, e->network);
+	WATCHLIST_NOTIFY(&event_watches, station_event_watch_func_t,
+				STATION_EVENT_ANQP_FINISHED, e->network);
 
 	remove_anqp(e);
 
@@ -554,13 +620,7 @@ request_done:
 	/* Notify all watchers now that every ANQP request has finished */
 	l_queue_foreach_remove(station->anqp_pending, anqp_entry_foreach, NULL);
 
-	l_queue_destroy(station->autoconnect_list, NULL);
-	station->autoconnect_list = l_queue_new();
-
-	if (station_is_autoconnecting(station)) {
-		station_network_foreach(station, network_add_foreach, station);
-		station_autoconnect_next(station);
-	}
+	station_autoconnect_start(station);
 }
 
 static bool station_start_anqp(struct station *station, struct network *network,
@@ -622,9 +682,173 @@ static bool station_start_anqp(struct station *station, struct network *network,
 
 	l_queue_push_head(station->anqp_pending, entry);
 
-	WATCHLIST_NOTIFY(&anqp_watches, station_anqp_watch_func_t,
-				STATION_ANQP_STARTED, network);
+	WATCHLIST_NOTIFY(&event_watches, station_event_watch_func_t,
+				STATION_EVENT_ANQP_STARTED, network);
 	return true;
+}
+
+static bool network_has_open_pair(struct network *network, struct scan_bss *owe)
+{
+	const struct l_queue_entry *entry;
+	struct ie_owe_transition_info *owe_info = owe->owe_trans;
+
+	for (entry = network_bss_list_get_entries(network); entry;
+				entry = entry->next) {
+		struct scan_bss *open = entry->data;
+		struct ie_owe_transition_info *open_info = open->owe_trans;
+
+		/*
+		 * Check if this is an Open/Hidden pair:
+		 *
+		 * Open SSID equals the SSID in OWE IE
+		 * Open BSSID equals the BSSID in OWE IE
+		 *
+		 * OWE SSID equals the SSID in Open IE
+		 * OWE BSSID equals the BSSID in Open IE
+		 */
+		if (open->ssid_len == owe_info->ssid_len &&
+				open_info->ssid_len == owe->ssid_len &&
+				!memcmp(open->ssid, owe_info->ssid,
+					open->ssid_len) &&
+				!memcmp(open_info->ssid, owe->ssid,
+					owe->ssid_len) &&
+				!memcmp(open->addr, owe_info->bssid, 6) &&
+				!memcmp(open_info->bssid, owe->addr, 6))
+			return true;
+	}
+
+	return false;
+}
+
+static bool station_owe_transition_results(int err, struct l_queue *bss_list,
+					const struct scan_freq_set *freqs,
+					void *userdata)
+{
+	struct network *network = userdata;
+	struct station *station = network_get_station(network);
+	struct scan_bss *bss;
+
+	station_property_set_scanning(station, false);
+
+	if (err)
+		goto done;
+
+	while ((bss = l_queue_pop_head(bss_list))) {
+		/*
+		 * Don't handle the open BSS, hidden BSS, BSS with no OWE
+		 * Transition IE, or an IE with a non-utf8 SSID
+		 */
+		if (!bss->rsne || !bss->owe_trans ||
+				util_ssid_is_hidden(bss->ssid_len, bss->ssid) ||
+				!util_ssid_is_utf8(bss->owe_trans->ssid_len,
+							bss->owe_trans->ssid))
+			goto free;
+
+		/* Check if we have an open BSS that matches */
+		if (!network_has_open_pair(network, bss))
+			goto free;
+
+		l_debug("Adding OWE transition network "MAC" to %s",
+				MAC_STR(bss->addr), network_get_ssid(network));
+
+		l_queue_push_tail(station->bss_list, bss);
+		network_bss_add(network, bss);
+
+		continue;
+
+free:
+		scan_bss_free(bss);
+	}
+
+	l_queue_destroy(bss_list, NULL);
+
+done:
+	l_queue_pop_head(station->owe_hidden_scan_ids);
+
+	WATCHLIST_NOTIFY(&event_watches, station_event_watch_func_t,
+				STATION_EVENT_OWE_HIDDEN_FINISHED, network);
+
+	station_autoconnect_start(station);
+
+	return err == 0;
+}
+
+static void station_owe_transition_triggered(int err, void *user_data)
+{
+	struct network *network = user_data;
+	struct station *station = network_get_station(network);
+
+	if (err < 0) {
+		l_debug("OWE transition scan trigger failed: %i", err);
+
+		l_queue_pop_head(station->owe_hidden_scan_ids);
+
+		WATCHLIST_NOTIFY(&event_watches, station_event_watch_func_t,
+				STATION_EVENT_OWE_HIDDEN_FINISHED, network);
+
+		return;
+	}
+
+	l_debug("OWE transition scan triggered");
+
+	station_property_set_scanning(station, true);
+}
+
+static void foreach_add_owe_scan(struct network *network, void *data)
+{
+	struct station *station = data;
+	const struct l_queue_entry *entry;
+	struct l_queue *list = NULL;
+	uint32_t id;
+
+	if (network_get_security(network) != SECURITY_NONE)
+		return;
+
+	for (entry = network_bss_list_get_entries(network); entry;
+				entry = entry->next) {
+		struct scan_bss *open = entry->data;
+
+		if (!open->owe_trans)
+			continue;
+
+		/* only want the open networks with WFA OWE IE */
+		if (open->rsne)
+			continue;
+
+		/* BSS already in network object */
+		if (network_bss_find_by_addr(network, open->owe_trans->bssid))
+			continue;
+
+		if (!list)
+			list = l_queue_new();
+
+		l_queue_push_tail(list, open);
+	}
+
+	if (!list)
+		return;
+
+	id = scan_owe_hidden(netdev_get_wdev_id(station->netdev), list,
+				station_owe_transition_triggered,
+				station_owe_transition_results, network, NULL);
+
+	l_queue_destroy(list, NULL);
+
+	if (!id)
+		return;
+
+	if (!station->owe_hidden_scan_ids)
+		station->owe_hidden_scan_ids = l_queue_new();
+
+	l_queue_push_tail(station->owe_hidden_scan_ids, L_UINT_TO_PTR(id));
+
+	WATCHLIST_NOTIFY(&event_watches, station_event_watch_func_t,
+				STATION_EVENT_OWE_HIDDEN_STARTED, network);
+}
+
+static void station_process_owe_transition_networks(struct station *station)
+{
+	station_network_foreach(station, foreach_add_owe_scan, station);
 }
 
 static bool bss_free_if_ssid_not_utf8(void *data, void *user_data)
@@ -650,11 +874,10 @@ static bool bss_free_if_ssid_not_utf8(void *data, void *user_data)
 void station_set_scan_results(struct station *station,
 					struct l_queue *new_bss_list,
 					const struct scan_freq_set *freqs,
-					bool add_to_autoconnect)
+					bool trigger_autoconnect)
 {
 	const struct l_queue_entry *bss_entry;
 	struct network *network;
-	bool wait_for_anqp = false;
 
 	l_queue_foreach_remove(new_bss_list, bss_free_if_ssid_not_utf8, NULL);
 
@@ -664,7 +887,7 @@ void station_set_scan_results(struct station *station,
 	l_queue_clear(station->hidden_bss_list_sorted, NULL);
 
 	l_queue_destroy(station->autoconnect_list, NULL);
-	station->autoconnect_list = l_queue_new();
+	station->autoconnect_list = NULL;
 
 	station_bss_list_remove_expired_bsses(station, freqs);
 
@@ -701,18 +924,19 @@ void station_set_scan_results(struct station *station,
 		if (!network)
 			continue;
 
-		if (station_start_anqp(station, network, bss))
-			wait_for_anqp = true;
+		/* Cached BSS entry, this should have been processed already */
+		if (!scan_freq_set_contains(freqs, bss->frequency))
+			continue;
+
+		station_start_anqp(station, network, bss);
 	}
 
 	station->bss_list = new_bss_list;
 
 	l_hashmap_foreach_remove(station->networks, process_network, station);
 
-	if (!wait_for_anqp && add_to_autoconnect) {
-		station_network_foreach(station, network_add_foreach, station);
-		station_autoconnect_next(station);
-	}
+	station->autoconnect_can_start = trigger_autoconnect;
+	station_autoconnect_start(station);
 }
 
 static void station_reconnect(struct station *station);
@@ -772,14 +996,15 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 					struct network *network,
 					struct scan_bss *bss)
 {
+	const struct l_settings *settings = iwd_get_config();
 	enum security security = network_get_security(network);
 	bool add_mde = false;
 	struct erp_cache_entry *erp_cache = NULL;
-
 	struct ie_rsn_info bss_info;
 	uint8_t rsne_buf[256];
 	struct ie_rsn_info info;
 	uint8_t *ap_ie;
+	bool disable_ocv;
 
 	memset(&info, 0, sizeof(info));
 
@@ -857,6 +1082,34 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 		goto not_supported;
 
 build_ie:
+	if (!l_settings_get_bool(settings, "General", "DisableOCV",
+					&disable_ocv))
+		disable_ocv = false;
+
+	/*
+	 * Obviously do not enable OCV if explicitly disabled or no AP support.
+	 *
+	 * Not obviously hostapd rejects OCV support if MFPC is not enabled.
+	 * This is not really specified by the spec, but we have to work around
+	 * this limitation.
+	 *
+	 * Another limitation is full mac cards. With limited testing it was
+	 * seen that they do not include the OCI in the 4-way handshake yet
+	 * still advertise the capability. Because of this OCV is disabled if
+	 * any offload features are detected (since IWD prefers to use offload).
+	 */
+	info.ocvc = !disable_ocv && bss_info.ocvc && info.mfpc &&
+			!wiphy_can_offload(wiphy);;
+
+	/*
+	 * IEEE 802.11-2020 9.4.2.24.4 states extended key IDs can only be used
+	 * with CCMP/GCMP cipher suites. We also only enable support if the AP
+	 * also indicates support.
+	 */
+	if (wiphy_supports_ext_key_id(wiphy) && bss_info.extended_key_id &&
+			info.pairwise_ciphers == IE_RSN_CIPHER_SUITE_CCMP)
+		info.extended_key_id = true;
+
 	/* RSN takes priority */
 	if (bss->rsne) {
 		ap_ie = bss->rsne;
@@ -937,7 +1190,7 @@ static struct handshake_state *station_handshake_setup(struct station *station,
 
 	handshake_state_set_authenticator_rsnxe(hs, bss->rsnxe);
 
-	if (network_handshake_setup(network, hs) < 0)
+	if (network_handshake_setup(network, bss, hs) < 0)
 		goto not_supported;
 
 	vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
@@ -965,15 +1218,15 @@ static bool new_scan_results(int err, struct l_queue *bss_list,
 				void *userdata)
 {
 	struct station *station = userdata;
-	bool autoconnect;
 
 	station_property_set_scanning(station, false);
 
 	if (err)
 		return false;
 
-	autoconnect = station_is_autoconnecting(station);
-	station_set_scan_results(station, bss_list, freqs, autoconnect);
+	station_set_scan_results(station, bss_list, freqs, true);
+
+	station_process_owe_transition_networks(station);
 
 	return true;
 }
@@ -1037,15 +1290,15 @@ static bool station_quick_scan_results(int err, struct l_queue *bss_list,
 					void *userdata)
 {
 	struct station *station = userdata;
-	bool autoconnect;
 
 	station_property_set_scanning(station, false);
 
 	if (err)
 		goto done;
 
-	autoconnect = station_is_autoconnecting(station);
-	station_set_scan_results(station, bss_list, freqs, autoconnect);
+	station_set_scan_results(station, bss_list, freqs, true);
+
+	station_process_owe_transition_networks(station);
 
 done:
 	if (station->state == STATION_STATE_AUTOCONNECT_QUICK)
@@ -1226,16 +1479,16 @@ bool station_remove_state_watch(struct station *station, uint32_t id)
 	return watchlist_remove(&station->state_watches, id);
 }
 
-uint32_t station_add_anqp_watch(station_anqp_watch_func_t func,
+uint32_t station_add_event_watch(station_event_watch_func_t func,
 				void *user_data,
 				station_destroy_func_t destroy)
 {
-	return watchlist_add(&anqp_watches, func, user_data, destroy);
+	return watchlist_add(&event_watches, func, user_data, destroy);
 }
 
-void station_remove_anqp_watch(uint32_t id)
+void station_remove_event_watch(uint32_t id)
 {
-	watchlist_remove(&anqp_watches, id);
+	watchlist_remove(&event_watches, id);
 }
 
 bool station_set_autoconnect(struct station *station, bool autoconnect)
@@ -1497,6 +1750,9 @@ static void station_early_neighbor_report_cb(struct netdev *netdev, int err,
 {
 	struct station *station = user_data;
 
+	if (err == -ENODEV)
+		return;
+
 	l_debug("ifindex: %u, error: %d(%s)",
 			netdev_get_ifindex(station->netdev),
 			err, err < 0 ? strerror(-err) : "");
@@ -1506,6 +1762,77 @@ static void station_early_neighbor_report_cb(struct netdev *netdev, int err,
 
 	parse_neighbor_report(station, reports, reports_len,
 				&station->roam_freqs);
+}
+
+static bool station_can_fast_transition(struct handshake_state *hs,
+					struct scan_bss *bss)
+{
+	uint16_t mdid;
+
+	if (!hs->mde)
+		return false;
+
+	if (ie_parse_mobility_domain_from_data(hs->mde, hs->mde[1] + 2,
+						&mdid, NULL, NULL) < 0)
+		return false;
+
+	if (!(bss->mde_present && l_get_le16(bss->mde) == mdid))
+		return false;
+
+	if (hs->supplicant_ie != NULL) {
+		struct ie_rsn_info rsn_info;
+
+		if (!IE_AKM_IS_FT(hs->akm_suite))
+			return false;
+
+		if (scan_bss_get_rsn_info(bss, &rsn_info) < 0)
+			return false;
+
+		if (!IE_AKM_IS_FT(rsn_info.akm_suites))
+			return false;
+	}
+
+	return true;
+}
+
+static void station_ft_ds_action_start(struct station *station)
+{
+	struct handshake_state *hs = netdev_get_handshake(station->netdev);
+	uint16_t mdid;
+	const struct l_queue_entry *entry;
+	struct scan_bss *bss;
+	struct ie_rsn_info rsn_info;
+
+	if (!station_can_fast_transition(hs, station->connected_bss) ||
+						!(hs->mde[4] & 1))
+		return;
+
+	if (ie_parse_mobility_domain_from_data(hs->mde, hs->mde[1] + 2,
+						&mdid, NULL, NULL) < 0)
+		return;
+
+	for (entry = network_bss_list_get_entries(station->connected_network);
+						entry; entry = entry->next) {
+		bss = entry->data;
+
+		if (bss == station->connected_bss)
+			continue;
+
+		if (mdid != l_get_le16(bss->mde))
+			continue;
+
+		if (scan_bss_get_rsn_info(bss, &rsn_info) < 0)
+			continue;
+
+		if (!IE_AKM_IS_FT(rsn_info.akm_suites))
+			continue;
+
+		/*
+		* Fire and forget. Netdev will maintain a cache of responses and
+		* when the time comes these can be referenced for a roam
+		*/
+		netdev_fast_transition_over_ds_action(station->netdev, bss);
+	}
 }
 
 static void station_roamed(struct station *station)
@@ -1532,6 +1859,8 @@ static void station_roamed(struct station *station)
 					station_early_neighbor_report_cb) < 0)
 			l_warn("Could not request neighbor report");
 	}
+
+	station_ft_ds_action_start(station);
 
 	station_enter_state(station, STATION_STATE_CONNECTED);
 }
@@ -1736,37 +2065,6 @@ static void station_preauthenticate_cb(struct netdev *netdev,
 	station_transition_reassociate(station, bss, new_hs);
 }
 
-static bool station_can_fast_transition(struct handshake_state *hs,
-					struct scan_bss *bss)
-{
-	uint16_t mdid;
-
-	if (!hs->mde)
-		return false;
-
-	if (ie_parse_mobility_domain_from_data(hs->mde, hs->mde[1] + 2,
-						&mdid, NULL, NULL) < 0)
-		return false;
-
-	if (!(bss->mde_present && l_get_le16(bss->mde) == mdid))
-		return false;
-
-	if (hs->supplicant_ie != NULL) {
-		struct ie_rsn_info rsn_info;
-
-		if (!IE_AKM_IS_FT(hs->akm_suite))
-			return false;
-
-		if (scan_bss_get_rsn_info(bss, &rsn_info) < 0)
-			return false;
-
-		if (!IE_AKM_IS_FT(rsn_info.akm_suites))
-			return false;
-	}
-
-	return true;
-}
-
 static void station_transition_start(struct station *station,
 							struct scan_bss *bss)
 {
@@ -1801,8 +2099,7 @@ static void station_transition_start(struct station *station,
 		vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
 		handshake_state_set_vendor_ies(hs, vendor_ies, iov_elems);
 
-		/* FT-over-DS can be better suited for these situations */
-		if ((hs->mde[4] & 1) && station->signal_low) {
+		if ((hs->mde[4] & 1)) {
 			ret = netdev_fast_transition_over_ds(station->netdev,
 					bss, station->connected_bss,
 					station_fast_transition_cb);
@@ -2023,9 +2320,12 @@ static int station_roam_scan(struct station *station,
 
 	l_debug("ifindex: %u", netdev_get_ifindex(station->netdev));
 
-	if (station->connected_network)
+	if (station->connected_network) {
+		const char *ssid = network_get_ssid(station->connected_network);
 		/* Use direct probe request */
-		params.ssid = network_get_ssid(station->connected_network);
+		params.ssid = (const uint8_t *)ssid;
+		params.ssid_len = strlen(ssid);
+	}
 
 	if (!freq_set)
 		station->roam_scan_full = true;
@@ -2065,6 +2365,9 @@ static void station_neighbor_report_cb(struct netdev *netdev, int err,
 	struct station *station = user_data;
 	struct scan_freq_set *freq_set;
 	int r;
+
+	if (err == -ENODEV)
+		return;
 
 	l_debug("ifindex: %u, error: %d(%s)",
 			netdev_get_ifindex(station->netdev),
@@ -2398,36 +2701,6 @@ static bool station_retry_with_status(struct station *station,
 	return station_try_next_bss(station);
 }
 
-static void station_ft_ds_action_start(struct station *station, uint16_t mdid)
-{
-	const struct l_queue_entry *entry;
-	struct scan_bss *bss;
-	struct ie_rsn_info rsn_info;
-
-	for (entry = network_bss_list_get_entries(station->connected_network);
-						entry; entry = entry->next) {
-		bss = entry->data;
-
-		if (bss == station->connected_bss)
-			continue;
-
-		if (mdid != l_get_le16(bss->mde))
-			continue;
-
-		if (scan_bss_get_rsn_info(bss, &rsn_info) < 0)
-			continue;
-
-		if (!IE_AKM_IS_FT(rsn_info.akm_suites))
-			continue;
-
-		/*
-		* Fire and forget. Netdev will maintain a cache of responses and
-		* when the time comes these can be referenced for a roam
-		*/
-		netdev_fast_transition_over_ds_action(station->netdev, bss);
-	}
-}
-
 static void station_connect_ok(struct station *station)
 {
 	struct handshake_state *hs = netdev_get_handshake(station->netdev);
@@ -2451,20 +2724,7 @@ static void station_connect_ok(struct station *station)
 			l_warn("Could not request neighbor report");
 	}
 
-	/*
-	 * If this network supports FT-over-DS send initial action frames now
-	 * to prepare for future roams.
-	 */
-	if (station_can_fast_transition(hs, station->connected_bss) &&
-						(hs->mde[4] & 1)) {
-		uint16_t mdid;
-
-		if (ie_parse_mobility_domain_from_data(hs->mde, hs->mde[1] + 2,
-						&mdid, NULL, NULL) < 0)
-			return;
-
-		station_ft_ds_action_start(station, mdid);
-	}
+	station_ft_ds_action_start(station);
 
 	network_connected(station->connected_network);
 
@@ -2649,8 +2909,7 @@ int __station_connect_network(struct station *station, struct network *network,
 
 	if (station->netconfig && !netconfig_load_settings(
 					station->netconfig,
-					network_get_settings(network),
-					netdev_get_address(station->netdev)))
+					network_get_settings(network)))
 		return -EINVAL;
 
 	hs = station_handshake_setup(station, network, bss);
@@ -2835,6 +3094,9 @@ static bool station_hidden_network_scan_results(int err,
 					memcmp(bss->ssid, ssid, ssid_len))
 			goto next;
 
+		if (bss->owe_trans)
+			goto next;
+
 		/*
 		 * Override time_stamp so that this entry is removed on
 		 * the next scan
@@ -2928,6 +3190,10 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 			l_queue_get_entries(station->hidden_bss_list_sorted);
 		struct scan_bss *target = network_bss_select(network, true);
 
+		/* Treat OWE transition networks special */
+		if (target->owe_trans)
+			goto not_hidden;
+
 		for (; entry; entry = entry->next) {
 			struct scan_bss *bss = entry->data;
 
@@ -2939,10 +3205,12 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 								message);
 		}
 
+not_hidden:
 		return dbus_error_not_hidden(message);
 	}
 
-	params.ssid = ssid;
+	params.ssid = (const uint8_t *)ssid;
+	params.ssid_len = strlen(ssid);
 
 	/* HW cannot randomize our MAC if connected */
 	if (!station->connected_bss)
@@ -3149,10 +3417,18 @@ static struct l_dbus_message *station_dbus_get_hidden_access_points(
 	return reply;
 }
 
-static void station_dbus_scan_done(struct station *station)
+static void station_dbus_scan_done(struct station *station,
+							bool try_autoconnect)
 {
 	station->dbus_scan_id = 0;
 	station_property_set_scanning(station, false);
+
+	station_process_owe_transition_networks(station);
+
+	if (try_autoconnect) {
+		station->autoconnect_can_start = true;
+		station_autoconnect_start(station);
+	}
 }
 
 static void station_dbus_scan_triggered(int err, void *user_data)
@@ -3169,7 +3445,7 @@ static void station_dbus_scan_triggered(int err, void *user_data)
 			dbus_pending_reply(&station->scan_pending, reply);
 		}
 
-		station_dbus_scan_done(station);
+		station_dbus_scan_done(station, true);
 		return;
 	}
 
@@ -3194,23 +3470,21 @@ static bool station_dbus_scan_results(int err, struct l_queue *bss_list,
 {
 	struct station *station = userdata;
 	unsigned int next_idx = station->dbus_scan_subset_idx + 1;
-	bool autoconnect;
 	bool last_subset;
 
 	if (err) {
-		station_dbus_scan_done(station);
+		station_dbus_scan_done(station, true);
 		return false;
 	}
-
-	autoconnect = station_is_autoconnecting(station);
-	station_set_scan_results(station, bss_list, freqs, autoconnect);
 
 	last_subset = next_idx >= L_ARRAY_SIZE(station->scan_freqs_order) ||
 		station->scan_freqs_order[next_idx] == NULL;
 	station->dbus_scan_subset_idx = next_idx;
 
+	station_set_scan_results(station, bss_list, freqs, false);
+
 	if (last_subset || !station_dbus_scan_subset(station))
-		station_dbus_scan_done(station);
+		station_dbus_scan_done(station, true);
 
 	return true;
 }
@@ -3629,7 +3903,7 @@ static struct station *station_create(struct netdev *netdev)
 					IWD_STATION_INTERFACE, station);
 #endif
 
-	if (netconfig_enabled)
+	if (netconfig_enabled())
 		station->netconfig = netconfig_new(netdev_get_ifindex(netdev));
 
 	station->anqp_pending = l_queue_new();
@@ -3706,6 +3980,16 @@ static void station_free(struct station *station)
 	if (station->hidden_network_scan_id)
 		scan_cancel(netdev_get_wdev_id(station->netdev),
 				station->hidden_network_scan_id);
+
+	if (station->owe_hidden_scan_ids) {
+		void *ptr;
+
+		while ((ptr = l_queue_pop_head(station->owe_hidden_scan_ids)))
+			scan_cancel(netdev_get_wdev_id(station->netdev),
+					L_PTR_TO_UINT(ptr));
+
+		l_queue_destroy(station->owe_hidden_scan_ids, NULL);
+	}
 
 	station_roam_state_clear(station);
 
@@ -3856,6 +4140,9 @@ static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 	if (mac_len != 6)
 		return dbus_error_invalid_args(message);
 
+	if (!station->connected_network)
+		return dbus_error_not_connected(message);
+
 	target = network_bss_find_by_addr(station->connected_network, mac);
 	if (!target || target == station->connected_bss)
 		return dbus_error_invalid_args(message);
@@ -3954,7 +4241,7 @@ static void station_debug_scan_triggered(int err, void *user_data)
 			dbus_pending_reply(&station->scan_pending, reply);
 		}
 
-		station_dbus_scan_done(station);
+		station_dbus_scan_done(station, false);
 		return;
 	}
 
@@ -3975,17 +4262,14 @@ static bool station_debug_scan_results(int err, struct l_queue *bss_list,
 					void *userdata)
 {
 	struct station *station = userdata;
-	bool autoconnect;
 
 	if (err) {
-		station_dbus_scan_done(station);
+		station_dbus_scan_done(station, false);
 		return false;
 	}
 
-	autoconnect = station_is_autoconnecting(station);
-	station_set_scan_results(station, bss_list, freqs, autoconnect);
-
-	station_dbus_scan_done(station);
+	station_set_scan_results(station, bss_list, freqs, false);
+	station_dbus_scan_done(station, false);
 
 	return true;
 }
@@ -4208,15 +4492,10 @@ static int station_init(void)
 				&anqp_disabled))
 		anqp_disabled = true;
 
-	if (!l_settings_get_bool(iwd_get_config(), "General",
-					"EnableNetworkConfiguration",
-					&netconfig_enabled))
-			netconfig_enabled = false;
-
-	if (!netconfig_enabled)
+	if (!netconfig_enabled())
 		l_info("station: Network configuration is disabled.");
 
-	watchlist_init(&anqp_watches, NULL);
+	watchlist_init(&event_watches, NULL);
 
 	return 0;
 }
@@ -4234,7 +4513,7 @@ static void station_exit(void)
 	netdev_watch_remove(netdev_watch);
 	l_queue_destroy(station_list, NULL);
 	station_list = NULL;
-	watchlist_destroy(&anqp_watches);
+	watchlist_destroy(&event_watches);
 }
 
 IWD_MODULE(station, station_init, station_exit)

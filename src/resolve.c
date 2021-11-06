@@ -35,6 +35,7 @@
 #include "src/iwd.h"
 #include "src/module.h"
 #include "src/dbus.h"
+#include "src/netconfig.h"
 #include "src/resolve.h"
 
 struct resolve_ops {
@@ -582,18 +583,9 @@ static const struct {
 static int resolve_init(void)
 {
 	const char *method_name;
-	bool enabled;
 	uint8_t i;
 
-	if (!l_settings_get_bool(iwd_get_config(), "General",
-					"EnableNetworkConfiguration",
-					&enabled)) {
-		if (!l_settings_get_bool(iwd_get_config(), "General",
-					"enable_network_config", &enabled))
-			enabled = false;
-	}
-
-	if (!enabled)
+	if (!netconfig_enabled())
 		return 0;
 
 	method_name = l_settings_get_value(iwd_get_config(), "Network",

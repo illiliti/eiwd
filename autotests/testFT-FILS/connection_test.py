@@ -95,6 +95,8 @@ class Test(unittest.TestCase):
         self.assertRaises(Exception, testutil.test_ifaces_connected,
                           (self.bss_hostapd[0].ifname, device.name, True, True))
 
+        self.bss_hostapd[1].rekey(device.address)
+
     def test_fils_ft_roam_sha256(self):
         wd = IWD(True)
 

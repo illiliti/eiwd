@@ -19,6 +19,11 @@ Properties	string Name [readonly]
 
 			P2P Peer's display name
 
+		string Address [readonly]
+
+			The peer's unique Device Address in the xx:xx:xx:xx:xx:xx
+			format.
+
 		string DeviceCategory [readonly]
 
 			The category part of the peer's declared

@@ -31,6 +31,8 @@
 #include <signal.h>
 #include <ell/ell.h>
 
+#include <ell/useful.h>
+
 #include "linux/nl80211.h"
 
 #include "src/iwd.h"
@@ -42,6 +44,7 @@
 #include "src/rfkill.h"
 #include "src/storage.h"
 #include "src/anqp.h"
+#include "src/netconfig.h"
 
 #include "src/backtrace.h"
 
@@ -217,28 +220,15 @@ static struct l_dbus_message *iwd_dbus_get_info(struct l_dbus *dbus,
 						struct l_dbus_message *message,
 						void *user_data)
 {
-	struct l_dbus_message *reply;
-	struct l_dbus_message_builder *builder;
-	L_AUTO_FREE_VAR(char *, storage_dir) = storage_get_path(NULL);
-	bool netconfig_enabled;
+	struct l_dbus_message *reply =
+				l_dbus_message_new_method_return(message);
+	_auto_(l_free) char *storage_dir = storage_get_path(NULL);
 
-	if (!l_settings_get_bool(iwd_config, "General",
-					"EnableNetworkConfiguration",
-					&netconfig_enabled))
-		netconfig_enabled = false;
-
-	reply = l_dbus_message_new_method_return(message);
-	builder = l_dbus_message_builder_new(reply);
-	l_dbus_message_builder_enter_array(builder, "{sv}");
-
-	dbus_append_dict_basic(builder, "NetworkConfigurationEnabled", 'b',
-				&netconfig_enabled);
-	dbus_append_dict_basic(builder, "StateDirectory", 's', storage_dir);
-	dbus_append_dict_basic(builder, "Version", 's', VERSION);
-
-	l_dbus_message_builder_leave_array(builder);
-	l_dbus_message_builder_finalize(builder);
-	l_dbus_message_builder_destroy(builder);
+	l_dbus_message_set_arguments(reply, "a{sv}", 3,
+					"NetworkConfigurationEnabled",
+					"b", netconfig_enabled(),
+					"StateDirectory", "s", storage_dir,
+					"Version", "s", VERSION);
 
 	return reply;
 }

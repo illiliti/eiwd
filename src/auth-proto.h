@@ -44,6 +44,7 @@ struct auth_proto {
 					const uint8_t *frame, size_t len);
 	int (*rx_associate)(struct auth_proto *driver,
 					const uint8_t *frame, size_t len);
+	int (*rx_oci)(struct auth_proto *driver);
 	bool (*auth_timeout)(struct auth_proto *ap);
 	bool (*assoc_timeout)(struct auth_proto *ap);
 	uint8_t prev_bssid[6];
@@ -97,4 +98,12 @@ static inline bool auth_proto_assoc_timeout(struct auth_proto *ap)
 		return ap->assoc_timeout(ap);
 
 	return false;
+}
+
+static inline int auth_proto_rx_oci(struct auth_proto *ap)
+{
+	if (ap && ap->rx_oci)
+		return ap->rx_oci(ap);
+
+	return -ENOTSUP;
 }

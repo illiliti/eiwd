@@ -290,6 +290,7 @@ enum ie_type {
 enum ie_vendor_wfa_oi_type {
 	IE_WFA_OI_HS20_INDICATION = 0x10,
 	IE_WFA_OI_OSEN = 0x12,
+	IE_WFA_OI_OWE_TRANSITION = 0x1c,
 	IE_WFA_OI_ROAMING_SELECTION = 0x1d,
 };
 
@@ -393,6 +394,7 @@ struct ie_rsn_info {
 	bool spp_a_msdu_required:1;
 	bool pbac:1;
 	bool extended_key_id:1;
+	bool ocvc:1;
 	uint8_t num_pmkids;
 	const uint8_t *pmkids;
 	enum ie_rsn_cipher_suite group_management_cipher;
@@ -417,6 +419,7 @@ enum ie_bss_capability {
 
 struct ie_ft_info {
 	uint8_t mic_element_count;
+	bool rsnxe_used : 1;
 	uint8_t mic[24];
 	uint8_t anonce[32];
 	uint8_t snonce[32];
@@ -432,6 +435,8 @@ struct ie_ft_info {
 	uint8_t igtk_ipn[6];
 	uint8_t igtk_len;
 	uint8_t igtk[24];
+	bool oci_present:1;
+	uint8_t oci[3];
 };
 
 /* See chapter 8.4.2.47 for radio measurement capability details */
@@ -484,6 +489,14 @@ struct ie_fils_ip_addr_response_info {
 	uint8_t ipv6_dns[16];		/* Zero if not provided */
 	uint8_t ipv6_dns_mac[6];	/* Zero if not provided */
 	uint8_t ipv6_lifetime;		/* Zero if not provided */
+};
+
+struct ie_owe_transition_info {
+	uint8_t bssid[6];
+	uint8_t ssid[32];
+	size_t ssid_len;
+	uint8_t oper_class;
+	uint8_t channel;
 };
 
 extern const unsigned char ieee_oui[3];
@@ -629,3 +642,8 @@ void ie_build_fils_ip_addr_response(
 
 int ie_parse_network_cost(const void *data, size_t len,
 				uint16_t *flags, uint16_t *level);
+
+int ie_parse_owe_transition(const void *data, size_t len,
+				struct ie_owe_transition_info *info);
+
+int ie_parse_oci(const void *data, size_t len, const uint8_t **oci);

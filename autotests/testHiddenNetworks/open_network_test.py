@@ -24,6 +24,8 @@ class TestOpenNetwork(unittest.TestCase):
         tca.validate('ssidHiddenOpen', False)
         tca.validate('ssidHiddenOpen', True)
 
+    @classmethod
+    def tearDownClass(cls):
         IWD.clear_storage()
 
 if __name__ == '__main__':

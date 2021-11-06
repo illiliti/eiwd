@@ -24,6 +24,10 @@ class TestOpenNetwork(unittest.TestCase):
         tca.validate('ssidOpen', False)
         tca.validate('ssidOpen', True)
 
+    def setUp(self):
+        IWD.copy_to_storage('ssidOpen.open')
+
+    def tearDown(self):
         IWD.clear_storage()
 
 if __name__ == '__main__':

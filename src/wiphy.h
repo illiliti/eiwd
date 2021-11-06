@@ -83,9 +83,11 @@ uint32_t wiphy_get_supported_bands(struct wiphy *wiphy);
 const struct scan_freq_set *wiphy_get_supported_freqs(
 						const struct wiphy *wiphy);
 bool wiphy_can_transition_disable(struct wiphy *wiphy);
+bool wiphy_can_offload(struct wiphy *wiphy);
 bool wiphy_supports_cmds_auth_assoc(struct wiphy *wiphy);
 bool wiphy_can_randomize_mac_addr(struct wiphy *wiphy);
 bool wiphy_rrm_capable(struct wiphy *wiphy);
+bool wiphy_supports_ext_key_id(struct wiphy *wiphy);
 bool wiphy_has_feature(struct wiphy *wiphy, uint32_t feature);
 bool wiphy_has_ext_feature(struct wiphy *wiphy, uint32_t feature);
 uint8_t wiphy_get_max_num_ssids_per_scan(struct wiphy *wiphy);
@@ -100,6 +102,8 @@ bool wiphy_supports_qos_set_map(struct wiphy *wiphy);
 bool wiphy_supports_firmware_roam(struct wiphy *wiphy);
 const char *wiphy_get_driver(struct wiphy *wiphy);
 const char *wiphy_get_name(struct wiphy *wiphy);
+bool wiphy_uses_default_if(struct wiphy *wiphy);
+bool wiphy_control_port_enabled(struct wiphy *wiphy);
 const uint8_t *wiphy_get_permanent_address(struct wiphy *wiphy);
 const uint8_t *wiphy_get_extended_capabilities(struct wiphy *wiphy,
 							uint32_t iftype);

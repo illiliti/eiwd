@@ -1940,6 +1940,7 @@ static void eapol_wpa2_handshake_test(const void *data)
 	frame = eapol_create_gtk_2_of_2(EAPOL_PROTOCOL_VERSION_2004,
 				EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_SHA1_AES,
 				eapol_key_test_12.key_replay_counter,
+				0, NULL,
 				false, 0, 16);
 	assert(frame);
 	assert(eapol_calculate_mic(IE_RSN_AKM_SUITE_PSK, ptk, frame,
@@ -2061,8 +2062,8 @@ static void eapol_wpa_handshake_test(const void *data)
 
 	frame = eapol_create_gtk_2_of_2(EAPOL_PROTOCOL_VERSION_2004,
 				EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_MD5_ARC4,
-				eapol_key_test_18.key_replay_counter, true,
-				gtk_step1->wpa_key_id, 16);
+				eapol_key_test_18.key_replay_counter, 0, NULL,
+				true, gtk_step1->wpa_key_id, 16);
 	assert(frame);
 	assert(eapol_calculate_mic(IE_RSN_AKM_SUITE_PSK, ptk, frame,
 					mic, 16));
@@ -2470,7 +2471,7 @@ static void eapol_sm_test_wpa_ptk_gtk_2(const void *data)
 	eapol_exit();
 }
 
-static void verify_install_tk(struct handshake_state *hs,
+static void verify_install_tk(struct handshake_state *hs, uint8_t key_index,
 				const uint8_t *tk, uint32_t cipher)
 {
 	struct test_handshake_state *ths =
@@ -3625,7 +3626,7 @@ static void test_ap_sta_hs_event(struct handshake_state *hs,
 	assert(event != HANDSHAKE_EVENT_FAILED);
 }
 
-static void test_ap_sta_install_tk(struct handshake_state *hs,
+static void test_ap_sta_install_tk(struct handshake_state *hs, uint8_t key_idx,
 					const uint8_t *tk, uint32_t cipher)
 {
 	struct test_ap_sta_hs *ths =
@@ -3869,9 +3870,9 @@ static void eapol_ap_sta_handshake_ip_alloc_no_req_test(const void *data)
 	handshake_state_set_ssid(s.ap_hs, (void *) ssid, strlen(ssid));
 	handshake_state_set_pmk(s.ap_hs, psk, 32);
 	s.ap_hs->support_ip_allocation = true;
-	s.ap_hs->client_ip_addr = 0x01020304;
-	s.ap_hs->subnet_mask = 0xffff0000;
-	s.ap_hs->go_ip_addr = 0x01020305;
+	s.ap_hs->client_ip_addr = L_CPU_TO_BE32(0x01020304);
+	s.ap_hs->subnet_mask = L_CPU_TO_BE32(0xffff0000);
+	s.ap_hs->go_ip_addr = L_CPU_TO_BE32(0x01020305);
 
 	handshake_state_set_authenticator(s.sta_hs, false);
 	handshake_state_set_event_func(s.sta_hs, test_ap_sta_hs_event, &s);

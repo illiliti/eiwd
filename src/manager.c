@@ -63,36 +63,17 @@ struct wiphy_setup_state {
 	 * interface.
 	 */
 	bool use_default;
-	struct l_genl_msg *default_if_msg;
+	struct l_queue *default_interfaces;
 };
 
 static struct l_queue *pending_wiphys;
-
-/* With these drivers don't even try creating our interfaces */
-static const char *default_if_driver_list[] = {
-	/*
-	 * The out-of-tree rtl88x2bu crashes the kernel hard.  Seemingly
-	 * many other drivers are built from the same source code so
-	 * blacklist all of them.  Unfortunately there are in-tree drivers
-	 * that also match these names and may be fine.  Use
-	 * UseDefaultInterface to override.
-	 */
-	"rtl81*",
-	"rtl87*",
-	"rtl88*",
-	"rtw_*",
-	"brcmfmac",
-	"bcmsdh_sdmmc",
-
-	NULL,
-};
 
 static void wiphy_setup_state_free(void *data)
 {
 	struct wiphy_setup_state *state = data;
 
-	if (state->default_if_msg)
-		l_genl_msg_unref(state->default_if_msg);
+	l_queue_destroy(state->default_interfaces,
+				(l_queue_destroy_func_t) l_genl_msg_unref);
 
 	L_WARN_ON(state->pending_cmd_count);
 	l_free(state);
@@ -108,22 +89,30 @@ static bool manager_use_default(struct wiphy_setup_state *state)
 {
 	uint8_t addr_buf[6];
 	uint8_t *addr = NULL;
+	const struct l_queue_entry *entry;
 
 	l_debug("");
 
-	if (!state->default_if_msg) {
+	if (!state->default_interfaces) {
 		l_error("No default interface for wiphy %u",
 			(unsigned int) state->id);
 		state->retry = true;
 		return false;
 	}
 
-	if (randomize) {
-		wiphy_generate_random_address(state->wiphy, addr_buf);
-		addr = addr_buf;
+	entry = l_queue_get_entries(state->default_interfaces);
+	while (entry) {
+		struct l_genl_msg *msg = entry->data;
+
+		if (randomize) {
+			wiphy_generate_random_address(state->wiphy, addr_buf);
+			addr = addr_buf;
+		}
+
+		netdev_create_from_genl(msg, addr);
+		entry = entry->next;
 	}
 
-	netdev_create_from_genl(state->default_if_msg, addr);
 	return true;
 }
 
@@ -407,10 +396,14 @@ static void manager_get_interface_cb(struct l_genl_msg *msg, void *user_data)
 	if ((iftype == NL80211_IFTYPE_ADHOC ||
 				iftype == NL80211_IFTYPE_STATION ||
 				iftype == NL80211_IFTYPE_AP) &&
-			!state->default_if_msg &&
 			(!whitelist_filter || whitelisted) &&
-			!blacklisted)
-		state->default_if_msg = l_genl_msg_ref(msg);
+			!blacklisted) {
+		if (!state->default_interfaces)
+			state->default_interfaces = l_queue_new();
+
+		l_queue_push_head(state->default_interfaces,
+							l_genl_msg_ref(msg));
+	}
 
 delete_interface:
 	if (state->use_default)
@@ -579,18 +572,9 @@ static void manager_wiphy_dump_done(void *user_data)
 		if (whitelist_filter || blacklist_filter)
 			state->use_default = true;
 
-		if (!state->use_default) {
-			const char *driver = wiphy_get_driver(state->wiphy);
-
-			if (driver) {
-				const char **e;
-
-				for (e = default_if_driver_list; *e; e++)
-					if (fnmatch(*e, driver, 0) == 0)
-						state->use_default = true;
-			} else
-				state->use_default = true;
-		}
+		if (!state->use_default)
+			state->use_default =
+				wiphy_uses_default_if(state->wiphy);
 
 		if (state->use_default)
 			l_info("Wiphy %s will only use the default interface",
