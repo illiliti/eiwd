@@ -698,6 +698,10 @@ static bool network_has_open_pair(struct network *network, struct scan_bss *owe)
 		struct scan_bss *open = entry->data;
 		struct ie_owe_transition_info *open_info = open->owe_trans;
 
+		/* AP does not advertise owe transition */
+		if (!open_info)
+			continue;
+
 		/*
 		 * Check if this is an Open/Hidden pair:
 		 *
