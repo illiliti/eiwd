@@ -256,7 +256,7 @@ uint32_t anqp_request(uint64_t wdev_id, const uint8_t *addr,
 				&anqp_frame_prefix, anqp_response_frame_event,
 				NULL);
 
-	return true;
+	return request->id;
 }
 
 void anqp_cancel(uint32_t id)
