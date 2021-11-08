@@ -29,6 +29,7 @@ OS:
 	11. ofono (optional)
 	12. phonesim (optional)
 	13. wpa_supplicant	2.9
+	14. radvd		2.18
 
 Note: The version for hostapd is listed as 'recent'. Older hostapd versions
 will work but we are continually adopting new features from hostapd and using
