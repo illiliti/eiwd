@@ -176,6 +176,36 @@ static inline char *netconfig_ipv6_to_string(const uint8_t *addr)
 	return addr_str;
 }
 
+static bool netconfig_use_fils_addr(struct netconfig *netconfig, int af)
+{
+	if ((af == AF_INET ? netconfig->rtm_protocol :
+				netconfig->rtm_v6_protocol) != RTPROT_DHCP)
+		return false;
+
+	if (!netconfig->fils_override)
+		return false;
+
+	if (af == AF_INET)
+		return !!netconfig->fils_override->ipv4_addr;
+
+	return !l_memeqzero(netconfig->fils_override->ipv6_addr, 16);
+}
+
+static bool netconfig_use_fils_gateway(struct netconfig *netconfig, int af)
+{
+	if ((af == AF_INET ? netconfig->rtm_protocol :
+				netconfig->rtm_v6_protocol) != RTPROT_DHCP)
+		return false;
+
+	if (!netconfig->fils_override)
+		return false;
+
+	if (af == AF_INET)
+		return !!netconfig->fils_override->ipv4_gateway;
+
+	return !l_memeqzero(netconfig->fils_override->ipv6_gateway, 16);
+}
+
 static char **netconfig_get_dns_list(struct netconfig *netconfig, int af,
 					const uint8_t **out_dns_mac)
 {
@@ -459,7 +489,7 @@ static char *netconfig_ipv4_get_gateway(struct netconfig *netconfig,
 		return gateway;
 
 	case RTPROT_DHCP:
-		if (fils && fils->ipv4_gateway) {
+		if (netconfig_use_fils_gateway(netconfig, AF_INET)) {
 			gateway = netconfig_ipv4_to_string(fils->ipv4_gateway);
 
 			if (gateway && out_mac &&
@@ -527,10 +557,7 @@ static struct l_rtnl_route *netconfig_get_static6_gateway(
 
 	gateway = l_settings_get_string(netconfig->active_settings,
 						"IPv6", "Gateway");
-	if (!gateway && netconfig->rtm_v6_protocol == RTPROT_DHCP &&
-			netconfig->fils_override &&
-			!l_memeqzero(netconfig->fils_override->ipv6_gateway,
-					16)) {
+	if (!gateway && netconfig_use_fils_gateway(netconfig, AF_INET6)) {
 		gateway = netconfig_ipv6_to_string(
 					netconfig->fils_override->ipv6_gateway);
 
@@ -698,8 +725,7 @@ static void netconfig_ifaddr_ipv6_added(struct netconfig *netconfig,
 			ip, ifa->ifa_prefixlen);
 
 	if (netconfig->rtm_v6_protocol != RTPROT_DHCP ||
-			(netconfig->fils_override &&
-			 !l_memeqzero(netconfig->fils_override->ipv6_addr, 16)))
+			netconfig_use_fils_addr(netconfig, AF_INET6))
 		return;
 
 	inet_pton(AF_INET6, ip, &in6);
@@ -1191,9 +1217,7 @@ static bool netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 	struct netdev *netdev = netdev_find(netconfig->ifindex);
 	bool set_address = (netconfig->rtm_protocol == RTPROT_STATIC);
 
-	if (netconfig->rtm_protocol == RTPROT_DHCP &&
-			netconfig->fils_override &&
-			netconfig->fils_override->ipv4_addr) {
+	if (netconfig_use_fils_addr(netconfig, AF_INET)) {
 		L_AUTO_FREE_VAR(char *, addr_str) = netconfig_ipv4_to_string(
 					netconfig->fils_override->ipv4_addr);
 		uint8_t prefix_len = netconfig->fils_override->ipv4_prefix_len;
@@ -1274,9 +1298,7 @@ static bool netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 
 	sysfs_write_ipv6_setting(netdev_get_name(netdev), "disable_ipv6", "0");
 
-	if (netconfig->rtm_v6_protocol == RTPROT_DHCP &&
-			netconfig->fils_override &&
-			!l_memeqzero(netconfig->fils_override->ipv6_addr, 16)) {
+	if (netconfig_use_fils_addr(netconfig, AF_INET6)) {
 		uint8_t prefix_len = netconfig->fils_override->ipv6_prefix_len;
 		L_AUTO_FREE_VAR(char *, addr_str) = netconfig_ipv6_to_string(
 					netconfig->fils_override->ipv6_addr);
