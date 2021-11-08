@@ -813,10 +813,8 @@ static void netconfig_route6_add_cb(int error, uint16_t type,
 	}
 }
 
-static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
+static bool netconfig_ipv4_subnet_route_install(struct netconfig *netconfig)
 {
-	L_AUTO_FREE_VAR(char *, gateway) = NULL;
-	const uint8_t *gateway_mac = NULL;
 	struct in_addr in_addr;
 	char ip[INET_ADDRSTRLEN];
 	char network[INET_ADDRSTRLEN];
@@ -839,9 +837,18 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 						netconfig_route_generic_cb,
 						netconfig, NULL)) {
 		l_error("netconfig: Failed to add subnet route.");
-
 		return false;
 	}
+
+	return true;
+}
+
+static bool netconfig_ipv4_gateway_route_install(struct netconfig *netconfig)
+{
+	L_AUTO_FREE_VAR(char *, gateway) = NULL;
+	const uint8_t *gateway_mac = NULL;
+	struct in_addr in_addr;
+	char ip[INET_ADDRSTRLEN];
 
 	gateway = netconfig_ipv4_get_gateway(netconfig, &gateway_mac);
 	if (!gateway) {
@@ -858,6 +865,10 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 		return true;
 	}
 
+	if (!l_rtnl_address_get_address(netconfig->v4_address, ip) ||
+			inet_pton(AF_INET, ip, &in_addr) < 1)
+		return false;
+
 	netconfig->route4_add_gateway_cmd_id =
 		l_rtnl_route4_add_gateway(rtnl, netconfig->ifindex, gateway, ip,
 						ROUTE_PRIORITY_OFFSET,
@@ -871,23 +882,20 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 		return false;
 	}
 
-	if (gateway_mac) {
-		/*
-		 * Attempt to use the gateway MAC address received from the AP
-		 * by writing the mapping directly into the netdev's ARP table
-		 * so as to save one data frame roundtrip before first IP
-		 * connections are established.  This is very low-priority but
-		 * print error messages just because they may indicate bigger
-		 * problems.
-		 */
-		if (!l_rtnl_neighbor_set_hwaddr(rtnl, netconfig->ifindex,
+	/*
+	 * Attempt to use the gateway MAC address received from the AP by
+	 * writing the mapping directly into the netdev's ARP table so as
+	 * to save one data frame roundtrip before first IP connections
+	 * are established.  This is very low-priority but print error
+	 * messages just because they may indicate bigger problems.
+	 */
+	if (gateway_mac && !l_rtnl_neighbor_set_hwaddr(rtnl, netconfig->ifindex,
 					AF_INET,
 					&netconfig->fils_override->ipv4_gateway,
 					gateway_mac, 6,
 					netconfig_set_neighbor_entry_cb, NULL,
 					NULL))
-			l_debug("l_rtnl_neighbor_set_hwaddr failed");
-	}
+		l_debug("l_rtnl_neighbor_set_hwaddr failed");
 
 	return true;
 }
@@ -908,10 +916,9 @@ static void netconfig_ipv4_ifaddr_add_cmd_cb(int error, uint16_t type,
 
 	netconfig_gateway_to_arp(netconfig);
 
-	if (!netconfig_ipv4_routes_install(netconfig)) {
-		l_error("netconfig: Failed to install IPv4 routes.");
+	if (!netconfig_ipv4_subnet_route_install(netconfig) ||
+			!netconfig_ipv4_gateway_route_install(netconfig))
 		return;
-	}
 
 	netconfig_set_dns(netconfig);
 	netconfig_set_domains(netconfig);
