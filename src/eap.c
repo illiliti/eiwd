@@ -413,8 +413,11 @@ static const char *eap_type_to_str(enum eap_type type, uint32_t vendor_id,
 	return buf;
 }
 
+_Pragma("GCC diagnostic push")
+_Pragma("GCC diagnostic ignored \"-Wmaybe-uninitialized\"")
 #define IS_EXPANDED_RESPONSE(id, t) \
 	(type == EAP_TYPE_EXPANDED && vendor_id == (id) && vendor_type == (t))
+_Pragma("GCC diagnostic pop")
 
 #define RESPONSE_IS(t) \
 	(type == (t) || IS_EXPANDED_RESPONSE(0, (t)))
