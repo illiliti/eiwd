@@ -101,6 +101,8 @@ struct ap_state {
 	bool started : 1;
 	bool gtk_set : 1;
 	bool netconfig_set_addr4 : 1;
+	bool in_event : 1;
+	bool free_pending : 1;
 };
 
 struct sta_state {
@@ -250,6 +252,35 @@ static void ap_reset(struct ap_state *ap)
 	}
 }
 
+static bool ap_event_done(struct ap_state *ap, bool prev_in_event)
+{
+	ap->in_event = prev_in_event;
+
+	if (!prev_in_event && ap->free_pending) {
+		ap_free(ap);
+		return true;
+	}
+
+	return ap->free_pending;
+}
+
+/*
+ * Returns true if the AP is considered freed and the caller must avoid
+ * accessing @ap.
+ */
+static bool ap_event(struct ap_state *ap, enum ap_event_type event,
+			const void *event_data)
+{
+	bool prev = ap->in_event;
+
+	if (ap->free_pending)
+		return true;
+
+	ap->in_event = true;
+	ap->ops->handle_event(event, event_data, ap->user_data);
+	return ap_event_done(ap, prev);
+}
+
 static void ap_del_station(struct sta_state *sta, uint16_t reason,
 				bool disassociate)
 {
@@ -284,23 +315,34 @@ static void ap_del_station(struct sta_state *sta, uint16_t reason,
 	ap_stop_handshake(sta);
 
 	/*
+	 * If the event handler tears the AP down, we've made sure above that
+	 * a subsequent ap_sta_free(sta) has no need to access sta->ap.
+	 */
+	if (send_event)
+		if (ap_event(ap, AP_EVENT_STATION_REMOVED, &event_data))
+			return;
+
+	/*
 	 * Expire any DHCP leases owned by this client when it disconnects to
 	 * make it harder for somebody to DoS the IP pool.  If the client
 	 * comes back and the lease is still in the expired leases list they
 	 * will get their IP back.
 	 */
 	if (ap->netconfig_dhcp) {
+		bool prev = ap->in_event;
+
+		/*
+		 * If the LEASE_EXPIRED event in ap_dhcp_event_cb triggers an
+		 * ap_free(), delay cleanup to avoid destroying the DHCP
+		 * server midway through l_dhcp_server_expire_by_mac().
+		 */
+		ap->in_event = true;
+
 		sta->ip_alloc_lease = NULL;
 		l_dhcp_server_expire_by_mac(ap->netconfig_dhcp, sta->addr);
-	}
 
-	/*
-	 * If the event handler tears the AP down, we've made sure above that
-	 * a subsequent ap_sta_free(sta) has no need to access sta->ap.
-	 */
-	if (send_event)
-		ap->ops->handle_event(AP_EVENT_STATION_REMOVED, &event_data,
-					ap->user_data);
+		ap_event_done(ap, prev);
+	}
 }
 
 static bool ap_sta_match_addr(const void *a, const void *b)
@@ -335,19 +377,16 @@ static void ap_del_key_cb(struct l_genl_msg *msg, void *user_data)
 static void ap_new_rsna(struct sta_state *sta)
 {
 	struct ap_state *ap = sta->ap;
+	struct ap_event_station_added_data event_data = {};
 
 	l_debug("STA "MAC" authenticated", MAC_STR(sta->addr));
 
 	sta->rsna = true;
 
-	if (ap->ops->handle_event) {
-		struct ap_event_station_added_data event_data = {};
-		event_data.mac = sta->addr;
-		event_data.assoc_ies = sta->assoc_ies;
-		event_data.assoc_ies_len = sta->assoc_ies_len;
-		ap->ops->handle_event(AP_EVENT_STATION_ADDED, &event_data,
-					ap->user_data);
-	}
+	event_data.mac = sta->addr;
+	event_data.assoc_ies = sta->assoc_ies;
+	event_data.assoc_ies_len = sta->assoc_ies_len;
+	ap_event(ap, AP_EVENT_STATION_ADDED, &event_data);
 }
 
 static void ap_drop_rsna(struct sta_state *sta)
@@ -356,6 +395,7 @@ static void ap_drop_rsna(struct sta_state *sta)
 	struct l_genl_msg *msg;
 	uint32_t ifindex = netdev_get_ifindex(sta->ap->netdev);
 	uint8_t key_id = 0;
+	struct ap_event_station_removed_data event_data = {};
 
 	sta->rsna = false;
 
@@ -380,12 +420,8 @@ static void ap_drop_rsna(struct sta_state *sta)
 
 	ap_stop_handshake(sta);
 
-	if (ap->ops->handle_event) {
-		struct ap_event_station_removed_data event_data = {};
-		event_data.mac = sta->addr;
-		ap->ops->handle_event(AP_EVENT_STATION_REMOVED, &event_data,
-					ap->user_data);
-	}
+	event_data.mac = sta->addr;
+	ap_event(ap, AP_EVENT_STATION_REMOVED, &event_data);
 }
 
 static void ap_set_rsn_info(struct ap_state *ap, struct ie_rsn_info *rsn)
@@ -405,7 +441,7 @@ static void ap_wsc_exit_pbc(struct ap_state *ap)
 	ap->wsc_dpid = 0;
 	ap_update_beacon(ap);
 
-	ap->ops->handle_event(AP_EVENT_PBC_MODE_EXIT, NULL, ap->user_data);
+	ap_event(ap, AP_EVENT_PBC_MODE_EXIT, NULL);
 }
 
 struct ap_pbc_record_expiry_data {
@@ -1090,9 +1126,7 @@ static void ap_wsc_handshake_event(struct handshake_state *hs,
 					&expiry_data);
 
 		event_data.mac = sta->addr;
-		sta->ap->ops->handle_event(AP_EVENT_REGISTRATION_SUCCESS,
-						&event_data,
-						sta->ap->user_data);
+		ap_event(sta->ap, AP_EVENT_REGISTRATION_SUCCESS, &event_data);
 		break;
 	default:
 		break;
@@ -1594,11 +1628,11 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 	const char *ssid = NULL;
 	const uint8_t *rsn = NULL;
 	size_t ssid_len = 0;
-	struct l_uintset *rates = NULL;
+	_auto_(l_uintset_free) struct l_uintset *rates = NULL;
 	struct ie_rsn_info rsn_info;
 	int err;
 	struct ie_tlv_iter iter;
-	uint8_t *wsc_data = NULL;
+	_auto_(l_free) uint8_t *wsc_data = NULL;
 	ssize_t wsc_data_len;
 	bool fils_ip_req = false;
 	struct ie_fils_ip_addr_request_info fils_ip_req_info;
@@ -1685,9 +1719,6 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 			goto bad_frame;
 		}
 
-		l_free(wsc_data);
-		wsc_data = NULL;
-
 		if (wsc_req.request_type !=
 				WSC_REQUEST_TYPE_ENROLLEE_OPEN_8021X) {
 			err = MMPDU_REASON_CODE_INVALID_IE;
@@ -1728,8 +1759,9 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 		event_data.mac = sta->addr;
 		event_data.assoc_ies = ies;
 		event_data.assoc_ies_len = ies_len;
-		ap->ops->handle_event(AP_EVENT_REGISTRATION_START, &event_data,
-					ap->user_data);
+
+		if (ap_event(ap, AP_EVENT_REGISTRATION_START, &event_data))
+			return;
 
 		/*
 		 * Since we're starting the PBC Registration Protocol
@@ -1781,7 +1813,7 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 	if (sta->rates)
 		l_uintset_free(sta->rates);
 
-	sta->rates = rates;
+	sta->rates = l_steal_ptr(rates);
 
 	l_free(sta->assoc_ies);
 
@@ -1822,11 +1854,6 @@ bad_frame:
 		ap_drop_rsna(sta);
 	else if (sta->associated)
 		ap_stop_handshake(sta);
-
-	if (rates)
-		l_uintset_free(rates);
-
-	l_free(wsc_data);
 
 	if (!ap_assoc_resp(ap, sta, sta->addr, err, reassoc,
 				req, (void *) ies + ies_len - (void *) req,
@@ -2209,6 +2236,7 @@ static void ap_start_failed(struct ap_state *ap, int err)
 {
 	struct ap_event_start_failed_data data = { err };
 
+	ap->in_event = true;
 	ap->ops->handle_event(AP_EVENT_START_FAILED, &data, ap->user_data);
 	ap_reset(ap);
 	l_genl_family_free(ap->nl80211);
@@ -2224,13 +2252,11 @@ static void ap_dhcp_event_cb(struct l_dhcp_server *server,
 
 	switch (event) {
 	case L_DHCP_SERVER_EVENT_NEW_LEASE:
-		ap->ops->handle_event(AP_EVENT_DHCP_NEW_LEASE, lease,
-					ap->user_data);
+		ap_event(ap, AP_EVENT_DHCP_NEW_LEASE, lease);
 		break;
 
 	case L_DHCP_SERVER_EVENT_LEASE_EXPIRED:
-		ap->ops->handle_event(AP_EVENT_DHCP_LEASE_EXPIRED, lease,
-					ap->user_data);
+		ap_event(ap, AP_EVENT_DHCP_LEASE_EXPIRED, lease);
 		break;
 
 	default:
@@ -2267,7 +2293,7 @@ static void ap_start_cb(struct l_genl_msg *msg, void *user_data)
 	}
 
 	ap->started = true;
-	ap->ops->handle_event(AP_EVENT_STARTED, NULL, ap->user_data);
+	ap_event(ap, AP_EVENT_STARTED, NULL);
 }
 
 static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
@@ -2552,6 +2578,8 @@ static void ap_mlme_notify(struct l_genl_msg *msg, void *user_data)
 
 	switch (l_genl_msg_get_command(msg)) {
 	case NL80211_CMD_STOP_AP:
+		ap->in_event = true;
+
 		if (ap->start_stop_cmd_id) {
 			struct ap_event_start_failed_data data = { -ECANCELED };
 
@@ -3304,7 +3332,9 @@ void ap_shutdown(struct ap_state *ap, ap_stopped_func_t stopped_func,
 
 	if (ap->started) {
 		ap->started = false;
-		ap->ops->handle_event(AP_EVENT_STOPPING, NULL, ap->user_data);
+
+		if (ap_event(ap, AP_EVENT_STOPPING, NULL))
+			return;
 	}
 
 	ap_reset(ap);
@@ -3355,6 +3385,11 @@ free_ap:
 /* Free @ap without a graceful shutdown */
 void ap_free(struct ap_state *ap)
 {
+	if (ap->in_event) {
+		ap->free_pending = true;
+		return;
+	}
+
 	ap_reset(ap);
 	l_genl_family_free(ap->nl80211);
 	l_free(ap);
