@@ -1628,6 +1628,10 @@ int scan_bss_rank_compare(const void *a, const void *b, void *user_data)
 {
 	const struct scan_bss *new_bss = a, *bss = b;
 
+	if (bss->rank == new_bss->rank)
+		return (bss->signal_strength >
+					new_bss->signal_strength) ? 1 : -1;
+
 	return (bss->rank > new_bss->rank) ? 1 : -1;
 }
 
