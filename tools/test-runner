@@ -955,7 +955,7 @@ class TestContext(Namespace):
 
 		else:
 			wpas_radios = [rad for rad in self.radios if rad.name in settings]
-			self.wpas_interfaces = [rad.create_interface('wpa_supplicant.conf', 'wpas') \
+			self.wpas_interfaces = [rad.create_interface(settings[rad.name], 'wpas') \
 						for rad in wpas_radios]
 
 	def start_ofono(self):
