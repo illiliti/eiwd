@@ -87,7 +87,7 @@ class Test(unittest.TestCase):
         config = open('/tmp/radvd.conf', 'w')
         config.write('interface ' + hapd.ifname + ' { AdvSendAdvert on; AdvManagedFlag on; };')
         config.close()
-        cls.radvd_pid = ctx.start_process(['radvd', '-n', '-C', '/tmp/radvd.conf'])
+        cls.radvd_pid = ctx.start_process(['radvd', '-n', '-d5', '-p', '/tmp/radvd.pid', '-C', '/tmp/radvd.conf'])
 
     @classmethod
     def tearDownClass(cls):
