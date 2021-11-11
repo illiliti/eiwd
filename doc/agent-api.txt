@@ -130,7 +130,7 @@ Examples	Requesting a passphrase for WPA2 network
 			==> "secret123"
 
 
-NetworkConfigurationAgent hierarchy
+NetworkConfigurationAgent hierarchy [experimental]
 ===================================
 
 Service		unique name
