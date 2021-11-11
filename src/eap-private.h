@@ -94,10 +94,14 @@ struct eap_method_desc {
 } __attribute__((aligned(8)));
 
 #define EAP_METHOD_BUILTIN(name, init, exit)				\
+	_Pragma("GCC diagnostic push")					\
+	_Pragma("GCC diagnostic ignored \"-Wattributes\"")		\
 	static struct eap_method_desc __eap_builtin_ ## name		\
-		__attribute__((used, section("__eap"), aligned(8))) = {	\
+		__attribute__((used, retain, section("__eap"),		\
+			       aligned(8))) = {				\
 			#name, init, exit				\
 		};							\
+	_Pragma("GCC diagnostic pop")
 
 int eap_register_method(struct eap_method *method);
 int eap_unregister_method(struct eap_method *method);

@@ -33,19 +33,25 @@ struct iwd_module_depends {
 };
 
 #define IWD_MODULE(name, init, exit)					\
+	_Pragma("GCC diagnostic push")					\
+	_Pragma("GCC diagnostic ignored \"-Wattributes\"")		\
 	static struct iwd_module_desc __iwd_module_ ## name		\
-		__attribute__((used, section("__iwd_module"), aligned(8))) = {\
+		__attribute__((used, retain, section("__iwd_module"),   \
+			       aligned(8))) = {				\
 			#name, init, exit				\
-		};
+		};							\
+	_Pragma("GCC diagnostic pop")
 
 #define IWD_MODULE_DEPENDS(name, dep)					\
-	static struct iwd_module_depends				\
-				__iwd_module__##name##_##dep		\
-		__attribute__((used, section("__iwd_module_dep"),       \
-					aligned(8))) = {		\
-			.self = #name,					\
-			.target = #dep,					\
-		};
+	_Pragma("GCC diagnostic push")                                  \
+	_Pragma("GCC diagnostic ignored \"-Wattributes\"")              \
+	static struct iwd_module_depends __iwd_module__##name##_##dep	\
+		__attribute__((used, retain,				\
+			section("__iwd_module_dep"), aligned(8))) = {	\
+				.self = #name,				\
+				.target = #dep,				\
+		};							\
+	_Pragma("GCC diagnostic pop")
 
 int iwd_modules_init(void);
 void iwd_modules_exit(void);
