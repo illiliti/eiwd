@@ -19,7 +19,7 @@ OS:
 	 1. qemu		2.4.1
 	 2. Linux kernel	4.20+
 	 3. dbus-daemon		1.11.18
-	 4. ifconfig		2.10-alpha
+	 4. iproute2
 	 5. iw			3.17
 	 6. python		3.9
 	 7. haveged		no ver. avail.

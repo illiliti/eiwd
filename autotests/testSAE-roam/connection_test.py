@@ -111,12 +111,12 @@ class Test(unittest.TestCase):
         self.validate_connection(wd, False)
 
     def tearDown(self):
-        os.system('ifconfig "' + self.bss_hostapd[0].ifname + '" down')
-        os.system('ifconfig "' + self.bss_hostapd[1].ifname + '" down')
-        os.system('ifconfig "' + self.bss_hostapd[2].ifname + '" down')
-        os.system('ifconfig "' + self.bss_hostapd[0].ifname + '" up')
-        os.system('ifconfig "' + self.bss_hostapd[1].ifname + '" up')
-        os.system('ifconfig "' + self.bss_hostapd[2].ifname + '" up')
+        os.system('ip link set "' + self.bss_hostapd[0].ifname + '" down')
+        os.system('ip link set "' + self.bss_hostapd[1].ifname + '" down')
+        os.system('ip link set "' + self.bss_hostapd[2].ifname + '" down')
+        os.system('ip link set "' + self.bss_hostapd[0].ifname + '" up')
+        os.system('ip link set "' + self.bss_hostapd[1].ifname + '" up')
+        os.system('ip link set "' + self.bss_hostapd[2].ifname + '" up')
 
     @classmethod
     def setUpClass(cls):
@@ -124,12 +124,15 @@ class Test(unittest.TestCase):
                             HostapdCLI(config='ft-sae-2.conf'),
                             HostapdCLI(config='ft-psk-3.conf') ]
 
-        ctx.start_process(['ifconfig', cls.bss_hostapd[0].ifname, 'down', 'hw', \
-                                'ether', '12:00:00:00:00:01', 'up']).wait()
-        ctx.start_process(['ifconfig', cls.bss_hostapd[1].ifname, 'down', 'hw', \
-                                'ether', '12:00:00:00:00:02', 'up']).wait()
-        ctx.start_process(['ifconfig', cls.bss_hostapd[2].ifname, 'down', 'hw', \
-                                'ether', '12:00:00:00:00:03', 'up']).wait()
+        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[0].ifname, 'down'])
+        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[0].ifname, \
+                           'addr', '12:00:00:00:00:01', 'up']).wait()
+        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[1].ifname, 'down'])
+        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[1].ifname, \
+                           'addr', '12:00:00:00:00:02', 'up']).wait()
+        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[2].ifname, 'down'])
+        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[2].ifname, \
+                           'addr', '12:00:00:00:00:03', 'up']).wait()
 
         # Set interface addresses to those expected by hostapd config files
         cls.bss_hostapd[0].reload()

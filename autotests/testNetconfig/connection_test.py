@@ -69,15 +69,15 @@ class Test(unittest.TestCase):
         # TODO: This could be moved into test-runner itself if other tests ever
         #       require this functionality (p2p, FILS, etc.). Since its simple
         #       enough it can stay here for now.
-        ctx.start_process(['ifconfig', hapd.ifname, '192.168.1.1',
-                            'netmask', '255.255.255.0']).wait()
+        ctx.start_process(['ip', 'addr','add','dev',  hapd.ifname,
+                           '192.168.1.1/255.255.255.0']).wait()
         ctx.start_process(['touch', '/tmp/dhcpd.leases']).wait()
         cls.dhcpd_pid = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf',
                                             '-lf', '/tmp/dhcpd.leases',
                                             hapd.ifname], cleanup=remove_lease4)
 
-        ctx.start_process(['ifconfig', hapd.ifname, 'inet6',
-                            'add', '3ffe:501:ffff:100::1/64']).wait()
+        ctx.start_process(['ip', 'addr', 'add', 'dev', hapd.ifname,
+                           '3ffe:501:ffff:100::1/64']).wait()
         ctx.start_process(['touch', '/tmp/dhcpd6.leases']).wait()
         cls.dhcpd6_pid = ctx.start_process(['dhcpd', '-6', '-f', '-cf', '/tmp/dhcpd-v6.conf',
                                             '-lf', '/tmp/dhcpd6.leases',

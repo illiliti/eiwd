@@ -150,10 +150,10 @@ class Test(unittest.TestCase):
         self.validate_connection(wd)
 
     def tearDown(self):
-        os.system('ifconfig "' + self.bss_hostapd[0].ifname + '" down')
-        os.system('ifconfig "' + self.bss_hostapd[1].ifname + '" down')
-        os.system('ifconfig "' + self.bss_hostapd[0].ifname + '" up')
-        os.system('ifconfig "' + self.bss_hostapd[1].ifname + '" up')
+        os.system('ip link set "' + self.bss_hostapd[0].ifname + '" down')
+        os.system('ip link set "' + self.bss_hostapd[1].ifname + '" down')
+        os.system('ip link set "' + self.bss_hostapd[0].ifname + '" up')
+        os.system('ip link set "' + self.bss_hostapd[1].ifname + '" up')
 
         self.rule0.enabled = False
 
@@ -175,10 +175,10 @@ class Test(unittest.TestCase):
         cls.rule0.drop = True
 
         # Set interface addresses to those expected by hostapd config files
-        os.system('ifconfig "' + cls.bss_hostapd[0].ifname +
-                '" down hw ether 12:00:00:00:00:01 up')
-        os.system('ifconfig "' + cls.bss_hostapd[1].ifname +
-                '" down hw ether 12:00:00:00:00:02 up')
+        os.system('ip link set dev "' + cls.bss_hostapd[0].ifname + '" down')
+        os.system('ip link set dev "' + cls.bss_hostapd[0].ifname + '" addr 12:00:00:00:00:01 up')
+        os.system('ip link set dev "' + cls.bss_hostapd[1].ifname + '" down')
+        os.system('ip link set dev "' + cls.bss_hostapd[1].ifname + '" addr 12:00:00:00:00:02 up')
 
         cls.bss_hostapd[0].reload()
         cls.bss_hostapd[0].wait_for_event("AP-ENABLED")
