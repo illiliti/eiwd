@@ -287,7 +287,7 @@ class Device(IWDDBusAbstract):
 
         IWDDBusAbstract.__init__(self, *args, **kwargs)
 
-        self._station_debug = StationDebug(*args, **kwargs)
+        self._station_debug = StationDebug(args[0])
 
     @property
     def _wps_manager(self):
