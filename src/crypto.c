@@ -321,9 +321,9 @@ static bool s2v(struct l_checksum *cmac, struct iovec *iov, size_t iov_len,
 /*
  * RFC 5297 Section 2.6 - SIV Encrypt
  */
-bool aes_siv_encrypt(const uint8_t *key, size_t key_len, const uint8_t *in,
+bool aes_siv_encrypt(const void *key, size_t key_len, const void *in,
 			size_t in_len, struct iovec *ad, size_t num_ad,
-			uint8_t *out)
+			void *out)
 {
 	struct l_checksum *cmac;
 	struct l_cipher *ctr;
@@ -374,9 +374,9 @@ free_ctr:
 	return false;
 }
 
-bool aes_siv_decrypt(const uint8_t *key, size_t key_len, const uint8_t *in,
+bool aes_siv_decrypt(const void *key, size_t key_len, const void *in,
 			size_t in_len, struct iovec *ad, size_t num_ad,
-			uint8_t *out)
+			void *out)
 {
 	struct l_checksum *cmac;
 	struct l_cipher *ctr;

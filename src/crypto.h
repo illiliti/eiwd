@@ -83,12 +83,12 @@ bool aes_wrap(const uint8_t *kek, const uint8_t *in, size_t len, uint8_t *out);
 bool arc4_skip(const uint8_t *key, size_t key_len, size_t skip,
 		const uint8_t *in, size_t len, uint8_t *out);
 
-bool aes_siv_encrypt(const uint8_t *key, size_t key_len, const uint8_t *in,
+bool aes_siv_encrypt(const void *key, size_t key_len, const void *in,
 			size_t in_len, struct iovec *ad, size_t num_ad,
-			uint8_t *out);
-bool aes_siv_decrypt(const uint8_t *key, size_t key_len, const uint8_t *in,
+			void *out);
+bool aes_siv_decrypt(const void *key, size_t key_len, const void *in,
 			size_t in_len, struct iovec *ad, size_t num_ad,
-			uint8_t *out);
+			void *out);
 
 int crypto_cipher_key_len(enum crypto_cipher cipher);
 int crypto_cipher_tk_bits(enum crypto_cipher cipher);
