@@ -118,6 +118,7 @@ struct wiphy {
 	char regdom_country[2];
 	/* Work queue for this radio */
 	struct l_queue *work;
+	bool work_in_callback;
 
 	bool support_scheduled_scan:1;
 	bool support_rekey_offload:1;
@@ -1924,14 +1925,19 @@ static void wiphy_radio_work_next(struct wiphy *wiphy)
 	work->priority = INT_MIN;
 
 	l_debug("Starting work item %u", work->id);
+
+	wiphy->work_in_callback = true;
 	done = work->ops->do_work(work);
+	wiphy->work_in_callback = false;
 
 	if (done) {
 		work->id = 0;
 
 		l_queue_remove(wiphy->work, work);
 
+		wiphy->work_in_callback = true;
 		destroy_work(work);
+		wiphy->work_in_callback = false;
 
 		wiphy_radio_work_next(wiphy);
 	}
@@ -1961,7 +1967,7 @@ uint32_t wiphy_radio_work_insert(struct wiphy *wiphy,
 
 	l_queue_insert(wiphy->work, item, insert_by_priority, NULL);
 
-	if (l_queue_length(wiphy->work) == 1)
+	if (l_queue_length(wiphy->work) == 1 && !wiphy->work_in_callback)
 		wiphy_radio_work_next(wiphy);
 
 	return item->id;
@@ -1999,7 +2005,9 @@ void wiphy_radio_work_done(struct wiphy *wiphy, uint32_t id)
 
 	item->id = 0;
 
+	wiphy->work_in_callback = true;
 	destroy_work(item);
+	wiphy->work_in_callback = false;
 
 	if (next)
 		wiphy_radio_work_next(wiphy);
