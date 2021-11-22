@@ -860,7 +860,7 @@ bool hkdf_extract(enum l_checksum_type type, const void *key,
 	return (ret == (int) dlen);
 }
 
-bool hkdf_expand(enum l_checksum_type type, const uint8_t *key, size_t key_len,
+bool hkdf_expand(enum l_checksum_type type, const void *key, size_t key_len,
 			const char *info, void *out, size_t out_len)
 {
 	return prf_plus(type, key, key_len, info, out, out_len, 0);

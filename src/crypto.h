@@ -122,7 +122,7 @@ bool prf_plus(enum l_checksum_type type, const void *key, size_t key_len,
 bool hkdf_extract(enum l_checksum_type type, const void *key, size_t key_len,
 				uint8_t num_args, void *out, ...);
 
-bool hkdf_expand(enum l_checksum_type type, const uint8_t *key, size_t key_len,
+bool hkdf_expand(enum l_checksum_type type, const void *key, size_t key_len,
 				const char *info, void *out, size_t out_len);
 
 bool crypto_derive_pairwise_ptk(const uint8_t *pmk, size_t pmk_len,
