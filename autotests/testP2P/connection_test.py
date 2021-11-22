@@ -12,6 +12,8 @@ from config import ctx
 from wpas import Wpas
 
 class Test(unittest.TestCase):
+    leases_path = '/tmp/dhcp.lease'
+
     def test_1_client_go_neg_responder(self):
         self.p2p_connect_test(preauthorize=False, go=False)
 
@@ -92,10 +94,11 @@ class Test(unittest.TestCase):
         peer_ifname = wpas.p2p_group['ifname']
         self.assertEqual(wpas.p2p_group['role'], 'GO' if not go else 'client')
 
+        os.system('> ' + self.leases_path)
+
         if not go:
             ctx.start_process(['ip', 'addr', 'add','dev', peer_ifname, '192.168.1.20/255.255.255.0']).wait()
-            os.system('> /tmp/dhcp.leases')
-            dhcp = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf', '-lf', '/tmp/dhcp.leases', peer_ifname])
+            dhcp = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf', '-lf', self.leases_path, peer_ifname])
             self.dhcp = dhcp
 
             wd.wait_for_object_condition(wpas, 'len(obj.p2p_clients) == 1', max_wait=3)
@@ -105,12 +108,17 @@ class Test(unittest.TestCase):
             self.assertEqual(wpas.p2p_group['ip_addr'], '192.168.1.2')
             self.assertEqual(wpas.p2p_group['ip_mask'], '255.255.255.240')
             self.assertEqual(wpas.p2p_group['go_ip_addr'], '192.168.1.1')
-            dhcp = ctx.start_process(['dhclient', '-v', '-d', '--no-pid', '-cf', '/dev/null', '-lf', '/tmp/dhcp.leases',
-                '-sf', '/tmp/dhclient-script', peer_ifname])
+
+            extra_params = []
+            if ctx.is_verbose('dhclient'):
+                extra_params.append('-v')
+
+            dhcp = ctx.start_process(['dhclient', '-d', '--no-pid', '-cf', '/dev/null', '-lf', self.leases_path,
+                '-sf', '/tmp/dhclient-script'] + extra_params + [peer_ifname])
             self.dhcp = dhcp
 
         wd.wait_for_object_condition(peer, 'obj.connected', max_wait=15)
-        time.sleep(1) # Give the client time to set the IP
+        time.sleep(5) # Give the client time to set the IP
         testutil.test_ip_address_match(peer_ifname, peer.connected_ip)
 
         if not go:
@@ -146,7 +154,7 @@ class Test(unittest.TestCase):
             self.wpas = None
         if self.dhcp is not None:
             ctx.stop_process(self.dhcp)
-        for path in ['/tmp/dhcp.leases']:
+        for path in [self.leases_path, self.leases_path + '~']:
             if os.path.exists(path):
                 os.remove(path)
 
