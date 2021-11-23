@@ -1165,8 +1165,7 @@ static void netdev_disconnect_event(struct l_genl_msg *msg,
 
 	l_debug("");
 
-	if (!netdev->connected || netdev->disconnect_cmd_id > 0 ||
-			netdev->in_ft || netdev->in_reassoc)
+	if (!netdev->connected || netdev->disconnect_cmd_id > 0)
 		return;
 
 	if (!l_genl_attr_init(&attr, msg)) {
@@ -1189,6 +1188,13 @@ static void netdev_disconnect_event(struct l_genl_msg *msg,
 			break;
 		}
 	}
+
+	/*
+	 * Only ignore this event if issued by the kernel since this is
+	 * normal when using CMD_AUTH/ASSOC.
+	 */
+	if (!disconnect_by_ap && (netdev->in_ft || netdev->in_reassoc))
+		return;
 
 	l_info("Received Deauthentication event, reason: %hu, from_ap: %s",
 			reason_code, disconnect_by_ap ? "true" : "false");
@@ -3171,6 +3177,7 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 
 	if (!netdev->ap) {
 		netdev->associated = true;
+		netdev->in_reassoc = false;
 		return;
 	}
 
