@@ -100,6 +100,10 @@ class Test(unittest.TestCase):
         self.assertRaises(Exception, testutil.test_ifaces_connected,
                           (self.bss_hostapd[1].ifname, device.name, True, True))
 
+        self.bss_hostapd[0].deauthenticate(device.address)
+        condition = 'obj.state == DeviceState.disconnected'
+        wd.wait_for_object_condition(device, condition)
+
     def test_ft_psk(self):
         wd = IWD(True)
 
