@@ -437,7 +437,7 @@ class Device(IWDDBusAbstract):
 
         self._wait_for_async_op()
 
-    def get_ordered_networks(self, scan_if_needed = True, full_scan = False):
+    def get_ordered_networks(self, scan_if_needed = True, full_scan = False, list = []):
         '''Return the list of networks found in the most recent
            scan, sorted by their user interface importance
            score as calculated by iwd.  If the device is
@@ -454,7 +454,10 @@ class Device(IWDDBusAbstract):
             ordered_network = OrderedNetwork(bus_obj, self._bus, self._namespace)
             ordered_networks.append(ordered_network)
 
-        if len(ordered_networks) > 0:
+        names = [x.name for x in ordered_networks]
+
+        # all() will always return true if 'list' is empty
+        if all(x in names for x in list) and len(names) > 0:
             return ordered_networks
         elif not scan_if_needed:
             return None
@@ -489,8 +492,8 @@ class Device(IWDDBusAbstract):
            network wasn't found. If the network is not found an exception is
            raised, this removes the need to extra asserts in autotests.
         '''
-        def wait_for_network(self, network, scan_if_needed):
-            networks = self.get_ordered_networks(scan_if_needed)
+        def wait_for_network(self, network, scan_if_needed, full_scan):
+            networks = self.get_ordered_networks(scan_if_needed, full_scan, list=[network])
 
             if not networks:
                 # No point in continuing if we aren't going to re-scan
@@ -505,7 +508,7 @@ class Device(IWDDBusAbstract):
 
             return False
 
-        return ctx.non_block_wait(wait_for_network, 30, self, network, scan_if_needed,
+        return ctx.non_block_wait(wait_for_network, 30, self, network, scan_if_needed, full_scan,
                                     exception=Exception("Network %s not found" % network))
 
     def wps_push_button(self):

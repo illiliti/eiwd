@@ -315,7 +315,8 @@ static void proxy_callback(struct l_dbus_message *message, void *user_data)
 	}
 
 	proxy = callback_data->user_data;
-	if (!strcmp(proxy->type->interface, IWD_AGENT_MANAGER_INTERFACE))
+	if (!strcmp(proxy->type->interface, IWD_AGENT_MANAGER_INTERFACE) ||
+			!strcmp(proxy->type->interface, IWD_DAEMON_INTERFACE))
 		return;
 
 quit:

@@ -1058,6 +1058,7 @@ static void scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
 {
 	uint16_t cost_level;
 	uint16_t cost_flags;
+	bool dgaf_disable;
 
 	if (!bss->wpa && is_ie_wpa_ie(data, len)) {
 		bss->wpa = l_memdup(data - 2, len + 2);
@@ -1071,9 +1072,11 @@ static void scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
 
 	if (is_ie_wfa_ie(data, len, IE_WFA_OI_HS20_INDICATION)) {
 		if (ie_parse_hs20_indication_from_data(data - 2, len + 2,
-					&bss->hs20_version, NULL, NULL) < 0)
+					&bss->hs20_version, NULL, NULL,
+					&dgaf_disable) < 0)
 			return;
 
+		bss->hs20_dgaf_disable = dgaf_disable;
 		bss->hs20_capable = true;
 		return;
 	}
@@ -1252,6 +1255,23 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 			bss->rc_ie = l_memdup(iter.data - 2, iter.len + 2);
 
 			break;
+
+		case IE_TYPE_EXTENDED_CAPABILITIES:
+			/* 802.11-2020 9.4.2.26
+			 *
+			 * "The length of the Extended Capabilities field is
+			 * variable. If fewer bits are received in an Extended
+			 * Capabilities field than shown in Table 9-153, the
+			 * rest of the Extended Capabilities field bits are
+			 * assumed to be zero"
+			 *
+			 * Currently only Proxy ARP bit (12) is checked, and if
+			 * not found, this is not a fatal error.
+			 */
+			if (iter.len < 2)
+				break;
+
+			bss->proxy_arp = test_bit(iter.data, 12);
 		}
 	}
 
@@ -1607,6 +1627,10 @@ int scan_bss_get_rsn_info(const struct scan_bss *bss, struct ie_rsn_info *info)
 int scan_bss_rank_compare(const void *a, const void *b, void *user_data)
 {
 	const struct scan_bss *new_bss = a, *bss = b;
+
+	if (bss->rank == new_bss->rank)
+		return (bss->signal_strength >
+					new_bss->signal_strength) ? 1 : -1;
 
 	return (bss->rank > new_bss->rank) ? 1 : -1;
 }

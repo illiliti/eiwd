@@ -45,7 +45,7 @@ TIOCSTTY = 0x540E
 config = None
 intf_id = 0
 
-TEST_MAX_TIMEOUT = 120
+TEST_MAX_TIMEOUT = 240
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
@@ -361,7 +361,7 @@ class Interface:
 		Process(['iw', 'dev', self.name, 'del']).wait()
 
 	def set_interface_state(self, state):
-		Process(['ifconfig', self.name, state]).wait()
+		Process(['ip', 'link', 'set', self.name, state]).wait()
 
 class Radio:
 	def __init__(self, name):
@@ -955,7 +955,7 @@ class TestContext(Namespace):
 
 		else:
 			wpas_radios = [rad for rad in self.radios if rad.name in settings]
-			self.wpas_interfaces = [rad.create_interface('wpa_supplicant.conf', 'wpas') \
+			self.wpas_interfaces = [rad.create_interface(settings[rad.name], 'wpas') \
 						for rad in wpas_radios]
 
 	def start_ofono(self):
@@ -971,7 +971,7 @@ class TestContext(Namespace):
 			print("Ofono or Phonesim not found, skipping test")
 			return
 
-		Process(['ifconfig', 'lo', 'up']).wait()
+		Process(['ip', 'link', 'set', 'lo', 'up']).wait()
 
 		os.environ['OFONO_PHONESIM_CONFIG'] = '/tmp/phonesim.conf'
 
@@ -1358,7 +1358,7 @@ def post_test(ctx, to_copy):
 			else:
 				os.remove('/tmp/' + f)
 
-		Process(['ifconfig', 'lo', 'down']).wait()
+		Process(['ip', 'link', 'set', 'lo', 'down']).wait()
 	except Exception as e:
 		print("Exception thrown in post_test")
 	finally:

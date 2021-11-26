@@ -8,6 +8,7 @@ import iwd
 from iwd import IWD
 from iwd import NetworkType
 from hostapd import HostapdCLI
+from hwsim import Hwsim
 import testutil
 
 class Test(unittest.TestCase):
@@ -220,12 +221,46 @@ class Test(unittest.TestCase):
 
         self.validate(self.wd, self.hapd_open)
 
+    # OWE Transition pair + additional open network with the same SSID
+    def test_owe_transition_extra_open(self):
+        self.hapd_open.set_value('vendor_elements', 'dd15506f9a1c02000000f1000a6f77652d68696464656e')
+        self.hapd_open.reload()
+        self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000f0000a7472616e736974696f6e')
+        self.hapd_owe.reload()
+
+        self.hapd_open2.set_value('ssid', 'transition')
+        self.hapd_open2.reload()
+
+        self.hapd_owe2.disable()
+
+        # Set the open network signal strength very low so it gets put last on
+        # the network bss_list, forcing the additional open network to be
+        # checked first.
+        self.rule0 = self.hwsim.rules.create()
+        self.rule0.source = self.hwsim.get_radio('rad0').addresses[0]
+        self.rule0.signal = -4000
+        self.rule0.enabled = True
+
+        devices = self.wd.list_devices(1)
+        device = devices[0]
+
+        device.scan()
+        condition = 'obj.scanning'
+        self.wd.wait_for_object_condition(device, condition)
+        condition = 'not obj.scanning'
+        self.wd.wait_for_object_condition(device, condition)
+
+
+        self.validate(self.wd, self.hapd_owe)
+
     def setUp(self):
         self.wd = IWD(True)
         self.hapd_owe = HostapdCLI(config='ssidOWE.conf')
         self.hapd_open = HostapdCLI(config='ssidOpen.conf')
         self.hapd_owe2 = HostapdCLI(config='ssidOWE-2.conf')
         self.hapd_open2 = HostapdCLI(config='ssidOpen-2.conf')
+
+        self.hwsim = Hwsim()
 
     def tearDown(self):
         IWD.clear_storage()
@@ -235,6 +270,7 @@ class Test(unittest.TestCase):
         self.wd = None
         self.hapd_open = None
         self.hapd_owe = None
+        self.hwsim = None
 
     @classmethod
     def setUpClass(cls):

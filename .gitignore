@@ -4,6 +4,8 @@
 .libs
 .deps
 .dirstamp
+tags
+cscope.*
 Makefile
 Makefile.in
 aclocal.m4

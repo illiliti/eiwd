@@ -413,8 +413,14 @@ static const char *eap_type_to_str(enum eap_type type, uint32_t vendor_id,
 	return buf;
 }
 
+_Pragma("GCC diagnostic push")
+_Pragma("GCC diagnostic ignored \"-Wmaybe-uninitialized\"")
 #define IS_EXPANDED_RESPONSE(id, t) \
 	(type == EAP_TYPE_EXPANDED && vendor_id == (id) && vendor_type == (t))
+_Pragma("GCC diagnostic pop")
+
+#define RESPONSE_IS(t) \
+	(type == (t) || IS_EXPANDED_RESPONSE(0, (t)))
 
 static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 				size_t len)
@@ -427,14 +433,6 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 				(eap->method->vendor_id[1] << 8) |
 				eap->method->vendor_id[2];
 	uint32_t our_vendor_type = eap->method->vendor_type;
-
-	bool response_is(enum eap_type wanted)
-	{
-		if (type == wanted)
-			return true;
-
-		return IS_EXPANDED_RESPONSE(0, wanted);
-	}
 
 	if (len < 1)
 		/* Invalid packets to be ignored */
@@ -461,7 +459,7 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 			return;
 	}
 
-	if (response_is(EAP_TYPE_NAK)) {
+	if (RESPONSE_IS(EAP_TYPE_NAK)) {
 		l_debug("EAP peer not configured for method: %s",
 			eap_type_to_str(our_type, our_vendor_id,
 							our_vendor_type));
@@ -500,7 +498,7 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 	 */
 
 	if (!eap->identity) {
-		if (!response_is(EAP_TYPE_IDENTITY))
+		if (!RESPONSE_IS(EAP_TYPE_IDENTITY))
 			goto unsupported_method;
 
 		/*
@@ -528,7 +526,7 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 	 * (with the exception of the Nak)
 	 */
 	if (our_type != EAP_TYPE_EXPANDED) {
-		if (response_is(our_type))
+		if (RESPONSE_IS(our_type))
 			goto handle_response;
 	} else if (IS_EXPANDED_RESPONSE(our_vendor_id, our_vendor_type))
 		goto handle_response;

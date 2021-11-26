@@ -118,10 +118,14 @@ struct interface_type_desc {
 } __attribute__((aligned(8)));
 
 #define INTERFACE_TYPE(interface, init, exit)				\
+	_Pragma("GCC diagnostic push")					\
+	_Pragma("GCC diagnostic ignored \"-Wattributes\"")		\
 	static struct interface_type_desc __interface_type_ ## interface\
-		__attribute__((used, section("__interface"), aligned(8))) = {\
+		__attribute__((used, retain, section("__interface"),	\
+					aligned(8))) = {		\
 			#interface, init, exit				\
 		};							\
+	_Pragma("GCC diagnostic pop")
 
 bool dbus_proxy_init(void);
 bool dbus_proxy_exit(void);

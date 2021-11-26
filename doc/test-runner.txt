@@ -19,9 +19,9 @@ OS:
 	 1. qemu		2.4.1
 	 2. Linux kernel	4.20+
 	 3. dbus-daemon		1.11.18
-	 4. ifconfig		2.10-alpha
+	 4. iproute2
 	 5. iw			3.17
-	 6. python		2.7
+	 6. python		3.9
 	 7. haveged		no ver. avail.
 	 8. hostapd		recent
 	 9. <iwd>/tools/hwsim	0.0
@@ -29,6 +29,7 @@ OS:
 	11. ofono (optional)
 	12. phonesim (optional)
 	13. wpa_supplicant	2.9
+	14. radvd		2.18
 
 Note: The version for hostapd is listed as 'recent'. Older hostapd versions
 will work but we are continually adopting new features from hostapd and using

@@ -37,9 +37,9 @@ class Test(unittest.TestCase):
             condition = 'not obj.scanning'
             wd.wait_for_object_condition(dev2, condition)
 
-            ordered_networks = dev2.get_ordered_networks()
+            networks = {}
+            networks['APConfig'] = dev2.get_ordered_network('APConfig', full_scan=True)
 
-            networks = { n.name: n for n in ordered_networks }
             self.assertEqual(networks['APConfig'].type, NetworkType.psk)
 
             psk_agent = PSKAgent('password123')

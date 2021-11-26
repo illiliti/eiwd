@@ -62,7 +62,7 @@ class Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         IWD.copy_to_storage('ssidFILS-256.8021x')
-        os.system('ifconfig lo up')
+        os.system('ip link set lo up')
         pass
 
     @classmethod

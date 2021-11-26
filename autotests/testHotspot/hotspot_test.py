@@ -14,11 +14,7 @@ import testutil
 
 class Test(unittest.TestCase):
 
-    def test_connection_success(self):
-        wd = self.wd
-
-        hapd = HostapdCLI(config='ssidHotspot.conf')
-
+    def validate_connection(self, wd, hapd, dgaf_disable=False):
         psk_agent = PSKAgent('abc', ('domain\\user', 'testpasswd'))
         wd.register_psk_agent(psk_agent)
 
@@ -38,7 +34,16 @@ class Test(unittest.TestCase):
         wd.wait_for_object_condition(device, condition)
 
         testutil.test_iface_operstate()
-        testutil.test_ifaces_connected(device.name, hapd.ifname)
+
+        if not dgaf_disable:
+            testutil.test_ifaces_connected(device.name, hapd.ifname)
+        else:
+            # This is expected to fail with group traffic
+            with self.assertRaises(Exception):
+                testutil.test_ifaces_connected(device.name, hapd.ifname, expect_fail=True)
+
+            # Now try again without testing group traffic
+            testutil.test_ifaces_connected(device.name, hapd.ifname, group=False)
 
         device.disconnect()
 
@@ -46,6 +51,20 @@ class Test(unittest.TestCase):
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
         wd.unregister_psk_agent(psk_agent)
+
+    def test_hotspot(self):
+        hapd = HostapdCLI(config='ssidHotspot.conf')
+        hapd.set_value('disable_dgaf', '0')
+        hapd.reload()
+
+        self.validate_connection(self.wd, hapd)
+
+    def test_dgaf_disabled(self):
+        hapd = HostapdCLI(config='ssidHotspot.conf')
+        hapd.set_value('disable_dgaf', '1')
+        hapd.reload()
+
+        self.validate_connection(self.wd, hapd, dgaf_disable=True)
 
     @classmethod
     def setUpClass(cls):

@@ -36,7 +36,7 @@ bool netconfig_load_settings(struct netconfig *netconfig,
 bool netconfig_configure(struct netconfig *netconfig,
 				netconfig_notify_func_t notify,
 				void *user_data);
-bool netconfig_reconfigure(struct netconfig *netconfig);
+bool netconfig_reconfigure(struct netconfig *netconfig, bool set_arp_gw);
 bool netconfig_reset(struct netconfig *netconfig);
 char *netconfig_get_dhcp_server_ipv4(struct netconfig *netconfig);
 bool netconfig_get_fils_ip_req(struct netconfig *netconfig,

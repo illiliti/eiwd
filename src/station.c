@@ -57,12 +57,15 @@
 #include "src/anqputil.h"
 #include "src/diagnostic.h"
 #include "src/frame-xchg.h"
+#include "src/sysfs.h"
 
 static struct l_queue *station_list;
 static uint32_t netdev_watch;
 static uint32_t mfp_setting;
 static uint32_t roam_retry_interval;
 static bool anqp_disabled;
+static bool supports_arp_evict_nocarrier;
+static bool supports_ndisc_evict_nocarrier;
 static struct watchlist event_watches;
 
 struct station {
@@ -696,6 +699,10 @@ static bool network_has_open_pair(struct network *network, struct scan_bss *owe)
 				entry = entry->next) {
 		struct scan_bss *open = entry->data;
 		struct ie_owe_transition_info *open_info = open->owe_trans;
+
+		/* AP does not advertise owe transition */
+		if (!open_info)
+			continue;
 
 		/*
 		 * Check if this is an Open/Hidden pair:
@@ -1386,6 +1393,44 @@ static const char *station_state_to_string(enum station_state state)
 	return "invalid";
 }
 
+static void station_set_evict_nocarrier(struct station *station, bool value)
+{
+	char *v = value ? "1" : "0";
+
+	if (supports_arp_evict_nocarrier)
+		sysfs_write_ipv4_setting(netdev_get_name(station->netdev),
+					"arp_evict_nocarrier", v);
+
+	if (supports_ndisc_evict_nocarrier)
+		sysfs_write_ipv6_setting(netdev_get_name(station->netdev),
+					"ndisc_evict_nocarrier", v);
+}
+
+/*
+ * Handles dropping ARP (IPv4) and neighbor advertisements (IPv6) settings.
+ */
+static void station_set_drop_neighbor_discovery(struct station *station,
+						bool value)
+{
+	char *v = value ? "1" : "0";
+
+	sysfs_write_ipv4_setting(netdev_get_name(station->netdev),
+				"drop_gratuitous_arp", v);
+	sysfs_write_ipv6_setting(netdev_get_name(station->netdev),
+				"drop_unsolicited_na", v);
+}
+
+static void station_set_drop_unicast_l2_multicast(struct station *station,
+							bool value)
+{
+	char *v = value ? "1" : "0";
+
+	sysfs_write_ipv4_setting(netdev_get_name(station->netdev),
+				"drop_unicast_in_l2_multicast", v);
+	sysfs_write_ipv6_setting(netdev_get_name(station->netdev),
+				"drop_unicast_in_l2_multicast", v);
+}
+
 static void station_enter_state(struct station *station,
 						enum station_state state)
 {
@@ -1439,9 +1484,6 @@ static void station_enter_state(struct station *station,
 
 		periodic_scan_stop(station);
 		break;
-	case STATION_STATE_DISCONNECTED:
-		periodic_scan_stop(station);
-		break;
 	case STATION_STATE_CONNECTED:
 #ifdef HAVE_DBUS
 		l_dbus_object_add_interface(dbus,
@@ -1450,10 +1492,40 @@ static void station_enter_state(struct station *station,
 					station);
 #endif
 		periodic_scan_stop(station);
+
+		station_set_evict_nocarrier(station, true);
+
+		/*
+		 * Hotspot Specification 2.0 - Section 6.5
+		 *
+		 * " - Shall drop all received {gratuitous ARP, unsolicited
+		 *     Neighbor Advertisement} messages when the Proxy ARP field
+		 *     is set to 1 in the Extended Capabilities element of the
+		 *     serving AP.
+		 *
+		 *   - When the serving AP transmits frames containing an HS2.0
+		 *     Indication element in which the value of the DGAF Disable
+		 *     bit subfield is set to 0, the mobile device should
+		 *     discard all received unicast IP packets that were
+		 *     decrypted using the GTK"
+		 */
+		if (station->connected_bss->proxy_arp)
+			station_set_drop_neighbor_discovery(station, true);
+		if (station->connected_bss->hs20_dgaf_disable)
+			station_set_drop_unicast_l2_multicast(station, true);
+
+		break;
+	case STATION_STATE_DISCONNECTED:
+		periodic_scan_stop(station);
+
+		station_set_evict_nocarrier(station, true);
+		station_set_drop_neighbor_discovery(station, false);
+		station_set_drop_unicast_l2_multicast(station, false);
 		break;
 	case STATION_STATE_DISCONNECTING:
 		break;
 	case STATION_STATE_ROAMING:
+		station_set_evict_nocarrier(station, false);
 		break;
 	}
 
@@ -1847,7 +1919,8 @@ static void station_roamed(struct station *station)
 		station_roam_timeout_rearm(station, roam_retry_interval);
 
 	if (station->netconfig)
-		netconfig_reconfigure(station->netconfig);
+		netconfig_reconfigure(station->netconfig,
+					!supports_arp_evict_nocarrier);
 
 	if (station->roam_freqs) {
 		scan_freq_set_free(station->roam_freqs);
@@ -4494,6 +4567,11 @@ static int station_init(void)
 
 	if (!netconfig_enabled())
 		l_info("station: Network configuration is disabled.");
+
+	supports_arp_evict_nocarrier = sysfs_supports_ipv4_setting("all",
+						"arp_evict_nocarrier");
+	supports_ndisc_evict_nocarrier = sysfs_supports_ipv6_setting("all",
+						"ndisc_evict_nocarrier");
 
 	watchlist_init(&event_watches, NULL);
 

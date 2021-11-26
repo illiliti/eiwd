@@ -50,6 +50,7 @@
 #include "src/util.h"
 #include "src/ie.h"
 #include "src/netconfig.h"
+#include "src/sysfs.h"
 
 struct netconfig {
 	uint32_t ifindex;
@@ -100,38 +101,6 @@ static void do_debug(const char *str, void *user_data)
 	const char *prefix = user_data;
 
 	l_info("%s%s", prefix, str);
-}
-
-static int write_string(const char *file, const char *value)
-{
-	size_t l = strlen(value);
-	int fd;
-	int r;
-
-	fd = L_TFR(open(file, O_WRONLY));
-	if (fd < 0)
-		return -errno;
-
-	r = L_TFR(write(fd, value, l));
-	L_TFR(close(fd));
-
-	return r;
-}
-
-static int sysfs_write_ipv6_setting(const char *ifname, const char *setting,
-					const char *value)
-{
-	int r;
-
-	L_AUTO_FREE_VAR(char *, file) =
-		l_strdup_printf("/proc/sys/net/ipv6/conf/%s/%s",
-							ifname, setting);
-
-	r = write_string(file, value);
-	if (r < 0)
-		l_error("Unable to write %s to %s", setting, file);
-
-	return r;
 }
 
 static void netconfig_free_settings(struct netconfig *netconfig)
@@ -205,6 +174,36 @@ static inline char *netconfig_ipv6_to_string(const uint8_t *addr)
 	}
 
 	return addr_str;
+}
+
+static bool netconfig_use_fils_addr(struct netconfig *netconfig, int af)
+{
+	if ((af == AF_INET ? netconfig->rtm_protocol :
+				netconfig->rtm_v6_protocol) != RTPROT_DHCP)
+		return false;
+
+	if (!netconfig->fils_override)
+		return false;
+
+	if (af == AF_INET)
+		return !!netconfig->fils_override->ipv4_addr;
+
+	return !l_memeqzero(netconfig->fils_override->ipv6_addr, 16);
+}
+
+static bool netconfig_use_fils_gateway(struct netconfig *netconfig, int af)
+{
+	if ((af == AF_INET ? netconfig->rtm_protocol :
+				netconfig->rtm_v6_protocol) != RTPROT_DHCP)
+		return false;
+
+	if (!netconfig->fils_override)
+		return false;
+
+	if (af == AF_INET)
+		return !!netconfig->fils_override->ipv4_gateway;
+
+	return !l_memeqzero(netconfig->fils_override->ipv6_gateway, 16);
 }
 
 static char **netconfig_get_dns_list(struct netconfig *netconfig, int af,
@@ -490,7 +489,7 @@ static char *netconfig_ipv4_get_gateway(struct netconfig *netconfig,
 		return gateway;
 
 	case RTPROT_DHCP:
-		if (fils && fils->ipv4_gateway) {
+		if (netconfig_use_fils_gateway(netconfig, AF_INET)) {
 			gateway = netconfig_ipv4_to_string(fils->ipv4_gateway);
 
 			if (gateway && out_mac &&
@@ -558,10 +557,7 @@ static struct l_rtnl_route *netconfig_get_static6_gateway(
 
 	gateway = l_settings_get_string(netconfig->active_settings,
 						"IPv6", "Gateway");
-	if (!gateway && netconfig->rtm_v6_protocol == RTPROT_DHCP &&
-			netconfig->fils_override &&
-			!l_memeqzero(netconfig->fils_override->ipv6_gateway,
-					16)) {
+	if (!gateway && netconfig_use_fils_gateway(netconfig, AF_INET6)) {
 		gateway = netconfig_ipv6_to_string(
 					netconfig->fils_override->ipv6_gateway);
 
@@ -729,8 +725,7 @@ static void netconfig_ifaddr_ipv6_added(struct netconfig *netconfig,
 			ip, ifa->ifa_prefixlen);
 
 	if (netconfig->rtm_v6_protocol != RTPROT_DHCP ||
-			(netconfig->fils_override &&
-			 !l_memeqzero(netconfig->fils_override->ipv6_addr, 16)))
+			netconfig_use_fils_addr(netconfig, AF_INET6))
 		return;
 
 	inet_pton(AF_INET6, ip, &in6);
@@ -844,10 +839,8 @@ static void netconfig_route6_add_cb(int error, uint16_t type,
 	}
 }
 
-static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
+static bool netconfig_ipv4_subnet_route_install(struct netconfig *netconfig)
 {
-	L_AUTO_FREE_VAR(char *, gateway) = NULL;
-	const uint8_t *gateway_mac = NULL;
 	struct in_addr in_addr;
 	char ip[INET_ADDRSTRLEN];
 	char network[INET_ADDRSTRLEN];
@@ -870,9 +863,18 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 						netconfig_route_generic_cb,
 						netconfig, NULL)) {
 		l_error("netconfig: Failed to add subnet route.");
-
 		return false;
 	}
+
+	return true;
+}
+
+static bool netconfig_ipv4_gateway_route_install(struct netconfig *netconfig)
+{
+	L_AUTO_FREE_VAR(char *, gateway) = NULL;
+	const uint8_t *gateway_mac = NULL;
+	struct in_addr in_addr;
+	char ip[INET_ADDRSTRLEN];
 
 	gateway = netconfig_ipv4_get_gateway(netconfig, &gateway_mac);
 	if (!gateway) {
@@ -889,6 +891,10 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 		return true;
 	}
 
+	if (!l_rtnl_address_get_address(netconfig->v4_address, ip) ||
+			inet_pton(AF_INET, ip, &in_addr) < 1)
+		return false;
+
 	netconfig->route4_add_gateway_cmd_id =
 		l_rtnl_route4_add_gateway(rtnl, netconfig->ifindex, gateway, ip,
 						ROUTE_PRIORITY_OFFSET,
@@ -902,23 +908,20 @@ static bool netconfig_ipv4_routes_install(struct netconfig *netconfig)
 		return false;
 	}
 
-	if (gateway_mac) {
-		/*
-		 * Attempt to use the gateway MAC address received from the AP
-		 * by writing the mapping directly into the netdev's ARP table
-		 * so as to save one data frame roundtrip before first IP
-		 * connections are established.  This is very low-priority but
-		 * print error messages just because they may indicate bigger
-		 * problems.
-		 */
-		if (!l_rtnl_neighbor_set_hwaddr(rtnl, netconfig->ifindex,
+	/*
+	 * Attempt to use the gateway MAC address received from the AP by
+	 * writing the mapping directly into the netdev's ARP table so as
+	 * to save one data frame roundtrip before first IP connections
+	 * are established.  This is very low-priority but print error
+	 * messages just because they may indicate bigger problems.
+	 */
+	if (gateway_mac && !l_rtnl_neighbor_set_hwaddr(rtnl, netconfig->ifindex,
 					AF_INET,
 					&netconfig->fils_override->ipv4_gateway,
 					gateway_mac, 6,
 					netconfig_set_neighbor_entry_cb, NULL,
 					NULL))
-			l_debug("l_rtnl_neighbor_set_hwaddr failed");
-	}
+		l_debug("l_rtnl_neighbor_set_hwaddr failed");
 
 	return true;
 }
@@ -939,10 +942,9 @@ static void netconfig_ipv4_ifaddr_add_cmd_cb(int error, uint16_t type,
 
 	netconfig_gateway_to_arp(netconfig);
 
-	if (!netconfig_ipv4_routes_install(netconfig)) {
-		l_error("netconfig: Failed to install IPv4 routes.");
+	if (!netconfig_ipv4_subnet_route_install(netconfig) ||
+			!netconfig_ipv4_gateway_route_install(netconfig))
 		return;
-	}
 
 	netconfig_set_dns(netconfig);
 	netconfig_set_domains(netconfig);
@@ -1216,9 +1218,7 @@ static bool netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 	struct netdev *netdev = netdev_find(netconfig->ifindex);
 	bool set_address = (netconfig->rtm_protocol == RTPROT_STATIC);
 
-	if (netconfig->rtm_protocol == RTPROT_DHCP &&
-			netconfig->fils_override &&
-			netconfig->fils_override->ipv4_addr) {
+	if (netconfig_use_fils_addr(netconfig, AF_INET)) {
 		L_AUTO_FREE_VAR(char *, addr_str) = netconfig_ipv4_to_string(
 					netconfig->fils_override->ipv4_addr);
 		uint8_t prefix_len = netconfig->fils_override->ipv4_prefix_len;
@@ -1299,9 +1299,7 @@ static bool netconfig_ipv6_select_and_install(struct netconfig *netconfig)
 
 	sysfs_write_ipv6_setting(netdev_get_name(netdev), "disable_ipv6", "0");
 
-	if (netconfig->rtm_v6_protocol == RTPROT_DHCP &&
-			netconfig->fils_override &&
-			!l_memeqzero(netconfig->fils_override->ipv6_addr, 16)) {
+	if (netconfig_use_fils_addr(netconfig, AF_INET6)) {
 		uint8_t prefix_len = netconfig->fils_override->ipv6_prefix_len;
 		L_AUTO_FREE_VAR(char *, addr_str) = netconfig_ipv6_to_string(
 					netconfig->fils_override->ipv6_addr);
@@ -1500,7 +1498,7 @@ bool netconfig_configure(struct netconfig *netconfig,
 	return true;
 }
 
-bool netconfig_reconfigure(struct netconfig *netconfig)
+bool netconfig_reconfigure(struct netconfig *netconfig, bool set_arp_gw)
 {
 	/*
 	 * Starting with kernel 4.20, ARP cache is flushed when the netdev
@@ -1509,7 +1507,8 @@ bool netconfig_reconfigure(struct netconfig *netconfig)
 	 * lost or delayed.  Try to force the gateway into the ARP cache
 	 * to alleviate this
 	 */
-	netconfig_gateway_to_arp(netconfig);
+	if (set_arp_gw)
+		netconfig_gateway_to_arp(netconfig);
 
 	if (netconfig->rtm_protocol == RTPROT_DHCP) {
 		/* TODO l_dhcp_client sending a DHCP inform request */

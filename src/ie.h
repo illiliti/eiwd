@@ -616,10 +616,11 @@ int ie_parse_roaming_consortium_from_data(const uint8_t *data, size_t len,
 int ie_build_roaming_consortium(const uint8_t *rc, size_t rc_len, uint8_t *to);
 
 int ie_parse_hs20_indication(struct ie_tlv_iter *iter, uint8_t *version,
-				uint16_t *pps_mo_id, uint8_t *domain_id);
+				uint16_t *pps_mo_id, uint8_t *domain_id,
+				bool *dgaf_disable);
 int ie_parse_hs20_indication_from_data(const uint8_t *data, size_t len,
 					uint8_t *version, uint16_t *pps_mo_id,
-					uint8_t *domain_id);
+					uint8_t *domain_id, bool *dgaf_disable);
 int ie_build_hs20_indication(uint8_t version, uint8_t *to);
 
 enum ie_rsnx_capability {

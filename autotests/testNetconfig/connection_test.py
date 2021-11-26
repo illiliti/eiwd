@@ -11,7 +11,7 @@ from iwd import NetworkType
 from hostapd import HostapdCLI
 import testutil
 from config import ctx
-import os
+import os, time
 
 class Test(unittest.TestCase):
 
@@ -39,6 +39,10 @@ class Test(unittest.TestCase):
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected()
 
+        time.sleep(2)
+        ret = os.system('ip addr show ' + device.name + ' | grep \'inet6 3ffe:501:ffff:100::\'')
+        self.assertEqual(os.waitstatus_to_exitcode(ret), 0)
+
         device.disconnect()
 
         condition = 'not obj.connected'
@@ -48,10 +52,16 @@ class Test(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        def remove_lease():
+        def remove_lease4():
             try:
                 os.remove('/tmp/dhcpd.leases')
                 os.remove('/tmp/dhcpd.leases~')
+            except:
+                pass
+        def remove_lease6():
+            try:
+                os.remove('/tmp/dhcpd6.leases')
+                os.remove('/tmp/dhcpd6.leases~')
             except:
                 pass
 
@@ -59,18 +69,36 @@ class Test(unittest.TestCase):
         # TODO: This could be moved into test-runner itself if other tests ever
         #       require this functionality (p2p, FILS, etc.). Since its simple
         #       enough it can stay here for now.
-        ctx.start_process(['ifconfig', hapd.ifname, '192.168.1.1',
-                            'netmask', '255.255.255.0']).wait()
+        ctx.start_process(['ip', 'addr','add','dev',  hapd.ifname,
+                           '192.168.1.1/255.255.255.0']).wait()
         ctx.start_process(['touch', '/tmp/dhcpd.leases']).wait()
         cls.dhcpd_pid = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf',
                                             '-lf', '/tmp/dhcpd.leases',
-                                            hapd.ifname], cleanup=remove_lease)
+                                            hapd.ifname], cleanup=remove_lease4)
+
+        ctx.start_process(['ip', 'addr', 'add', 'dev', hapd.ifname,
+                           '3ffe:501:ffff:100::1/64']).wait()
+        ctx.start_process(['touch', '/tmp/dhcpd6.leases']).wait()
+        cls.dhcpd6_pid = ctx.start_process(['dhcpd', '-6', '-f', '-cf', '/tmp/dhcpd-v6.conf',
+                                            '-lf', '/tmp/dhcpd6.leases',
+                                            hapd.ifname], cleanup=remove_lease6)
+        ctx.start_process(['sysctl', 'net.ipv6.conf.' + hapd.ifname + '.forwarding=1']).wait()
+        # Tell clients to use DHCPv6
+        config = open('/tmp/radvd.conf', 'w')
+        config.write('interface ' + hapd.ifname + ' { AdvSendAdvert on; AdvManagedFlag on; };')
+        config.close()
+        cls.radvd_pid = ctx.start_process(['radvd', '-n', '-d5', '-p', '/tmp/radvd.pid', '-C', '/tmp/radvd.conf'])
 
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
         ctx.stop_process(cls.dhcpd_pid)
         cls.dhcpd_pid = None
+        ctx.stop_process(cls.dhcpd6_pid)
+        cls.dhcpd6_pid = None
+        ctx.stop_process(cls.radvd_pid)
+        cls.radvd_pid = None
+        os.remove('/tmp/radvd.conf')
 
 if __name__ == '__main__':
     unittest.main(exit=True)

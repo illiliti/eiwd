@@ -2035,7 +2035,8 @@ int ie_build_roaming_consortium(const uint8_t *rc, size_t rc_len, uint8_t *to)
 }
 
 int ie_parse_hs20_indication(struct ie_tlv_iter *iter, uint8_t *version_out,
-				uint16_t *pps_mo_id_out, uint8_t *domain_id_out)
+				uint16_t *pps_mo_id_out, uint8_t *domain_id_out,
+				bool *dgaf_disable_out)
 {
 	unsigned int len = ie_tlv_iter_get_length(iter);
 	const uint8_t *data = ie_tlv_iter_get_data(iter);
@@ -2059,6 +2060,9 @@ int ie_parse_hs20_indication(struct ie_tlv_iter *iter, uint8_t *version_out,
 	 */
 	if (pps_mo_present && domain_id_present)
 		return -EPROTOTYPE;
+
+	if (dgaf_disable_out)
+		*dgaf_disable_out = test_bit(&hs20_config, 0);
 
 	if (version_out)
 		*version_out = bit_field(hs20_config, 4, 4);
@@ -2087,7 +2091,7 @@ int ie_parse_hs20_indication(struct ie_tlv_iter *iter, uint8_t *version_out,
 
 int ie_parse_hs20_indication_from_data(const uint8_t *data, size_t len,
 					uint8_t *version, uint16_t *pps_mo_id,
-					uint8_t *domain_id)
+					uint8_t *domain_id, bool *dgaf_disable)
 {
 	struct ie_tlv_iter iter;
 
@@ -2099,7 +2103,8 @@ int ie_parse_hs20_indication_from_data(const uint8_t *data, size_t len,
 	if (ie_tlv_iter_get_tag(&iter) != IE_TYPE_VENDOR_SPECIFIC)
 		return -EPROTOTYPE;
 
-	return ie_parse_hs20_indication(&iter, version, pps_mo_id, domain_id);
+	return ie_parse_hs20_indication(&iter, version, pps_mo_id, domain_id,
+						dgaf_disable);
 }
 
 /*
