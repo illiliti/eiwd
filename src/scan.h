@@ -29,11 +29,6 @@ struct p2p_beacon;
 struct mmpdu_header;
 struct wiphy;
 
-enum scan_band {
-	SCAN_BAND_2_4_GHZ =	0x1,
-	SCAN_BAND_5_GHZ =	0x2,
-};
-
 enum scan_state {
 	SCAN_STATE_NOT_RUNNING,
 	SCAN_STATE_PASSIVE,
@@ -172,11 +167,6 @@ struct scan_bss *scan_bss_new_from_probe_req(const struct mmpdu_header *mpdu,
 						const uint8_t *body,
 						size_t body_len,
 						uint32_t frequency, int rssi);
-
-uint8_t scan_freq_to_channel(uint32_t freq, enum scan_band *out_band);
-uint32_t scan_channel_to_freq(uint8_t channel, enum scan_band band);
-enum scan_band scan_oper_class_to_band(const uint8_t *country,
-					uint8_t oper_class);
 
 struct scan_freq_set *scan_freq_set_new(void);
 void scan_freq_set_free(struct scan_freq_set *freqs);
