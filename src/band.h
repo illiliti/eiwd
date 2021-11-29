@@ -36,6 +36,11 @@ enum band_chandef_width {
 	BAND_CHANDEF_WIDTH_160,
 };
 
+enum band_freq {
+	BAND_FREQ_2_4_GHZ = 0x1,
+	BAND_FREQ_5_GHZ = 0x2,
+};
+
 struct band_chandef {
 	uint32_t frequency;
 	uint32_t channel_width;
@@ -76,3 +81,8 @@ int oci_to_frequency(uint32_t operating_class, uint32_t channel);
 
 int oci_verify(const uint8_t oci[static 3], const struct band_chandef *own);
 int oci_from_chandef(const struct band_chandef *own, uint8_t oci[static 3]);
+
+uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band);
+uint32_t band_channel_to_freq(uint8_t channel, enum band_freq band);
+enum band_freq band_oper_class_to_band(const uint8_t *country,
+					uint8_t oper_class);
