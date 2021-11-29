@@ -58,6 +58,7 @@
 #include "src/diagnostic.h"
 #include "src/frame-xchg.h"
 #include "src/sysfs.h"
+#include "src/band.h"
 
 static struct l_queue *station_list;
 static uint32_t netdev_watch;
@@ -1646,9 +1647,9 @@ static int station_roam_scan(struct station *station,
 				struct scan_freq_set *freq_set);
 
 static uint32_t station_freq_from_neighbor_report(const uint8_t *country,
-		struct ie_neighbor_report_info *info, enum scan_band *out_band)
+		struct ie_neighbor_report_info *info, enum band_freq *out_band)
 {
-	enum scan_band band;
+	enum band_freq band;
 	uint32_t freq;
 
 	if (info->oper_class == 0) {
@@ -1660,9 +1661,9 @@ static uint32_t station_freq_from_neighbor_report(const uint8_t *country,
 		 * use channels in two disjoint ranges.
 		 */
 		if (info->channel_num >= 1 && info->channel_num <= 14)
-			band = SCAN_BAND_2_4_GHZ;
+			band = BAND_FREQ_2_4_GHZ;
 		else if (info->channel_num >= 36 && info->channel_num <= 169)
-			band = SCAN_BAND_5_GHZ;
+			band = BAND_FREQ_5_GHZ;
 		else {
 			l_debug("Ignored: 0 oper class with an unusual "
 				"channel number");
@@ -1670,7 +1671,7 @@ static uint32_t station_freq_from_neighbor_report(const uint8_t *country,
 			return 0;
 		}
 	} else {
-		band = scan_oper_class_to_band(country, info->oper_class);
+		band = band_oper_class_to_band(country, info->oper_class);
 		if (!band) {
 			l_debug("Ignored: unsupported oper class");
 
@@ -1678,7 +1679,7 @@ static uint32_t station_freq_from_neighbor_report(const uint8_t *country,
 		}
 	}
 
-	freq = scan_channel_to_freq(info->channel_num, band);
+	freq = band_channel_to_freq(info->channel_num, band);
 	if (!freq) {
 		l_debug("Ignored: unsupported channel");
 
@@ -1711,7 +1712,7 @@ static void parse_neighbor_report(struct station *station,
 	while (ie_tlv_iter_next(&iter)) {
 		struct ie_neighbor_report_info info;
 		uint32_t freq;
-		enum scan_band band;
+		enum band_freq band;
 		const uint8_t *cc = NULL;
 
 		if (ie_tlv_iter_get_tag(&iter) != IE_TYPE_NEIGHBOR_REPORT)

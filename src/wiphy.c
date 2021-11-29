@@ -431,10 +431,10 @@ uint32_t wiphy_get_supported_bands(struct wiphy *wiphy)
 	uint32_t bands = 0;
 
 	if (wiphy->band_2g)
-		bands |= SCAN_BAND_2_4_GHZ;
+		bands |= BAND_FREQ_2_4_GHZ;
 
 	if (wiphy->band_5g)
-		bands |= SCAN_BAND_5_GHZ;
+		bands |= BAND_FREQ_5_GHZ;
 
 	return bands;
 }
@@ -777,16 +777,16 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 	const void *ht_capabilities = NULL;
 	const void *ht_operation = NULL;
 	const struct band *bandp;
-	enum scan_band band;
+	enum band_freq band;
 
-	if (scan_freq_to_channel(bss->frequency, &band) == 0)
+	if (band_freq_to_channel(bss->frequency, &band) == 0)
 		return -ENOTSUP;
 
 	switch (band) {
-	case SCAN_BAND_2_4_GHZ:
+	case BAND_FREQ_2_4_GHZ:
 		bandp = wiphy->band_2g;
 		break;
-	case SCAN_BAND_5_GHZ:
+	case BAND_FREQ_5_GHZ:
 		bandp = wiphy->band_5g;
 		break;
 	default:

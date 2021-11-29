@@ -2233,18 +2233,18 @@ void scan_freq_set_free(struct scan_freq_set *freqs)
 
 bool scan_freq_set_add(struct scan_freq_set *freqs, uint32_t freq)
 {
-	enum scan_band band;
+	enum band_freq band;
 	uint8_t channel;
 
-	channel = scan_freq_to_channel(freq, &band);
+	channel = band_freq_to_channel(freq, &band);
 	if (!channel)
 		return false;
 
 	switch (band) {
-	case SCAN_BAND_2_4_GHZ:
+	case BAND_FREQ_2_4_GHZ:
 		freqs->channels_2ghz |= 1 << (channel - 1);
 		return true;
-	case SCAN_BAND_5_GHZ:
+	case BAND_FREQ_5_GHZ:
 		return l_uintset_put(freqs->channels_5ghz, channel);
 	}
 
@@ -2253,17 +2253,17 @@ bool scan_freq_set_add(struct scan_freq_set *freqs, uint32_t freq)
 
 bool scan_freq_set_contains(const struct scan_freq_set *freqs, uint32_t freq)
 {
-	enum scan_band band;
+	enum band_freq band;
 	uint8_t channel;
 
-	channel = scan_freq_to_channel(freq, &band);
+	channel = band_freq_to_channel(freq, &band);
 	if (!channel)
 		return false;
 
 	switch (band) {
-	case SCAN_BAND_2_4_GHZ:
+	case BAND_FREQ_2_4_GHZ:
 		return freqs->channels_2ghz & (1 << (channel - 1));
-	case SCAN_BAND_5_GHZ:
+	case BAND_FREQ_5_GHZ:
 		return l_uintset_contains(freqs->channels_5ghz, channel);
 	}
 
@@ -2276,12 +2276,12 @@ uint32_t scan_freq_set_get_bands(struct scan_freq_set *freqs)
 	uint32_t max;
 
 	if (freqs->channels_2ghz)
-		bands |= SCAN_BAND_2_4_GHZ;
+		bands |= BAND_FREQ_2_4_GHZ;
 
 	max = l_uintset_get_max(freqs->channels_5ghz);
 
 	if (l_uintset_find_min(freqs->channels_5ghz) <= max)
-		bands |= SCAN_BAND_5_GHZ;
+		bands |= BAND_FREQ_5_GHZ;
 
 	return bands;
 }
@@ -2320,7 +2320,7 @@ static void scan_channels_5ghz_frequency(uint32_t channel, void *user_data)
 	const struct channels_5ghz_foreach_data *channels_5ghz_data = user_data;
 	uint32_t freq;
 
-	freq = scan_channel_to_freq(channel, SCAN_BAND_5_GHZ);
+	freq = band_channel_to_freq(channel, BAND_FREQ_5_GHZ);
 
 	channels_5ghz_data->func(freq, channels_5ghz_data->user_data);
 }
@@ -2346,7 +2346,7 @@ void scan_freq_set_foreach(const struct scan_freq_set *freqs,
 
 	for (channel = 1; channel <= 14; channel++) {
 		if (freqs->channels_2ghz & (1 << (channel - 1))) {
-			freq = scan_channel_to_freq(channel, SCAN_BAND_2_4_GHZ);
+			freq = band_channel_to_freq(channel, BAND_FREQ_2_4_GHZ);
 
 			func(freq, user_data);
 		}
