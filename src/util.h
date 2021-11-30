@@ -115,5 +115,7 @@ void scan_freq_set_merge(struct scan_freq_set *to,
 void scan_freq_set_constrain(struct scan_freq_set *set,
 					const struct scan_freq_set *constraint);
 bool scan_freq_set_isempty(const struct scan_freq_set *set);
+uint32_t *scan_freq_set_to_fixed_array(const struct scan_freq_set *set,
+					size_t *len_out);
 
 #endif /* __UTIL_H */

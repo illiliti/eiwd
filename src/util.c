@@ -470,3 +470,36 @@ void scan_freq_set_constrain(struct scan_freq_set *set,
 
 	set->channels_2ghz &= constraint->channels_2ghz;
 }
+
+static void add_foreach(uint32_t freq, void *user_data)
+{
+	uint32_t **list = user_data;
+
+	**list = freq;
+
+	*list = *list + 1;
+}
+
+uint32_t *scan_freq_set_to_fixed_array(const struct scan_freq_set *set,
+					size_t *len_out)
+{
+	uint8_t count = 0;
+	uint32_t *freqs;
+
+	count = __builtin_popcount(set->channels_2ghz) +
+				l_uintset_size(set->channels_5ghz);
+
+	if (!count)
+		return NULL;
+
+	freqs = l_new(uint32_t, count);
+
+	scan_freq_set_foreach(set, add_foreach, &freqs);
+
+	/* Move pointer back to start of list */
+	freqs -= count;
+
+	*len_out = count;
+
+	return freqs;
+}
