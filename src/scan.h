@@ -108,7 +108,6 @@ typedef bool (*scan_notify_func_t)(int err, struct l_queue *bss_list,
 					const struct scan_freq_set *freqs,
 					void *userdata);
 typedef void (*scan_destroy_func_t)(void *userdata);
-typedef void (*scan_freq_set_func_t)(uint32_t freq, void *userdata);
 
 static inline int scan_bss_addr_cmp(const struct scan_bss *a1,
 					const struct scan_bss *a2)
@@ -167,19 +166,6 @@ struct scan_bss *scan_bss_new_from_probe_req(const struct mmpdu_header *mpdu,
 						const uint8_t *body,
 						size_t body_len,
 						uint32_t frequency, int rssi);
-
-struct scan_freq_set *scan_freq_set_new(void);
-void scan_freq_set_free(struct scan_freq_set *freqs);
-bool scan_freq_set_add(struct scan_freq_set *freqs, uint32_t freq);
-bool scan_freq_set_contains(const struct scan_freq_set *freqs, uint32_t freq);
-uint32_t scan_freq_set_get_bands(struct scan_freq_set *freqs);
-void scan_freq_set_foreach(const struct scan_freq_set *freqs,
-				scan_freq_set_func_t func, void *user_data);
-void scan_freq_set_merge(struct scan_freq_set *to,
-					const struct scan_freq_set *from);
-void scan_freq_set_constrain(struct scan_freq_set *set,
-					const struct scan_freq_set *constraint);
-bool scan_freq_set_isempty(const struct scan_freq_set *set);
 
 bool scan_wdev_add(uint64_t wdev_id);
 bool scan_wdev_remove(uint64_t wdev_id);
