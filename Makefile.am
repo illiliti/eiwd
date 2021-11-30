@@ -320,7 +320,8 @@ monitor_iwmon_SOURCES = monitor/main.c linux/nl80211.h \
 					src/eapolutil.h src/eapolutil.c \
 					src/nl80211cmd.h src/nl80211cmd.c \
 					src/p2putil.c src/p2putil.h \
-					src/anqputil.h src/anqputil.c
+					src/anqputil.h src/anqputil.c \
+					src/band.h src/band.c
 monitor_iwmon_LDADD = $(ell_ldadd)
 
 if MANUAL_PAGES
@@ -335,6 +336,7 @@ wired_ead_SOURCES = wired/main.c wired/ethdev.h wired/ethdev.c \
 				wired/network.h wired/network.c \
 				wired/dbus.h wired/dbus.c \
 				src/module.h src/module.c \
+				src/band.h src/band.c \
 				$(eap_sources)
 wired_ead_LDADD = $(ell_ldadd)
 wired_ead_DEPENDENCIES = $(ell_dependencies)
@@ -361,7 +363,8 @@ tools_probe_req_SOURCES = tools/probe-req.c src/mpdu.h src/mpdu.c \
 					src/ie.h src/ie.c \
 					src/nl80211util.h src/nl80211util.c \
 					src/util.h src/util.c \
-					src/common.h src/common.c
+					src/common.h src/common.c \
+					src/band.h src/band.c
 tools_probe_req_LDADD = $(ell_ldadd)
 
 if HWSIM
@@ -370,7 +373,8 @@ bin_PROGRAMS += tools/hwsim
 tools_hwsim_SOURCES = tools/hwsim.c src/mpdu.h \
 					src/util.h src/util.c \
 					src/storage.h src/storage.c \
-					src/common.h src/common.c
+					src/common.h src/common.c \
+					src/band.h src/band.c
 tools_hwsim_LDADD = $(ell_ldadd)
 
 if DBUS_POLICY
@@ -480,7 +484,7 @@ unit_test_eapol_DEPENDENCIES = $(ell_dependencies) \
 				unit/cert-client-key-pkcs8.pem \
 				unit/tls-settings.8021x
 
-unit_test_util_SOURCES = src/util.h src/util.c \
+unit_test_util_SOURCES = src/util.h src/util.c src/band.c src/band.h \
 				unit/test-util.c
 unit_test_util_LDADD = $(ell_ldadd)
 
@@ -537,7 +541,8 @@ unit_test_p2p_SOURCES = unit/test-p2p.c src/wscutil.h src/wscutil.c \
 				src/crypto.h src/crypto.c \
 				src/ie.h src/ie.c \
 				src/util.h src/util.c \
-				src/p2putil.h src/p2putil.c
+				src/p2putil.h src/p2putil.c \
+				src/band.h src/band.c
 unit_test_p2p_LDADD = $(ell_ldadd)
 
 TESTS = $(unit_tests)
