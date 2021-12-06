@@ -32,7 +32,68 @@
 
 #include "src/dpp-util.h"
 #include "src/util.h"
+#include "src/band.h"
 #include "src/crypto.h"
+
+static void append_freqs(struct l_string *uri,
+					const uint32_t *freqs, size_t len)
+{
+	size_t i;
+	enum band_freq band;
+
+	l_string_append_printf(uri, "C:");
+
+	for (i = 0; i < len; i++) {
+		uint8_t oper_class;
+		uint8_t channel = band_freq_to_channel(freqs[i], &band);
+
+		/* For now use global operating classes */
+		if (band == BAND_FREQ_2_4_GHZ)
+			oper_class = 81;
+		else
+			oper_class = 115;
+
+		l_string_append_printf(uri, "%u/%u", oper_class, channel);
+
+		if (i != len - 1)
+			l_string_append_c(uri, ',');
+	}
+
+	l_string_append_c(uri, ';');
+}
+
+char *dpp_generate_uri(const uint8_t *asn1, size_t asn1_len, uint8_t version,
+			const uint8_t *mac, const uint32_t *freqs,
+			size_t freqs_len, const char *info, const char *host)
+{
+	struct l_string *uri = l_string_new(256);
+	char *base64;
+
+	base64 = l_base64_encode(asn1, asn1_len, 0);
+
+	l_string_append_printf(uri, "DPP:K:%s;", base64);
+	l_free(base64);
+
+	if (mac)
+		l_string_append_printf(uri, "M:%02x%02x%02x%02x%02x%02x;",
+					MAC_STR(mac));
+
+	if (freqs)
+		append_freqs(uri, freqs, freqs_len);
+
+	if (info)
+		l_string_append_printf(uri, "I:%s;", info);
+
+	if (host)
+		l_string_append_printf(uri, "H:%s;", host);
+
+	if (version)
+		l_string_append_printf(uri, "V:%u;", version);
+
+	l_string_append_c(uri, ';');
+
+	return l_string_unwrap(uri);
+}
 
 /*
  * EasyConnect 2.0 Table 3. Key and Nonce Length Dependency on Prime Length

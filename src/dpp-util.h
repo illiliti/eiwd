@@ -22,6 +22,10 @@
 struct l_ecc_point;
 struct l_ecc_scalar;
 
+char *dpp_generate_uri(const uint8_t *asn1, size_t asn1_len, uint8_t version,
+			const uint8_t *mac, const uint32_t *freqs,
+			size_t freqs_len, const char *info, const char *host);
+
 size_t dpp_nonce_len_from_key_len(size_t len);
 
 bool dpp_hash(enum l_checksum_type type, uint8_t *out, unsigned int num, ...);
