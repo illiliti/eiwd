@@ -31,6 +31,7 @@
 
 #include "src/dpp-util.h"
 #include "src/util.h"
+#include "ell/useful.h"
 
 /*
  * B.2 Test Vectors for DPP Authentication Using P-256 for
@@ -68,12 +69,13 @@ static void test_key_derivation(const void *data)
 {
 	uint64_t tmp[L_ECC_MAX_DIGITS];
 	const struct l_ecc_curve *curve = l_ecc_curve_from_ike_group(19);
-	struct l_ecc_point *i_proto_public;
-	struct l_ecc_point *r_boot_public;
-	struct l_ecc_scalar *r_boot_private;
-	struct l_ecc_scalar *r_proto_private;
-	struct l_ecc_point *r_proto_public;
-	struct l_ecc_scalar *m, *n;
+	_auto_(l_ecc_point_free) struct l_ecc_point *i_proto_public = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *r_boot_public = NULL;
+	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *r_boot_private = NULL;
+	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *r_proto_private = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *r_proto_public = NULL;
+	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *m = NULL;
+	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *n = NULL;
 	uint64_t k1[L_ECC_MAX_DIGITS];
 	uint64_t k2[L_ECC_MAX_DIGITS];
 	uint64_t ke[L_ECC_MAX_DIGITS];
