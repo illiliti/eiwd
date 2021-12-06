@@ -95,6 +95,40 @@ char *dpp_generate_uri(const uint8_t *asn1, size_t asn1_len, uint8_t version,
 	return l_string_unwrap(uri);
 }
 
+void dpp_attr_iter_init(struct dpp_attr_iter *iter, const uint8_t *pdu,
+			size_t len)
+{
+	iter->pos = pdu;
+	iter->end = pdu + len;
+}
+
+bool dpp_attr_iter_next(struct dpp_attr_iter *iter,
+			enum dpp_attribute_type *type_out, size_t *len_out,
+			const uint8_t **data_out)
+{
+	enum dpp_attribute_type type;
+	size_t len;
+
+	if (iter->pos + 4 > iter->end)
+		return false;
+
+	type = l_get_le16(iter->pos);
+	len = l_get_le16(iter->pos + 2);
+
+	iter->pos += 4;
+
+	if (iter->pos + len > iter->end)
+		return false;
+
+	*type_out = type;
+	*len_out = len;
+	*data_out = iter->pos;
+
+	iter->pos += len;
+
+	return true;
+}
+
 /*
  * EasyConnect 2.0 Table 3. Key and Nonce Length Dependency on Prime Length
  */
