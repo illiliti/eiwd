@@ -2013,14 +2013,14 @@ void wiphy_radio_work_done(struct wiphy *wiphy, uint32_t id)
 		wiphy_radio_work_next(wiphy);
 }
 
-bool wiphy_radio_work_is_running(struct wiphy *wiphy, uint32_t id)
+int wiphy_radio_work_is_running(struct wiphy *wiphy, uint32_t id)
 {
-	struct wiphy_radio_work_item *item = l_queue_peek_head(wiphy->work);
-
+	struct wiphy_radio_work_item *item = l_queue_find(wiphy->work, match_id,
+							L_UINT_TO_PTR(id));
 	if (!item)
-		return false;
+		return -ENOENT;
 
-	return item->id == id;
+	return item == l_queue_peek_head(wiphy->work) ? 1 : 0;
 }
 
 static int wiphy_init(void)
