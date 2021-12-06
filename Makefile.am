@@ -394,7 +394,8 @@ unit_tests = unit/test-cmac-aes \
 		unit/test-crypto unit/test-eapol unit/test-mpdu \
 		unit/test-ie unit/test-util unit/test-ssid-security \
 		unit/test-arc4 unit/test-wsc unit/test-eap-mschapv2 \
-		unit/test-eap-sim unit/test-sae unit/test-p2p unit/test-band
+		unit/test-eap-sim unit/test-sae unit/test-p2p unit/test-band \
+		unit/test-dpp
 
 if CLIENT
 unit_tests += unit/test-client
@@ -546,6 +547,11 @@ unit_test_p2p_SOURCES = unit/test-p2p.c src/wscutil.h src/wscutil.c \
 				src/p2putil.h src/p2putil.c \
 				src/band.h src/band.c
 unit_test_p2p_LDADD = $(ell_ldadd)
+
+unit_test_dpp_SOURCES = unit/test-dpp.c src/dpp-util.h src/dpp-util.c \
+				src/band.h src/band.c \
+				src/util.h src/util.c src/crypto.h src/crypto.c
+unit_test_dpp_LDADD = $(ell_ldadd)
 
 TESTS = $(unit_tests)
 
