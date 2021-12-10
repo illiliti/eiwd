@@ -249,6 +249,7 @@ src_iwd_SOURCES = src/main.c linux/nl80211.h src/iwd.h src/missing.h \
 					src/sysfs.h src/sysfs.c \
 					src/offchannel.h src/offchannel.c \
 					src/dpp-util.h src/dpp-util.c \
+					src/json.h src/json.c \
 					$(eap_sources) \
 					$(builtin_sources)
 
@@ -564,7 +565,8 @@ EXTRA_DIST = src/genbuiltin src/iwd.service.in src/net.connman.iwd.service \
 
 AM_CFLAGS = $(ell_cflags) -fvisibility=hidden \
 				-DUNITDIR=\""$(top_srcdir)/unit/"\" \
-				-DCERTDIR=\""$(top_builddir)/unit/"\"
+				-DCERTDIR=\""$(top_builddir)/unit/"\" \
+				-DJSMN_PARENT_LINKS -DJSMN_STRICT
 
 if MAINTAINER_MODE
 AM_CFLAGS += -DHAVE_PKCS8_SUPPORT
