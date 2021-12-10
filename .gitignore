@@ -57,6 +57,8 @@ unit/test-eap-sim
 unit/test-client
 unit/test-p2p
 unit/test-band
+unit/test-dpp
+unit/test-json
 unit/cert-*.pem
 unit/cert-*.csr
 unit/cert-*.srl
