@@ -283,16 +283,20 @@ struct l_ecc_scalar *dpp_derive_k1(const struct l_ecc_point *i_proto_public,
 		return NULL;
 
 	key_len = l_ecc_scalar_get_data(m, mx_bytes, sizeof(mx_bytes));
+	if (key_len < 0)
+		goto free_m;
 
 	sha = dpp_sha_from_key_len(key_len);
 
 	if (!dpp_hkdf(sha, NULL, key_len, "first intermediate key", mx_bytes,
-			key_len, k1, key_len)) {
-		l_ecc_scalar_free(m);
-		return NULL;
-	}
+			key_len, k1, key_len))
+		goto free_m;
 
 	return m;
+
+free_m:
+	l_ecc_scalar_free(m);
+	return NULL;
 }
 
 /*
@@ -312,16 +316,20 @@ struct l_ecc_scalar *dpp_derive_k2(const struct l_ecc_point *i_proto_public,
 		return NULL;
 
 	key_len = l_ecc_scalar_get_data(n, nx_bytes, sizeof(nx_bytes));
+	if (key_len < 0)
+		goto free_n;
 
 	sha = dpp_sha_from_key_len(key_len);
 
 	if (!dpp_hkdf(sha, NULL, key_len, "second intermediate key", nx_bytes,
-			key_len, k2, key_len)) {
-		l_ecc_scalar_free(n);
-		return NULL;
-	}
+			key_len, k2, key_len))
+		goto free_n;
 
 	return n;
+
+free_n:
+	l_ecc_scalar_free(n);
+	return NULL;
 }
 
 bool dpp_derive_ke(const uint8_t *i_nonce, const uint8_t *r_nonce,
