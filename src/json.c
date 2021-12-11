@@ -82,7 +82,7 @@ static int find_object_tokens(struct json_iter *iter, jsmntok_t *object)
 	if (!next)
 		next = ITER_END(iter);
 
-	return ((next - object) % sizeof(jsmntok_t)) - 1;
+	return next - object - 1;
 }
 
 static void iter_recurse(struct json_iter *iter, jsmntok_t *object,
@@ -91,7 +91,7 @@ static void iter_recurse(struct json_iter *iter, jsmntok_t *object,
 	struct json_contents *c = iter->contents;
 
 	child->contents = c;
-	child->start = (object - c->tokens) % sizeof(jsmntok_t);
+	child->start = object - c->tokens;
 	child->count = find_object_tokens(iter, object);
 }
 
