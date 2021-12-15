@@ -330,7 +330,9 @@ bool aes_siv_encrypt(const void *key, size_t key_len, const void *in,
 	struct iovec iov[num_ad + 1];
 	uint8_t v[16];
 
-	memcpy(iov, ad, sizeof(struct iovec) * num_ad);
+	if (ad)
+		memcpy(iov, ad, sizeof(struct iovec) * num_ad);
+
 	iov[num_ad].iov_base = (void *)in;
 	iov[num_ad].iov_len = in_len;
 	num_ad++;
