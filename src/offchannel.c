@@ -208,20 +208,10 @@ void offchannel_cancel(uint64_t wdev_id, uint32_t id)
 			goto work_done;
 		}
 
-		/*
-		 * Call destroy now to maintain consistency with any other
-		 * path leading to radio_work_done(). But set needs_cancel so
-		 * the ROC command can be canceled
-		 */
-		if (info->destroy)
-			info->destroy(info->error, info->user_data);
-
-		info->destroy = NULL;
-		info->started = NULL;
-		info->user_data = NULL;
+		/* Lets the ROC callback know it needs to cancel the request */
 		info->needs_cancel = true;
 
-		return;
+		goto destroy;
 	}
 
 	/*
@@ -238,6 +228,14 @@ void offchannel_cancel(uint64_t wdev_id, uint32_t id)
 	 * kernel sends the cancel ROC event.
 	 */
 	offchannel_cancel_roc(info);
+
+destroy:
+	if (info->destroy)
+		info->destroy(info->error, info->user_data);
+
+	info->destroy = NULL;
+	info->started = NULL;
+	info->user_data = NULL;
 
 	return;
 
