@@ -100,6 +100,18 @@ enum dpp_attribute_type {
 	DPP_ATTR_CONFIGURATOR_NONCE		= 0x1022,
 };
 
+struct dpp_configuration {
+	uint8_t ssid[32];
+	size_t ssid_len;
+	uint32_t akm_suites;
+	char *passphrase;
+	char *psk;		/* hex string */
+};
+
+struct dpp_configuration *dpp_parse_configuration_object(const char *json,
+							size_t json_len);
+void dpp_configuration_free(struct dpp_configuration *conf);
+
 struct dpp_attr_iter {
 	const uint8_t *pos;
 	const uint8_t *end;

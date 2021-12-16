@@ -34,6 +34,9 @@
 #include "src/util.h"
 #include "src/band.h"
 #include "src/crypto.h"
+#include "src/json.h"
+#include "ell/useful.h"
+#include "src/ie.h"
 
 static void append_freqs(struct l_string *uri,
 					const uint32_t *freqs, size_t len)
@@ -93,6 +96,112 @@ char *dpp_generate_uri(const uint8_t *asn1, size_t asn1_len, uint8_t version,
 	l_string_append_c(uri, ';');
 
 	return l_string_unwrap(uri);
+}
+
+static uint32_t dpp_parse_akm(char *akms)
+{
+	_auto_(l_strv_free) char **split = l_strsplit(akms, '+');
+	char **i = split;
+	uint32_t akm_out = 0;
+
+	while (*i) {
+		if (!strncmp(*i, "psk", 3))
+			akm_out |= IE_RSN_AKM_SUITE_PSK;
+		else if (!strncmp(*i, "sae", 3))
+			akm_out |= IE_RSN_AKM_SUITE_SAE_SHA256;
+
+		i++;
+	}
+
+	return akm_out;
+}
+
+/*
+ * TODO: This handles the most basic configuration. i.e. a configuration object
+ * with ssid/passphrase/akm.
+ */
+struct dpp_configuration *dpp_parse_configuration_object(const char *json,
+							size_t json_len)
+{
+	struct dpp_configuration *config;
+	struct json_contents *c;
+	struct json_iter iter;
+	struct json_iter discovery;
+	struct json_iter cred;
+	_auto_(l_free) char *tech = NULL;
+	_auto_(l_free) char *ssid = NULL;
+	_auto_(l_free) char *akm = NULL;
+	_auto_(l_free) char *pass = NULL;
+	_auto_(l_free) char *psk = NULL;
+
+	c = json_contents_new(json, json_len);
+	if (!c)
+		return NULL;
+
+	json_iter_init(&iter, c);
+
+	if (!json_iter_parse(&iter,
+			JSON_MANDATORY("wi-fi_tech", JSON_STRING, &tech),
+			JSON_MANDATORY("discovery", JSON_OBJECT, &discovery),
+			JSON_MANDATORY("cred", JSON_OBJECT, &cred),
+			JSON_UNDEFINED))
+		goto free_contents;
+
+	if (!tech || strncmp(tech, "infra", 5))
+		goto free_contents;
+
+	if (!json_iter_parse(&discovery,
+			JSON_MANDATORY("ssid", JSON_STRING, &ssid),
+			JSON_UNDEFINED))
+		goto free_contents;
+
+	if (!ssid || !util_ssid_is_utf8(strlen(ssid),(const uint8_t *)ssid))
+		goto free_contents;
+
+	if (!json_iter_parse(&cred,
+			JSON_MANDATORY("akm", JSON_STRING, &akm),
+			JSON_OPTIONAL("pass", JSON_STRING, &pass),
+			JSON_OPTIONAL("psk", JSON_STRING, &psk),
+			JSON_UNDEFINED))
+		goto free_contents;
+
+	if (!pass && (!psk || strlen(psk) != 64))
+		goto free_contents;
+
+	config = l_new(struct dpp_configuration, 1);
+
+	if (pass)
+		config->passphrase = l_steal_ptr(pass);
+	else
+		config->psk = l_steal_ptr(psk);
+
+	memcpy(config->ssid, ssid, strlen(ssid));
+	config->ssid_len = strlen(ssid);
+
+	config->akm_suites = dpp_parse_akm(akm);
+	if (!config->akm_suites)
+		goto free_config;
+
+	json_contents_free(c);
+
+	return config;
+
+free_config:
+	dpp_configuration_free(config);
+free_contents:
+	json_contents_free(c);
+	return NULL;
+}
+
+void dpp_configuration_free(struct dpp_configuration *config)
+{
+	if (config->passphrase)
+		l_free(config->passphrase);
+
+	if (config->psk)
+		l_free(config->psk);
+
+	l_free(config);
 }
 
 void dpp_attr_iter_init(struct dpp_attr_iter *iter, const uint8_t *pdu,

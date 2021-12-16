@@ -552,7 +552,8 @@ unit_test_p2p_LDADD = $(ell_ldadd)
 
 unit_test_dpp_SOURCES = unit/test-dpp.c src/dpp-util.h src/dpp-util.c \
 				src/band.h src/band.c \
-				src/util.h src/util.c src/crypto.h src/crypto.c
+				src/util.h src/util.c src/crypto.h \
+				src/crypto.c src/json.h src/json.c
 unit_test_dpp_LDADD = $(ell_ldadd)
 
 unit_test_json_SOURCES = unit/test-json.c src/json.h src/json.c shared/jsmn.h
