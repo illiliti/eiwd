@@ -1,0 +1,25 @@
+Device Provisioning hierarchy
+=============================
+
+Service		net.connman.iwd
+Interface	net.connman.iwd.DeviceProvisioning [Experimental]
+Object path	/net/connman/iwd/{phy0,phy1,...}/{1,2,...}
+
+Methods		string StartEnrollee()
+
+			Start a DPP enrollee. Currently only station devices are
+			supported.
+
+			Returns the enrollees URI
+
+			Possible errors:	net.connman.iwd.InvalidArguments
+						net.connman.iwd.AlreadyExists
+						net.connman.iwd.NotAvailable
+
+		void Stop()
+
+			Stop an enrollee.
+
+			Possible errors:	net.connman.iwd.Busy
+						net.connman.iwd.Failed
+						net.connman.iwd.InvalidArguments
