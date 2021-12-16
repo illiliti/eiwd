@@ -137,3 +137,5 @@ struct l_ecc_scalar *dpp_derive_k2(const struct l_ecc_point *i_proto_public,
 bool dpp_derive_ke(const uint8_t *i_nonce, const uint8_t *r_nonce,
 				struct l_ecc_scalar *m, struct l_ecc_scalar *n,
 				void *ke);
+
+uint8_t *dpp_point_to_asn1(const struct l_ecc_point *p, size_t *len_out);
