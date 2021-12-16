@@ -231,7 +231,7 @@ void offchannel_cancel(uint64_t wdev_id, uint32_t id)
 
 destroy:
 	if (info->destroy)
-		info->destroy(info->error, info->user_data);
+		info->destroy(-ECANCELED, info->user_data);
 
 	info->destroy = NULL;
 	info->started = NULL;
