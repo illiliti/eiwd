@@ -122,6 +122,16 @@ void dpp_attr_iter_init(struct dpp_attr_iter *iter, const uint8_t *pdu,
 bool dpp_attr_iter_next(struct dpp_attr_iter *iter,
 			enum dpp_attribute_type *type, size_t *len,
 			const uint8_t **data);
+uint8_t *dpp_unwrap_attr(const void *ad0, size_t ad0_len, const void *ad1,
+				size_t ad1_len, const void *key, size_t key_len,
+				const void *wrapped, size_t wrapped_len,
+				size_t *unwrapped_len);
+size_t dpp_append_attr(uint8_t *to, enum dpp_attribute_type type,
+				void *attr, size_t attr_len);
+size_t dpp_append_wrapped_data(const void *ad0, size_t ad0_len, const void *ad1,
+				size_t ad1_len, uint8_t *to, size_t to_len,
+				const void *key, size_t key_len,
+				size_t num_attrs, ...);
 
 char *dpp_generate_uri(const uint8_t *asn1, size_t asn1_len, uint8_t version,
 			const uint8_t *mac, const uint32_t *freqs,

@@ -143,16 +143,6 @@ static void dpp_send_frame(uint64_t wdev_id, struct iovec *iov, size_t iov_len,
 		l_error("Could not send CMD_FRAME");
 }
 
-static size_t dpp_append_attr(uint8_t *to, enum dpp_attribute_type type,
-				void *attr, size_t attr_len)
-{
-	l_put_le16(type, to);
-	l_put_le16(attr_len, to + 2);
-	memcpy(to + 4, attr, attr_len);
-
-	return attr_len + 4;
-}
-
 static size_t dpp_build_header(const uint8_t *src, const uint8_t *dest,
 				enum dpp_frame_type type,
 				uint8_t buf[static 32])

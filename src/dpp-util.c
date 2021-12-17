@@ -238,6 +238,148 @@ bool dpp_attr_iter_next(struct dpp_attr_iter *iter,
 	return true;
 }
 
+size_t dpp_append_attr(uint8_t *to, enum dpp_attribute_type type,
+				void *attr, size_t attr_len)
+{
+	l_put_le16(type, to);
+	l_put_le16(attr_len, to + 2);
+	memcpy(to + 4, attr, attr_len);
+
+	return attr_len + 4;
+}
+
+/*
+ * The use of ad0/ad1 differs with different protocol frame types, which is why
+ * this is left up to the caller to pass the correct AD bytes. The usage is
+ * defined in:
+ *
+ * 6.3.1.4 Protocol Conventions (for authentication)
+ * 6.4.1 Overview (for configuration)
+ *
+ */
+uint8_t *dpp_unwrap_attr(const void *ad0, size_t ad0_len, const void *ad1,
+				size_t ad1_len, const void *key, size_t key_len,
+				const void *wrapped, size_t wrapped_len,
+				size_t *unwrapped_len)
+{
+	struct iovec ad[2];
+	uint8_t *unwrapped;
+	size_t ad_size = 0;
+
+	if (ad0) {
+		ad[ad_size].iov_base = (void *) ad0;
+		ad[ad_size].iov_len = ad0_len;
+		ad_size++;
+	}
+
+	if (ad1) {
+		ad[ad_size].iov_base = (void *) ad1;
+		ad[ad_size].iov_len = ad1_len;
+		ad_size++;
+	}
+
+	unwrapped = l_malloc(wrapped_len - 16);
+
+	if (!aes_siv_decrypt(key, key_len, wrapped, wrapped_len, ad, 2,
+				unwrapped)) {
+		l_free(unwrapped);
+		return NULL;
+	}
+
+	*unwrapped_len = wrapped_len - 16;
+
+	return unwrapped;
+}
+
+/*
+ * Encrypt DPP attributes encapsulated in DPP wrapped data.
+ *
+ * ad0/ad0_len - frame specific AD0 component
+ * ad1/ad0_len - frame specific AD1 component
+ * to - buffer to encrypt data.
+ * to_len - size of 'to'
+ * key - key used to encrypt
+ * key_len - size of 'key'
+ * num_attrs - number of attributes listed (type, length, data triplets)
+ * ... - List of attributes, Type, Length, and data
+ */
+size_t dpp_append_wrapped_data(const void *ad0, size_t ad0_len,
+				const void *ad1, size_t ad1_len,
+				uint8_t *to, size_t to_len,
+				const void *key, size_t key_len,
+				size_t num_attrs, ...)
+{
+	size_t i;
+	size_t attrs_len = 0;
+	_auto_(l_free) uint8_t *plaintext = NULL;
+	uint8_t *ptr;
+	struct iovec ad[2];
+	size_t ad_size = 0;
+	va_list va;
+
+	va_start(va, num_attrs);
+
+	/* Count up total attributes length */
+	for (i = 0; i < num_attrs; i++) {
+		va_arg(va, enum dpp_attribute_type);
+		attrs_len += va_arg(va, size_t) + 4;
+		va_arg(va, void*);
+	}
+
+	if (to_len < attrs_len + 4 + 16)
+		return false;
+
+	plaintext = l_malloc(attrs_len);
+
+	ptr = plaintext;
+
+	va_end(va);
+
+	va_start(va, num_attrs);
+
+	/* Build up plaintext attributes */
+	for (i = 0; i < num_attrs; i++) {
+		enum dpp_attribute_type type = va_arg(va,
+						enum dpp_attribute_type);
+		size_t l = va_arg(va, size_t);
+		void *p = va_arg(va, void *);
+
+		l_put_le16(type, ptr);
+		ptr += 2;
+		l_put_le16(l, ptr);
+		ptr += 2;
+		memcpy(ptr, p, l);
+		ptr += l;
+	}
+
+	va_end(va);
+
+	ptr = to;
+
+	l_put_le16(DPP_ATTR_WRAPPED_DATA, ptr);
+	ptr += 2;
+	l_put_le16(attrs_len + 16, ptr);
+	ptr += 2;
+
+	if (ad0) {
+		ad[ad_size].iov_base = (void *) ad0;
+		ad[ad_size].iov_len = ad0_len;
+		ad_size++;
+	}
+
+	if (ad1) {
+		ad[ad_size].iov_base = (void *) ad1;
+		ad[ad_size].iov_len = ad1_len;
+		ad_size++;
+	}
+
+	if (!aes_siv_encrypt(key, key_len, plaintext, attrs_len,
+				ad, ad_size, ptr))
+		return 0;
+
+	return attrs_len + 4 + 16;
+}
+
 /*
  * EasyConnect 2.0 Table 3. Key and Nonce Length Dependency on Prime Length
  */
