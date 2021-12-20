@@ -391,7 +391,6 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	size_t wrapped_len = 0;
 	_auto_(l_free) uint8_t *unwrapped = NULL;
 	struct dpp_configuration *config;
-	uint8_t ad0[] = { 0x00, 0x10, 0x01, 0x00, 0x05 };
 
 	if (dpp->state != DPP_STATE_CONFIGURING)
 		return;
@@ -474,7 +473,7 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 		return;
 	}
 
-	unwrapped = dpp_unwrap_attr(ad0, sizeof(ad0), NULL, 0, dpp->ke,
+	unwrapped = dpp_unwrap_attr(ptr, wrapped - ptr - 4, NULL, 0, dpp->ke,
 					dpp->key_len, wrapped, wrapped_len,
 					&wrapped_len);
 	if (!unwrapped) {
