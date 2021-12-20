@@ -21,6 +21,7 @@
  */
 struct l_ecc_point;
 struct l_ecc_scalar;
+enum ie_rsn_akm_suite;
 
 enum dpp_frame_type {
 	DPP_FRAME_AUTHENTICATION_REQUEST	= 0,
@@ -110,6 +111,11 @@ struct dpp_configuration {
 
 struct dpp_configuration *dpp_parse_configuration_object(const char *json,
 							size_t json_len);
+struct dpp_configuration *dpp_configuration_new(
+					const struct l_settings *settings,
+					const char *ssid,
+					enum ie_rsn_akm_suite akm_suite);
+char *dpp_configuration_to_json(struct dpp_configuration *config);
 void dpp_configuration_free(struct dpp_configuration *conf);
 
 struct dpp_attr_iter {

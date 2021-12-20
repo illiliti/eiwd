@@ -193,6 +193,87 @@ free_contents:
 	return NULL;
 }
 
+/*
+ * The DPP spec does not specify a difference between FT AKMs and their normal
+ * counterpart. Because of this any FT AKM will just result in the standard
+ * 'psk' or 'sae' AKM.
+ */
+static const char *dpp_akm_to_string(enum ie_rsn_akm_suite akm_suite)
+{
+	switch (akm_suite) {
+	case IE_RSN_AKM_SUITE_PSK:
+	case IE_RSN_AKM_SUITE_FT_USING_PSK:
+	case IE_RSN_AKM_SUITE_PSK_SHA256:
+		return "psk";
+	case IE_RSN_AKM_SUITE_SAE_SHA256:
+	case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
+		return "sae";
+	default:
+		return NULL;
+	}
+}
+
+char *dpp_configuration_to_json(struct dpp_configuration *config)
+{
+	_auto_(l_free) char *pass_or_psk;
+	_auto_(l_free) char *ssid;
+
+	ssid = l_malloc(config->ssid_len + 1);
+	memcpy(ssid, config->ssid, config->ssid_len);
+	ssid[config->ssid_len] = '\0';
+
+	if (config->passphrase)
+		pass_or_psk = l_strdup_printf("\"pass\":\"%s\"",
+						config->passphrase);
+	else
+		pass_or_psk = l_strdup_printf("\"psk\":\"%s\"",
+						config->psk);
+
+	return l_strdup_printf("{\"wi-fi_tech\":\"infra\","
+				"\"discovery\":{\"ssid\":\"%s\"},"
+				"\"cred\":{\"akm\":\"%s\",%s}}",
+				ssid, dpp_akm_to_string(config->akm_suites),
+				pass_or_psk);
+}
+
+struct dpp_configuration *dpp_configuration_new(
+					const struct l_settings *settings,
+					const char *ssid,
+					enum ie_rsn_akm_suite akm_suite)
+{
+	struct dpp_configuration *config;
+	_auto_(l_free) char *passphrase = NULL;
+	_auto_(l_free) char *psk = NULL;
+	size_t ssid_len = strlen(ssid);
+
+	if (!l_settings_has_group(settings, "Security"))
+		return NULL;
+
+	passphrase = l_settings_get_string(settings, "Security", "Passphrase");
+	if (!passphrase) {
+		psk = l_settings_get_string(settings, "Security",
+						"PreSharedKey");
+		if (!psk)
+			return NULL;
+	}
+
+	config = l_new(struct dpp_configuration, 1);
+
+	memcpy(config->ssid, ssid, ssid_len);
+	config->ssid[ssid_len] = '\0';
+	config->ssid_len = ssid_len;
+
+	if (passphrase)
+		config->passphrase = l_steal_ptr(passphrase);
+	else
+		config->psk = l_steal_ptr(psk);
+
+
+	config->akm_suites = akm_suite;
+
+	return config;
+}
+
 void dpp_configuration_free(struct dpp_configuration *config)
 {
 	if (config->passphrase)
