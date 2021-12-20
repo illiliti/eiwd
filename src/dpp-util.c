@@ -280,7 +280,7 @@ uint8_t *dpp_unwrap_attr(const void *ad0, size_t ad0_len, const void *ad1,
 
 	unwrapped = l_malloc(wrapped_len - 16);
 
-	if (!aes_siv_decrypt(key, key_len, wrapped, wrapped_len, ad, 2,
+	if (!aes_siv_decrypt(key, key_len, wrapped, wrapped_len, ad, ad_size,
 				unwrapped)) {
 		l_free(unwrapped);
 		return NULL;
