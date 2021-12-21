@@ -58,9 +58,15 @@ enum dpp_state {
 	DPP_STATE_CONFIGURING,
 };
 
+enum dpp_capability {
+	DPP_CAPABILITY_ENROLLEE = 0x01,
+	DPP_CAPABILITY_CONFIGURATOR = 0x02,
+};
+
 struct dpp_sm {
 	struct netdev *netdev;
 	char *uri;
+	uint8_t role;
 
 	uint64_t wdev_id;
 
@@ -588,7 +594,6 @@ static void send_authenticate_response(struct dpp_sm *dpp, void *r_auth)
 	uint8_t status = DPP_STATUS_OK;
 	uint64_t r_proto_key[L_ECC_MAX_DIGITS * 2];
 	uint8_t version = 2;
-	uint8_t r_capabilities = 0x01;
 	struct iovec iov[3];
 	uint8_t wrapped2_plaintext[dpp->key_len + 4];
 	uint8_t wrapped2[dpp->key_len + 16 + 8];
@@ -628,7 +633,7 @@ static void send_authenticate_response(struct dpp_sm *dpp, void *r_auth)
 			ptr, sizeof(attrs), dpp->k2, dpp->key_len, 4,
 			DPP_ATTR_RESPONDER_NONCE, dpp->nonce_len, dpp->r_nonce,
 			DPP_ATTR_INITIATOR_NONCE, dpp->nonce_len, dpp->i_nonce,
-			DPP_ATTR_RESPONDER_CAPABILITIES, 1, &r_capabilities,
+			DPP_ATTR_RESPONDER_CAPABILITIES, 1, &dpp->role,
 			DPP_ATTR_WRAPPED_DATA, wrapped2_len, wrapped2);
 
 	iov[1].iov_base = attrs;
@@ -760,7 +765,9 @@ static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
 	l_debug("Authentication successful");
 
 	dpp_reset_protocol_timer(dpp);
-	dpp_configuration_start(dpp, from);
+
+	if (dpp->role == DPP_CAPABILITY_ENROLLEE)
+		dpp_configuration_start(dpp, from);
 
 	return;
 
@@ -777,7 +784,6 @@ static void dpp_auth_request_failed(struct dpp_sm *dpp,
 	uint8_t attrs[128];
 	uint8_t *ptr = attrs;
 	uint8_t version = 2;
-	uint8_t r_capabilities = 0x01;
 	uint8_t s = status;
 	struct iovec iov[2];
 
@@ -795,13 +801,25 @@ static void dpp_auth_request_failed(struct dpp_sm *dpp,
 	ptr += dpp_append_wrapped_data(hdr + 26, 6, attrs, ptr - attrs,
 			ptr, sizeof(attrs) - (ptr - attrs), k1, dpp->key_len, 2,
 			DPP_ATTR_INITIATOR_NONCE, dpp->nonce_len, dpp->i_nonce,
-			DPP_ATTR_RESPONDER_CAPABILITIES, 1, &r_capabilities);
+			DPP_ATTR_RESPONDER_CAPABILITIES, 1, &dpp->role);
 
 	iov[1].iov_base = attrs;
 	iov[1].iov_len = ptr - attrs;
 
 	dpp_send_frame(netdev_get_wdev_id(dpp->netdev), iov, 2,
 				dpp->current_freq);
+}
+
+static bool dpp_check_roles(struct dpp_sm *dpp, uint8_t peer_capa)
+{
+	if (dpp->role == DPP_CAPABILITY_ENROLLEE &&
+			!(peer_capa & DPP_CAPABILITY_CONFIGURATOR))
+		return false;
+	else if (dpp->role == DPP_CAPABILITY_CONFIGURATOR &&
+			!(peer_capa & DPP_CAPABILITY_ENROLLEE))
+		return false;
+
+	return true;
 }
 
 static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
@@ -816,6 +834,7 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	const uint8_t *i_proto = NULL;
 	const void *wrapped = NULL;
 	const uint8_t *i_nonce = NULL;
+	uint8_t i_capa = 0;
 	size_t r_boot_len = 0, i_proto_len = 0, wrapped_len = 0;
 	size_t i_nonce_len = 0;
 	_auto_(l_free) uint8_t *unwrapped = NULL;
@@ -925,9 +944,10 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 			 * failure by adding the DPP Status field set to
 			 * STATUS_NOT_COMPATIBLE"
 			 */
-			if (!(l_get_u8(data) & 0x2)) {
-				l_debug("Initiator is not configurator");
+			i_capa = l_get_u8(data);
 
+			if (!dpp_check_roles(dpp, i_capa)) {
+				l_debug("Peer does not support required role");
 				dpp_auth_request_failed(dpp,
 						DPP_STATUS_NOT_COMPATIBLE, k1);
 				goto auth_request_failed;
@@ -1042,9 +1062,11 @@ static void dpp_roc_started(void *user_data)
 	struct dpp_sm *dpp = user_data;
 
 	/*
-	 * If not in presence procedure, just stay on channel.
+	 * If not in presence procedure or in a configurator role, just stay
+	 * on channel.
 	 */
-	if (dpp->state != DPP_STATE_PRESENCE)
+	if (dpp->state != DPP_STATE_PRESENCE ||
+			dpp->role == DPP_CAPABILITY_CONFIGURATOR)
 		return;
 
 	dpp_presence_announce(dpp);
@@ -1235,6 +1257,7 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 					1, NULL, NULL);
 
 	dpp->state = DPP_STATE_PRESENCE;
+	dpp->role = DPP_CAPABILITY_ENROLLEE;
 
 	l_debug("DPP Start Enrollee: %s", dpp->uri);
 
