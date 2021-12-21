@@ -45,7 +45,12 @@
 #include "src/mpdu.h"
 #include "ell/useful.h"
 #include "src/common.h"
+#include "src/json.h"
 #include "src/storage.h"
+#include "src/station.h"
+#include "src/scan.h"
+#include "src/network.h"
+#include "src/handshake.h"
 
 static uint32_t netdev_watch;
 static struct l_genl_family *nl80211;
@@ -107,6 +112,8 @@ struct dpp_sm {
 
 	/* Timeout of either auth/config protocol */
 	struct l_timeout *timeout;
+
+	struct dpp_configuration *config;
 };
 
 static void dpp_free_auth_data(struct dpp_sm *dpp)
@@ -147,6 +154,11 @@ static void dpp_reset(struct dpp_sm *dpp)
 	if (dpp->timeout) {
 		l_timeout_remove(dpp->timeout);
 		dpp->timeout = NULL;
+	}
+
+	if (dpp->config) {
+		dpp_configuration_free(dpp->config);
+		dpp->config = NULL;
 	}
 
 	dpp->state = DPP_STATE_NOTHING;
@@ -559,6 +571,260 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	dpp_configuration_free(config);
 
 	send_config_result(dpp, dpp->auth_addr);
+}
+
+static void dpp_send_config_response(struct dpp_sm *dpp)
+{
+	_auto_(l_free) char *json;
+	struct iovec iov[3];
+	uint8_t hdr[41];
+	uint8_t attrs[512];
+	size_t json_len;
+	uint8_t zero = 0;
+	uint8_t *ptr = hdr + 24;
+
+	l_put_le16(0x00d0, hdr);
+	memcpy(hdr + 4, dpp->auth_addr, 6);
+	memcpy(hdr + 10, netdev_get_address(dpp->netdev), 6);
+	memcpy(hdr + 16, broadcast, 6);
+
+	*ptr++ = 0x04;
+	*ptr++ = 0x0b;
+	*ptr++ = dpp->diag_token;
+	l_put_le16(0, ptr); /* status */
+	ptr += 2;
+	l_put_le16(0, ptr); /* fragmented (no) */
+	ptr += 2;
+	*ptr++ = IE_TYPE_ADVERTISEMENT_PROTOCOL;
+	*ptr++ = 0x08;
+	*ptr++ = 0x7f;
+	*ptr++ = IE_TYPE_VENDOR_SPECIFIC;
+	*ptr++ = 5;
+	memcpy(ptr, wifi_alliance_oui, sizeof(wifi_alliance_oui));
+	ptr += sizeof(wifi_alliance_oui);
+	*ptr++ = 0x1a;
+	*ptr++ = 1;
+
+	json = dpp_configuration_to_json(dpp->config);
+	json_len = strlen(json);
+
+	iov[0].iov_base = hdr;
+	iov[0].iov_len = ptr - hdr;
+
+	ptr = attrs;
+
+	ptr += 2; /* length */
+
+	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &zero, 1);
+
+	ptr += dpp_append_wrapped_data(attrs + 2, ptr - attrs - 2, NULL, 0, ptr,
+			sizeof(attrs), dpp->ke, dpp->key_len, 2,
+			DPP_ATTR_ENROLLEE_NONCE, dpp->nonce_len, dpp->e_nonce,
+			DPP_ATTR_CONFIGURATION_OBJECT, json_len, json);
+
+	l_put_le16(ptr - attrs - 2, attrs);
+
+	iov[1].iov_base = attrs;
+	iov[1].iov_len = ptr - attrs;
+
+	dpp_send_frame(dpp->wdev_id, iov, 2, dpp->current_freq);
+}
+
+static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
+				const void *body, size_t body_len,
+				int rssi, void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+	const uint8_t *ptr = body;
+	struct dpp_attr_iter iter;
+	enum dpp_attribute_type type;
+	size_t len;
+	const uint8_t *data;
+	const char *json = NULL;
+	size_t json_len = 0;
+	struct json_contents *c;
+	const uint8_t *wrapped = NULL;
+	const uint8_t *e_nonce = NULL;
+	size_t wrapped_len = 0;
+	_auto_(l_free) uint8_t *unwrapped = NULL;
+	uint8_t hdr_check[] = { IE_TYPE_ADVERTISEMENT_PROTOCOL, 0x08, 0x7f,
+				IE_TYPE_VENDOR_SPECIFIC, 5 };
+
+	if (dpp->state != DPP_STATE_AUTHENTICATING) {
+		l_debug("Configuration request in wrong state");
+		return;
+	}
+
+	if (memcmp(dpp->auth_addr, frame->address_2, 6)) {
+		l_debug("Configuration request not from authenticated peer");
+		return;
+	}
+
+	if (body_len < 15) {
+		l_debug("Configuration request data not long enough");
+		return;
+	}
+
+	ptr += 2;
+
+	dpp->diag_token = *ptr++;
+
+	if (memcmp(ptr, hdr_check, sizeof(hdr_check)))
+		return;
+
+	ptr += sizeof(hdr_check);
+
+	if (memcmp(ptr, wifi_alliance_oui, sizeof(wifi_alliance_oui)))
+		return;
+
+	ptr += sizeof(wifi_alliance_oui);
+
+	if (*ptr != 0x1a && *(ptr + 1) != 1)
+		return;
+
+	ptr += 2;
+
+	len = l_get_le16(ptr);
+	ptr += 2;
+
+	if (len > body_len - 15)
+		return;
+
+	dpp_attr_iter_init(&iter, ptr, len);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_WRAPPED_DATA:
+			wrapped = data;
+			wrapped_len = len;
+			break;
+		default:
+			/* Wrapped data should be only attribute */
+			return;
+		}
+	}
+
+	if (!wrapped) {
+		l_debug("Wrapped data missing");
+		return;
+	}
+
+	unwrapped = dpp_unwrap_attr(NULL, 0, NULL, 0, dpp->ke,
+					dpp->key_len, wrapped, wrapped_len,
+					&wrapped_len);
+	if (!unwrapped) {
+		l_debug("Failed to unwrap");
+		return;
+	}
+
+	dpp_attr_iter_init(&iter, unwrapped, wrapped_len);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_ENROLLEE_NONCE:
+			if (len != dpp->nonce_len)
+				break;
+
+			e_nonce = data;
+			break;
+		case DPP_ATTR_CONFIGURATION_REQUEST:
+			json = (const char *)data;
+			json_len = len;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (!json || !e_nonce) {
+		l_debug("No configuration object in response");
+		return;
+	}
+
+	/*
+	 * TODO: Full JSON type support (arrays/numbers) is not yet implemented.
+	 * Just verify the JSON is valid for now. There really isn't much need
+	 * to parse this anyhow since IWD only supports configuring stations.
+	 * If this request is for anything else it will fail regardless.
+	 */
+	c = json_contents_new(json, json_len);
+	if (!c) {
+		json_contents_free(c);
+		return;
+	}
+
+	json_contents_free(c);
+
+	memcpy(dpp->e_nonce, e_nonce, dpp->nonce_len);
+
+	dpp->state = DPP_STATE_CONFIGURING;
+
+	dpp_send_config_response(dpp);
+}
+
+static void dpp_handle_config_result_frame(struct dpp_sm *dpp,
+					const uint8_t *from, const void *body,
+					size_t body_len)
+{
+	struct dpp_attr_iter iter;
+	enum dpp_attribute_type type;
+	size_t len;
+	const uint8_t *data;
+	int status = -1;
+	const void *e_nonce = NULL;
+	const void *wrapped = NULL;
+	size_t wrapped_len;
+	_auto_(l_free) void *unwrapped;
+
+	if (dpp->state != DPP_STATE_CONFIGURING)
+		return;
+
+	dpp_attr_iter_init(&iter, body + 8, body_len - 8);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_WRAPPED_DATA:
+			wrapped = data;
+			wrapped_len = len;
+			break;
+		default:
+			/* Wrapped data should be only attribute */
+			return;
+		}
+	}
+
+	if (!wrapped)
+		return;
+
+	unwrapped = dpp_unwrap_attr(body + 2, wrapped - body - 6, wrapped, 0,
+					dpp->ke, dpp->key_len, wrapped,
+					wrapped_len, &wrapped_len);
+	if (!unwrapped) {
+		l_debug("Failed to unwrap DPP configuration result");
+		return;
+	}
+
+	dpp_attr_iter_init(&iter, unwrapped, wrapped_len);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_STATUS:
+			status = l_get_u8(data);
+			break;
+		case DPP_ATTR_ENROLLEE_NONCE:
+			e_nonce = data;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (status != DPP_STATUS_OK || !e_nonce)
+		l_debug("Enrollee signaled a failed configuration");
+	else
+		l_debug("Configuration success");
+
+	dpp_reset(dpp);
 }
 
 /*
@@ -999,7 +1265,7 @@ auth_request_failed:
 	dpp_free_auth_data(dpp);
 }
 
-static void dpp_handle_auth_frame(const struct mmpdu_header *frame,
+static void dpp_handle_frame(const struct mmpdu_header *frame,
 				const void *body, size_t body_len,
 				int rssi, void *user_data)
 {
@@ -1022,6 +1288,10 @@ static void dpp_handle_auth_frame(const struct mmpdu_header *frame,
 		break;
 	case DPP_FRAME_AUTHENTICATION_CONFIRM:
 		authenticate_confirm(dpp, frame->address_2, body, body_len);
+		break;
+	case DPP_FRAME_CONFIGURATION_RESULT:
+		dpp_handle_config_result_frame(dpp, frame->address_2,
+						body, body_len);
 		break;
 	default:
 		l_debug("Unhandled DPP frame %u", *ptr);
@@ -1078,6 +1348,7 @@ static void dpp_create(struct netdev *netdev)
 	struct dpp_sm *dpp = l_new(struct dpp_sm, 1);
 	uint8_t dpp_prefix[] = { 0x04, 0x09, 0x50, 0x6f, 0x9a, 0x1a, 0x01 };
 	uint8_t dpp_conf_response_prefix[] = { 0x04, 0x0b };
+	uint8_t dpp_conf_request_prefix[] = { 0x04, 0x0a };
 
 	dpp->netdev = netdev;
 	dpp->state = DPP_STATE_NOTHING;
@@ -1098,12 +1369,16 @@ static void dpp_create(struct netdev *netdev)
 					IWD_DPP_INTERFACE, dpp);
 
 	frame_watch_add(netdev_get_wdev_id(netdev), 0, 0x00d0, dpp_prefix,
-				sizeof(dpp_prefix), dpp_handle_auth_frame,
+				sizeof(dpp_prefix), dpp_handle_frame,
 				dpp, NULL);
 	frame_watch_add(netdev_get_wdev_id(netdev), 0, 0x00d0,
 				dpp_conf_response_prefix,
 				sizeof(dpp_conf_response_prefix),
 				dpp_handle_config_response_frame, dpp, NULL);
+	frame_watch_add(netdev_get_wdev_id(netdev), 0, 0x00d0,
+				dpp_conf_request_prefix,
+				sizeof(dpp_conf_request_prefix),
+				dpp_handle_config_request_frame, dpp, NULL);
 }
 
 static void dpp_netdev_watch(struct netdev *netdev,
@@ -1275,6 +1550,60 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	return reply;
 }
 
+static struct l_dbus_message *dpp_dbus_start_configurator(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+	struct l_dbus_message *reply;
+	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+	struct scan_bss *bss;
+	struct network *network;
+	struct l_settings *settings;
+	struct handshake_state *hs = netdev_get_handshake(dpp->netdev);
+
+	/*
+	 * For now limit the configurator to only configuring enrollees to the
+	 * currently connected network.
+	 */
+	if (!station)
+		return dbus_error_not_available(message);
+
+	bss = station_get_connected_bss(station);
+	network = station_get_connected_network(station);
+	if (!bss || !network)
+		return dbus_error_not_connected(message);
+
+	settings = network_get_settings(network);
+	if (!settings)
+		return dbus_error_not_configured(message);
+
+	if (network_get_security(network) != SECURITY_PSK)
+		return dbus_error_not_supported(message);
+
+	if (dpp->state != DPP_STATE_NOTHING)
+		return dbus_error_busy(message);
+
+	dpp->uri = dpp_generate_uri(dpp->pub_asn1, dpp->pub_asn1_len, 2,
+					netdev_get_address(dpp->netdev),
+					&bss->frequency, 1, NULL, NULL);
+
+	dpp->state = DPP_STATE_PRESENCE;
+	dpp->role = DPP_CAPABILITY_CONFIGURATOR;
+	dpp->current_freq = bss->frequency;
+	dpp->config = dpp_configuration_new(settings,
+						network_get_ssid(network),
+						hs->akm_suite);
+
+	l_debug("DPP Start Configurator: %s", dpp->uri);
+
+	reply = l_dbus_message_new_method_return(message);
+
+	l_dbus_message_set_arguments(reply, "s", dpp->uri);
+
+	return reply;
+}
+
 static struct l_dbus_message *dpp_dbus_stop(struct l_dbus *dbus,
 						struct l_dbus_message *message,
 						void *user_data)
@@ -1290,6 +1619,8 @@ static void dpp_setup_interface(struct l_dbus_interface *interface)
 {
 	l_dbus_interface_method(interface, "StartEnrollee", 0,
 				dpp_dbus_start_enrollee, "s", "", "uri");
+	l_dbus_interface_method(interface, "StartConfigurator", 0,
+				dpp_dbus_start_configurator, "s", "", "uri");
 	l_dbus_interface_method(interface, "Stop", 0,
 				dpp_dbus_stop, "", "");
 }
