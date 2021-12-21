@@ -98,6 +98,9 @@ struct dpp_sm {
 	struct l_ecc_point *i_proto_public;
 
 	uint8_t diag_token;
+
+	/* Timeout of either auth/config protocol */
+	struct l_timeout *timeout;
 };
 
 static void dpp_free_auth_data(struct dpp_sm *dpp)
@@ -133,6 +136,11 @@ static void dpp_reset(struct dpp_sm *dpp)
 	if (dpp->offchannel_id) {
 		offchannel_cancel(dpp->wdev_id, dpp->offchannel_id);
 		dpp->offchannel_id = 0;
+	}
+
+	if (dpp->timeout) {
+		l_timeout_remove(dpp->timeout);
+		dpp->timeout = NULL;
 	}
 
 	dpp->state = DPP_STATE_NOTHING;
@@ -237,6 +245,24 @@ static size_t dpp_build_config_header(const uint8_t *src, const uint8_t *dest,
 	*ptr++ = 1;
 
 	return ptr - buf;
+}
+
+static void dpp_protocol_timeout(struct l_timeout *timeout, void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+
+	l_debug("DPP timed out");
+
+	dpp_reset(dpp);
+}
+
+static void dpp_reset_protocol_timer(struct dpp_sm *dpp)
+{
+	if (dpp->timeout)
+		l_timeout_modify(dpp->timeout, 10);
+	else
+		dpp->timeout = l_timeout_create(10, dpp_protocol_timeout,
+						dpp, NULL);
 }
 
 /*
@@ -733,6 +759,7 @@ static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
 
 	l_debug("Authentication successful");
 
+	dpp_reset_protocol_timer(dpp);
 	dpp_configuration_start(dpp, from);
 
 	return;
@@ -941,6 +968,7 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	memcpy(dpp->auth_addr, from, 6);
 
 	dpp->state = DPP_STATE_AUTHENTICATING;
+	dpp_reset_protocol_timer(dpp);
 
 	send_authenticate_response(dpp, r_auth);
 
@@ -1013,6 +1041,12 @@ static void dpp_roc_started(void *user_data)
 {
 	struct dpp_sm *dpp = user_data;
 
+	/*
+	 * If not in presence procedure, just stay on channel.
+	 */
+	if (dpp->state != DPP_STATE_PRESENCE)
+		return;
+
 	dpp_presence_announce(dpp);
 }
 
@@ -1082,6 +1116,8 @@ static void dpp_presence_timeout(int error, void *user_data)
 	 */
 	if (error == -ECANCELED)
 		return;
+	else if (error == -EIO)
+		goto next_roc;
 	else if (error < 0)
 		goto protocol_failed;
 
@@ -1093,16 +1129,7 @@ static void dpp_presence_timeout(int error, void *user_data)
 		return;
 	case DPP_STATE_AUTHENTICATING:
 	case DPP_STATE_CONFIGURING:
-		/*
-		 * TODO: If either the auth or config protocol is running we
-		 * need to stay on channel until the specified timeouts.
-		 * Unfortunately the kernel makes this very inconvenient since
-		 * there is no way to stay on channel indefinitely or any way
-		 * of knowing what duration the kernel/card actually chooses.
-		 *
-		 * For now just treat this as a failure.
-		 */
-		goto protocol_failed;
+		goto next_roc;
 	}
 
 	dpp->freqs_idx++;
@@ -1117,6 +1144,7 @@ static void dpp_presence_timeout(int error, void *user_data)
 	l_debug("Presence timeout, moving to next frequency %u, duration %u",
 			dpp->current_freq, dpp->dwell);
 
+next_roc:
 	dpp->offchannel_id = offchannel_start(netdev_get_wdev_id(dpp->netdev),
 			dpp->current_freq, dpp->dwell, dpp_roc_started,
 			dpp, dpp_presence_timeout);
