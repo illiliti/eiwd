@@ -163,6 +163,12 @@ static void dpp_reset(struct dpp_sm *dpp)
 
 	dpp->state = DPP_STATE_NOTHING;
 
+	explicit_bzero(dpp->r_nonce, dpp->nonce_len);
+	explicit_bzero(dpp->i_nonce, dpp->nonce_len);
+	explicit_bzero(dpp->e_nonce, dpp->nonce_len);
+	explicit_bzero(dpp->ke, dpp->key_len);
+	explicit_bzero(dpp->k2, dpp->key_len);
+
 	dpp_free_auth_data(dpp);
 }
 
