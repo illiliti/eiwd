@@ -780,7 +780,7 @@ static void dpp_handle_config_result_frame(struct dpp_sm *dpp,
 	const void *e_nonce = NULL;
 	const void *wrapped = NULL;
 	size_t wrapped_len;
-	_auto_(l_free) void *unwrapped;
+	_auto_(l_free) void *unwrapped = NULL;
 
 	if (dpp->state != DPP_STATE_CONFIGURING)
 		return;
