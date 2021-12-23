@@ -3393,7 +3393,19 @@ static void netdev_sae_tx_authenticate(const uint8_t *body,
 		return;
 	}
 
-	netdev->auth_cmd = l_genl_msg_ref(msg);
+	/*
+	 * Sometimes due to the way the scheduling works out, netdev_auth_cb
+	 * is sent after the SAE Authentication reply from the AP arrives.
+	 * Do not leak auth_cmd if this occurs.  Note that if auth_cmd is not
+	 * NULL and we are here, there's no further reason to save off auth_cmd.
+	 * This is done only if the kernel's cache lacks the BSS we are trying
+	 * to communicate with.
+	 */
+	if (netdev->auth_cmd) {
+		l_genl_msg_unref(netdev->auth_cmd);
+		netdev->auth_cmd = NULL;
+	} else
+		netdev->auth_cmd = l_genl_msg_ref(msg);
 }
 
 static void netdev_sae_tx_associate(void *user_data)
@@ -3450,7 +3462,12 @@ static void netdev_fils_tx_authenticate(const uint8_t *body,
 		return;
 	}
 
-	netdev->auth_cmd = l_genl_msg_ref(msg);
+	/* See comment in netdev_sae_tx_authenticate */
+	if (netdev->auth_cmd) {
+		l_genl_msg_unref(netdev->auth_cmd);
+		netdev->auth_cmd = NULL;
+	} else
+		netdev->auth_cmd = l_genl_msg_ref(msg);
 }
 
 static void netdev_fils_tx_associate(struct iovec *fils_iov, size_t n_fils_iov,
