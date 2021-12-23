@@ -280,14 +280,17 @@ class Device(IWDDBusAbstract):
     '''
     _iface_name = IWD_DEVICE_INTERFACE
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, object_path = None, properties = None,
+                    service=IWD_SERVICE, namespace=ctx):
         self._wps_manager_if = None
         self._station_if = None
         self._station_props = None
 
-        IWDDBusAbstract.__init__(self, *args, **kwargs)
+        IWDDBusAbstract.__init__(self, object_path, properties, service,
+                                    namespace)
 
-        self._station_debug = StationDebug(args[0])
+        self._station_debug = StationDebug(object_path=object_path,
+                                            namespace=namespace)
 
     @property
     def _wps_manager(self):
