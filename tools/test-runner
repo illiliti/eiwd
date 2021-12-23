@@ -1380,7 +1380,10 @@ def post_test(ctx, to_copy):
 	allowed = ['phonesim.conf', 'certs', 'secrets', 'iwd']
 	for f in [f for f in os.listdir('/tmp') if f not in allowed]:
 		dbg("File %s was not cleaned up!" % f)
-		os.remove('/tmp/' + f)
+		try:
+			os.remove('/tmp/' + f)
+		except:
+			pass
 
 def print_results(results):
 	table = PrettyTable(['Test', colored('Passed', 'green'), colored('Failed', 'red'), \
