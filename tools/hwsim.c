@@ -3070,6 +3070,8 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 
 	l_log_set_stderr();
+	l_debug_enable("*");
+
 	exit_status = EXIT_FAILURE;
 
 	printf("Wireless simulator ver %s\n", VERSION);
