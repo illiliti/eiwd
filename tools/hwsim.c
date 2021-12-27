@@ -1047,11 +1047,9 @@ static void hwsim_config(struct l_genl_msg *msg, void *user_data)
 
 static void nl80211_config_notify(struct l_genl_msg *msg, void *user_data)
 {
-	uint8_t cmd;
+	uint8_t cmd = l_genl_msg_get_command(msg);
 
-	cmd = l_genl_msg_get_command(msg);
-
-	l_debug("Notification of command %u", cmd);
+	l_debug("Config notification %s(%u)", nl80211cmd_to_string(cmd), cmd);
 
 	switch (cmd) {
 	case NL80211_CMD_NEW_WIPHY:
