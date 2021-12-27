@@ -414,6 +414,7 @@ struct radio_info_rec {
 	int channels;
 	uint8_t addrs[2][ETH_ALEN];
 	char *name;
+	bool ap_only;
 };
 
 struct interface_info_rec {
@@ -776,6 +777,27 @@ err_free_radio:
 					dbus_error_failed(pending_create_msg));
 }
 
+static bool radio_ap_only(struct radio_info_rec *rec)
+{
+	const struct l_queue_entry *i;
+	unsigned int n = 0;
+	bool have_ap = false;
+
+	for (i = l_queue_get_entries(interface_info); i; i = i->next) {
+		struct interface_info_rec *interface = i->data;
+
+		if (interface->radio_rec != rec)
+			continue;
+
+		if (interface->iftype == NL80211_IFTYPE_AP)
+			have_ap = true;
+
+		n += 1;
+	}
+
+	return n == 1 && have_ap;
+}
+
 static void get_wiphy_callback(struct l_genl_msg *msg, void *user_data)
 {
 	const char *name;
@@ -888,6 +910,8 @@ static void get_interface_callback(struct l_genl_msg *msg, void *user_data)
 						HWSIM_INTERFACE_INTERFACE,
 						"Name");
 	}
+
+	radio_rec->ap_only = radio_ap_only(radio_rec);
 }
 
 static bool interface_info_destroy_by_radio(void *data, void *user_data)
@@ -964,6 +988,8 @@ static void set_interface_event(struct l_genl_msg *msg)
 	l_debug("Interface iftype changed for ifindex: %u, iftype: %u",
 			ifindex, iftype);
 	interface->iftype = iftype;
+
+	interface->radio_rec->ap_only = radio_ap_only(interface->radio_rec);
 }
 
 static void del_interface_event(struct l_genl_msg *msg)
@@ -1396,20 +1422,6 @@ error:
 	return false;
 }
 
-struct interface_match_data {
-	struct radio_info_rec *radio;
-	const uint8_t *addr;
-};
-
-static bool interface_info_match_dst(const void *a, const void *b)
-{
-	const struct interface_info_rec *rec = a;
-	const struct interface_match_data *dst = b;
-
-	return rec->radio_rec == dst->radio &&
-		!memcmp(rec->addr, dst->addr, ETH_ALEN);
-}
-
 static void frame_delay_callback(struct l_timeout *timeout, void *user_data)
 {
 	struct send_frame_info *send_info = user_data;
@@ -1434,10 +1446,16 @@ static void process_frame(struct hwsim_frame *frame)
 {
 	const struct l_queue_entry *entry;
 	bool drop_mcast = false;
+	bool beacon = false;
 
 	if (util_is_broadcast_address(frame->dst_ether_addr))
 		process_rules(frame->src_radio, NULL, frame, false,
 				&drop_mcast, NULL);
+
+	if (frame->payload_len >= 2 &&
+			frame->payload[0] == 0x80 &&
+			frame->payload[1] == 0x00)
+		beacon = true;
 
 	for (entry = l_queue_get_entries(radio_info); entry;
 			entry = entry->next) {
@@ -1445,6 +1463,7 @@ static void process_frame(struct hwsim_frame *frame)
 		struct send_frame_info *send_info;
 		bool drop = drop_mcast;
 		uint32_t delay = 0;
+		const struct l_queue_entry *i;
 
 		if (radio == frame->src_radio)
 			continue;
@@ -1464,16 +1483,20 @@ static void process_frame(struct hwsim_frame *frame)
 		 * at least one interface with this specific address.
 		 */
 		if (!util_is_broadcast_address(frame->dst_ether_addr)) {
-			struct interface_match_data match_data = {
-				radio,
-				frame->dst_ether_addr,
-			};
-			struct interface_info_rec *interface =
-				l_queue_find(interface_info,
-						interface_info_match_dst,
-						&match_data);
+			for (i = l_queue_get_entries(interface_info);
+					i; i = i->next) {
+				struct interface_info_rec *interface = i->data;
 
-			if (!interface)
+				if (interface->radio_rec != radio)
+					continue;
+
+				if (!memcmp(interface->addr,
+						frame->dst_ether_addr,
+						ETH_ALEN))
+					break;
+			}
+
+			if (!i)
 				continue;
 		}
 
@@ -1481,6 +1504,13 @@ static void process_frame(struct hwsim_frame *frame)
 				&drop, &delay);
 
 		if (drop)
+			continue;
+
+		/*
+		 * Don't bother sending beacons to other AP interfaces
+		 * if the AP interface is the only one on this phy
+		 */
+		if (beacon && radio->ap_only)
 			continue;
 
 		send_info = l_new(struct send_frame_info, 1);
