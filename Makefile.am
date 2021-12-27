@@ -377,6 +377,8 @@ bin_PROGRAMS += tools/hwsim
 
 tools_hwsim_SOURCES = tools/hwsim.c src/mpdu.h \
 					src/util.h src/util.c \
+					src/nl80211cmd.h src/nl80211cmd.c \
+					src/nl80211util.h src/nl80211util.c \
 					src/storage.h src/storage.c \
 					src/common.h src/common.c \
 					src/band.h src/band.c
