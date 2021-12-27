@@ -778,42 +778,25 @@ err_free_radio:
 
 static void get_wiphy_callback(struct l_genl_msg *msg, void *user_data)
 {
-	struct l_genl_attr attr;
-	uint16_t type, len;
-	const void *data;
-	const char *name = NULL;
-	uint16_t name_len = 0;
-	const uint32_t *id = NULL;
+	const char *name;
+	uint32_t id;
 	struct radio_info_rec *rec;
 
-	if (!l_genl_attr_init(&attr, msg))
-		return;
-
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
-		switch (type) {
-		case NL80211_ATTR_WIPHY:
-			id = data;
-			break;
-		case NL80211_ATTR_WIPHY_NAME:
-			name = data;
-			name_len = len;
-			break;
-		}
-	}
-
-	if (!name || !id)
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_WIPHY, &id,
+					NL80211_ATTR_WIPHY_NAME, &name,
+					NL80211_ATTR_UNSPEC) < 0)
 		return;
 
 	rec = l_queue_find(radio_info, radio_info_match_wiphy_id,
-				L_UINT_TO_PTR(*id));
+				L_UINT_TO_PTR(id));
 	if (!rec)
 		return;
 
-	if (strlen(rec->name) == name_len && !memcmp(rec->name, name, name_len))
+	if (!strcmp(rec->name, name))
 		return;
 
 	l_free(rec->name);
-	rec->name = l_strndup(name, name_len);
+	rec->name = l_strdup(name);
 
 	l_dbus_property_changed(dbus, radio_get_path(rec),
 				HWSIM_RADIO_INTERFACE, "Name");
@@ -986,30 +969,14 @@ static void set_interface_event(struct l_genl_msg *msg)
 static void del_interface_event(struct l_genl_msg *msg)
 {
 	struct interface_info_rec *interface;
-	struct l_genl_attr attr;
-	uint16_t type, len;
-	const void *data;
-	const uint32_t *ifindex = NULL;
+	uint32_t ifindex;
 
-	if (!l_genl_attr_init(&attr, msg))
-		return;
-
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
-		switch (type) {
-		case NL80211_ATTR_IFINDEX:
-			if (len != 4)
-				break;
-
-			ifindex = data;
-			break;
-		}
-	}
-
-	if (!ifindex)
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFINDEX, &ifindex,
+					NL80211_ATTR_UNSPEC) < 0)
 		return;
 
 	interface = l_queue_find(interface_info, interface_info_match_id,
-					L_UINT_TO_PTR(*ifindex));
+					L_UINT_TO_PTR(ifindex));
 	if (!interface)
 		return;
 
