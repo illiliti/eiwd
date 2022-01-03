@@ -567,6 +567,7 @@ TESTS = $(unit_tests)
 EXTRA_DIST = src/genbuiltin src/iwd.service.in src/net.connman.iwd.service \
 			wired/ead.service.in wired/net.connman.ead.service \
 			src/80-iwd.link src/pkcs8.conf unit/gencerts.cnf \
+			doc/main.conf \
 			$(manual_pages) $(patsubst %.1,%.rst, \
 					$(patsubst %.5,%.rst, \
 					$(patsubst %.8,%.rst,$(manual_pages))))
