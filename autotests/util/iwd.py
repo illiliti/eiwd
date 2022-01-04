@@ -280,17 +280,13 @@ class Device(IWDDBusAbstract):
     '''
     _iface_name = IWD_DEVICE_INTERFACE
 
-    def __init__(self, object_path = None, properties = None,
-                    service=IWD_SERVICE, namespace=ctx):
+    def __init__(self, *args, **kwargs):
         self._wps_manager_if = None
         self._station_if = None
         self._station_props = None
+        self._station_debug_obj = None
 
-        IWDDBusAbstract.__init__(self, object_path, properties, service,
-                                    namespace)
-
-        self._station_debug = StationDebug(object_path=object_path,
-                                            namespace=namespace)
+        IWDDBusAbstract.__init__(self, *args, **kwargs)
 
     @property
     def _wps_manager(self):
@@ -308,6 +304,17 @@ class Device(IWDDBusAbstract):
                                                             self.device_path),
                                             IWD_STATION_INTERFACE)
         return self._station_if
+
+    @property
+    def _station_debug(self):
+        if self._properties['Mode'] != 'station':
+            self._prop_proxy.Set(IWD_DEVICE_INTERFACE, 'Mode', 'station')
+
+        if self._station_debug_obj is None:
+            self._station_debug_obj = StationDebug(object_path=self._object_path,
+                                                    namespace=self._namespace)
+
+        return self._station_debug_obj
 
     def _station_properties(self):
         if self._station_props is not None:
@@ -334,6 +341,9 @@ class Device(IWDDBusAbstract):
         if interface == IWD_STATION_INTERFACE and path == self._object_path:
             for name, value in changed.items():
                 self._station_props[name] = value
+
+                if name == 'Mode' and value != 'station':
+                    self._station_debug_obj = None
 
     @property
     def device_path(self):
