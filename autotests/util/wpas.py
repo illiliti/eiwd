@@ -70,6 +70,9 @@ class Wpas:
         while True:
             context.iteration(may_block=True)
 
+            if not event and len(self._rx_data) >= 1:
+                return self._rx_data[0]
+
             for e in self._rx_data:
                 if event in e:
                     GLib.source_remove(timeout)
@@ -77,6 +80,10 @@ class Wpas:
 
             if self._wait_timed_out:
                 raise TimeoutError('waiting for wpas event timed out')
+
+    def wait_for_result(self, timeout=10):
+        self._rx_data = []
+        return self.wait_for_event(None, timeout=timeout)
 
     def _event_parse(self, line):
         # Unescape event parameter values in '', other escaping rules not implemented
