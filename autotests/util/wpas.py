@@ -3,6 +3,7 @@ import os
 import socket
 from gi.repository import GLib
 from config import ctx
+import binascii
 
 ctrl_count = 0
 
@@ -248,6 +249,31 @@ class Wpas:
 
     def set(self, key, value, **kwargs):
         self._ctrl_request('SET ' + key + ' ' + value, **kwargs)
+
+    def dpp_enrollee_start(self, uri=None):
+        self._ctrl_request('DPP_BOOTSTRAP_GEN type=qrcode')
+        self.wait_for_result()
+
+        if uri:
+            self._ctrl_request('DPP_QR_CODE ' + uri)
+            self._dpp_qr_id = self.wait_for_result()
+            self._ctrl_request('DPP_AUTH_INIT peer=%s role=enrollee' % self._dpp_qr_id)
+
+    def dpp_configurator_create(self, uri):
+        self._ctrl_request('DPP_CONFIGURATOR_ADD')
+        self._dpp_conf_id = self.wait_for_result()
+        self._ctrl_request('DPP_QR_CODE ' + uri)
+        self._dpp_qr_id = self.wait_for_result()
+
+        print("DPP Configurator ID: %s. DPP QR ID: %s" % (self._dpp_conf_id, self._dpp_qr_id))
+
+    def dpp_configurator_start(self, ssid, passphrase):
+        ssid = binascii.hexlify(ssid.encode()).decode()
+        passphrase = binascii.hexlify(passphrase.encode()).decode()
+
+        self._ctrl_request('DPP_AUTH_INIT peer=%s conf=sta-psk ssid=%s pass=%s' % (self._dpp_qr_id, ssid, passphrase))
+        self.wait_for_event('DPP-AUTH-SUCCESS')
+        self.wait_for_event('DPP-CONF-SENT')
 
     # Probably needed: remove references to self so that the GC can call __del__ automatically
     def clean_up(self):
