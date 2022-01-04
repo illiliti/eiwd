@@ -70,9 +70,10 @@ class Wpas:
         while True:
             context.iteration(may_block=True)
 
-            if event in self._rx_data:
-                GLib.source_remove(timeout)
-                return self._rx_data
+            for e in self._rx_data:
+                if event in e:
+                    GLib.source_remove(timeout)
+                    return self._rx_data
 
             if self._wait_timed_out:
                 raise TimeoutError('waiting for wpas event timed out')
