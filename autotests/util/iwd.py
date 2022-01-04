@@ -710,7 +710,7 @@ class Network(IWDDBusAbstract):
             Connect to the network. Request the device implied by the object
             path to connect to specified network.
 
-			Possible exception: AbortedEx
+            Possible exception: AbortedEx
                                 BusyEx
                                 FailedEx
                                 NoAgentEx
