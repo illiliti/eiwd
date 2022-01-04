@@ -231,8 +231,6 @@ class StationDebug(IWDDBusAbstract):
     _iface_name = IWD_STATION_DEBUG_INTERFACE
 
     def __init__(self, *args, **kwargs):
-        self._debug_props = None
-        self._debug_iface = None
         self._last_event = None
         self._last_event_data = []
 
