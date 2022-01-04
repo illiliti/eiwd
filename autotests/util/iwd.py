@@ -40,6 +40,7 @@ IWD_P2P_PEER_INTERFACE =        'net.connman.iwd.p2p.Peer'
 IWD_P2P_SERVICE_MANAGER_INTERFACE = 'net.connman.iwd.p2p.ServiceManager'
 IWD_P2P_WFD_INTERFACE =         'net.connman.iwd.p2p.Display'
 IWD_STATION_DEBUG_INTERFACE =   'net.connman.iwd.StationDebug'
+IWD_DPP_INTERFACE =             'net.connman.iwd.DeviceProvisioning'
 
 IWD_AGENT_MANAGER_PATH =        '/net/connman/iwd'
 IWD_TOP_LEVEL_PATH =            '/'
@@ -270,6 +271,20 @@ class StationDebug(IWDDBusAbstract):
             self._last_event_data = None
             self._last_event = None
 
+class DeviceProvisioning(IWDDBusAbstract):
+    '''
+        Class represents net.connman.iwd.DeviceProvisioning
+    '''
+    _iface_name = IWD_DPP_INTERFACE
+
+    def start_enrollee(self):
+        return self._iface.StartEnrollee()
+
+    def start_configurator(self):
+        return self._iface.StartConfigurator()
+
+    def stop(self):
+        self._iface.Stop()
 
 class Device(IWDDBusAbstract):
     '''
@@ -283,6 +298,7 @@ class Device(IWDDBusAbstract):
         self._station_if = None
         self._station_props = None
         self._station_debug_obj = None
+        self._dpp_obj = None
 
         IWDDBusAbstract.__init__(self, *args, **kwargs)
 
@@ -302,6 +318,17 @@ class Device(IWDDBusAbstract):
                                                             self.device_path),
                                             IWD_STATION_INTERFACE)
         return self._station_if
+
+    @property
+    def _device_provisioning(self):
+        if self._properties['Mode'] != 'station':
+            self._prop_proxy.Set(IWD_DEVICE_INTERFACE, 'Mode', 'station')
+
+        if self._dpp_obj is None:
+            self._dpp_obj = DeviceProvisioning(object_path=self._object_path,
+                                                namespace=self._namespace)
+
+        return self._dpp_obj
 
     @property
     def _station_debug(self):
@@ -636,6 +663,15 @@ class Device(IWDDBusAbstract):
 
     def wait_for_event(self, event, timeout=10):
         self._station_debug.wait_for_event(event, timeout)
+
+    def dpp_start_enrollee(self):
+        return self._device_provisioning.start_enrollee()
+
+    def dpp_start_configurator(self):
+        return self._device_provisioning.start_configurator()
+
+    def dpp_stop(self):
+        return self._device_provisioning.stop()
 
     def __str__(self, prefix = ''):
         return prefix + 'Device: ' + self.device_path + '\n'\
