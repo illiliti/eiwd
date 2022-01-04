@@ -1296,7 +1296,8 @@ def pre_test(ctx, test, copied):
 	subtests = [f for f in files if f.startswith('test') or \
 			os.path.splitext(f)[0].endswith('test')]
 	# Everything else (except .py files)
-	to_copy = [f for f in list(set(files) - set(subtests)) if not f.endswith('.py')]
+	to_copy = [f for f in list(set(files) - set(subtests)) if not f.endswith('.py') \
+								and f != '__pycache__']
 	for f in to_copy:
 		if os.path.isdir(f):
 			shutil.copytree(f, '/tmp/' + f)
