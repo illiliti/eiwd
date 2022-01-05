@@ -1232,7 +1232,7 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	}
 
 	if (i_nonce_len != dpp->nonce_len) {
-		l_debug("I-Nonce has unexpected length %lu", i_nonce_len);
+		l_debug("I-Nonce has unexpected length %zu", i_nonce_len);
 		goto auth_request_failed;
 	}
 
