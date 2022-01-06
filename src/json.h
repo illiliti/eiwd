@@ -95,6 +95,7 @@ bool json_iter_get_boolean(struct json_iter *iter, bool *b);
 bool json_iter_get_null(struct json_iter *iter);
 bool json_iter_get_container(struct json_iter *iter,
 				struct json_iter *container);
+bool json_iter_get_string(struct json_iter *iter, char **s);
 
 enum json_type json_iter_get_type(struct json_iter *iter);
 bool json_iter_next(struct json_iter *iter);

@@ -398,6 +398,20 @@ bool json_iter_get_container(struct json_iter *iter,
 	return true;
 }
 
+bool json_iter_get_string(struct json_iter *iter, char **s)
+{
+	struct json_contents *c = iter->contents;
+	jsmntok_t *t = c->tokens + iter->current;
+
+	if (t->type != JSMN_STRING)
+		return false;
+
+	if (s)
+		*s = TOK_TO_STR(c->json, t);
+
+	return true;
+}
+
 enum json_type json_iter_get_type(struct json_iter *iter)
 {
 	struct json_contents *c = iter->contents;
