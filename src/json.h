@@ -42,6 +42,7 @@ struct json_iter {
 	struct json_contents *contents;
 	int start;
 	int count;
+	int current;
 };
 
 #define JSON_MANDATORY(key, type, out) \
@@ -92,3 +93,6 @@ bool json_iter_get_int(struct json_iter *iter, int *i);
 bool json_iter_get_uint(struct json_iter *iter, unsigned int *i);
 bool json_iter_get_boolean(struct json_iter *iter, bool *b);
 bool json_iter_get_null(struct json_iter *iter);
+
+enum json_type json_iter_get_type(struct json_iter *iter);
+bool json_iter_next(struct json_iter *iter);

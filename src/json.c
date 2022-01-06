@@ -89,7 +89,17 @@ static void iter_recurse(struct json_iter *iter, jsmntok_t *token,
 
 	child->contents = c;
 	child->start = token - c->tokens;
+	child->current = child->start;
 	child->count = count_tokens_in_container(iter, token);
+
+	/*
+	 * Add one to include the object/array token itself. This is required
+	 * since 'current' points to the container initially. Only after a call
+	 * to json_iter_next() will 'current' point to the first token in the
+	 * container.
+	 */
+	if (token->type == JSMN_OBJECT || token->type == JSMN_ARRAY)
+		child->count++;
 }
 
 struct json_contents *json_contents_new(const char *json, size_t json_len)
@@ -161,6 +171,7 @@ static void assign_arg(void *data, void *user_data)
 		break;
 	case JSON_OBJECT:
 	case JSON_PRIMITIVE:
+	case JSON_ARRAY:
 		iter_val = arg->value;
 
 		if (!arg->v)
@@ -208,6 +219,7 @@ bool json_iter_parse(struct json_iter *iter, enum json_type type, ...)
 		case JSON_STRING:
 		case JSON_OBJECT:
 		case JSON_PRIMITIVE:
+		case JSON_ARRAY:
 			break;
 		default:
 			goto error;
@@ -272,7 +284,7 @@ static bool iter_get_primitive_data(struct json_iter *iter, void **ptr,
 					size_t *len)
 {
 	struct json_contents *c = iter->contents;
-	jsmntok_t *t = c->tokens + iter->start;
+	jsmntok_t *t = c->tokens + iter->current;
 
 	if (t->type != JSMN_PRIMITIVE)
 		return false;
@@ -370,4 +382,46 @@ bool json_iter_get_null(struct json_iter *iter)
 		return true;
 
 	return false;
+}
+
+enum json_type json_iter_get_type(struct json_iter *iter)
+{
+	struct json_contents *c = iter->contents;
+	jsmntok_t *t = c->tokens + iter->current;
+
+	return (enum json_type) t->type;
+}
+
+bool json_iter_next(struct json_iter *iter)
+{
+	struct json_contents *c = iter->contents;
+	jsmntok_t *t = c->tokens + iter->current;
+	int inc = 1;
+
+	/*
+	 * If this is the initial iteration skip this and just increment
+	 * current by 1 since this iterator points to a container which needs to
+	 * be advanced to the first token..
+	 *
+	 * In addition primitive types and empty containers will have a size
+	 * of 1, so no special handling is needed there.
+	 *
+	 * For non-empty containers 'current' needs to be advanced by all the
+	 * containers child tokens, plus the container itself.
+	 *
+	 * This check ensures:
+	 *    1. It is not the initial iteration
+	 *    2. This is a container
+	 *    3. The container is not empty
+	 */
+	if (iter->current != iter->start && ((t->type == JSMN_OBJECT ||
+					t->type == JSMN_ARRAY) && t->size))
+		inc = count_tokens_in_container(iter, t) + 1;
+
+	if (c->tokens + iter->current + inc >= ITER_END(iter))
+		return false;
+
+	iter->current += inc;
+
+	return true;
 }
