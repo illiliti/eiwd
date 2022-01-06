@@ -314,10 +314,12 @@ static void test_json_arrays(const void *data)
 			"\"int_array\":[-1, -2, -3, -4, -5, -6],"
 			"\"bool_array\":[true, false, true, false],"
 			"\"null_array\":[null, null, null, null],"
+			"\"obj_array\":[{}, {\"key\":\"value\", \"key2\":\"value2\"}],"
 			"\"mixed_array\":[1, -1, true, false, null]}";
 
 	struct json_iter iter;
-	struct json_iter i_array, ui_array, b_array, n_array, m_array;
+	struct json_iter i_array, ui_array, b_array, n_array,
+				m_array, obj_array;
 	struct json_contents *c = json_contents_new(json, strlen(json));
 
 	json_iter_init(&iter, c);
@@ -327,6 +329,7 @@ static void test_json_arrays(const void *data)
 			JSON_MANDATORY("bool_array", JSON_ARRAY, &b_array),
 			JSON_MANDATORY("int_array", JSON_ARRAY, &i_array),
 			JSON_MANDATORY("uint_array", JSON_ARRAY, &ui_array),
+			JSON_MANDATORY("obj_array", JSON_ARRAY, &obj_array),
 			JSON_UNDEFINED));
 
 	count = 1;
@@ -392,6 +395,30 @@ static void test_json_arrays(const void *data)
 
 		count++;
 	}
+
+	count = 0;
+
+	while (json_iter_next(&obj_array)) {
+		struct json_iter object;
+
+		assert(json_iter_get_type(&obj_array) == JSON_OBJECT);
+		assert(json_iter_get_container(&obj_array, &object));
+
+		switch (count) {
+		case 0:
+			assert(json_iter_parse(&object, JSON_UNDEFINED));
+			break;
+		case 1:
+			assert(json_iter_parse(&object,
+				JSON_MANDATORY("key", JSON_STRING, NULL),
+				JSON_UNDEFINED));
+			break;
+		}
+
+		count++;
+	}
+
+	assert(count == 2);
 
 	json_contents_free(c);
 }
