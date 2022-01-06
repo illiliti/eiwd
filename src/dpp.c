@@ -114,6 +114,7 @@ struct dpp_sm {
 	struct l_timeout *timeout;
 
 	struct dpp_configuration *config;
+	uint32_t connect_scan_id;
 };
 
 static void dpp_free_auth_data(struct dpp_sm *dpp)
@@ -159,6 +160,11 @@ static void dpp_reset(struct dpp_sm *dpp)
 	if (dpp->config) {
 		dpp_configuration_free(dpp->config);
 		dpp->config = NULL;
+	}
+
+	if (dpp->connect_scan_id) {
+		scan_cancel(dpp->wdev_id, dpp->connect_scan_id);
+		dpp->connect_scan_id = 0;
 	}
 
 	dpp->state = DPP_STATE_NOTHING;
@@ -389,11 +395,14 @@ static void send_config_result(struct dpp_sm *dpp, const uint8_t *to)
 	dpp_send_frame(dpp->wdev_id, iov, 2, dpp->current_freq);
 }
 
-static void dpp_write_config(struct dpp_configuration *config)
+static void dpp_write_config(struct dpp_configuration *config,
+				struct network *network)
 {
 	_auto_(l_free) char *ssid = l_malloc(config->ssid_len + 1);
 	_auto_(l_settings_free) struct l_settings *settings = l_settings_new();
 	_auto_(l_free) char *path;
+	_auto_(l_free) uint8_t *psk = NULL;
+	size_t psk_len;
 
 	memcpy(ssid, config->ssid, config->ssid_len);
 	ssid[config->ssid_len] = '\0';
@@ -405,16 +414,55 @@ static void dpp_write_config(struct dpp_configuration *config)
 		l_settings_remove_group(settings, "Security");
 	}
 
-	if (config->passphrase)
+	if (config->passphrase) {
 		l_settings_set_string(settings, "Security", "Passphrase",
 				config->passphrase);
-	else if (config->psk)
+		if (network)
+			network_set_passphrase(network, config->passphrase);
+
+	} else if (config->psk) {
 		l_settings_set_string(settings, "Security", "PreSharedKey",
 				config->psk);
+
+		psk = l_util_from_hexstring(config->psk, &psk_len);
+
+		if (network)
+			network_set_psk(network, psk);
+	}
 
 	l_debug("Storing credential for '%s(%s)'", ssid,
 						security_to_str(SECURITY_PSK));
 	storage_network_sync(SECURITY_PSK, ssid, settings);
+}
+
+static void dpp_scan_triggered(int err, void *user_data)
+{
+	/* Not much can be done in this case */
+	if (err < 0)
+		l_error("Failed to trigger DPP scan");
+}
+
+static bool dpp_scan_results(int err, struct l_queue *bss_list,
+				const struct scan_freq_set *freqs,
+				void *userdata)
+{
+	struct dpp_sm *dpp = userdata;
+	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+
+	if (err < 0)
+		return false;
+
+	station_set_scan_results(station, bss_list, freqs, true);
+
+	return true;
+}
+
+static void dpp_scan_destroy(void *userdata)
+{
+	struct dpp_sm *dpp = userdata;
+
+	dpp->connect_scan_id = 0;
+	dpp_reset(dpp);
 }
 
 static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
@@ -441,6 +489,10 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	size_t wrapped_len = 0;
 	_auto_(l_free) uint8_t *unwrapped = NULL;
 	struct dpp_configuration *config;
+	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+	struct network *network;
+	struct scan_bss *bss = NULL;
+	_auto_(l_free) char *ssid = NULL;
 
 	if (dpp->state != DPP_STATE_CONFIGURING)
 		return;
@@ -564,19 +616,33 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 		return;
 	}
 
-	dpp_write_config(config);
-	/*
-	 * TODO: Depending on the info included in the configuration object a
-	 * limited scan could be issued to get autoconnect to trigger faster.
-	 * In addition this network may already be in past scan results and
-	 * could be joined immediately.
-	 *
-	 * For now just wait for autoconnect.
-	 */
+	ssid = l_malloc(config->ssid_len + 1);
+	memcpy(ssid, config->ssid, config->ssid_len);
+	ssid[config->ssid_len] = '\0';
+
+	network = station_network_find(station, ssid, SECURITY_PSK);
+	if (network)
+		bss = network_bss_select(network, true);
+
+	dpp_write_config(config, network);
+
+	if (network && bss)
+		__station_connect_network(station, network, bss);
+	else {
+		dpp->connect_scan_id = scan_active(dpp->wdev_id, NULL, 0,
+						dpp_scan_triggered,
+						dpp_scan_results, dpp,
+						dpp_scan_destroy);
+		if (!dpp->connect_scan_id)
+			goto scan_failed;
+	}
 
 	dpp_configuration_free(config);
 
 	send_config_result(dpp, dpp->auth_addr);
+
+scan_failed:
+	dpp_reset(dpp);
 }
 
 static void dpp_send_config_response(struct dpp_sm *dpp, uint8_t status)
