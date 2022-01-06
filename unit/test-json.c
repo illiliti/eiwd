@@ -76,26 +76,6 @@ static void test_json_escaped_unicode(const void *data)
 }
 
 /*
- * Tests that unsupported types will not parse
- */
-static void test_json_unsupported_types(const void *data)
-{
-	/*
-	 * Valid JSON objects but currently unsupported types
-	 */
-	char arrays[] = "{\"test\":[1, 2, 3, 4]}";
-
-	struct json_iter iter;
-	struct json_contents *c = json_contents_new(arrays, strlen(arrays));
-
-	json_iter_init(&iter, c);
-	assert(!json_iter_parse(&iter,
-				JSON_MANDATORY("test", JSON_ARRAY, NULL),
-				JSON_UNDEFINED));
-	json_contents_free(c);
-}
-
-/*
  * Basic test string values and nested objects
  */
 static void test_json(const void *data)
@@ -324,6 +304,98 @@ static void test_json_primitives(const void *data)
 	json_contents_free(c);
 }
 
+static void test_json_arrays(const void *data)
+{
+	unsigned int ui;
+	int i;
+	bool b;
+	int count;
+	char json[] = "{\"uint_array\":[1, 2, 3, 4, 5, 6],"
+			"\"int_array\":[-1, -2, -3, -4, -5, -6],"
+			"\"bool_array\":[true, false, true, false],"
+			"\"null_array\":[null, null, null, null],"
+			"\"mixed_array\":[1, -1, true, false, null]}";
+
+	struct json_iter iter;
+	struct json_iter i_array, ui_array, b_array, n_array, m_array;
+	struct json_contents *c = json_contents_new(json, strlen(json));
+
+	json_iter_init(&iter, c);
+	assert(json_iter_parse(&iter,
+			JSON_MANDATORY("mixed_array", JSON_ARRAY, &m_array),
+			JSON_MANDATORY("null_array", JSON_ARRAY, &n_array),
+			JSON_MANDATORY("bool_array", JSON_ARRAY, &b_array),
+			JSON_MANDATORY("int_array", JSON_ARRAY, &i_array),
+			JSON_MANDATORY("uint_array", JSON_ARRAY, &ui_array),
+			JSON_UNDEFINED));
+
+	count = 1;
+
+	while (json_iter_next(&ui_array)) {
+		assert(json_iter_get_type(&ui_array) == JSON_PRIMITIVE);
+		assert(json_iter_get_uint(&ui_array, &ui));
+		assert(ui == (unsigned int) count);
+		count++;
+	}
+
+	count = -1;
+
+	while (json_iter_next(&i_array)) {
+		assert(json_iter_get_type(&i_array) == JSON_PRIMITIVE);
+		assert(json_iter_get_int(&i_array, &i));
+		assert(i == count);
+		count--;
+	}
+
+	count = 0;
+
+	while (json_iter_next(&b_array)) {
+		assert(json_iter_get_type(&b_array) == JSON_PRIMITIVE);
+		assert(json_iter_get_boolean(&b_array, &b));
+		assert(b == count % 2 ? false : true);
+		count++;
+	}
+
+	count = 0;
+
+	while (json_iter_next(&n_array)) {
+		assert(json_iter_get_type(&n_array) == JSON_PRIMITIVE);
+		assert(json_iter_get_null(&n_array));
+		count++;
+	}
+
+	assert(count == 4);
+
+	count = 0;
+
+	while (json_iter_next(&m_array)) {
+		assert(json_iter_get_type(&m_array) == JSON_PRIMITIVE);
+
+		switch (count) {
+		case 0:
+			assert(json_iter_get_uint(&m_array, &ui));
+			assert(ui == 1);
+			break;
+		case 1:
+			assert(json_iter_get_int(&m_array, &i));
+			assert(i == -1);
+			break;
+		case 2:
+		case 3:
+			assert(json_iter_get_boolean(&m_array, &b));
+			assert(b == count % 2 ? false : true);
+			break;
+		case 4:
+			assert(json_iter_get_null(&m_array));
+			break;
+		}
+
+		count++;
+	}
+
+	json_contents_free(c);
+}
+
 int main(int argc, char *argv[])
 {
 	l_test_init(&argc, &argv);
@@ -331,11 +403,11 @@ int main(int argc, char *argv[])
 	l_test_add("json unicode", test_json_unicode, NULL);
 	l_test_add("json escaped unicode", test_json_escaped_unicode, NULL);
 	l_test_add("json nested objects", test_json, NULL);
-	l_test_add("json unsupported types", test_json_unsupported_types, NULL);
 	l_test_add("json empty objects", test_json_empty_objects, NULL);
 	l_test_add("json parse out of order", test_json_out_of_order, NULL);
 	l_test_add("json larger object", test_json_larger_object, NULL);
 	l_test_add("json test primitives", test_json_primitives, NULL);
+	l_test_add("json test arrays", test_json_arrays, NULL);
 
 	return l_test_run();
 }
