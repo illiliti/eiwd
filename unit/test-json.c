@@ -315,7 +315,7 @@ static void test_json_arrays(const void *data)
 			"\"bool_array\":[true, false, true, false],"
 			"\"null_array\":[null, null, null, null],"
 			"\"obj_array\":[{}, {\"key\":\"value\", \"key2\":\"value2\"}],"
-			"\"mixed_array\":[1, -1, true, false, null]}";
+			"\"mixed_array\":[1, -1, true, false, null, \"string\"]}";
 
 	struct json_iter iter;
 	struct json_iter i_array, ui_array, b_array, n_array,
@@ -372,24 +372,33 @@ static void test_json_arrays(const void *data)
 	count = 0;
 
 	while (json_iter_next(&m_array)) {
-		assert(json_iter_get_type(&m_array) == JSON_PRIMITIVE);
+		_auto_(l_free) char *str = NULL;
 
 		switch (count) {
 		case 0:
+			assert(json_iter_get_type(&m_array) == JSON_PRIMITIVE);
 			assert(json_iter_get_uint(&m_array, &ui));
 			assert(ui == 1);
 			break;
 		case 1:
+			assert(json_iter_get_type(&m_array) == JSON_PRIMITIVE);
 			assert(json_iter_get_int(&m_array, &i));
 			assert(i == -1);
 			break;
 		case 2:
 		case 3:
+			assert(json_iter_get_type(&m_array) == JSON_PRIMITIVE);
 			assert(json_iter_get_boolean(&m_array, &b));
 			assert(b == count % 2 ? false : true);
 			break;
 		case 4:
+			assert(json_iter_get_type(&m_array) == JSON_PRIMITIVE);
 			assert(json_iter_get_null(&m_array));
+			break;
+		case 5:
+			assert(json_iter_get_type(&m_array) == JSON_STRING);
+			assert(json_iter_get_string(&m_array, &str));
+			assert(!strcmp(str, "string"));
 			break;
 		}
 
@@ -425,7 +434,7 @@ static void test_json_arrays(const void *data)
 
 static void test_json_nested_arrays(const void *data)
 {
-	char json[] = "{\"array\":[[], {}, [1, 2], {\"key\":\"value\"}]}";
+	char json[] = "{\"array\":[[], {}, [1, 2], {\"key\":\"value\"}, [\"one\",\"two\"]]}";
 	int count = 0;
 	struct json_iter iter;
 	struct json_iter array;
@@ -442,8 +451,29 @@ static void test_json_nested_arrays(const void *data)
 
 		assert(json_iter_get_container(&array, &inner));
 
-		while (json_iter_next(&inner))
+		while (json_iter_next(&inner)) {
+			_auto_(l_free) char *str = NULL;
+
+			switch (count) {
+			case 0:
+			case 1:
+				assert(false);
+				break;
+			case 4:
+				assert(json_iter_get_type(&inner) ==
+							JSON_STRING);
+				assert(json_iter_get_string(&inner, &str));
+
+				if (count2 == 0)
+					assert(!strcmp("one", str));
+				else
+					assert(!strcmp("two", str));
+
+				break;
+			}
+
 			count2++;
+		}
 
 		/*
 		 * TODO: add checks for object iteration. Currently these will
@@ -456,6 +486,9 @@ static void test_json_nested_arrays(const void *data)
 		case 2:
 			assert(count2 == 2);
 			break;
+		case 4:
+			assert(count2 == 2);
+			break;
 		default:
 			break;
 		}
@@ -463,7 +496,7 @@ static void test_json_nested_arrays(const void *data)
 		count++;
 	}
 
-	assert(count == 4);
+	assert(count == 5);
 
 	json_contents_free(c);
 }
