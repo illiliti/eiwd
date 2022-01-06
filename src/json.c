@@ -69,20 +69,17 @@ static jsmntok_t *next_key_in_parent(struct json_iter *iter, jsmntok_t *current)
 	return NULL;
 }
 
-/*
- * 'object' is expected to be a value, so object - 1 is its key. Find
- * the next key who's parent matches the parent of object - 1. The
- * token preceeding this next key will mark the end of 'object'.
- */
-static int find_object_tokens(struct json_iter *iter, jsmntok_t *object)
+static int count_tokens_in_container(struct json_iter *iter,
+							jsmntok_t *container)
 {
-	jsmntok_t *next = next_key_in_parent(iter, object - 1);
+	int idx = container - iter->contents->tokens;
+	jsmntok_t *contents;
 
-	/* End of token list */
-	if (!next)
-		next = ITER_END(iter);
+	for (contents = ++container; contents < ITER_END(iter); contents++)
+		if (contents->parent < idx)
+			break;
 
-	return next - object - 1;
+	return contents - container;
 }
 
 static void iter_recurse(struct json_iter *iter, jsmntok_t *object,
@@ -92,7 +89,7 @@ static void iter_recurse(struct json_iter *iter, jsmntok_t *object,
 
 	child->contents = c;
 	child->start = object - c->tokens;
-	child->count = find_object_tokens(iter, object);
+	child->count = count_tokens_in_container(iter, object);
 }
 
 struct json_contents *json_contents_new(const char *json, size_t json_len)
