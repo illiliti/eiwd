@@ -393,7 +393,8 @@ bool json_iter_get_container(struct json_iter *iter,
 	if (t->type != JSMN_OBJECT && t->type != JSMN_ARRAY)
 		return false;
 
-	iter_recurse(iter, t, container);
+	if (container)
+		iter_recurse(iter, t, container);
 
 	return true;
 }
