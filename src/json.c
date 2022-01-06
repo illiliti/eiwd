@@ -82,14 +82,14 @@ static int count_tokens_in_container(struct json_iter *iter,
 	return contents - container;
 }
 
-static void iter_recurse(struct json_iter *iter, jsmntok_t *object,
+static void iter_recurse(struct json_iter *iter, jsmntok_t *token,
 				struct json_iter *child)
 {
 	struct json_contents *c = iter->contents;
 
 	child->contents = c;
-	child->start = object - c->tokens;
-	child->count = count_tokens_in_container(iter, object);
+	child->start = token - c->tokens;
+	child->count = count_tokens_in_container(iter, token);
 }
 
 struct json_contents *json_contents_new(const char *json, size_t json_len)
@@ -150,7 +150,7 @@ static void assign_arg(void *data, void *user_data)
 	struct json_arg *arg = data;
 	struct json_contents *c = iter->contents;
 	char **sval;
-	struct json_iter *oval;
+	struct json_iter *iter_val;
 
 	switch (arg->type) {
 	case JSON_STRING:
@@ -160,12 +160,13 @@ static void assign_arg(void *data, void *user_data)
 
 		break;
 	case JSON_OBJECT:
-		oval = arg->value;
+	case JSON_PRIMITIVE:
+		iter_val = arg->value;
 
 		if (!arg->v)
-			oval->start = -1;
+			iter_val->start = -1;
 		else
-			iter_recurse(iter, arg->v, oval);
+			iter_recurse(iter, arg->v, iter_val);
 
 		break;
 	default:
@@ -206,6 +207,7 @@ bool json_iter_parse(struct json_iter *iter, enum json_type type, ...)
 			goto done;
 		case JSON_STRING:
 		case JSON_OBJECT:
+		case JSON_PRIMITIVE:
 			break;
 		default:
 			goto error;
@@ -263,5 +265,109 @@ done:
 
 error:
 	l_queue_destroy(args, l_free);
+	return false;
+}
+
+static bool iter_get_primitive_data(struct json_iter *iter, void **ptr,
+					size_t *len)
+{
+	struct json_contents *c = iter->contents;
+	jsmntok_t *t = c->tokens + iter->start;
+
+	if (t->type != JSMN_PRIMITIVE)
+		return false;
+
+	*ptr = TOK_PTR(c->json, t);
+	*len = TOK_LEN(t);
+
+	return true;
+}
+
+bool json_iter_get_int(struct json_iter *iter, int *i)
+{
+	void *ptr;
+	size_t len;
+	long int r;
+	int t;
+	char *endp;
+
+	if (!iter_get_primitive_data(iter, &ptr, &len))
+		return false;
+
+	errno = 0;
+
+	t = r = strtol(ptr, &endp, 10);
+	if (endp != ptr + len)
+		return false;
+
+	if (errno == ERANGE || r != t)
+		return false;
+
+	if (i)
+		*i = r;
+
+	return true;
+}
+
+bool json_iter_get_uint(struct json_iter *iter, unsigned int *i)
+{
+	void *ptr;
+	size_t len;
+	unsigned long int r;
+	unsigned int t;
+	char *endp;
+
+	if (!iter_get_primitive_data(iter, &ptr, &len))
+		return false;
+
+	errno = 0;
+
+	t = r = strtoul(ptr, &endp, 10);
+	if (endp != ptr + len)
+		return false;
+
+	if (errno == ERANGE || r != t)
+		return false;
+
+	if (i)
+		*i = r;
+
+	return true;
+}
+
+bool json_iter_get_boolean(struct json_iter *iter, bool *b)
+{
+	void *ptr;
+	size_t len;
+
+	if (!iter_get_primitive_data(iter, &ptr, &len))
+		return false;
+
+	if (len == 4 && !memcmp(ptr, "true", 4)) {
+		if (b)
+			*b = true;
+
+		return true;
+	} else if (len == 5 && !memcmp(ptr, "false", 5)) {
+		if (b)
+			*b = false;
+
+		return true;
+	}
+
+	return false;
+}
+
+bool json_iter_get_null(struct json_iter *iter)
+{
+	void *ptr;
+	size_t len;
+
+	if (!iter_get_primitive_data(iter, &ptr, &len))
+		return false;
+
+	if (len == 4 && !memcmp(ptr, "null", 4))
+		return true;
+
 	return false;
 }
