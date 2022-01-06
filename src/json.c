@@ -200,6 +200,9 @@ bool json_iter_parse(struct json_iter *iter, enum json_type type, ...)
 	if (iter->start == -1)
 		return false;
 
+	if (c->tokens[iter->start].type != JSMN_OBJECT)
+		return false;
+
 	args = l_queue_new();
 
 	va_start(va, type);
@@ -426,6 +429,9 @@ bool json_iter_next(struct json_iter *iter)
 	struct json_contents *c = iter->contents;
 	jsmntok_t *t = c->tokens + iter->current;
 	int inc = 1;
+
+	if (c->tokens[iter->start].type != JSMN_ARRAY)
+		return false;
 
 	/*
 	 * If this is the initial iteration skip this and just increment
