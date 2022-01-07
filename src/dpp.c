@@ -656,6 +656,8 @@ static void dpp_send_config_response(struct dpp_sm *dpp, uint8_t status)
 	size_t json_len;
 	uint8_t *ptr = hdr + 24;
 
+	memset(hdr, 0, sizeof(hdr));
+
 	l_put_le16(0x00d0, hdr);
 	memcpy(hdr + 4, dpp->auth_addr, 6);
 	memcpy(hdr + 10, netdev_get_address(dpp->netdev), 6);
