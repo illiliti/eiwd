@@ -219,8 +219,10 @@ static void dpp_send_frame(uint64_t wdev_id, struct iovec *iov, size_t iov_len,
 
 	l_debug("Sending frame on frequency %u", freq);
 
-	if (!l_genl_family_send(nl80211, msg, dpp_send_frame_cb, NULL, NULL))
+	if (!l_genl_family_send(nl80211, msg, dpp_send_frame_cb, NULL, NULL)) {
 		l_error("Could not send CMD_FRAME");
+		l_genl_msg_unref(msg);
+	}
 }
 
 static size_t dpp_build_header(const uint8_t *src, const uint8_t *dest,
