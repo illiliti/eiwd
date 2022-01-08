@@ -496,7 +496,7 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	_auto_(l_free) uint8_t *unwrapped = NULL;
 	struct dpp_configuration *config;
 	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
-	struct network *network;
+	struct network *network = NULL;
 	struct scan_bss *bss = NULL;
 	char ssid[33];
 
@@ -622,18 +622,24 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 		return;
 	}
 
-	memcpy(ssid, config->ssid, config->ssid_len);
-	ssid[config->ssid_len] = '\0';
+	/*
+	 * We should have a station device, but if not DPP can write the
+	 * credentials out and be done
+	 */
+	if (station) {
+		memcpy(ssid, config->ssid, config->ssid_len);
+		ssid[config->ssid_len] = '\0';
 
-	network = station_network_find(station, ssid, SECURITY_PSK);
-	if (network)
-		bss = network_bss_select(network, true);
+		network = station_network_find(station, ssid, SECURITY_PSK);
+		if (network)
+			bss = network_bss_select(network, true);
+	}
 
 	dpp_write_config(config, network);
 
 	if (network && bss)
 		__station_connect_network(station, network, bss);
-	else {
+	else if (station) {
 		dpp->connect_scan_id = scan_active(dpp->wdev_id, NULL, 0,
 						dpp_scan_triggered,
 						dpp_scan_results, dpp,
