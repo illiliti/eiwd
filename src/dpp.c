@@ -400,7 +400,7 @@ static void send_config_result(struct dpp_sm *dpp, const uint8_t *to)
 static void dpp_write_config(struct dpp_configuration *config,
 				struct network *network)
 {
-	_auto_(l_free) char *ssid = l_malloc(config->ssid_len + 1);
+	char ssid[33];
 	_auto_(l_settings_free) struct l_settings *settings = l_settings_new();
 	_auto_(l_free) char *path;
 	_auto_(l_free) uint8_t *psk = NULL;
@@ -494,7 +494,7 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
 	struct network *network;
 	struct scan_bss *bss = NULL;
-	_auto_(l_free) char *ssid = NULL;
+	char ssid[33];
 
 	if (dpp->state != DPP_STATE_CONFIGURING)
 		return;
@@ -618,7 +618,6 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 		return;
 	}
 
-	ssid = l_malloc(config->ssid_len + 1);
 	memcpy(ssid, config->ssid, config->ssid_len);
 	ssid[config->ssid_len] = '\0';
 
