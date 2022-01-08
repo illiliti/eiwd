@@ -1638,9 +1638,20 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	struct dpp_sm *dpp = user_data;
 	uint32_t freq = band_channel_to_freq(6, BAND_FREQ_2_4_GHZ);
 	struct l_dbus_message *reply;
+	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
 
 	if (dpp->state != DPP_STATE_NOTHING)
 		return dbus_error_busy(message);
+
+	/*
+	 * Station isn't actually required for DPP itself, although this will
+	 * prevent connecting to the network once configured.
+	 */
+	if (station && station_get_connected_network(station)) {
+		l_warn("cannot be enrollee while connected, please disconnect");
+		return dbus_error_busy(message);
+	} else
+		l_debug("No station device, continuing anyways...");
 
 	dpp->uri = dpp_generate_uri(dpp->pub_asn1, dpp->pub_asn1_len, 2,
 					netdev_get_address(dpp->netdev), &freq,
