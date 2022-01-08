@@ -102,6 +102,7 @@ struct dpp_sm {
 
 	uint64_t ke[L_ECC_MAX_DIGITS];
 	uint64_t k2[L_ECC_MAX_DIGITS];
+	uint64_t r_auth[L_ECC_MAX_DIGITS];
 
 	struct l_ecc_scalar *proto_private;
 	struct l_ecc_point *proto_public;
@@ -174,6 +175,7 @@ static void dpp_reset(struct dpp_sm *dpp)
 	explicit_bzero(dpp->e_nonce, dpp->nonce_len);
 	explicit_bzero(dpp->ke, dpp->key_len);
 	explicit_bzero(dpp->k2, dpp->key_len);
+	explicit_bzero(dpp->r_auth, dpp->key_len);
 
 	dpp_free_auth_data(dpp);
 }
@@ -967,7 +969,7 @@ static void dpp_handle_config_result_frame(struct dpp_sm *dpp,
  * ad1 = attrs
  * ad1_len = ptr - attrs
  */
-static void send_authenticate_response(struct dpp_sm *dpp, void *r_auth)
+static void send_authenticate_response(struct dpp_sm *dpp)
 {
 	uint8_t hdr[32];
 	uint8_t attrs[256];
@@ -998,7 +1000,7 @@ static void send_authenticate_response(struct dpp_sm *dpp, void *r_auth)
 	/* Wrap up secondary data (R-Auth) */
 	wrapped2_len = dpp_append_attr(wrapped2_plaintext,
 					DPP_ATTR_RESPONDER_AUTH_TAG,
-					r_auth, dpp->key_len);
+					dpp->r_auth, dpp->key_len);
 	/*
 	 * "Invocations of AES-SIV in the DPP Authentication protocol that
 	 * produce ciphertext that is part of an additional AES-SIV invocation
@@ -1222,7 +1224,6 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *m = NULL;
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *n = NULL;
 	uint64_t k1[L_ECC_MAX_DIGITS];
-	uint64_t r_auth[L_ECC_MAX_DIGITS];
 	const void *ad0 = body + 2;
 	const void *ad1 = body + 8;
 
@@ -1363,7 +1364,7 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 
 	if (!dpp_derive_r_auth(dpp->i_nonce, dpp->r_nonce, dpp->nonce_len,
 				dpp->i_proto_public, dpp->proto_public,
-				dpp->boot_public, r_auth))
+				dpp->boot_public, dpp->r_auth))
 		goto auth_request_failed;
 
 	memcpy(dpp->auth_addr, from, 6);
@@ -1371,7 +1372,7 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	dpp->state = DPP_STATE_AUTHENTICATING;
 	dpp_reset_protocol_timer(dpp);
 
-	send_authenticate_response(dpp, r_auth);
+	send_authenticate_response(dpp);
 
 	return;
 
