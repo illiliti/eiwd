@@ -1205,6 +1205,112 @@ static bool dpp_check_roles(struct dpp_sm *dpp, uint8_t peer_capa)
 	return true;
 }
 
+static void dpp_presence_announce(struct dpp_sm *dpp)
+{
+	struct netdev *netdev = dpp->netdev;
+	uint8_t hdr[32];
+	uint8_t attrs[32 + 4];
+	uint8_t hash[32];
+	uint8_t *ptr = attrs;
+	const uint8_t *addr = netdev_get_address(netdev);
+	struct iovec iov[2];
+
+	iov[0].iov_len = dpp_build_header(addr, broadcast,
+					DPP_FRAME_PRESENCE_ANNOUNCEMENT, hdr);
+	iov[0].iov_base = hdr;
+
+	dpp_hash(L_CHECKSUM_SHA256, hash, 2, "chirp", strlen("chirp"),
+			dpp->pub_asn1, dpp->pub_asn1_len);
+
+	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH, hash, 32);
+
+	iov[1].iov_base = attrs;
+	iov[1].iov_len = ptr - attrs;
+
+	l_debug("Sending presense annoucement on frequency %u and waiting %u",
+		dpp->current_freq, dpp->dwell);
+
+	dpp_send_frame(netdev_get_wdev_id(netdev), iov, 2, dpp->current_freq);
+}
+
+static void dpp_roc_started(void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+
+	/*
+	 * If not in presence procedure or in a configurator role, just stay
+	 * on channel.
+	 */
+	if (dpp->state != DPP_STATE_PRESENCE ||
+			dpp->role == DPP_CAPABILITY_CONFIGURATOR)
+		return;
+
+	dpp_presence_announce(dpp);
+}
+
+static void dpp_start_offchannel(struct dpp_sm *dpp, uint32_t freq);
+
+static void dpp_presence_timeout(int error, void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+
+	dpp->offchannel_id = 0;
+
+	/*
+	 * If cancelled this is likely due to netdev going down or from Stop().
+	 * Otherwise there was some other problem which is probably not
+	 * recoverable.
+	 */
+	if (error == -ECANCELED)
+		return;
+	else if (error == -EIO)
+		goto next_roc;
+	else if (error < 0)
+		goto protocol_failed;
+
+	switch (dpp->state) {
+	case DPP_STATE_PRESENCE:
+		break;
+	case DPP_STATE_NOTHING:
+		/* Protocol already terminated */
+		return;
+	case DPP_STATE_AUTHENTICATING:
+	case DPP_STATE_CONFIGURING:
+		goto next_roc;
+	}
+
+	dpp->freqs_idx++;
+
+	if (dpp->freqs_idx >= dpp->freqs_len) {
+		l_debug("Max retries on presence announcements");
+		dpp->freqs_idx = 0;
+	}
+
+	dpp->current_freq = dpp->freqs[dpp->freqs_idx];
+
+	l_debug("Presence timeout, moving to next frequency %u, duration %u",
+			dpp->current_freq, dpp->dwell);
+
+next_roc:
+	dpp_start_offchannel(dpp, dpp->current_freq);
+
+	return;
+
+protocol_failed:
+	dpp_reset(dpp);
+	return;
+}
+
+static void dpp_start_offchannel(struct dpp_sm *dpp, uint32_t freq)
+{
+	if (dpp->offchannel_id)
+		offchannel_cancel(dpp->wdev_id, dpp->offchannel_id);
+
+	dpp->offchannel_id = offchannel_start(netdev_get_wdev_id(dpp->netdev),
+				freq, dpp->dwell, dpp_roc_started,
+				dpp, dpp_presence_timeout);
+}
+
 static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 					const uint8_t *body, size_t body_len)
 {
@@ -1415,49 +1521,6 @@ static void dpp_handle_frame(const struct mmpdu_header *frame,
 	}
 }
 
-static void dpp_presence_announce(struct dpp_sm *dpp)
-{
-	struct netdev *netdev = dpp->netdev;
-	uint8_t hdr[32];
-	uint8_t attrs[32 + 4];
-	uint8_t hash[32];
-	uint8_t *ptr = attrs;
-	const uint8_t *addr = netdev_get_address(netdev);
-	struct iovec iov[2];
-
-	iov[0].iov_len = dpp_build_header(addr, broadcast,
-					DPP_FRAME_PRESENCE_ANNOUNCEMENT, hdr);
-	iov[0].iov_base = hdr;
-
-	dpp_hash(L_CHECKSUM_SHA256, hash, 2, "chirp", strlen("chirp"),
-			dpp->pub_asn1, dpp->pub_asn1_len);
-
-	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH, hash, 32);
-
-	iov[1].iov_base = attrs;
-	iov[1].iov_len = ptr - attrs;
-
-	l_debug("Sending presense annoucement on frequency %u and waiting %u",
-		dpp->current_freq, dpp->dwell);
-
-	dpp_send_frame(netdev_get_wdev_id(netdev), iov, 2, dpp->current_freq);
-}
-
-static void dpp_roc_started(void *user_data)
-{
-	struct dpp_sm *dpp = user_data;
-
-	/*
-	 * If not in presence procedure or in a configurator role, just stay
-	 * on channel.
-	 */
-	if (dpp->state != DPP_STATE_PRESENCE ||
-			dpp->role == DPP_CAPABILITY_CONFIGURATOR)
-		return;
-
-	dpp_presence_announce(dpp);
-}
-
 static void dpp_create(struct netdev *netdev)
 {
 	struct l_dbus *dbus = dbus_get_bus();
@@ -1516,56 +1579,6 @@ static void dpp_netdev_watch(struct netdev *netdev,
 	default:
 		break;
 	}
-}
-
-static void dpp_presence_timeout(int error, void *user_data)
-{
-	struct dpp_sm *dpp = user_data;
-
-	/*
-	 * If cancelled this is likely due to netdev going down or from Stop().
-	 * Otherwise there was some other problem which is probably not
-	 * recoverable.
-	 */
-	if (error == -ECANCELED)
-		return;
-	else if (error == -EIO)
-		goto next_roc;
-	else if (error < 0)
-		goto protocol_failed;
-
-	switch (dpp->state) {
-	case DPP_STATE_PRESENCE:
-		break;
-	case DPP_STATE_NOTHING:
-		/* Protocol already terminated */
-		return;
-	case DPP_STATE_AUTHENTICATING:
-	case DPP_STATE_CONFIGURING:
-		goto next_roc;
-	}
-
-	dpp->freqs_idx++;
-
-	if (dpp->freqs_idx >= dpp->freqs_len) {
-		l_debug("Max retries on presence announcements");
-		dpp->freqs_idx = 0;
-	}
-
-	dpp->current_freq = dpp->freqs[dpp->freqs_idx];
-
-	l_debug("Presence timeout, moving to next frequency %u, duration %u",
-			dpp->current_freq, dpp->dwell);
-
-next_roc:
-	dpp->offchannel_id = offchannel_start(netdev_get_wdev_id(dpp->netdev),
-			dpp->current_freq, dpp->dwell, dpp_roc_started,
-			dpp, dpp_presence_timeout);
-	return;
-
-protocol_failed:
-	dpp_reset(dpp);
-	return;
 }
 
 /*
@@ -1627,9 +1640,7 @@ static void dpp_start_presence(struct dpp_sm *dpp, uint32_t *limit_freqs,
 	dpp->freqs_idx = 0;
 	dpp->current_freq = dpp->freqs[0];
 
-	dpp->offchannel_id = offchannel_start(netdev_get_wdev_id(dpp->netdev),
-			dpp->current_freq, dpp->dwell, dpp_roc_started,
-			dpp, dpp_presence_timeout);
+	dpp_start_offchannel(dpp, dpp->current_freq);
 }
 
 static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
