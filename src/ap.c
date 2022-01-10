@@ -57,6 +57,7 @@
 #include "src/ap.h"
 #include "src/storage.h"
 #include "src/diagnostic.h"
+#include "src/band.h"
 
 struct ap_state {
 	struct netdev *netdev;
@@ -895,7 +896,7 @@ static uint32_t ap_send_mgmt_frame(struct ap_state *ap,
 					frame_xchg_cb_t callback,
 					void *user_data)
 {
-	uint32_t ch_freq = scan_channel_to_freq(ap->channel, SCAN_BAND_2_4_GHZ);
+	uint32_t ch_freq = band_channel_to_freq(ap->channel, BAND_FREQ_2_4_GHZ);
 	uint64_t wdev_id = netdev_get_wdev_id(ap->netdev);
 	struct iovec iov[2];
 
@@ -2318,7 +2319,7 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 	uint32_t nl_akm = CRYPTO_AKM_PSK;
 	uint32_t wpa_version = NL80211_WPA_VERSION_2;
 	uint32_t auth_type = NL80211_AUTHTYPE_OPEN_SYSTEM;
-	uint32_t ch_freq = scan_channel_to_freq(ap->channel, SCAN_BAND_2_4_GHZ);
+	uint32_t ch_freq = band_channel_to_freq(ap->channel, BAND_FREQ_2_4_GHZ);
 	uint32_t ch_width = NL80211_CHAN_WIDTH_20;
 	unsigned int i;
 
@@ -3066,8 +3067,8 @@ static int ap_load_config(struct ap_state *ap, const struct l_settings *config,
 
 		if (!l_settings_get_uint(config, "General", "Channel",
 						&uintval) ||
-				!scan_channel_to_freq(uintval,
-							SCAN_BAND_2_4_GHZ)) {
+				!band_channel_to_freq(uintval,
+							BAND_FREQ_2_4_GHZ)) {
 			l_error("AP Channel value unsupported");
 			return -EINVAL;
 		}

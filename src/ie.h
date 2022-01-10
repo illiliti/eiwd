@@ -292,6 +292,7 @@ enum ie_vendor_wfa_oi_type {
 	IE_WFA_OI_OSEN = 0x12,
 	IE_WFA_OI_OWE_TRANSITION = 0x1c,
 	IE_WFA_OI_ROAMING_SELECTION = 0x1d,
+	IE_WFA_OI_CONFIGURATOR_CONNECTIVITY = 0x1e,
 };
 
 enum ie_advertisement_id {

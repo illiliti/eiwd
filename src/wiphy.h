@@ -130,4 +130,4 @@ uint32_t wiphy_radio_work_insert(struct wiphy *wiphy,
 				int priority,
 				const struct wiphy_radio_work_item_ops *ops);
 void wiphy_radio_work_done(struct wiphy *wiphy, uint32_t id);
-bool wiphy_radio_work_is_running(struct wiphy *wiphy, uint32_t id);
+int wiphy_radio_work_is_running(struct wiphy *wiphy, uint32_t id);

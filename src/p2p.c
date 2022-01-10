@@ -61,6 +61,7 @@
 #include "src/netconfig.h"
 #include "src/ap.h"
 #include "src/p2p.h"
+#include "src/band.h"
 
 struct p2p_device {
 	uint64_t wdev_id;
@@ -808,7 +809,7 @@ static void p2p_peer_frame_xchg(struct p2p_peer *peer, struct iovec *tx_body,
 	memcpy(frame + 1, tx_body, sizeof(struct iovec) * iov_cnt);
 
 	freq = own_channel ?
-		scan_channel_to_freq(dev->listen_channel, SCAN_BAND_2_4_GHZ) :
+		band_channel_to_freq(dev->listen_channel, BAND_FREQ_2_4_GHZ) :
 		peer->bss->frequency;
 
 	va_start(args, cb);
@@ -2098,14 +2099,14 @@ static void p2p_add_freq_func(uint32_t freq, void *user_data)
 {
 	struct p2p_channel_entries *channel_entry = user_data;
 	uint8_t channel;
-	enum scan_band band;
+	enum band_freq band;
 
 	if (channel_entry->n_channels >= MAX_CHANNELS)
 		return;
 
-	channel = scan_freq_to_channel(freq, &band);
+	channel = band_freq_to_channel(freq, &band);
 
-	if (band != scan_oper_class_to_band((const uint8_t *) "XX\x4",
+	if (band != band_oper_class_to_band((const uint8_t *) "XX\x4",
 						channel_entry->oper_class))
 		return;
 
@@ -2225,10 +2226,10 @@ static bool p2p_go_negotiation_confirm_cb(const struct mmpdu_header *mpdu,
 		 */
 		p2p_device_interface_create(dev);
 	} else {
-		enum scan_band band = scan_oper_class_to_band(
+		enum band_freq band = band_oper_class_to_band(
 			(const uint8_t *) info.operating_channel.country,
 			info.operating_channel.oper_class);
-		uint32_t frequency = scan_channel_to_freq(
+		uint32_t frequency = band_channel_to_freq(
 					info.operating_channel.channel_num,
 					band);
 
@@ -2594,7 +2595,7 @@ static bool p2p_go_negotiation_resp_cb(const struct mmpdu_header *mpdu,
 	int r;
 	struct iovec iov[16];
 	int iov_len = 0;
-	enum scan_band band;
+	enum band_freq band;
 	uint32_t frequency;
 
 	l_debug("");
@@ -2747,10 +2748,10 @@ static bool p2p_go_negotiation_resp_cb(const struct mmpdu_header *mpdu,
 		memcpy(&confirm_info.group_id, &dev->go_group_id,
 			sizeof(struct p2p_group_id_attr));
 	} else {
-		band = scan_oper_class_to_band(
+		band = band_oper_class_to_band(
 			(const uint8_t *) resp_info.operating_channel.country,
 			resp_info.operating_channel.oper_class);
-		frequency = scan_channel_to_freq(
+		frequency = band_channel_to_freq(
 					resp_info.operating_channel.channel_num,
 					band);
 		if (!frequency) {
@@ -3448,8 +3449,8 @@ static void p2p_device_roc_start(struct p2p_device *dev)
 	 * channel than on any other channel and then we listen for a
 	 * potential GO Negotiation restart on our listen channel.
 	 */
-	listen_freq = scan_channel_to_freq(dev->listen_channel,
-						SCAN_BAND_2_4_GHZ);
+	listen_freq = band_channel_to_freq(dev->listen_channel,
+						BAND_FREQ_2_4_GHZ);
 
 	msg = l_genl_msg_new_sized(NL80211_CMD_REMAIN_ON_CHANNEL, 64);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_WDEV, 8, &dev->wdev_id);
@@ -3813,7 +3814,7 @@ static bool p2p_device_scan_start(struct p2p_device *dev)
 
 	for (i = 0; i < L_ARRAY_SIZE(channels_social); i++) {
 		int chan = channels_social[i];
-		uint32_t freq = scan_channel_to_freq(chan, SCAN_BAND_2_4_GHZ);
+		uint32_t freq = band_channel_to_freq(chan, BAND_FREQ_2_4_GHZ);
 
 		scan_freq_set_add(params.freqs, freq);
 	}
@@ -3830,7 +3831,7 @@ static bool p2p_device_scan_start(struct p2p_device *dev)
 	for (i = 0; i < dev->chans_per_scan; i++) {
 		int idx = dev->scan_chan_idx++;
 		int chan = channels_scan_2_4_other[idx];
-		uint32_t freq = scan_channel_to_freq(chan, SCAN_BAND_2_4_GHZ);
+		uint32_t freq = band_channel_to_freq(chan, BAND_FREQ_2_4_GHZ);
 
 		if (dev->scan_chan_idx >=
 				L_ARRAY_SIZE(channels_scan_2_4_other)) {
@@ -4001,7 +4002,7 @@ static void p2p_device_send_probe_resp(struct p2p_device *dev,
 
 	iov[iov_len].iov_base = NULL;
 
-	freq = scan_channel_to_freq(dev->listen_channel, SCAN_BAND_2_4_GHZ);
+	freq = band_channel_to_freq(dev->listen_channel, BAND_FREQ_2_4_GHZ);
 	frame_xchg_start(dev->wdev_id, iov, freq, 0, 0, false, 0,
 				p2p_probe_resp_done, dev, NULL, NULL);
 	l_debug("Probe Response tx queued");
@@ -4023,7 +4024,7 @@ static void p2p_device_probe_cb(const struct mmpdu_header *mpdu,
 	ssize_t wsc_len;
 	struct scan_bss *bss;
 	struct p2p_channel_attr *channel;
-	enum scan_band band;
+	enum band_freq band;
 	uint32_t frequency;
 	bool from_conn_peer;
 
@@ -4086,9 +4087,9 @@ static void p2p_device_probe_cb(const struct mmpdu_header *mpdu,
 	else
 		goto p2p_free;
 
-	band = scan_oper_class_to_band((const uint8_t *) channel->country,
+	band = band_oper_class_to_band((const uint8_t *) channel->country,
 					channel->oper_class);
-	frequency = scan_channel_to_freq(channel->channel_num, band);
+	frequency = band_channel_to_freq(channel->channel_num, band);
 	if (!frequency)
 		goto p2p_free;
 

@@ -41,6 +41,7 @@
 #include "src/nl80211util.h"
 #include "src/wiphy.h"
 #include "src/frame-xchg.h"
+#include "src/band.h"
 
 #include "linux/nl80211.h"
 
@@ -278,7 +279,7 @@ static size_t build_report_for_bss(struct rrm_beacon_req_info *beacon,
 	struct rrm_beacon_report *report = (struct rrm_beacon_report *) to;
 
 	report->oper_class = beacon->oper_class;
-	report->channel = scan_freq_to_channel(bss->frequency, NULL);
+	report->channel = band_freq_to_channel(bss->frequency, NULL);
 	report->scan_start_time = L_CPU_TO_LE64(beacon->scan_start_time);
 	report->duration = L_CPU_TO_LE16(beacon->duration);
 	report->frame_info = rrm_phy_type(bss);
@@ -310,7 +311,7 @@ static size_t build_report_for_bss(struct rrm_beacon_req_info *beacon,
 static bool bss_in_request_range(struct rrm_beacon_req_info *beacon,
 					struct scan_bss *bss)
 {
-	uint8_t channel = scan_freq_to_channel(bss->frequency, NULL);
+	uint8_t channel = band_freq_to_channel(bss->frequency, NULL);
 
 	/* Must be a table measurement */
 	if (beacon->channel == 0 || beacon->channel == 255)
@@ -436,10 +437,10 @@ static void rrm_handle_beacon_scan(struct rrm_state *rrm,
 		.duration = beacon->duration,
 		.duration_mandatory = test_bit(&beacon->info.mode, 4),
 	};
-	enum scan_band band = scan_oper_class_to_band(NULL, beacon->oper_class);
+	enum band_freq band = band_oper_class_to_band(NULL, beacon->oper_class);
 	uint32_t freq;
 
-	freq = scan_channel_to_freq(beacon->channel, band);
+	freq = band_channel_to_freq(beacon->channel, band);
 	scan_freq_set_add(freqs, freq);
 
 	if (passive)
@@ -485,7 +486,7 @@ static bool rrm_verify_beacon_request(const uint8_t *request, size_t len)
 	}
 
 	/* Check this is a valid operating class */
-	if (!scan_oper_class_to_band(NULL, request[0]))
+	if (!band_oper_class_to_band(NULL, request[0]))
 		return false;
 
 	return true;

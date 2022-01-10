@@ -46,6 +46,7 @@
 #include "src/iwd.h"
 #include "src/network.h"
 #include "src/wsc.h"
+#include "src/band.h"
 
 #define WALK_TIME 120
 
@@ -299,14 +300,14 @@ static void wsc_enrollee_handshake_event(struct handshake_state *hs,
 
 static inline enum wsc_rf_band freq_to_rf_band(uint32_t freq)
 {
-	enum scan_band band;
+	enum band_freq band;
 
-	scan_freq_to_channel(freq, &band);
+	band_freq_to_channel(freq, &band);
 
 	switch (band) {
-	case SCAN_BAND_2_4_GHZ:
+	case BAND_FREQ_2_4_GHZ:
 		return WSC_RF_BAND_2_4_GHZ;
-	case SCAN_BAND_5_GHZ:
+	case BAND_FREQ_5_GHZ:
 		return WSC_RF_BAND_5_0_GHZ;
 	}
 
@@ -731,7 +732,7 @@ static bool push_button_scan_results(int err, struct l_queue *bss_list,
 	for (bss_entry = l_queue_get_entries(bss_list); bss_entry;
 				bss_entry = bss_entry->next) {
 		struct scan_bss *bss = bss_entry->data;
-		enum scan_band band;
+		enum band_freq band;
 		int err;
 
 		l_debug("bss '%s' with SSID: %s, freq: %u",
@@ -762,10 +763,10 @@ static bool push_button_scan_results(int err, struct l_queue *bss_list,
 				WSC_DEVICE_PASSWORD_ID_PUSH_BUTTON)
 			continue;
 
-		scan_freq_to_channel(bss->frequency, &band);
+		band_freq_to_channel(bss->frequency, &band);
 
 		switch (band) {
-		case SCAN_BAND_2_4_GHZ:
+		case BAND_FREQ_2_4_GHZ:
 			if (bss_2g) {
 				l_debug("2G Session overlap error");
 				goto session_overlap;
@@ -775,7 +776,7 @@ static bool push_button_scan_results(int err, struct l_queue *bss_list,
 			memcpy(uuid_2g, probe_response.uuid_e, 16);
 			break;
 
-		case SCAN_BAND_5_GHZ:
+		case BAND_FREQ_5_GHZ:
 			if (bss_5g) {
 				l_debug("5G Session overlap error");
 				goto session_overlap;
@@ -994,9 +995,9 @@ static bool wsc_initiate_scan(struct wsc_station_dbus *wsc,
 	req.primary_device_type.subcategory = 0;
 
 	bands = wiphy_get_supported_bands(wiphy);
-	if (bands & SCAN_BAND_2_4_GHZ)
+	if (bands & BAND_FREQ_2_4_GHZ)
 		req.rf_bands |= WSC_RF_BAND_2_4_GHZ;
-	if (bands & SCAN_BAND_5_GHZ)
+	if (bands & BAND_FREQ_5_GHZ)
 		req.rf_bands |= WSC_RF_BAND_5_0_GHZ;
 
 	req.association_state = WSC_ASSOCIATION_STATE_NOT_ASSOCIATED;

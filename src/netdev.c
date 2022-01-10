@@ -1165,8 +1165,7 @@ static void netdev_disconnect_event(struct l_genl_msg *msg,
 
 	l_debug("");
 
-	if (!netdev->connected || netdev->disconnect_cmd_id > 0 ||
-			netdev->in_ft || netdev->in_reassoc)
+	if (!netdev->connected || netdev->disconnect_cmd_id > 0)
 		return;
 
 	if (!l_genl_attr_init(&attr, msg)) {
@@ -1189,6 +1188,13 @@ static void netdev_disconnect_event(struct l_genl_msg *msg,
 			break;
 		}
 	}
+
+	/*
+	 * Only ignore this event if issued by the kernel since this is
+	 * normal when using CMD_AUTH/ASSOC.
+	 */
+	if (!disconnect_by_ap && (netdev->in_ft || netdev->in_reassoc))
+		return;
 
 	l_info("Received Deauthentication event, reason: %hu, from_ap: %s",
 			reason_code, disconnect_by_ap ? "true" : "false");
@@ -3171,6 +3177,7 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 
 	if (!netdev->ap) {
 		netdev->associated = true;
+		netdev->in_reassoc = false;
 		return;
 	}
 
@@ -3386,7 +3393,19 @@ static void netdev_sae_tx_authenticate(const uint8_t *body,
 		return;
 	}
 
-	netdev->auth_cmd = l_genl_msg_ref(msg);
+	/*
+	 * Sometimes due to the way the scheduling works out, netdev_auth_cb
+	 * is sent after the SAE Authentication reply from the AP arrives.
+	 * Do not leak auth_cmd if this occurs.  Note that if auth_cmd is not
+	 * NULL and we are here, there's no further reason to save off auth_cmd.
+	 * This is done only if the kernel's cache lacks the BSS we are trying
+	 * to communicate with.
+	 */
+	if (netdev->auth_cmd) {
+		l_genl_msg_unref(netdev->auth_cmd);
+		netdev->auth_cmd = NULL;
+	} else
+		netdev->auth_cmd = l_genl_msg_ref(msg);
 }
 
 static void netdev_sae_tx_associate(void *user_data)
@@ -3443,7 +3462,12 @@ static void netdev_fils_tx_authenticate(const uint8_t *body,
 		return;
 	}
 
-	netdev->auth_cmd = l_genl_msg_ref(msg);
+	/* See comment in netdev_sae_tx_authenticate */
+	if (netdev->auth_cmd) {
+		l_genl_msg_unref(netdev->auth_cmd);
+		netdev->auth_cmd = NULL;
+	} else
+		netdev->auth_cmd = l_genl_msg_ref(msg);
 }
 
 static void netdev_fils_tx_associate(struct iovec *fils_iov, size_t n_fils_iov,
@@ -4181,7 +4205,7 @@ int netdev_join_adhoc(struct netdev *netdev, const char *ssid,
 {
 	struct l_genl_msg *cmd;
 	uint32_t ifindex = netdev->index;
-	uint32_t ch_freq = scan_channel_to_freq(6, SCAN_BAND_2_4_GHZ);
+	uint32_t ch_freq = band_channel_to_freq(6, BAND_FREQ_2_4_GHZ);
 	uint32_t ch_type = NL80211_CHAN_HT20;
 
 	if (netdev->type != NL80211_IFTYPE_ADHOC) {

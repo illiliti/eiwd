@@ -321,16 +321,18 @@ static bool s2v(struct l_checksum *cmac, struct iovec *iov, size_t iov_len,
 /*
  * RFC 5297 Section 2.6 - SIV Encrypt
  */
-bool aes_siv_encrypt(const uint8_t *key, size_t key_len, const uint8_t *in,
+bool aes_siv_encrypt(const void *key, size_t key_len, const void *in,
 			size_t in_len, struct iovec *ad, size_t num_ad,
-			uint8_t *out)
+			void *out)
 {
 	struct l_checksum *cmac;
 	struct l_cipher *ctr;
 	struct iovec iov[num_ad + 1];
 	uint8_t v[16];
 
-	memcpy(iov, ad, sizeof(struct iovec) * num_ad);
+	if (ad)
+		memcpy(iov, ad, sizeof(struct iovec) * num_ad);
+
 	iov[num_ad].iov_base = (void *)in;
 	iov[num_ad].iov_len = in_len;
 	num_ad++;
@@ -374,9 +376,9 @@ free_ctr:
 	return false;
 }
 
-bool aes_siv_decrypt(const uint8_t *key, size_t key_len, const uint8_t *in,
+bool aes_siv_decrypt(const void *key, size_t key_len, const void *in,
 			size_t in_len, struct iovec *ad, size_t num_ad,
-			uint8_t *out)
+			void *out)
 {
 	struct l_checksum *cmac;
 	struct l_cipher *ctr;
@@ -387,7 +389,9 @@ bool aes_siv_decrypt(const uint8_t *key, size_t key_len, const uint8_t *in,
 	if (in_len < 16)
 		return false;
 
-	memcpy(iov, ad, sizeof(struct iovec) * num_ad);
+	if (ad)
+		memcpy(iov, ad, sizeof(struct iovec) * num_ad);
+
 	iov[num_ad].iov_base = (void *)out;
 	iov[num_ad].iov_len = in_len - 16;
 	num_ad++;
@@ -860,7 +864,7 @@ bool hkdf_extract(enum l_checksum_type type, const void *key,
 	return (ret == (int) dlen);
 }
 
-bool hkdf_expand(enum l_checksum_type type, const uint8_t *key, size_t key_len,
+bool hkdf_expand(enum l_checksum_type type, const void *key, size_t key_len,
 			const char *info, void *out, size_t out_len)
 {
 	return prf_plus(type, key, key_len, info, out, out_len, 0);

@@ -248,6 +248,10 @@ src_iwd_SOURCES = src/main.c linux/nl80211.h src/iwd.h src/missing.h \
 					src/ip-pool.h src/ip-pool.c \
 					src/band.h src/band.c \
 					src/sysfs.h src/sysfs.c \
+					src/offchannel.h src/offchannel.c \
+					src/dpp-util.h src/dpp-util.c \
+					src/json.h src/json.c \
+					src/dpp.c \
 					$(eap_sources) \
 					$(builtin_sources)
 
@@ -296,7 +300,8 @@ client_iwctl_SOURCES = client/main.c \
 			client/properties.h client/properties.c \
 			client/wsc.c client/station.c \
 			client/diagnostic.c client/diagnostic.h \
-			client/daemon.c client/daemon.h
+			client/daemon.c client/daemon.h \
+			client/dpp.c
 
 client_iwctl_LDADD = $(ell_ldadd) $(READLINE_LIBS)
 
@@ -321,7 +326,8 @@ monitor_iwmon_SOURCES = monitor/main.c linux/nl80211.h \
 					src/eapolutil.h src/eapolutil.c \
 					src/nl80211cmd.h src/nl80211cmd.c \
 					src/p2putil.c src/p2putil.h \
-					src/anqputil.h src/anqputil.c
+					src/anqputil.h src/anqputil.c \
+					src/band.h src/band.c
 monitor_iwmon_LDADD = $(ell_ldadd)
 
 if MANUAL_PAGES
@@ -336,6 +342,7 @@ wired_ead_SOURCES = wired/main.c wired/ethdev.h wired/ethdev.c \
 				wired/network.h wired/network.c \
 				wired/dbus.h wired/dbus.c \
 				src/module.h src/module.c \
+				src/band.h src/band.c \
 				$(eap_sources)
 wired_ead_LDADD = $(ell_ldadd)
 wired_ead_DEPENDENCIES = $(ell_dependencies)
@@ -363,7 +370,8 @@ tools_probe_req_SOURCES = tools/probe-req.c src/mpdu.h src/mpdu.c \
 					src/ie.h src/ie.c \
 					src/nl80211util.h src/nl80211util.c \
 					src/util.h src/util.c \
-					src/common.h src/common.c
+					src/common.h src/common.c \
+					src/band.h src/band.c
 tools_probe_req_LDADD = $(ell_ldadd)
 endif
 
@@ -372,8 +380,11 @@ bin_PROGRAMS += tools/hwsim
 
 tools_hwsim_SOURCES = tools/hwsim.c src/mpdu.h \
 					src/util.h src/util.c \
+					src/nl80211cmd.h src/nl80211cmd.c \
+					src/nl80211util.h src/nl80211util.c \
 					src/storage.h src/storage.c \
-					src/common.h src/common.c
+					src/common.h src/common.c \
+					src/band.h src/band.c
 tools_hwsim_LDADD = $(ell_ldadd)
 
 if DBUS_POLICY
@@ -391,7 +402,8 @@ unit_tests = unit/test-cmac-aes \
 		unit/test-crypto unit/test-eapol unit/test-mpdu \
 		unit/test-ie unit/test-util unit/test-ssid-security \
 		unit/test-arc4 unit/test-wsc unit/test-eap-mschapv2 \
-		unit/test-eap-sim unit/test-sae unit/test-p2p unit/test-band
+		unit/test-eap-sim unit/test-sae unit/test-p2p unit/test-band \
+		unit/test-dpp unit/test-json
 
 if CLIENT
 unit_tests += unit/test-client
@@ -483,7 +495,7 @@ unit_test_eapol_DEPENDENCIES = $(ell_dependencies) \
 				unit/cert-client-key-pkcs8.pem \
 				unit/tls-settings.8021x
 
-unit_test_util_SOURCES = src/util.h src/util.c \
+unit_test_util_SOURCES = src/util.h src/util.c src/band.c src/band.h \
 				unit/test-util.c
 unit_test_util_LDADD = $(ell_ldadd)
 
@@ -540,21 +552,33 @@ unit_test_p2p_SOURCES = unit/test-p2p.c src/wscutil.h src/wscutil.c \
 				src/crypto.h src/crypto.c \
 				src/ie.h src/ie.c \
 				src/util.h src/util.c \
-				src/p2putil.h src/p2putil.c
+				src/p2putil.h src/p2putil.c \
+				src/band.h src/band.c
 unit_test_p2p_LDADD = $(ell_ldadd)
+
+unit_test_dpp_SOURCES = unit/test-dpp.c src/dpp-util.h src/dpp-util.c \
+				src/band.h src/band.c \
+				src/util.h src/util.c src/crypto.h \
+				src/crypto.c src/json.h src/json.c
+unit_test_dpp_LDADD = $(ell_ldadd)
+
+unit_test_json_SOURCES = unit/test-json.c src/json.h src/json.c shared/jsmn.h
+unit_test_json_LDADD = $(ell_ldadd)
 
 TESTS = $(unit_tests)
 
 EXTRA_DIST = src/genbuiltin src/iwd.service.in src/net.connman.iwd.service \
 			wired/ead.service.in wired/net.connman.ead.service \
 			src/80-iwd.link src/pkcs8.conf unit/gencerts.cnf \
+			doc/main.conf \
 			$(manual_pages) $(patsubst %.1,%.rst, \
 					$(patsubst %.5,%.rst, \
 					$(patsubst %.8,%.rst,$(manual_pages))))
 
 AM_CFLAGS = $(ell_cflags) -fvisibility=hidden \
 				-DUNITDIR=\""$(top_srcdir)/unit/"\" \
-				-DCERTDIR=\""$(top_builddir)/unit/"\"
+				-DCERTDIR=\""$(top_builddir)/unit/"\" \
+				-DJSMN_PARENT_LINKS -DJSMN_STRICT
 
 if DBUS
 AM_CFLAGS += -DHAVE_DBUS

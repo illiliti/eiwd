@@ -42,6 +42,8 @@
 #include "src/storage.h"
 #include "src/mpdu.h"
 #include "src/crypto.h"
+#include "src/nl80211util.h"
+#include "src/nl80211cmd.h"
 
 #define HWSIM_SERVICE "net.connman.hwsim"
 
@@ -412,6 +414,7 @@ struct radio_info_rec {
 	int channels;
 	uint8_t addrs[2][ETH_ALEN];
 	char *name;
+	bool ap_only;
 };
 
 struct interface_info_rec {
@@ -419,6 +422,7 @@ struct interface_info_rec {
 	struct radio_info_rec *radio_rec;
 	uint8_t addr[ETH_ALEN];
 	char *name;
+	uint32_t iftype;
 };
 
 static struct l_queue *radio_info;
@@ -773,44 +777,48 @@ err_free_radio:
 					dbus_error_failed(pending_create_msg));
 }
 
-static void get_wiphy_callback(struct l_genl_msg *msg, void *user_data)
+static bool radio_ap_only(struct radio_info_rec *rec)
 {
-	struct l_genl_attr attr;
-	uint16_t type, len;
-	const void *data;
-	const char *name = NULL;
-	uint16_t name_len = 0;
-	const uint32_t *id = NULL;
-	struct radio_info_rec *rec;
+	const struct l_queue_entry *i;
+	unsigned int n = 0;
+	bool have_ap = false;
 
-	if (!l_genl_attr_init(&attr, msg))
-		return;
+	for (i = l_queue_get_entries(interface_info); i; i = i->next) {
+		struct interface_info_rec *interface = i->data;
 
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
-		switch (type) {
-		case NL80211_ATTR_WIPHY:
-			id = data;
-			break;
-		case NL80211_ATTR_WIPHY_NAME:
-			name = data;
-			name_len = len;
-			break;
-		}
+		if (interface->radio_rec != rec)
+			continue;
+
+		if (interface->iftype == NL80211_IFTYPE_AP)
+			have_ap = true;
+
+		n += 1;
 	}
 
-	if (!name || !id)
+	return n == 1 && have_ap;
+}
+
+static void get_wiphy_callback(struct l_genl_msg *msg, void *user_data)
+{
+	const char *name;
+	uint32_t id;
+	struct radio_info_rec *rec;
+
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_WIPHY, &id,
+					NL80211_ATTR_WIPHY_NAME, &name,
+					NL80211_ATTR_UNSPEC) < 0)
 		return;
 
 	rec = l_queue_find(radio_info, radio_info_match_wiphy_id,
-				L_UINT_TO_PTR(*id));
+				L_UINT_TO_PTR(id));
 	if (!rec)
 		return;
 
-	if (strlen(rec->name) == name_len && !memcmp(rec->name, name, name_len))
+	if (!strcmp(rec->name, name))
 		return;
 
 	l_free(rec->name);
-	rec->name = l_strndup(name, name_len);
+	rec->name = l_strdup(name);
 
 	l_dbus_property_changed(dbus, radio_get_path(rec),
 				HWSIM_RADIO_INTERFACE, "Name");
@@ -818,14 +826,11 @@ static void get_wiphy_callback(struct l_genl_msg *msg, void *user_data)
 
 static void get_interface_callback(struct l_genl_msg *msg, void *user_data)
 {
-	struct l_genl_attr attr;
-	uint16_t type, len;
-	const void *data;
-	const uint8_t *addr = NULL;
-	const uint32_t *wiphy_id = NULL;
-	const uint32_t *ifindex = NULL;
-	const char *ifname = NULL;
-	size_t ifname_len = 0;
+	uint32_t ifindex;
+	uint32_t wiphy_id;
+	uint32_t iftype;
+	const uint8_t *addr;
+	const char *ifname;
 	struct interface_info_rec *rec;
 	struct radio_info_rec *radio_rec;
 	bool old;
@@ -833,57 +838,28 @@ static void get_interface_callback(struct l_genl_msg *msg, void *user_data)
 	struct interface_info_rec prev_rec;
 	bool name_change = false;
 
-	if (!l_genl_attr_init(&attr, msg))
-		return;
-
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
-		switch (type) {
-		case NL80211_ATTR_MAC:
-			if (len != ETH_ALEN)
-				break;
-
-			addr = data;
-			break;
-
-		case NL80211_ATTR_WIPHY:
-			if (len != 4)
-				break;
-
-			wiphy_id = data;
-			break;
-
-		case NL80211_ATTR_IFINDEX:
-			if (len != 4)
-				break;
-
-			ifindex = data;
-			break;
-
-		case NL80211_ATTR_IFNAME:
-			ifname = data;
-			ifname_len = len;
-			break;
-		}
-	}
-
-	if (!addr || !wiphy_id || !ifindex || !ifname)
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFINDEX, &ifindex,
+					NL80211_ATTR_IFNAME, &ifname,
+					NL80211_ATTR_WIPHY, &wiphy_id,
+					NL80211_ATTR_IFTYPE, &iftype,
+					NL80211_ATTR_MAC, &addr,
+					NL80211_ATTR_UNSPEC) < 0)
 		return;
 
 	radio_rec = l_queue_find(radio_info, radio_info_match_wiphy_id,
-				L_UINT_TO_PTR(*wiphy_id));
+				L_UINT_TO_PTR(wiphy_id));
 	if (!radio_rec)
 		/* This is not a hwsim interface, don't track it */
 		return;
 
 	rec = l_queue_find(interface_info, interface_info_match_id,
-				L_UINT_TO_PTR(*ifindex));
+				L_UINT_TO_PTR(ifindex));
 	if (rec) {
 		old = true;
 
 		memcpy(&prev_rec, rec, sizeof(prev_rec));
 
-		if (strlen(rec->name) != ifname_len ||
-				memcmp(rec->name, ifname, ifname_len))
+		if (strcmp(rec->name, ifname))
 			name_change = true;
 
 		l_free(rec->name);
@@ -892,12 +868,13 @@ static void get_interface_callback(struct l_genl_msg *msg, void *user_data)
 
 		rec = l_new(struct interface_info_rec, 1);
 
-		rec->id = *ifindex;
+		rec->id = ifindex;
 		rec->radio_rec = radio_rec;
 	}
 
 	memcpy(rec->addr, addr, ETH_ALEN);
-	rec->name = l_strndup(ifname, ifname_len);
+	rec->name = l_strdup(ifname);
+	rec->iftype = iftype;
 
 	if (!interface_info)
 		interface_info = l_queue_new();
@@ -933,6 +910,8 @@ static void get_interface_callback(struct l_genl_msg *msg, void *user_data)
 						HWSIM_INTERFACE_INTERFACE,
 						"Name");
 	}
+
+	radio_rec->ap_only = radio_ap_only(radio_rec);
 }
 
 static bool interface_info_destroy_by_radio(void *data, void *user_data)
@@ -987,33 +966,43 @@ static void del_radio_event(struct l_genl_msg *msg)
 	radio_free(radio);
 }
 
-static void del_interface_event(struct l_genl_msg *msg)
+static void set_interface_event(struct l_genl_msg *msg)
 {
 	struct interface_info_rec *interface;
-	struct l_genl_attr attr;
-	uint16_t type, len;
-	const void *data;
-	const uint32_t *ifindex = NULL;
+	uint32_t ifindex;
+	uint32_t iftype;
 
-	if (!l_genl_attr_init(&attr, msg))
-		return;
-
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
-		switch (type) {
-		case NL80211_ATTR_IFINDEX:
-			if (len != 4)
-				break;
-
-			ifindex = data;
-			break;
-		}
-	}
-
-	if (!ifindex)
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFINDEX, &ifindex,
+					NL80211_ATTR_IFTYPE, &iftype,
+					NL80211_ATTR_UNSPEC) < 0)
 		return;
 
 	interface = l_queue_find(interface_info, interface_info_match_id,
-					L_UINT_TO_PTR(*ifindex));
+					L_UINT_TO_PTR(ifindex));
+	if (!interface)
+		return;
+
+	if (interface->iftype == iftype)
+		return;
+
+	l_debug("Interface iftype changed for ifindex: %u, iftype: %u",
+			ifindex, iftype);
+	interface->iftype = iftype;
+
+	interface->radio_rec->ap_only = radio_ap_only(interface->radio_rec);
+}
+
+static void del_interface_event(struct l_genl_msg *msg)
+{
+	struct interface_info_rec *interface;
+	uint32_t ifindex;
+
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFINDEX, &ifindex,
+					NL80211_ATTR_UNSPEC) < 0)
+		return;
+
+	interface = l_queue_find(interface_info, interface_info_match_id,
+					L_UINT_TO_PTR(ifindex));
 	if (!interface)
 		return;
 
@@ -1051,11 +1040,9 @@ static void hwsim_config(struct l_genl_msg *msg, void *user_data)
 
 static void nl80211_config_notify(struct l_genl_msg *msg, void *user_data)
 {
-	uint8_t cmd;
+	uint8_t cmd = l_genl_msg_get_command(msg);
 
-	cmd = l_genl_msg_get_command(msg);
-
-	l_debug("Notification of command %u", cmd);
+	l_debug("Config notification %s(%u)", nl80211cmd_to_string(cmd), cmd);
 
 	switch (cmd) {
 	case NL80211_CMD_NEW_WIPHY:
@@ -1063,6 +1050,9 @@ static void nl80211_config_notify(struct l_genl_msg *msg, void *user_data)
 		break;
 	case NL80211_CMD_NEW_INTERFACE:
 		get_interface_callback(msg, NULL);
+		break;
+	case NL80211_CMD_SET_INTERFACE:
+		set_interface_event(msg);
 		break;
 	case NL80211_CMD_DEL_INTERFACE:
 		del_interface_event(msg);
@@ -1432,20 +1422,6 @@ error:
 	return false;
 }
 
-struct interface_match_data {
-	struct radio_info_rec *radio;
-	const uint8_t *addr;
-};
-
-static bool interface_info_match_dst(const void *a, const void *b)
-{
-	const struct interface_info_rec *rec = a;
-	const struct interface_match_data *dst = b;
-
-	return rec->radio_rec == dst->radio &&
-		!memcmp(rec->addr, dst->addr, ETH_ALEN);
-}
-
 static void frame_delay_callback(struct l_timeout *timeout, void *user_data)
 {
 	struct send_frame_info *send_info = user_data;
@@ -1470,10 +1446,16 @@ static void process_frame(struct hwsim_frame *frame)
 {
 	const struct l_queue_entry *entry;
 	bool drop_mcast = false;
+	bool beacon = false;
 
 	if (util_is_broadcast_address(frame->dst_ether_addr))
 		process_rules(frame->src_radio, NULL, frame, false,
 				&drop_mcast, NULL);
+
+	if (frame->payload_len >= 2 &&
+			frame->payload[0] == 0x80 &&
+			frame->payload[1] == 0x00)
+		beacon = true;
 
 	for (entry = l_queue_get_entries(radio_info); entry;
 			entry = entry->next) {
@@ -1481,6 +1463,7 @@ static void process_frame(struct hwsim_frame *frame)
 		struct send_frame_info *send_info;
 		bool drop = drop_mcast;
 		uint32_t delay = 0;
+		const struct l_queue_entry *i;
 
 		if (radio == frame->src_radio)
 			continue;
@@ -1500,16 +1483,20 @@ static void process_frame(struct hwsim_frame *frame)
 		 * at least one interface with this specific address.
 		 */
 		if (!util_is_broadcast_address(frame->dst_ether_addr)) {
-			struct interface_match_data match_data = {
-				radio,
-				frame->dst_ether_addr,
-			};
-			struct interface_info_rec *interface =
-				l_queue_find(interface_info,
-						interface_info_match_dst,
-						&match_data);
+			for (i = l_queue_get_entries(interface_info);
+					i; i = i->next) {
+				struct interface_info_rec *interface = i->data;
 
-			if (!interface)
+				if (interface->radio_rec != radio)
+					continue;
+
+				if (!memcmp(interface->addr,
+						frame->dst_ether_addr,
+						ETH_ALEN))
+					break;
+			}
+
+			if (!i)
 				continue;
 		}
 
@@ -1517,6 +1504,13 @@ static void process_frame(struct hwsim_frame *frame)
 				&drop, &delay);
 
 		if (drop)
+			continue;
+
+		/*
+		 * Don't bother sending beacons to other AP interfaces
+		 * if the AP interface is the only one on this phy
+		 */
+		if (beacon && radio->ap_only)
 			continue;
 
 		send_info = l_new(struct send_frame_info, 1);
@@ -3070,6 +3064,8 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 
 	l_log_set_stderr();
+	l_debug_enable("*");
+
 	exit_status = EXIT_FAILURE;
 
 	printf("Wireless simulator ver %s\n", VERSION);

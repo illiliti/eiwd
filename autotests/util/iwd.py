@@ -40,6 +40,7 @@ IWD_P2P_PEER_INTERFACE =        'net.connman.iwd.p2p.Peer'
 IWD_P2P_SERVICE_MANAGER_INTERFACE = 'net.connman.iwd.p2p.ServiceManager'
 IWD_P2P_WFD_INTERFACE =         'net.connman.iwd.p2p.Display'
 IWD_STATION_DEBUG_INTERFACE =   'net.connman.iwd.StationDebug'
+IWD_DPP_INTERFACE =             'net.connman.iwd.DeviceProvisioning'
 
 IWD_AGENT_MANAGER_PATH =        '/net/connman/iwd'
 IWD_TOP_LEVEL_PATH =            '/'
@@ -231,8 +232,6 @@ class StationDebug(IWDDBusAbstract):
     _iface_name = IWD_STATION_DEBUG_INTERFACE
 
     def __init__(self, *args, **kwargs):
-        self._debug_props = None
-        self._debug_iface = None
         self._last_event = None
         self._last_event_data = []
 
@@ -272,6 +271,20 @@ class StationDebug(IWDDBusAbstract):
             self._last_event_data = None
             self._last_event = None
 
+class DeviceProvisioning(IWDDBusAbstract):
+    '''
+        Class represents net.connman.iwd.DeviceProvisioning
+    '''
+    _iface_name = IWD_DPP_INTERFACE
+
+    def start_enrollee(self):
+        return self._iface.StartEnrollee()
+
+    def start_configurator(self):
+        return self._iface.StartConfigurator()
+
+    def stop(self):
+        self._iface.Stop()
 
 class Device(IWDDBusAbstract):
     '''
@@ -284,10 +297,10 @@ class Device(IWDDBusAbstract):
         self._wps_manager_if = None
         self._station_if = None
         self._station_props = None
+        self._station_debug_obj = None
+        self._dpp_obj = None
 
         IWDDBusAbstract.__init__(self, *args, **kwargs)
-
-        self._station_debug = StationDebug(*args, **kwargs)
 
     @property
     def _wps_manager(self):
@@ -305,6 +318,28 @@ class Device(IWDDBusAbstract):
                                                             self.device_path),
                                             IWD_STATION_INTERFACE)
         return self._station_if
+
+    @property
+    def _device_provisioning(self):
+        if self._properties['Mode'] != 'station':
+            self._prop_proxy.Set(IWD_DEVICE_INTERFACE, 'Mode', 'station')
+
+        if self._dpp_obj is None:
+            self._dpp_obj = DeviceProvisioning(object_path=self._object_path,
+                                                namespace=self._namespace)
+
+        return self._dpp_obj
+
+    @property
+    def _station_debug(self):
+        if self._properties['Mode'] != 'station':
+            self._prop_proxy.Set(IWD_DEVICE_INTERFACE, 'Mode', 'station')
+
+        if self._station_debug_obj is None:
+            self._station_debug_obj = StationDebug(object_path=self._object_path,
+                                                    namespace=self._namespace)
+
+        return self._station_debug_obj
 
     def _station_properties(self):
         if self._station_props is not None:
@@ -331,6 +366,9 @@ class Device(IWDDBusAbstract):
         if interface == IWD_STATION_INTERFACE and path == self._object_path:
             for name, value in changed.items():
                 self._station_props[name] = value
+
+                if name == 'Mode' and value != 'station':
+                    self._station_debug_obj = None
 
     @property
     def device_path(self):
@@ -626,6 +664,15 @@ class Device(IWDDBusAbstract):
     def wait_for_event(self, event, timeout=10):
         self._station_debug.wait_for_event(event, timeout)
 
+    def dpp_start_enrollee(self):
+        return self._device_provisioning.start_enrollee()
+
+    def dpp_start_configurator(self):
+        return self._device_provisioning.start_configurator()
+
+    def dpp_stop(self):
+        return self._device_provisioning.stop()
+
     def __str__(self, prefix = ''):
         return prefix + 'Device: ' + self.device_path + '\n'\
                + prefix + '\tName:\t\t' + self.name + '\n'\
@@ -663,7 +710,7 @@ class Network(IWDDBusAbstract):
             Connect to the network. Request the device implied by the object
             path to connect to specified network.
 
-			Possible exception: AbortedEx
+            Possible exception: AbortedEx
                                 BusyEx
                                 FailedEx
                                 NoAgentEx

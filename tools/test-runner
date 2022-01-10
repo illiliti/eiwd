@@ -1100,7 +1100,6 @@ def build_test_list(args):
 	'''
 	tests = []
 	test_root = args.testhome + '/autotests'
-	full_list = sorted(os.listdir(test_root))
 
 	# Run all tests
 	if not args.auto_tests:
@@ -1108,10 +1107,16 @@ def build_test_list(args):
 		if args.shell:
 			return [test_root + '/shell']
 
-		# Pair down any non-tests and append full path
-		tests = [test_root + '/' + t for t in full_list if t.startswith('test')]
+		# Get list of all autotests (committed in git)
+		tests = os.popen('git -C %s ls-files autotests/ | cut -f2 -d"/" \
+					| grep "test*" | uniq' % args.testhome).read() \
+					.strip().split('\n')
+		tests = [test_root + '/' + t for t in tests]
 	else:
 		print("Generating partial test list")
+
+		full_list = sorted(os.listdir(test_root))
+
 		for t in args.auto_tests.split(','):
 			path = '%s/%s' % (test_root, t)
 			if t.endswith('+'):
@@ -1291,7 +1296,8 @@ def pre_test(ctx, test, copied):
 	subtests = [f for f in files if f.startswith('test') or \
 			os.path.splitext(f)[0].endswith('test')]
 	# Everything else (except .py files)
-	to_copy = [f for f in list(set(files) - set(subtests)) if not f.endswith('.py')]
+	to_copy = [f for f in list(set(files) - set(subtests)) if not f.endswith('.py') \
+								and f != '__pycache__']
 	for f in to_copy:
 		if os.path.isdir(f):
 			shutil.copytree(f, '/tmp/' + f)
@@ -1380,7 +1386,10 @@ def post_test(ctx, to_copy):
 	allowed = ['phonesim.conf', 'certs', 'secrets', 'iwd']
 	for f in [f for f in os.listdir('/tmp') if f not in allowed]:
 		dbg("File %s was not cleaned up!" % f)
-		os.remove('/tmp/' + f)
+		try:
+			os.remove('/tmp/' + f)
+		except:
+			pass
 
 def print_results(results):
 	table = PrettyTable(['Test', colored('Passed', 'green'), colored('Failed', 'red'), \

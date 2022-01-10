@@ -1,3 +1,7 @@
+ver 1.21:
+	Fix issue with handling disconnect events issued by AP.
+	Add experimental support for DPP feature.
+
 ver 1.20:
 	Fix issue with handling Hotspot 2.0 requirements.
 	Add support for evict_nocarrier setting during roaming.
