@@ -927,7 +927,7 @@ void scan_periodic_start(uint64_t wdev_id, scan_trigger_func_t trigger,
 	sc = l_queue_find(scan_contexts, scan_context_match, &wdev_id);
 
 	if (!sc) {
-		l_error("scan_periodic_start called without scan_wdev_add");
+		l_error("%s called without scan_wdev_add", __func__);
 		return;
 	}
 
