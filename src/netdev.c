@@ -2710,6 +2710,7 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 	struct ie_tlv_iter iter;
 	const uint8_t *resp_ies = NULL;
 	size_t resp_ies_len;
+	struct handshake_state *hs = netdev->handshake;
 
 	l_debug("");
 
@@ -2809,15 +2810,13 @@ process_resp_ies:
 				qos_len = ie_tlv_iter_get_length(&iter);
 				break;
 			case IE_TYPE_FILS_IP_ADDRESS:
-				if (netdev->handshake->fils_ip_resp_ie) {
+				if (hs->fils_ip_resp_ie) {
 					l_debug("Duplicate response FILS IP "
 						"Address Assignment IE");
-					l_free(netdev->handshake->
-						fils_ip_resp_ie);
+					l_free(hs->fils_ip_resp_ie);
 				}
 
-				netdev->handshake->fils_ip_resp_ie = l_memdup(
-					data - 3,
+				hs->fils_ip_resp_ie = l_memdup(data - 3,
 					ie_tlv_iter_get_length(&iter) + 3);
 				break;
 			case IE_TYPE_OWE_DH_PARAM:
@@ -2871,7 +2870,7 @@ process_resp_ies:
 
 		if (fte) {
 			uint32_t kck_len =
-				handshake_state_get_kck_len(netdev->handshake);
+				handshake_state_get_kck_len(hs);
 			/*
 			 * If we are here, then most likely we have a FullMac
 			 * hw performing initial mobility association.  We need
@@ -2881,8 +2880,8 @@ process_resp_ies:
 			 */
 			if (ie_parse_fast_bss_transition_from_data(fte,
 					fte[1] + 2, kck_len, &ft_info) >= 0) {
-				handshake_state_set_fte(netdev->handshake, fte);
-				handshake_state_set_kh_ids(netdev->handshake,
+				handshake_state_set_fte(hs, fte);
+				handshake_state_set_kh_ids(hs,
 							ft_info.r0khid,
 							ft_info.r0khid_len,
 							ft_info.r1khid);
@@ -2897,7 +2896,7 @@ process_resp_ies:
 	}
 
 	if (netdev->sm) {
-		if (!netdev->handshake->chandef) {
+		if (!hs->chandef) {
 			if (netdev_get_oci(netdev) < 0)
 				goto deauth;
 		} else if (!eapol_start(netdev->sm))
@@ -2907,9 +2906,8 @@ process_resp_ies:
 	}
 
 	/* Allow station to sync the PSK to disk */
-	if (is_offload(netdev->handshake))
-		handshake_event(netdev->handshake,
-				HANDSHAKE_EVENT_SETTING_KEYS);
+	if (is_offload(hs))
+		handshake_event(hs, HANDSHAKE_EVENT_SETTING_KEYS);
 
 	netdev_connect_ok(netdev);
 	return;
