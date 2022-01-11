@@ -69,7 +69,6 @@ struct scan_periodic {
 	scan_trigger_func_t trigger;
 	scan_notify_func_t callback;
 	void *userdata;
-	bool retry:1;
 	uint32_t id;
 	bool needs_active_scan:1;
 };
@@ -882,27 +881,32 @@ static bool scan_periodic_notify(int err, struct l_queue *bss_list,
 	return false;
 }
 
+static void scan_periodic_destroy(void *user_data)
+{
+	struct scan_context *sc = user_data;
+
+	sc->sp.id = 0;
+}
+
 static bool scan_periodic_queue(struct scan_context *sc)
 {
-	if (!l_queue_isempty(sc->requests)) {
-		sc->sp.retry = true;
-		return false;
-	}
+	struct scan_parameters params = {};
 
 	if (sc->sp.needs_active_scan && known_networks_has_hidden()) {
-		struct scan_parameters params = {
-			.randomize_mac_addr_hint = true
-		};
+		params.randomize_mac_addr_hint = true;
 
 		sc->sp.needs_active_scan = false;
-
-		sc->sp.id = scan_active_full(sc->wdev_id, &params,
-						scan_periodic_triggered,
-						scan_periodic_notify, sc, NULL);
+		sc->sp.id = scan_common(sc->wdev_id, false, &params,
+					WIPHY_WORK_PRIORITY_PERIODIC_SCAN,
+					scan_periodic_triggered,
+					scan_periodic_notify, sc,
+					scan_periodic_destroy);
 	} else
-		sc->sp.id = scan_passive(sc->wdev_id, NULL,
-						scan_periodic_triggered,
-						scan_periodic_notify, sc, NULL);
+		sc->sp.id = scan_common(sc->wdev_id, true, &params,
+					WIPHY_WORK_PRIORITY_PERIODIC_SCAN,
+					scan_periodic_triggered,
+					scan_periodic_notify, sc,
+					scan_periodic_destroy);
 
 	return sc->sp.id != 0;
 }
@@ -974,7 +978,6 @@ bool scan_periodic_stop(uint64_t wdev_id)
 	sc->sp.trigger = NULL;
 	sc->sp.callback = NULL;
 	sc->sp.userdata = NULL;
-	sc->sp.retry = false;
 	sc->sp.needs_active_scan = false;
 
 	return true;
@@ -1004,6 +1007,16 @@ static void scan_periodic_timeout(struct l_timeout *timeout, void *user_data)
 	struct scan_context *sc = user_data;
 
 	l_debug("%" PRIx64, sc->wdev_id);
+
+	/*
+	 * Timeout triggered before periodic scan could even start, just rearm
+	 * with the same interval.
+	 */
+	if (sc->sp.id) {
+		l_debug("Periodic scan timer called before scan could start!");
+		scan_periodic_rearm(sc);
+		return;
+	}
 
 	sc->sp.interval *= 2;
 	if (sc->sp.interval > SCAN_MAX_INTERVAL)
@@ -1048,11 +1061,6 @@ static bool start_next_scan_request(struct wiphy_radio_work_item *item)
 	sc->work_started = false;
 
 	scan_request_failed(sc, sr, -EIO);
-
-	if (sc->sp.retry) {
-		sc->sp.retry = false;
-		scan_periodic_queue(sc);
-	}
 
 	return true;
 }
