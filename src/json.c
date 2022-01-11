@@ -302,7 +302,7 @@ bool json_iter_get_int(struct json_iter *iter, int *i)
 {
 	void *ptr;
 	size_t len;
-	long int r;
+	long r;
 	int t;
 	char *endp;
 
@@ -328,7 +328,7 @@ bool json_iter_get_uint(struct json_iter *iter, unsigned int *i)
 {
 	void *ptr;
 	size_t len;
-	unsigned long int r;
+	unsigned long r;
 	unsigned int t;
 	char *endp;
 

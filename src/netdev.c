@@ -2901,7 +2901,7 @@ process_resp_ies:
 			if (netdev_get_oci(netdev) < 0)
 				goto deauth;
 		} else if (!eapol_start(netdev->sm))
-				goto deauth;
+			goto deauth;
 
 		return;
 	}
@@ -2912,7 +2912,6 @@ process_resp_ies:
 				HANDSHAKE_EVENT_SETTING_KEYS);
 
 	netdev_connect_ok(netdev);
-
 	return;
 
 error:

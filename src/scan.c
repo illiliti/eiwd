@@ -562,6 +562,7 @@ static int scan_request_send_trigger(struct scan_context *sc,
 					struct scan_request *sr)
 {
 	struct l_genl_msg *cmd = l_queue_peek_head(sr->cmds);
+
 	if (!cmd)
 		return -ENOMSG;
 
@@ -2087,7 +2088,7 @@ static int scan_init(void)
 	return 0;
 }
 
-static void scan_exit()
+static void scan_exit(void)
 {
 	l_queue_destroy(scan_contexts,
 				(l_queue_destroy_func_t) scan_context_free);

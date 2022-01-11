@@ -918,6 +918,7 @@ static void wiphy_print_band_info(struct band *band, const char *name)
 
 	if (band->ht_supported) {
 		uint8_t max_nss = bit_field(band->ht_mcs_set[12], 2, 2) + 1;
+
 		l_info("\t\tHT Capabilities:");
 
 		if (test_bit(band->ht_capabilities, 1))

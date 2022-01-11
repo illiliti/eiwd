@@ -155,7 +155,7 @@ struct dpp_configuration *dpp_parse_configuration_object(const char *json,
 			JSON_UNDEFINED))
 		goto free_contents;
 
-	if (!ssid || !util_ssid_is_utf8(strlen(ssid),(const uint8_t *)ssid))
+	if (!ssid || !util_ssid_is_utf8(strlen(ssid), (const uint8_t *) ssid))
 		goto free_contents;
 
 	if (!json_iter_parse(&cred,

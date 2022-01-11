@@ -923,7 +923,7 @@ static bool ie_build_cipher_suite(uint8_t *data, const uint8_t *oui,
 		memcpy((data), (oui), 3);	\
 		(data)[3] = (id);		\
 		return true;			\
-	} while(0)
+	} while (0)
 
 /* 802.11-2016, Section 9.4.2.25.3 */
 static bool ie_build_rsn_akm_suite(uint8_t *data, enum ie_rsn_akm_suite suite)

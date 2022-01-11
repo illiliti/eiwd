@@ -265,7 +265,7 @@ static void print_koption(const void *key, void *value, void *user_data)
 #define ADD_OPTIONAL(opt) \
 	l_hashmap_replace(optional, opt, &r, NULL)
 
-static int check_crypto()
+static int check_crypto(void)
 {
 	int r = 0;
 	struct l_hashmap *options = l_hashmap_string_new();

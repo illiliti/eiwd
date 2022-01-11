@@ -44,7 +44,7 @@
 #include "src/erp.h"
 #include "src/band.h"
 
-static inline unsigned int n_ecc_groups()
+static inline unsigned int n_ecc_groups(void)
 {
 	const unsigned int *groups = l_ecc_supported_ike_groups();
 	unsigned int j = 0;

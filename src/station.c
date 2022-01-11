@@ -1105,7 +1105,7 @@ build_ie:
 	 * any offload features are detected (since IWD prefers to use offload).
 	 */
 	info.ocvc = !disable_ocv && bss_info.ocvc && info.mfpc &&
-			!wiphy_can_offload(wiphy);;
+			!wiphy_can_offload(wiphy);
 
 	/*
 	 * IEEE 802.11-2020 9.4.2.24.4 states extended key IDs can only be used
@@ -1887,9 +1887,9 @@ static void station_ft_ds_action_start(struct station *station)
 			continue;
 
 		/*
-		* Fire and forget. Netdev will maintain a cache of responses and
-		* when the time comes these can be referenced for a roam
-		*/
+		 * Fire and forget. Netdev will maintain a cache of responses
+		 * and when the time comes these can be referenced for a roam
+		 */
 		netdev_fast_transition_over_ds_action(station->netdev, bss);
 	}
 }
@@ -2601,7 +2601,7 @@ static void station_ap_directed_roam(struct station *station,
 		pos += 12;
 	}
 
-	if (req_mode & WNM_REQUEST_MODE_ESS_DISASSOCIATION_IMMINENT ) {
+	if (req_mode & WNM_REQUEST_MODE_ESS_DISASSOCIATION_IMMINENT) {
 		uint8_t url_len;
 
 		if (pos + 1 > body_len)
@@ -2625,7 +2625,7 @@ static void station_ap_directed_roam(struct station *station,
 	if (req_mode & WNM_REQUEST_MODE_PREFERRED_CANDIDATE_LIST) {
 		l_debug("roam: AP sent a preferred candidate list");
 		station_neighbor_report_cb(station->netdev, 0, body + pos,
-				body_len - pos,station);
+				body_len - pos, station);
 	} else {
 		l_debug("roam: AP did not include a preferred candidate list");
 		if (station_roam_scan(station, NULL) < 0)

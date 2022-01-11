@@ -1751,6 +1751,7 @@ static uint8_t *wsc_attr_builder_free(struct wsc_attr_builder *builder,
 
 	if (builder->curlen > 0) {
 		uint8_t *bytes = builder->buf + builder->offset;
+
 		l_put_be16(builder->curlen - 4, bytes + 2);
 		builder->offset += builder->curlen;
 		builder->curlen = 0;

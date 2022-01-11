@@ -726,10 +726,10 @@ static bool frame_watch_remove_by_handler(uint64_t wdev_id, uint32_t group_id,
 						frame_watch_cb_t handler,
 						void *user_data)
 {
-	struct watch_group_match_info group_info =
-		{ group_id == 0 ? 0 : wdev_id, group_id };
-	struct frame_watch_handler_check_info handler_info =
-		{ wdev_id, handler, user_data };
+	struct watch_group_match_info group_info = {
+				group_id == 0 ? 0 : wdev_id, group_id };
+	struct frame_watch_handler_check_info handler_info = {
+					wdev_id, handler, user_data };
 	struct watch_group *group = l_queue_find(watch_groups,
 						frame_watch_group_match,
 						&group_info);

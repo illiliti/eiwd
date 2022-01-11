@@ -725,8 +725,8 @@ void eap_tls_common_handle_request(struct eap_state *eap,
 proceed:
 	if (eap_tls->tx_pdu_buf) {
 		/*
-		* tx_pdu_buf is used for the re-transmission and needs to be
-		* cleared on a new request.
+		 * tx_pdu_buf is used for the re-transmission and needs to be
+		 * cleared on a new request.
 		*/
 		databuf_free(eap_tls->tx_pdu_buf);
 		eap_tls->tx_pdu_buf = NULL;

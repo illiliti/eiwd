@@ -72,8 +72,9 @@ const unsigned char crypto_dh5_generator[] = { 0x2 };
 size_t crypto_dh5_generator_size = sizeof(crypto_dh5_generator);
 
 static bool hmac_common(enum l_checksum_type type,
-		const void *key, size_t key_len,
-                const void *data, size_t data_len, void *output, size_t size)
+			const void *key, size_t key_len,
+			const void *data, size_t data_len,
+			void *output, size_t size)
 {
 	struct l_checksum *hmac;
 
@@ -438,9 +439,9 @@ free_ctr:
 	return false;
 }
 
-#define SWAP(a,b) do { int _t = a; a = b; b = _t; } while (0)
+#define SWAP(a, b) do { int _t = a; a = b; b = _t; } while (0)
 
-static void arc4_set_key(struct arc4_ctx *ctx, unsigned length,
+static void arc4_set_key(struct arc4_ctx *ctx, unsigned int length,
 			 const uint8_t *key)
 {
 	unsigned int i, j, k;
@@ -458,8 +459,8 @@ static void arc4_set_key(struct arc4_ctx *ctx, unsigned length,
 	ctx->i = ctx->j = 0;
 }
 
-static void arc4_crypt(struct arc4_ctx *ctx, unsigned length, uint8_t *dst,
-		       const uint8_t *src)
+static void arc4_crypt(struct arc4_ctx *ctx, unsigned int length,
+			uint8_t *dst, const uint8_t *src)
 {
 	uint8_t i, j;
 
@@ -470,7 +471,7 @@ static void arc4_crypt(struct arc4_ctx *ctx, unsigned length, uint8_t *dst,
 		SWAP(ctx->S[i], ctx->S[j]);
 		if (!dst || !src)
 			continue;
-		*dst++ = *src++ ^ ctx->S[ (ctx->S[i] + ctx->S[j]) & 0xff ];
+		*dst++ = *src++ ^ ctx->S[(ctx->S[i] + ctx->S[j]) & 0xff];
 	}
 	ctx->i = i; ctx->j = j;
 }

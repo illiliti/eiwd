@@ -162,7 +162,7 @@ static void signal_handler(int signo)
 	exit(EXIT_FAILURE);
 }
 
-void __iwd_backtrace_init()
+void __iwd_backtrace_init(void)
 {
 	static char path[PATH_MAX];
 	static char cwd[PATH_MAX];
@@ -174,6 +174,7 @@ void __iwd_backtrace_init()
 	len = readlink("/proc/self/exe", path, sizeof(path) - 1);
 	if (len > 0) {
 		int i;
+
 		path[len] = '\0';
 
 		for (i = len - 1; i >= 0; i--) {

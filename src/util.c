@@ -39,7 +39,7 @@
 
 const char *util_ssid_to_utf8(size_t len, const uint8_t *ssid)
 {
-	static char buf[3* 32 + 1];
+	static char buf[3 * 32 + 1];
 	size_t i = 0, pos = 0;
 	const uint8_t *start = ssid, *end;
 
@@ -136,7 +136,7 @@ bool util_string_to_address(const char *str, uint8_t *out_addr)
 
 		if (str[i + 2] != ':')
 			return false;
-        }
+	}
 
 	if (!l_ascii_isxdigit(str[i]))
 		return false;

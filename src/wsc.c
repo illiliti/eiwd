@@ -555,7 +555,7 @@ static void wsc_store_credentials(struct wsc_credentials_info *creds,
 			else
 				l_settings_set_bytes(settings, "Security",
 						"PreSharedKey", creds[i].psk,
-                                                sizeof(creds[i].psk));
+						sizeof(creds[i].psk));
 		}
 
 		l_debug("Storing credential for '%s(%s)'", ssid,

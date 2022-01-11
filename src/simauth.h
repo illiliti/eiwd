@@ -125,7 +125,7 @@ struct iwd_sim_auth *iwd_sim_auth_find(bool sim, bool aka);
  * @param data		User data
  *
  * @return		Transaction ID, used to cancel the request if needed
- * 			< 0 in case of an error
+ *			< 0 in case of an error
  */
 int sim_auth_check_milenage(struct iwd_sim_auth *auth,
 		const uint8_t *rand, const uint8_t *autn,
@@ -141,7 +141,7 @@ int sim_auth_check_milenage(struct iwd_sim_auth *auth,
  * @param data		User data
  *
  * @return		Transaction ID, used to cancel the request if needed
- * 			< 0 in case of an error
+ *			< 0 in case of an error
  */
 int sim_auth_run_gsm(struct iwd_sim_auth *auth, const uint8_t *rands,
 		int num_rands, sim_auth_run_gsm_cb_t cb, void *data);
