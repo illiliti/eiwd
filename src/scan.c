@@ -1000,7 +1000,7 @@ static void scan_periodic_timeout(struct l_timeout *timeout, void *user_data)
 {
 	struct scan_context *sc = user_data;
 
-	l_debug("scan_periodic_timeout: %" PRIx64, sc->wdev_id);
+	l_debug("%" PRIx64, sc->wdev_id);
 
 	sc->sp.interval *= 2;
 	if (sc->sp.interval > SCAN_MAX_INTERVAL)
