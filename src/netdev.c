@@ -4039,8 +4039,8 @@ build_cmd_connect:
 					NL80211_EXT_FEATURE_CAN_REPLACE_PTK0))
 		handshake_state_set_no_rekey(hs, true);
 
-	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
-				&connect_work_ops);
+	wiphy_radio_work_insert(netdev->wiphy, &netdev->work,
+				WIPHY_WORK_PRIORITY_CONNECT, &connect_work_ops);
 }
 
 int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
@@ -4619,8 +4619,8 @@ int netdev_fast_transition(struct netdev *netdev,
 					netdev_get_oci, netdev);
 	memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
 
-	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
-				&ft_work_ops);
+	wiphy_radio_work_insert(netdev->wiphy, &netdev->work,
+				WIPHY_WORK_PRIORITY_CONNECT, &ft_work_ops);
 
 	return 0;
 }
@@ -4660,8 +4660,8 @@ int netdev_fast_transition_over_ds(struct netdev *netdev,
 					netdev);
 	memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
 
-	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
-				&ft_work_ops);
+	wiphy_radio_work_insert(netdev->wiphy, &netdev->work,
+				WIPHY_WORK_PRIORITY_CONNECT, &ft_work_ops);
 
 	return 0;
 }
