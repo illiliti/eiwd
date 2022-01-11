@@ -1213,7 +1213,8 @@ uint32_t frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 	 * wait on channel) are introduced.
 	 */
 	return wiphy_radio_work_insert(wiphy_find_by_wdev(wdev_id),
-					&fx->work, 0, &work_ops);
+					&fx->work, WIPHY_WORK_PRIORITY_FRAME,
+					&work_ops);
 }
 
 static bool frame_xchg_cancel_by_wdev(void *data, void *user_data)
