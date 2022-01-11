@@ -236,7 +236,8 @@ static char **netconfig_get_dns_list(struct netconfig *netconfig, int af,
 			return dns_list;
 		}
 
-		if (!(lease = l_dhcp_client_get_lease(netconfig->dhcp_client)))
+		lease = l_dhcp_client_get_lease(netconfig->dhcp_client);
+		if (!lease)
 			return NULL;
 
 		return l_dhcp_lease_get_dns(lease);
@@ -264,8 +265,8 @@ static char **netconfig_get_dns_list(struct netconfig *netconfig, int af,
 			return dns_list;
 		}
 
-		if (!(lease = l_dhcp6_client_get_lease(
-						netconfig->dhcp6_client)))
+		lease = l_dhcp6_client_get_lease(netconfig->dhcp6_client);
+		if (!lease)
 			return NULL;
 
 		return l_dhcp6_lease_get_dns(lease);
@@ -1225,9 +1226,9 @@ static bool netconfig_ipv4_select_and_install(struct netconfig *netconfig)
 		if (unlikely(!addr_str))
 			return false;
 
-		if (L_WARN_ON(unlikely(!(netconfig->v4_address =
-						l_rtnl_address_new(addr_str,
-								prefix_len)))))
+		netconfig->v4_address = l_rtnl_address_new(addr_str,
+								prefix_len);
+		if (L_WARN_ON(!netconfig->v4_address))
 			return false;
 
 		l_rtnl_address_set_noprefixroute(netconfig->v4_address, true);

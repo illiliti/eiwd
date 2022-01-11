@@ -3106,7 +3106,8 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 		const struct mmpdu_authentication *auth;
 		bool retry;
 
-		if (L_WARN_ON(!(hdr = mpdu_validate(frame, frame_len))))
+		hdr = mpdu_validate(frame, frame_len);
+		if (L_WARN_ON(!hdr))
 			goto auth_error;
 
 		auth = mmpdu_body(hdr);
@@ -3216,7 +3217,8 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 		const struct mmpdu_header *hdr;
 		const struct mmpdu_association_response *assoc;
 
-		if (L_WARN_ON(!(hdr = mpdu_validate(frame, frame_len))))
+		hdr = mpdu_validate(frame, frame_len);
+		if (L_WARN_ON(!hdr))
 			goto assoc_failed;
 
 		assoc = mmpdu_body(hdr);

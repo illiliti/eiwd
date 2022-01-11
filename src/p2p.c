@@ -1066,8 +1066,9 @@ static size_t p2p_group_write_p2p_ie(struct p2p_device *dev,
 		 * Response frame if the received Probe Request frame does
 		 * not contain a P2P IE."
 		 */
-		if (!(tmp = ie_tlv_extract_p2p_payload(req->ies, req_ies_len,
-							&req_p2p_data_size)))
+		tmp = ie_tlv_extract_p2p_payload(req->ies, req_ies_len,
+							&req_p2p_data_size);
+		if (!tmp)
 			return 0;
 
 		info.capability = dev->capability;
