@@ -237,9 +237,10 @@ static int station_autoconnect_next(struct station *station)
 			}
 
 			return 0;
-		} else
-			l_debug("autoconnect: network_autoconnect: %s (%d)",
-				strerror(-r), r);
+		}
+
+		l_debug("autoconnect: network_autoconnect: %s (%d)",
+							strerror(-r), r);
 	}
 
 	return -ENOENT;

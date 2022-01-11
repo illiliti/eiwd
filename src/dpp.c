@@ -1707,8 +1707,9 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	if (station && station_get_connected_network(station)) {
 		l_warn("cannot be enrollee while connected, please disconnect");
 		return dbus_error_busy(message);
-	} else
-		l_debug("No station device, continuing anyways...");
+	}
+
+	l_debug("No station device, continuing anyways...");
 
 	dpp->uri = dpp_generate_uri(dpp->pub_asn1, dpp->pub_asn1_len, 2,
 					netdev_get_address(dpp->netdev), &freq,

@@ -1597,8 +1597,9 @@ static void p2p_peer_provision_done(int err, struct wsc_credentials_info *creds,
 
 			p2p_connection_reset(dev);
 			return;
-		} else
-			goto error;
+		}
+
+		goto error;
 	}
 
 	if (strlen(creds[0].ssid) != bss->ssid_len ||
