@@ -35,7 +35,7 @@
 /* Max number of tokens supported. Increase if larger objects are expected */
 #define JSON_DEFAULT_TOKENS 60
 
-#define TOK_LEN(token) (token)->end - (token)->start
+#define TOK_LEN(token) ((token)->end - (token)->start)
 #define TOK_PTR(json, token) (void *)((json) + (token)->start)
 #define TOK_TO_STR(json, token) \
 ({ \

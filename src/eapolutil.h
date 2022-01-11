@@ -70,7 +70,7 @@ struct eapol_frame {
 #define EAPOL_KEY_DATA(ek, mic_len) ((ek)->key_data + (mic_len) + 2)
 
 /* gets frame length (not including key data) */
-#define EAPOL_FRAME_LEN(mic_len) sizeof(struct eapol_key) + (mic_len) + 2
+#define EAPOL_FRAME_LEN(mic_len) (sizeof(struct eapol_key) + (mic_len) + 2)
 
 struct eapol_key {
 	struct eapol_header header;

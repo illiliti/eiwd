@@ -598,8 +598,8 @@ static void eap_pwd_send_ack(struct eap_state *eap)
 }
 
 #define FRAG_BYTES(mtu, remaining) \
-	((mtu - EAP_PWD_HDR_LEN) < remaining) ? (mtu - EAP_PWD_HDR_LEN) : \
-			remaining
+	(((mtu - EAP_PWD_HDR_LEN) < remaining) ? (mtu - EAP_PWD_HDR_LEN) : \
+			remaining)
 
 static void eap_pwd_handle_request(struct eap_state *eap,
 					const uint8_t *pkt, size_t len)
