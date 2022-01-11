@@ -45,6 +45,12 @@ struct wiphy_radio_work_item {
 	const struct wiphy_radio_work_item_ops *ops;
 };
 
+#define WIPHY_WORK_PRIORITY_FRAME		0
+#define WIPHY_WORK_PRIORITY_OFFCHANNEL		0
+#define WIPHY_WORK_PRIORITY_CONNECT		1
+#define WIPHY_WORK_PRIORITY_SCAN		2
+#define WIPHY_WORK_PRIORITY_PERIODIC_SCAN	3
+
 enum wiphy_state_watch_event {
 	WIPHY_STATE_WATCH_EVENT_POWERED,
 	WIPHY_STATE_WATCH_EVENT_RFKILLED,
