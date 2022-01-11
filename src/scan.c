@@ -1695,7 +1695,7 @@ static void scan_finished(struct scan_context *sc,
 	if (bss_list)
 		discover_hidden_network_bsses(sc, bss_list);
 
-	if  (sr) {
+	if (sr) {
 		l_queue_remove(sc->requests, sr);
 		sc->started = false;
 		sc->work_started = false;
