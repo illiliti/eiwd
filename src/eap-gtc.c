@@ -67,8 +67,6 @@ static void eap_gtc_handle_request(struct eap_state *eap,
 	eap_method_respond(eap, response, 5 + secret_len);
 
 	eap_method_success(eap);
-
-	return;
 }
 
 static int eap_gtc_check_settings(struct l_settings *settings,

@@ -272,8 +272,6 @@ static void agent_send_next_request(struct agent *agent)
 							agent, NULL);
 
 	pending->message = NULL;
-
-	return;
 }
 
 static unsigned int agent_queue_request(struct agent *agent,

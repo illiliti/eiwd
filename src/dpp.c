@@ -1322,7 +1322,6 @@ next_roc:
 
 protocol_failed:
 	dpp_reset(dpp);
-	return;
 }
 
 static void dpp_start_offchannel(struct dpp_sm *dpp, uint32_t freq)
