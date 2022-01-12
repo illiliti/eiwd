@@ -242,19 +242,29 @@ class Wpas:
         self._ctrl_request('SET ' + key + ' ' + value, **kwargs)
 
     def dpp_enrollee_start(self, uri=None):
+        self._rx_data = []
         self._ctrl_request('DPP_BOOTSTRAP_GEN type=qrcode')
         self.wait_for_result()
 
         if uri:
+            self._rx_data = []
             self._ctrl_request('DPP_QR_CODE ' + uri)
             self._dpp_qr_id = self.wait_for_result()
+            self._rx_data = []
             self._ctrl_request('DPP_AUTH_INIT peer=%s role=enrollee' % self._dpp_qr_id)
 
     def dpp_configurator_create(self, uri):
+        self._rx_data = []
         self._ctrl_request('DPP_CONFIGURATOR_ADD')
         self._dpp_conf_id = self.wait_for_result()
+        while not self._dpp_conf_id.isnumeric():
+            self._dpp_conf_id = self.wait_for_result()
+
+        self._rx_data = []
         self._ctrl_request('DPP_QR_CODE ' + uri)
         self._dpp_qr_id = self.wait_for_result()
+        while not self._dpp_conf_id.isnumeric():
+            self._dpp_qr_id = self.wait_for_result()
 
         print("DPP Configurator ID: %s. DPP QR ID: %s" % (self._dpp_conf_id, self._dpp_qr_id))
 
