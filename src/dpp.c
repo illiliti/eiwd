@@ -118,6 +118,8 @@ struct dpp_sm {
 
 	struct dpp_configuration *config;
 	uint32_t connect_scan_id;
+
+	struct l_dbus_message *pending;
 };
 
 static void dpp_free_auth_data(struct dpp_sm *dpp)
@@ -1257,6 +1259,15 @@ static void dpp_roc_started(void *user_data)
 
 	switch (dpp->state) {
 	case DPP_STATE_PRESENCE:
+		if (dpp->pending) {
+			struct l_dbus_message *reply =
+				l_dbus_message_new_method_return(dpp->pending);
+
+			l_dbus_message_set_arguments(reply, "s", dpp->uri);
+
+			dbus_pending_reply(&dpp->pending, reply);
+		}
+
 		dpp_presence_announce(dpp);
 		break;
 	case DPP_STATE_AUTHENTICATING:
@@ -1694,7 +1705,6 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 {
 	struct dpp_sm *dpp = user_data;
 	uint32_t freq = band_channel_to_freq(6, BAND_FREQ_2_4_GHZ);
-	struct l_dbus_message *reply;
 	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
 
 	if (dpp->state != DPP_STATE_NOTHING)
@@ -1720,6 +1730,8 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 
 	l_debug("DPP Start Enrollee: %s", dpp->uri);
 
+	dpp->pending = l_dbus_message_ref(message);
+
 	/*
 	 * Going off spec here. Select a single channel to send presence
 	 * announcements on. This will be advertised in the URI. The full
@@ -1727,11 +1739,7 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	 */
 	dpp_start_presence(dpp, &freq, 1);
 
-	reply = l_dbus_message_new_method_return(message);
-
-	l_dbus_message_set_arguments(reply, "s", dpp->uri);
-
-	return reply;
+	return NULL;
 }
 
 static struct l_dbus_message *dpp_dbus_start_configurator(struct l_dbus *dbus,
