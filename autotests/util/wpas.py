@@ -282,6 +282,12 @@ class Wpas:
         self.wait_for_event('DPP-AUTH-SUCCESS')
         self.wait_for_event('DPP-CONF-SENT')
 
+    def dpp_configurator_remove(self):
+        self._ctrl_request('DPP_CONFIGURATOR_REMOVE *')
+        self.wait_for_result()
+        self._ctrl_request('DPP_BOOTSTRAP_REMOVE *')
+        self.wait_for_result()
+
     # Probably needed: remove references to self so that the GC can call __del__ automatically
     def clean_up(self):
         if self.io_watch is not None:
