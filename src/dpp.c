@@ -1809,6 +1809,8 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	 */
 	dpp_start_presence(dpp, &freq, 1);
 
+	scan_periodic_stop(dpp->wdev_id);
+
 	return NULL;
 }
 
@@ -1856,6 +1858,8 @@ static struct l_dbus_message *dpp_dbus_start_configurator(struct l_dbus *dbus,
 	dpp->config = dpp_configuration_new(settings,
 						network_get_ssid(network),
 						hs->akm_suite);
+
+	scan_periodic_stop(dpp->wdev_id);
 
 	l_debug("DPP Start Configurator: %s", dpp->uri);
 
