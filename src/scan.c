@@ -1811,8 +1811,6 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 
 	cmd = l_genl_msg_get_command(msg);
 
-	l_debug("Scan notification %s(%u)", nl80211cmd_to_string(cmd), cmd);
-
 	if (nl80211_parse_attrs(msg, NL80211_ATTR_WDEV, &wdev_id,
 					NL80211_ATTR_WIPHY, &wiphy_id,
 					NL80211_ATTR_UNSPEC) < 0)
@@ -1821,6 +1819,8 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 	sc = l_queue_find(scan_contexts, scan_context_match, &wdev_id);
 	if (!sc)
 		return;
+
+	l_debug("Scan notification %s(%u)", nl80211cmd_to_string(cmd), cmd);
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
