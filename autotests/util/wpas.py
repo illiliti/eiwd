@@ -288,6 +288,9 @@ class Wpas:
         self._ctrl_request('DPP_BOOTSTRAP_REMOVE *')
         self.wait_for_result()
 
+    def disconnect(self):
+        self._ctrl_request('DISCONNECT')
+
     # Probably needed: remove references to self so that the GC can call __del__ automatically
     def clean_up(self):
         if self.io_watch is not None:
