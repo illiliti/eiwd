@@ -268,11 +268,17 @@ class Wpas:
 
         print("DPP Configurator ID: %s. DPP QR ID: %s" % (self._dpp_conf_id, self._dpp_qr_id))
 
-    def dpp_configurator_start(self, ssid, passphrase):
+    def dpp_configurator_start(self, ssid, passphrase, freq=None):
         ssid = binascii.hexlify(ssid.encode()).decode()
         passphrase = binascii.hexlify(passphrase.encode()).decode()
 
-        self._ctrl_request('DPP_AUTH_INIT peer=%s conf=sta-psk ssid=%s pass=%s' % (self._dpp_qr_id, ssid, passphrase))
+        cmd = 'DPP_AUTH_INIT peer=%s conf=sta-psk ssid=%s pass=%s ' % (self._dpp_qr_id, ssid, passphrase)
+
+        if freq:
+            cmd += 'neg_freq=%u ' % freq
+
+        self._rx_data = []
+        self._ctrl_request(cmd)
         self.wait_for_event('DPP-AUTH-SUCCESS')
         self.wait_for_event('DPP-CONF-SENT')
 
