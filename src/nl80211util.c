@@ -118,6 +118,16 @@ static bool extract_flag(const void *data, uint16_t len, void *o)
 	return true;
 }
 
+static bool extract_iovec(const void *data, uint16_t len, void *o)
+{
+	struct iovec *iov = o;
+
+	iov->iov_base = (void *) data;
+	iov->iov_len = len;
+
+	return true;
+}
+
 static attr_handler handler_for_type(enum nl80211_attrs type)
 {
 	switch (type) {
@@ -145,6 +155,8 @@ static attr_handler handler_for_type(enum nl80211_attrs type)
 	case NL80211_ATTR_CENTER_FREQ1:
 	case NL80211_ATTR_CENTER_FREQ2:
 		return extract_uint32;
+	case NL80211_ATTR_FRAME:
+		return extract_iovec;
 	default:
 		break;
 	}
