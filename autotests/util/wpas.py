@@ -279,7 +279,7 @@ class Wpas:
 
         self._rx_data = []
         self._ctrl_request(cmd)
-        self.wait_for_event('DPP-AUTH-SUCCESS')
+        self.wait_for_event('DPP-AUTH-SUCCESS', timeout=30)
         self.wait_for_event('DPP-CONF-SENT')
 
     def dpp_configurator_remove(self):
