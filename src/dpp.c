@@ -639,6 +639,11 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	}
 
 	dpp_write_config(config, network);
+	dpp_configuration_free(config);
+
+	send_config_result(dpp, dpp->auth_addr);
+
+	offchannel_cancel(dpp->wdev_id, dpp->offchannel_id);
 
 	if (network && bss)
 		__station_connect_network(station, network, bss);
@@ -647,15 +652,10 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 						dpp_scan_triggered,
 						dpp_scan_results, dpp,
 						dpp_scan_destroy);
-		if (!dpp->connect_scan_id)
-			goto scan_failed;
+		if (dpp->connect_scan_id)
+			return;
 	}
 
-	dpp_configuration_free(config);
-
-	send_config_result(dpp, dpp->auth_addr);
-
-scan_failed:
 	dpp_reset(dpp);
 }
 
