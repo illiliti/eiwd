@@ -213,20 +213,21 @@ static void dpp_send_frame_cb(struct l_genl_msg *msg, void *user_data)
 		l_error("Error sending frame");
 }
 
-static void dpp_send_frame(uint64_t wdev_id, struct iovec *iov, size_t iov_len,
-			uint32_t freq)
+static void dpp_send_frame(struct dpp_sm *dpp,
+				struct iovec *iov, size_t iov_len,
+				uint32_t freq)
 {
 	struct l_genl_msg *msg;
 
 	msg = l_genl_msg_new_sized(NL80211_CMD_FRAME, 512);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_WDEV, 8, &wdev_id);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_WDEV, 8, &dpp->wdev_id);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY_FREQ, 4, &freq);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_OFFCHANNEL_TX_OK, 0, NULL);
 	l_genl_msg_append_attrv(msg, NL80211_ATTR_FRAME, iov, iov_len);
 
 	l_debug("Sending frame on frequency %u", freq);
 
-	if (!l_genl_family_send(nl80211, msg, dpp_send_frame_cb, NULL, NULL)) {
+	if (!l_genl_family_send(nl80211, msg, dpp_send_frame_cb, dpp, NULL)) {
 		l_error("Could not send CMD_FRAME");
 		l_genl_msg_unref(msg);
 	}
@@ -378,7 +379,7 @@ static void dpp_configuration_start(struct dpp_sm *dpp, const uint8_t *addr)
 
 	dpp->state = DPP_STATE_CONFIGURING;
 
-	dpp_send_frame(dpp->wdev_id, iov, 2, dpp->current_freq);
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
 static void send_config_result(struct dpp_sm *dpp, const uint8_t *to)
@@ -401,7 +402,7 @@ static void send_config_result(struct dpp_sm *dpp, const uint8_t *to)
 	iov[1].iov_base = attrs;
 	iov[1].iov_len = ptr - attrs;
 
-	dpp_send_frame(dpp->wdev_id, iov, 2, dpp->current_freq);
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
 static void dpp_write_config(struct dpp_configuration *config,
@@ -730,7 +731,7 @@ static void dpp_send_config_response(struct dpp_sm *dpp, uint8_t status)
 	iov[1].iov_base = attrs;
 	iov[1].iov_len = ptr - attrs;
 
-	dpp_send_frame(dpp->wdev_id, iov, 2, dpp->current_freq);
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
 static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
@@ -1033,8 +1034,7 @@ static void send_authenticate_response(struct dpp_sm *dpp)
 	iov[1].iov_base = attrs;
 	iov[1].iov_len = ptr - attrs;
 
-	dpp_send_frame(netdev_get_wdev_id(dpp->netdev), iov, 2,
-				dpp->current_freq);
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
 static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
@@ -1200,8 +1200,7 @@ static void dpp_auth_request_failed(struct dpp_sm *dpp,
 	iov[1].iov_base = attrs;
 	iov[1].iov_len = ptr - attrs;
 
-	dpp_send_frame(netdev_get_wdev_id(dpp->netdev), iov, 2,
-				dpp->current_freq);
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
 static bool dpp_check_roles(struct dpp_sm *dpp, uint8_t peer_capa)
@@ -1241,7 +1240,7 @@ static void dpp_presence_announce(struct dpp_sm *dpp)
 	l_debug("Sending presense annoucement on frequency %u and waiting %u",
 		dpp->current_freq, dpp->dwell);
 
-	dpp_send_frame(netdev_get_wdev_id(netdev), iov, 2, dpp->current_freq);
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
 static void dpp_roc_started(void *user_data)
