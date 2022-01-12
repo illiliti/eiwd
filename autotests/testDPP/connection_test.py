@@ -35,6 +35,7 @@ class Test(unittest.TestCase):
         self.wd.wait_for_object_condition(self.device, condition)
 
     def test_iwd_as_enrollee_scan_after(self):
+        self.wpas.disconnect()
         uri = self.device.dpp_start_enrollee()
 
         self.wpas.dpp_configurator_create(uri)
@@ -66,10 +67,11 @@ class Test(unittest.TestCase):
         self.wd.wait_for_object_condition(self.device, condition)
 
     def test_iwd_as_configurator(self):
-        self.device.autoconnect = True
-        IWD.copy_to_storage('ssidCCMP.psk')
-
         self.hapd.reload()
+        self.hapd.wait_for_event('AP-ENABLED')
+
+        IWD.copy_to_storage('ssidCCMP.psk')
+        self.device.autoconnect = True
 
         condition = 'obj.state == DeviceState.connected'
         self.wd.wait_for_object_condition(self.device, condition)
