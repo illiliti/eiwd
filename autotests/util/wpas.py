@@ -58,29 +58,20 @@ class Wpas:
         f.close()
         return dict([[v.strip() for v in kv] for kv in [l.split('#', 1)[0].split('=', 1) for l in lines] if len(kv) == 2])
 
+    def _check_event(self, event):
+        if not event and len(self._rx_data) >= 1:
+            print("returning %s" % self._rx_data[0])
+            return self._rx_data[0]
+
+        for e in self._rx_data:
+            if event in e:
+                return self._rx_data
+
+        return False
+
     def wait_for_event(self, event, timeout=10):
-        self._wait_timed_out = False
-
-        def wait_timeout_cb():
-            self._wait_timed_out = True
-            return False
-
-        timeout = GLib.timeout_add_seconds(timeout, wait_timeout_cb)
-        context = ctx.mainloop.get_context()
-
-        while True:
-            context.iteration(may_block=True)
-
-            if not event and len(self._rx_data) >= 1:
-                return self._rx_data[0]
-
-            for e in self._rx_data:
-                if event in e:
-                    GLib.source_remove(timeout)
-                    return self._rx_data
-
-            if self._wait_timed_out:
-                raise TimeoutError('waiting for wpas event timed out')
+        self._rx_data = []
+        return ctx.non_block_wait(self._check_event, timeout, event)
 
     def wait_for_result(self, timeout=10):
         self._rx_data = []
