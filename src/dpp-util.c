@@ -297,7 +297,7 @@ bool dpp_attr_iter_next(struct dpp_attr_iter *iter,
 			const uint8_t **data_out)
 {
 	enum dpp_attribute_type type;
-	size_t len;
+	uint16_t len;
 
 	if (iter->pos + 4 > iter->end)
 		return false;
@@ -307,7 +307,7 @@ bool dpp_attr_iter_next(struct dpp_attr_iter *iter,
 
 	iter->pos += 4;
 
-	if (iter->pos + len > iter->end)
+	if (iter->end - iter->pos < len)
 		return false;
 
 	*type_out = type;
