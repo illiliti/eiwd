@@ -61,7 +61,7 @@ bool wsc_wfa_ext_iter_next(struct wsc_wfa_ext_iter *iter)
 	len = *start;
 	start += 1;
 
-	if (start + len > end)
+	if (len > end - start)
 		return false;
 
 	iter->type = type;
@@ -98,7 +98,7 @@ bool wsc_attr_iter_next(struct wsc_attr_iter *iter)
 	len = l_get_be16(start);
 	start += 2;
 
-	if (start + len > end)
+	if (len > end - start)
 		return false;
 
 	iter->type = type;
