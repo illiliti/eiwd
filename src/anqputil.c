@@ -48,7 +48,7 @@ bool anqp_iter_next(struct anqp_iter *iter, uint16_t *id, uint16_t *len,
 	if (iter->pos + 4 >= iter->max)
 		return false;
 
-	if (anqp + l_get_le16(anqp + 2) > end)
+	if (l_get_le16(anqp + 2) > end - anqp)
 		return false;
 
 	*id = l_get_le16(anqp);
