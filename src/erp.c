@@ -131,7 +131,7 @@ static bool erp_tlv_iter_next(struct erp_tlv_iter *iter)
 	else
 		len = 4;
 
-	if (tlv + len > end)
+	if (len > end - tlv)
 		return false;
 
 	iter->tag = tag;
