@@ -1254,7 +1254,7 @@ static void dpp_presence_announce(struct dpp_sm *dpp)
 	iov[1].iov_base = attrs;
 	iov[1].iov_len = ptr - attrs;
 
-	l_debug("Sending presense annoucement on frequency %u and waiting %u",
+	l_debug("Sending presence announcement on frequency %u and waiting %u",
 		dpp->current_freq, dpp->dwell);
 
 	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
