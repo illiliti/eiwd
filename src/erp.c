@@ -117,7 +117,7 @@ static bool erp_tlv_iter_next(struct erp_tlv_iter *iter)
 	unsigned int tag;
 	unsigned int len;
 
-	if (iter->pos + 2 >= iter->max)
+	if (end - tlv < 2)
 		return false;
 
 	tag = *tlv++;
