@@ -1578,6 +1578,8 @@ bool station_set_autoconnect(struct station *station, bool autoconnect)
 
 static void station_roam_state_clear(struct station *station)
 {
+	l_debug("%u", netdev_get_ifindex(station->netdev));
+
 	l_timeout_remove(station->roam_trigger_timeout);
 	station->roam_trigger_timeout = NULL;
 	station->preparing_roam = false;
@@ -1599,6 +1601,8 @@ static void station_reset_connection_state(struct station *station)
 {
 	struct network *network = station->connected_network;
 	struct l_dbus *dbus = dbus_get_bus();
+
+	l_debug("%u", netdev_get_ifindex(station->netdev));
 
 	if (!network)
 		return;
