@@ -81,6 +81,7 @@ struct scan_request {
 	scan_destroy_func_t destroy;
 	bool canceled : 1; /* Is scan_cancel being called on this request? */
 	bool passive:1; /* Active or Passive scan? */
+	bool started : 1; /* Has TRIGGER_SCAN succeeded at least once? */
 	struct l_queue *cmds;
 	/* The time the current scan was started. Reported in TRIGGER_SCAN */
 	uint64_t start_time_tsf;
@@ -115,8 +116,6 @@ struct scan_context {
 	 * is running.
 	 */
 	bool triggered:1;
-	/* Whether any commands from current request's queue have started */
-	bool started:1;
 	struct wiphy *wiphy;
 };
 
@@ -250,7 +249,7 @@ static void scan_request_triggered(struct l_genl_msg *msg, void *userdata)
 		sr->passive ? "Passive" : "Active", sc->wdev_id);
 
 	sc->triggered = true;
-	sc->started = true;
+	sr->started = true;
 	l_genl_msg_unref(l_queue_pop_head(sr->cmds));
 
 	if (sr->trigger) {
@@ -845,7 +844,6 @@ bool scan_cancel(uint64_t wdev_id, uint32_t id)
 
 		sc->start_cmd_id = 0;
 		l_queue_remove(sc->requests, sr);
-		sc->started = false;
 	} else
 		l_queue_remove(sc->requests, sr);
 
@@ -1707,7 +1705,6 @@ static void scan_finished(struct scan_context *sc,
 
 	if (sr) {
 		l_queue_remove(sc->requests, sr);
-		sc->started = false;
 
 		if (sr->callback)
 			new_owner = sr->callback(err, bss_list,
@@ -1883,7 +1880,8 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			 * our results.  Otherwise, try to retry the trigger
 			 * request if it failed with an -EBUSY.
 			 */
-			if (sc->started && scan_parse_flush_flag_from_msg(msg))
+			if (sr && sr->started &&
+					scan_parse_flush_flag_from_msg(msg))
 				scan_finished(sc, -EAGAIN, NULL, NULL, sr);
 			else
 				retry = true;
