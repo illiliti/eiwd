@@ -142,7 +142,7 @@ ell_sources = ell/private.h \
 			ell/dhcp6-transport.c \
 			ell/acd.c
 
-ell_shared = ell/useful.h
+ell_shared = ell/useful.h ell/asn1-private.h
 
 ell_libell_internal_la_SOURCES = $(ell_headers) $(ell_sources) $(ell_shared)
 endif
