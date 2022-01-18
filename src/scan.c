@@ -116,7 +116,6 @@ struct scan_context {
 	bool triggered:1;
 	/* Whether any commands from current request's queue have started */
 	bool started:1;
-	bool work_started:1;
 	struct wiphy *wiphy;
 };
 
@@ -843,7 +842,6 @@ bool scan_cancel(uint64_t wdev_id, uint32_t id)
 		sc->start_cmd_id = 0;
 		l_queue_remove(sc->requests, sr);
 		sc->started = false;
-		sc->work_started = false;
 	} else
 		l_queue_remove(sc->requests, sr);
 
@@ -1050,15 +1048,11 @@ static bool start_next_scan_request(struct wiphy_radio_work_item *item)
 						struct scan_request, work);
 	struct scan_context *sc = sr->sc;
 
-	sc->work_started = true;
-
 	if (sc->state != SCAN_STATE_NOT_RUNNING)
 		return false;
 
 	if (!scan_request_send_trigger(sc, sr))
 		return false;
-
-	sc->work_started = false;
 
 	scan_request_failed(sc, sr, -EIO);
 
@@ -1710,7 +1704,6 @@ static void scan_finished(struct scan_context *sc,
 	if (sr) {
 		l_queue_remove(sc->requests, sr);
 		sc->started = false;
-		sc->work_started = false;
 
 		if (sr->callback)
 			new_owner = sr->callback(err, bss_list,
@@ -1847,6 +1840,7 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		struct l_genl_msg *scan_msg;
 		struct scan_results *results;
 		bool send_next = false;
+		bool retry = false;
 		bool get_results = false;
 
 		if (sc->state == SCAN_STATE_NOT_RUNNING)
@@ -1880,28 +1874,30 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			if (sc->sp.callback)
 				get_results = true;
 
-			/* An external scan may have flushed our results */
+			/*
+			 * Drop the ongoing scan if an external scan flushed
+			 * our results.  Otherwise, try to retry the trigger
+			 * request if it failed with an -EBUSY.
+			 */
 			if (sc->started && scan_parse_flush_flag_from_msg(msg))
 				scan_finished(sc, -EAGAIN, NULL, NULL, sr);
 			else
-				send_next = true;
+				retry = true;
 
 			sr = NULL;
 		}
 
 		/*
-		 * Send the next command of an ongoing request, or continue with
-		 * a previously busy scan attempt due to an external scan. A
-		 * temporary scan_request object is used (rather than 'sr')
-		 * because the state of 'sr' tells us if the results should
-		 * be used either as normal scan results, or to take advantage
-		 * of the external scan as a 'free' periodic scan of sorts.
+		 * Send the next command of an ongoing request, or continue
+		 * with a previously busy scan attempt due to an external
+		 * scan.
 		 */
-		if (sc->work_started && send_next) {
+		if (send_next || retry) {
 			struct scan_request *next = l_queue_peek_head(
 								sc->requests);
 
-			if (next)
+			if (next && wiphy_radio_work_is_running(sc->wiphy,
+								next->work.id))
 				start_next_scan_request(&next->work);
 		}
 
@@ -1955,7 +1951,8 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			 * hardware or the driver because of another activity
 			 * starting in which case we should just get an EBUSY.
 			 */
-			if (sc->work_started)
+			if (sr && wiphy_radio_work_is_running(sc->wiphy,
+								sr->work.id))
 				start_next_scan_request(&sr->work);
 		}
 
