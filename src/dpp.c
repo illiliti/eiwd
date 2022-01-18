@@ -1353,12 +1353,28 @@ protocol_failed:
 
 static void dpp_start_offchannel(struct dpp_sm *dpp, uint32_t freq)
 {
+	/*
+	 * This needs to be handled carefully for a few reasons:
+	 *
+	 * First, the next offchannel operation needs to be started prior to
+	 * canceling an existing one. This is so the offchannel work can
+	 * continue uninterrupted without any other work items starting in
+	 * between canceling and starting the next (e.g. if a scan request is
+	 * sitting in the queue).
+	 *
+	 * Second, dpp_presence_timeout resets dpp->offchannel_id to zero which
+	 * is why the new ID is saved and only set to dpp->offchannel_id once
+	 * the previous offchannel work is cancelled (i.e. destroy() has been
+	 * called).
+	 */
+	uint32_t id = offchannel_start(netdev_get_wdev_id(dpp->netdev),
+				freq, dpp->dwell, dpp_roc_started,
+				dpp, dpp_presence_timeout);
+
 	if (dpp->offchannel_id)
 		offchannel_cancel(dpp->wdev_id, dpp->offchannel_id);
 
-	dpp->offchannel_id = offchannel_start(netdev_get_wdev_id(dpp->netdev),
-				freq, dpp->dwell, dpp_roc_started,
-				dpp, dpp_presence_timeout);
+	dpp->offchannel_id = id;
 }
 
 static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
@@ -1451,7 +1467,6 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 			l_debug("Configurator requested a new frequency %u",
 					dpp->new_freq);
 
-			offchannel_cancel(dpp->wdev_id, dpp->offchannel_id);
 			dpp_start_offchannel(dpp, dpp->new_freq);
 
 			break;
