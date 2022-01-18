@@ -725,6 +725,7 @@ uint8_t *dpp_point_to_asn1(const struct l_ecc_point *p, size_t *len_out)
 	uint64_t x[L_ECC_MAX_DIGITS];
 	ssize_t ret;
 	size_t len;
+	uint8_t point_type;
 
 	switch (key_size) {
 	case 32:
@@ -744,6 +745,17 @@ uint8_t *dpp_point_to_asn1(const struct l_ecc_point *p, size_t *len_out)
 		return NULL;
 
 	len = 2 + sizeof(ec_oid) + 2 + type_oid_len + 2 + key_size + 4;
+
+	/*
+	 * Set the type to whatever avoids doing p - y when reading in the
+	 * key. Working backwards from l_ecc_point_from_data if Y is odd and
+	 * the type is BIT0 there is no subtraction. Similarly if Y is even
+	 * and the type is BIT1.
+	 */
+	if (l_ecc_point_y_isodd(p))
+		point_type = L_ECC_POINT_TYPE_COMPRESSED_BIT0;
+	else
+		point_type = L_ECC_POINT_TYPE_COMPRESSED_BIT1;
 
 	if (L_WARN_ON(len > 128))
 		return NULL;
@@ -774,7 +786,7 @@ uint8_t *dpp_point_to_asn1(const struct l_ecc_point *p, size_t *len_out)
 	*ptr++ = ASN1_ID_BIT_STRING;
 	*ptr++ = key_size + 2;
 	*ptr++ = 0x00;
-	*ptr++ = 0x03;
+	*ptr++ = point_type;
 	memcpy(ptr, x, key_size);
 	ptr += key_size;
 
