@@ -81,9 +81,9 @@ struct dpp_sm {
 
 	uint64_t wdev_id;
 
-	uint8_t *pub_asn1;
-	size_t pub_asn1_len;
-	uint8_t pub_boot_hash[32];
+	uint8_t *own_asn1;
+	size_t own_asn1_len;
+	uint8_t own_boot_hash[32];
 	const struct l_ecc_curve *curve;
 	size_t key_len;
 	size_t nonce_len;
@@ -109,12 +109,12 @@ struct dpp_sm {
 
 	uint64_t ke[L_ECC_MAX_DIGITS];
 	uint64_t k2[L_ECC_MAX_DIGITS];
-	uint64_t r_auth[L_ECC_MAX_DIGITS];
+	uint64_t auth_tag[L_ECC_MAX_DIGITS];
 
 	struct l_ecc_scalar *proto_private;
-	struct l_ecc_point *proto_public;
+	struct l_ecc_point *own_proto_public;
 
-	struct l_ecc_point *i_proto_public;
+	struct l_ecc_point *peer_proto_public;
 
 	uint8_t diag_token;
 
@@ -131,9 +131,9 @@ struct dpp_sm {
 
 static void dpp_free_auth_data(struct dpp_sm *dpp)
 {
-	if (dpp->proto_public) {
-		l_ecc_point_free(dpp->proto_public);
-		dpp->proto_public = NULL;
+	if (dpp->own_proto_public) {
+		l_ecc_point_free(dpp->own_proto_public);
+		dpp->own_proto_public = NULL;
 	}
 
 	if (dpp->proto_private) {
@@ -141,9 +141,9 @@ static void dpp_free_auth_data(struct dpp_sm *dpp)
 		dpp->proto_private = NULL;
 	}
 
-	if (dpp->i_proto_public) {
-		l_ecc_point_free(dpp->i_proto_public);
-		dpp->i_proto_public = NULL;
+	if (dpp->peer_proto_public) {
+		l_ecc_point_free(dpp->peer_proto_public);
+		dpp->peer_proto_public = NULL;
 	}
 }
 
@@ -189,7 +189,7 @@ static void dpp_reset(struct dpp_sm *dpp)
 	explicit_bzero(dpp->e_nonce, dpp->nonce_len);
 	explicit_bzero(dpp->ke, dpp->key_len);
 	explicit_bzero(dpp->k2, dpp->key_len);
-	explicit_bzero(dpp->r_auth, dpp->key_len);
+	explicit_bzero(dpp->auth_tag, dpp->key_len);
 
 	dpp_free_auth_data(dpp);
 }
@@ -198,9 +198,9 @@ static void dpp_free(struct dpp_sm *dpp)
 {
 	dpp_reset(dpp);
 
-	if (dpp->pub_asn1) {
-		l_free(dpp->pub_asn1);
-		dpp->pub_asn1 = NULL;
+	if (dpp->own_asn1) {
+		l_free(dpp->own_asn1);
+		dpp->own_asn1 = NULL;
 	}
 
 	if (dpp->boot_public) {
@@ -1011,7 +1011,7 @@ static void send_authenticate_response(struct dpp_sm *dpp)
 	uint8_t wrapped2[dpp->key_len + 16 + 8];
 	size_t wrapped2_len;
 
-	l_ecc_point_get_data(dpp->proto_public, r_proto_key,
+	l_ecc_point_get_data(dpp->own_proto_public, r_proto_key,
 				sizeof(r_proto_key));
 
 	iov[0].iov_len = dpp_build_header(netdev_get_address(dpp->netdev),
@@ -1021,7 +1021,7 @@ static void send_authenticate_response(struct dpp_sm *dpp)
 
 	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &status, 1);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH,
-				dpp->pub_boot_hash, 32);
+				dpp->own_boot_hash, 32);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_PROTOCOL_KEY,
 				r_proto_key, dpp->key_len * 2);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_PROTOCOL_VERSION, &version, 1);
@@ -1029,7 +1029,7 @@ static void send_authenticate_response(struct dpp_sm *dpp)
 	/* Wrap up secondary data (R-Auth) */
 	wrapped2_len = dpp_append_attr(wrapped2_plaintext,
 					DPP_ATTR_RESPONDER_AUTH_TAG,
-					dpp->r_auth, dpp->key_len);
+					dpp->auth_tag, dpp->key_len);
 	/*
 	 * "Invocations of AES-SIV in the DPP Authentication protocol that
 	 * produce ciphertext that is part of an additional AES-SIV invocation
@@ -1165,7 +1165,7 @@ static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
 	}
 
 	dpp_derive_i_auth(dpp->r_nonce, dpp->i_nonce, dpp->nonce_len,
-				dpp->proto_public, dpp->i_proto_public,
+				dpp->own_proto_public, dpp->peer_proto_public,
 				dpp->boot_public, i_auth_check);
 
 	if (memcmp(i_auth, i_auth_check, i_auth_len)) {
@@ -1205,7 +1205,7 @@ static void dpp_auth_request_failed(struct dpp_sm *dpp,
 
 	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &s, 1);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH,
-				dpp->pub_boot_hash, 32);
+				dpp->own_boot_hash, 32);
 
 	ptr += dpp_append_attr(ptr, DPP_ATTR_PROTOCOL_VERSION, &version, 1);
 
@@ -1247,7 +1247,7 @@ static void dpp_presence_announce(struct dpp_sm *dpp)
 	iov[0].iov_base = hdr;
 
 	dpp_hash(L_CHECKSUM_SHA256, hash, 2, "chirp", strlen("chirp"),
-			dpp->pub_asn1, dpp->pub_asn1_len);
+			dpp->own_asn1, dpp->own_asn1_len);
 
 	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH, hash, 32);
 
@@ -1463,21 +1463,21 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	if (!r_boot || !i_boot || !i_proto || !wrapped)
 		goto auth_request_failed;
 
-	if (r_boot_len != 32 || memcmp(dpp->pub_boot_hash,
+	if (r_boot_len != 32 || memcmp(dpp->own_boot_hash,
 					r_boot, r_boot_len)) {
 		l_debug("Responder boot key hash failed to verify");
 		goto auth_request_failed;
 	}
 
-	dpp->i_proto_public = l_ecc_point_from_data(dpp->curve,
+	dpp->peer_proto_public = l_ecc_point_from_data(dpp->curve,
 						L_ECC_POINT_TYPE_FULL,
 						i_proto, i_proto_len);
-	if (!dpp->i_proto_public) {
+	if (!dpp->peer_proto_public) {
 		l_debug("Initiators protocol key invalid");
 		goto auth_request_failed;
 	}
 
-	m = dpp_derive_k1(dpp->i_proto_public, dpp->boot_private, k1);
+	m = dpp_derive_k1(dpp->peer_proto_public, dpp->boot_private, k1);
 	if (!m)
 		goto auth_request_failed;
 
@@ -1527,9 +1527,9 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	/* Derive keys k2, ke, and R-Auth for authentication response */
 
 	l_ecdh_generate_key_pair(dpp->curve, &dpp->proto_private,
-					&dpp->proto_public);
+					&dpp->own_proto_public);
 
-	n = dpp_derive_k2(dpp->i_proto_public, dpp->proto_private, dpp->k2);
+	n = dpp_derive_k2(dpp->peer_proto_public, dpp->proto_private, dpp->k2);
 	if (!n)
 		goto auth_request_failed;
 
@@ -1539,8 +1539,8 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 		goto auth_request_failed;
 
 	if (!dpp_derive_r_auth(dpp->i_nonce, dpp->r_nonce, dpp->nonce_len,
-				dpp->i_proto_public, dpp->proto_public,
-				dpp->boot_public, dpp->r_auth))
+				dpp->peer_proto_public, dpp->own_proto_public,
+				dpp->boot_public, dpp->auth_tag))
 		goto auth_request_failed;
 
 	memcpy(dpp->auth_addr, from, 6);
@@ -1664,10 +1664,10 @@ static void dpp_create(struct netdev *netdev)
 	l_ecdh_generate_key_pair(dpp->curve, &dpp->boot_private,
 					&dpp->boot_public);
 
-	dpp->pub_asn1 = dpp_point_to_asn1(dpp->boot_public, &dpp->pub_asn1_len);
+	dpp->own_asn1 = dpp_point_to_asn1(dpp->boot_public, &dpp->own_asn1_len);
 
-	dpp_hash(L_CHECKSUM_SHA256, dpp->pub_boot_hash, 1,
-			dpp->pub_asn1, dpp->pub_asn1_len);
+	dpp_hash(L_CHECKSUM_SHA256, dpp->own_boot_hash, 1,
+			dpp->own_asn1, dpp->own_asn1_len);
 
 	l_dbus_object_add_interface(dbus, netdev_get_path(netdev),
 					IWD_DPP_INTERFACE, dpp);
@@ -1791,7 +1791,7 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	} else if (!station)
 		l_debug("No station device, continuing anyways...");
 
-	dpp->uri = dpp_generate_uri(dpp->pub_asn1, dpp->pub_asn1_len, 2,
+	dpp->uri = dpp_generate_uri(dpp->own_asn1, dpp->own_asn1_len, 2,
 					netdev_get_address(dpp->netdev), &freq,
 					1, NULL, NULL);
 
@@ -1848,7 +1848,7 @@ static struct l_dbus_message *dpp_dbus_start_configurator(struct l_dbus *dbus,
 	if (dpp->state != DPP_STATE_NOTHING)
 		return dbus_error_busy(message);
 
-	dpp->uri = dpp_generate_uri(dpp->pub_asn1, dpp->pub_asn1_len, 2,
+	dpp->uri = dpp_generate_uri(dpp->own_asn1, dpp->own_asn1_len, 2,
 					netdev_get_address(dpp->netdev),
 					&bss->frequency, 1, NULL, NULL);
 
