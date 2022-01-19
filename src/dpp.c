@@ -1931,6 +1931,9 @@ static void dpp_exit(void)
 	l_genl_family_unregister(nl80211, mlme_watch);
 	mlme_watch = 0;
 
+	l_genl_family_free(nl80211);
+	nl80211 = NULL;
+
 	l_queue_destroy(dpp_list, (l_queue_destroy_func_t) dpp_free);
 }
 
