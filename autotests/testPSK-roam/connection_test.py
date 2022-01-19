@@ -203,6 +203,8 @@ class Test(unittest.TestCase):
     def tearDownClass(cls):
         IWD.clear_storage()
         cls.bss_hostapd = None
+        cls.rule0.enabled = False
+        cls.rule0.remove()
 
 if __name__ == '__main__':
     unittest.main(exit=True)
