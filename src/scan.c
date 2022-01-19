@@ -82,6 +82,7 @@ struct scan_request {
 	bool canceled : 1; /* Is scan_cancel being called on this request? */
 	bool passive:1; /* Active or Passive scan? */
 	bool started : 1; /* Has TRIGGER_SCAN succeeded at least once? */
+	bool periodic : 1; /* Started as a periodic scan? */
 	struct l_queue *cmds;
 	/* The time the current scan was started. Reported in TRIGGER_SCAN */
 	uint64_t start_time_tsf;
@@ -891,6 +892,7 @@ static void scan_periodic_destroy(void *user_data)
 static bool scan_periodic_queue(struct scan_context *sc)
 {
 	struct scan_parameters params = {};
+	struct scan_request *sr;
 
 	if (sc->sp.needs_active_scan && known_networks_has_hidden()) {
 		params.randomize_mac_addr_hint = true;
@@ -908,7 +910,13 @@ static bool scan_periodic_queue(struct scan_context *sc)
 					scan_periodic_notify, sc,
 					scan_periodic_destroy);
 
-	return sc->sp.id != 0;
+	if (!sc->sp.id)
+		return false;
+
+	sr = l_queue_peek_tail(sc->requests);
+	sr->periodic = true;
+
+	return true;
 }
 
 static bool scan_periodic_is_disabled(void)
@@ -1935,11 +1943,23 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 	case NL80211_CMD_SCAN_ABORTED:
 		sc->state = SCAN_STATE_NOT_RUNNING;
 
+		/*
+		 * If there's nothing pending, then most likely an external
+		 * scan got aborted.  We don't care, ignore.
+		 */
+		if (!sr)
+			break;
+
 		if (sc->triggered) {
 			sc->triggered = false;
 
-			scan_finished(sc, -ECANCELED, NULL, NULL, sr);
-		} else {
+			/* If periodic scan, don't report the abort */
+			if (sr->periodic)
+				wiphy_radio_work_done(sc->wiphy, sr->work.id);
+			else
+				scan_finished(sc, -ECANCELED, NULL, NULL, sr);
+		} else if (wiphy_radio_work_is_running(sc->wiphy,
+							sr->work.id)) {
 			/*
 			 * If this was an external scan that got aborted
 			 * we may be able to now queue our own scan although
@@ -1947,9 +1967,7 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			 * hardware or the driver because of another activity
 			 * starting in which case we should just get an EBUSY.
 			 */
-			if (sr && wiphy_radio_work_is_running(sc->wiphy,
-								sr->work.id))
-				start_next_scan_request(&sr->work);
+			start_next_scan_request(&sr->work);
 		}
 
 		break;
