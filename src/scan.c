@@ -236,8 +236,6 @@ static void scan_request_triggered(struct l_genl_msg *msg, void *userdata)
 			return;
 		}
 
-		l_queue_remove(sc->requests, sr);
-
 		scan_request_failed(sc, sr, err);
 
 		l_error("Received error during CMD_TRIGGER_SCAN: %s (%d)",
