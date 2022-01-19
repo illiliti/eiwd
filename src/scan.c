@@ -79,6 +79,7 @@ struct scan_request {
 	scan_notify_func_t callback;
 	void *userdata;
 	scan_destroy_func_t destroy;
+	bool canceled : 1; /* Is scan_cancel being called on this request? */
 	bool passive:1; /* Active or Passive scan? */
 	struct l_queue *cmds;
 	/* The time the current scan was started. Reported in TRIGGER_SCAN */
@@ -832,6 +833,9 @@ bool scan_cancel(uint64_t wdev_id, uint32_t id)
 	/* If we already sent the trigger command, cancel the scan */
 	if (sr == l_queue_peek_head(sc->requests)) {
 		l_debug("Scan is at the top of the queue, but not triggered");
+
+		/* l_genl_family_cancel will trigger destroy callbacks */
+		sr->canceled = true;
 
 		if (sc->start_cmd_id)
 			l_genl_family_cancel(nl80211, sc->start_cmd_id);
@@ -1735,7 +1739,7 @@ static void get_scan_done(void *user)
 
 	sc->get_scan_cmd_id = 0;
 
-	if (!results->sr || l_queue_peek_head(sc->requests) == results->sr)
+	if (!results->sr || !results->sr->canceled)
 		scan_finished(sc, 0, results->bss_list,
 						results->freqs, results->sr);
 	else
