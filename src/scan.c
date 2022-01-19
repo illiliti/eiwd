@@ -83,6 +83,16 @@ struct scan_request {
 	bool passive:1; /* Active or Passive scan? */
 	bool started : 1; /* Has TRIGGER_SCAN succeeded at least once? */
 	bool periodic : 1; /* Started as a periodic scan? */
+	/*
+	 * Set to true if the TRIGGER_SCAN command at the head of the 'cmds'
+	 * queue was acked by the kernel indicating that the scan request was
+	 * successful.  May be set and cleared multiple times during a
+	 * the scan_request lifetime (as each command in the 'cmds' queue is
+	 * issued to the kernel).  Will be false if the current request
+	 * was not started due to an -EBUSY error from the kernel.  Also will
+	 * be false when the scan is complete and GET_SCAN is pending.
+	 */
+	bool triggered : 1;
 	struct l_queue *cmds;
 	/* The time the current scan was started. Reported in TRIGGER_SCAN */
 	uint64_t start_time_tsf;
@@ -108,15 +118,6 @@ struct scan_context {
 	 * roamed automatically.
 	 */
 	unsigned int get_fw_scan_cmd_id;
-	/*
-	 * Whether the top request in the queue has triggered the current
-	 * scan.  May be set and cleared multiple times during a single
-	 * request.  May be false when the current request is waiting due
-	 * to an EBUSY or an external scan (sr->cmds non-empty), when
-	 * start_cmd_id is non-zero and for a brief moment when GET_SCAN
-	 * is running.
-	 */
-	bool triggered:1;
 	struct wiphy *wiphy;
 };
 
@@ -249,7 +250,7 @@ static void scan_request_triggered(struct l_genl_msg *msg, void *userdata)
 	l_debug("%s scan triggered for wdev %" PRIx64,
 		sr->passive ? "Passive" : "Active", sc->wdev_id);
 
-	sc->triggered = true;
+	sr->triggered = true;
 	sr->started = true;
 	l_genl_msg_unref(l_queue_pop_head(sr->cmds));
 
@@ -817,7 +818,7 @@ bool scan_cancel(uint64_t wdev_id, uint32_t id)
 		return false;
 
 	/* If already triggered, just zero out the callback */
-	if (sr == l_queue_peek_head(sc->requests) && sc->triggered) {
+	if (sr == l_queue_peek_head(sc->requests) && sr->triggered) {
 		l_debug("Scan is at the top of the queue and triggered");
 
 		sr->callback = NULL;
@@ -1000,11 +1001,8 @@ uint64_t scan_get_triggered_time(uint64_t wdev_id, uint32_t id)
 	if (!sc)
 		return 0;
 
-	if (!sc->triggered)
-		return 0;
-
 	sr = l_queue_find(sc->requests, scan_request_match, L_UINT_TO_PTR(id));
-	if (!sr)
+	if (!sr || !sr->triggered)
 		return 0;
 
 	return sr->start_time_tsf;
@@ -1855,8 +1853,8 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		sc->state = SCAN_STATE_NOT_RUNNING;
 
 		/* Was this our own scan or an external scan */
-		if (sc->triggered) {
-			sc->triggered = false;
+		if (sr && sr->triggered) {
+			sr->triggered = false;
 
 			if (!sr->callback) {
 				scan_finished(sc, -ECANCELED, NULL, NULL, sr);
@@ -1950,8 +1948,8 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		if (!sr)
 			break;
 
-		if (sc->triggered) {
-			sc->triggered = false;
+		if (sr->triggered) {
+			sr->triggered = false;
 
 			/* If periodic scan, don't report the abort */
 			if (sr->periodic)
