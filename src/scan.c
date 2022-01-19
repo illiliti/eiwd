@@ -93,6 +93,7 @@ struct scan_request {
 	 * be false when the scan is complete and GET_SCAN is pending.
 	 */
 	bool triggered : 1;
+	bool in_callback : 1; /* Scan request complete, re-entrancy guard */
 	struct l_queue *cmds;
 	/* The time the current scan was started. Reported in TRIGGER_SCAN */
 	uint64_t start_time_tsf;
@@ -164,13 +165,15 @@ static void scan_request_free(struct wiphy_radio_work_item *item)
 static void scan_request_failed(struct scan_context *sc,
 				struct scan_request *sr, int err)
 {
-	l_queue_remove(sc->requests, sr);
+	sr->in_callback = true;
 
 	if (sr->trigger)
 		sr->trigger(err, sr->userdata);
 	else if (sr->callback)
 		sr->callback(err, NULL, NULL, sr->userdata);
 
+	sr->in_callback = false;
+	l_queue_remove(sc->requests, sr);
 	wiphy_radio_work_done(sc->wiphy, sr->work.id);
 }
 
@@ -815,23 +818,30 @@ bool scan_cancel(uint64_t wdev_id, uint32_t id)
 	if (!sr)
 		return false;
 
+	/* We're in the callback and about to be removed, invoke destroy now */
+	if (sr->in_callback)
+		goto call_destroy;
+
 	/* If already triggered, just zero out the callback */
-	if (sr == l_queue_peek_head(sc->requests) && sr->triggered) {
-		l_debug("Scan is at the top of the queue and triggered");
+	if (sr->triggered) {
+		l_debug("Scan has been triggered, wait for it to complete");
 
 		sr->callback = NULL;
-
-		if (sr->destroy) {
-			sr->destroy(sr->userdata);
-			sr->destroy = NULL;
-		}
-
-		return true;
+		goto call_destroy;
 	}
 
-	/* If we already sent the trigger command, cancel the scan */
-	if (sr == l_queue_peek_head(sc->requests)) {
-		l_debug("Scan is at the top of the queue, but not triggered");
+	/*
+	 * Takes care of the following cases:
+	 * 1. If TRIGGER_SCAN is in flight
+	 * 2. TRIGGER_SCAN sent but bounced with -EBUSY
+	 * 3. Scan request is done but GET_SCAN is still pending
+	 *
+	 * For case 3, we can easily cancel the command and proceed with the
+	 * other pending requests.  For case 1 & 2, the subsequent pending
+	 * request might bounce off with an -EBUSY.
+	 */
+	if (wiphy_radio_work_is_running(sc->wiphy, sr->work.id)) {
+		l_debug("Scan is already started");
 
 		/* l_genl_family_cancel will trigger destroy callbacks */
 		sr->canceled = true;
@@ -843,11 +853,19 @@ bool scan_cancel(uint64_t wdev_id, uint32_t id)
 			l_genl_family_cancel(nl80211, sc->get_scan_cmd_id);
 
 		sc->start_cmd_id = 0;
-		l_queue_remove(sc->requests, sr);
-	} else
-		l_queue_remove(sc->requests, sr);
+		sc->get_scan_cmd_id = 0;
+	}
 
+	l_queue_remove(sc->requests, sr);
 	wiphy_radio_work_done(sc->wiphy, sr->work.id);
+
+	return true;
+
+call_destroy:
+	if (sr->destroy) {
+		sr->destroy(sr->userdata);
+		sr->destroy = NULL;
+	}
 
 	return true;
 }
@@ -1710,7 +1728,7 @@ static void scan_finished(struct scan_context *sc,
 		discover_hidden_network_bsses(sc, bss_list);
 
 	if (sr)
-		l_queue_remove(sc->requests, sr);
+		sr->in_callback = true;
 
 	if (callback)
 		new_owner = callback(err, bss_list, freqs, userdata);
@@ -1728,6 +1746,8 @@ static void scan_finished(struct scan_context *sc,
 	 * SCAN_FINISHED or SCAN_ABORTED handler would have taken care of
 	 * sending the next command for a new or ongoing scan.
 	 */
+	sr->in_callback = false;
+	l_queue_remove(sc->requests, sr);
 	wiphy_radio_work_done(sc->wiphy, sr->work.id);
 }
 
