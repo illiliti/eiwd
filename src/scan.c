@@ -1703,32 +1703,32 @@ static void scan_finished(struct scan_context *sc,
 				struct scan_request *sr)
 {
 	bool new_owner = false;
+	scan_notify_func_t callback = sr ? sr->callback : sc->sp.callback;
+	void *userdata = sr ? sr->userdata : sc->sp.userdata;
 
 	if (bss_list)
 		discover_hidden_network_bsses(sc, bss_list);
 
-	if (sr) {
+	if (sr)
 		l_queue_remove(sc->requests, sr);
 
-		if (sr->callback)
-			new_owner = sr->callback(err, bss_list,
-							freqs, sr->userdata);
-
-		/*
-		 * Can start a new scan now that we've removed this one from
-		 * the queue.  If this were an external scan request (sr NULL)
-		 * then the SCAN_FINISHED or SCAN_ABORTED handler would have
-		 * taken care of sending the next command for a new or ongoing
-		 * scan, or scheduling the next periodic scan.
-		 */
-		wiphy_radio_work_done(sc->wiphy, sr->work.id);
-	} else if (sc->sp.callback)
-		new_owner = sc->sp.callback(err, bss_list,
-						freqs, sc->sp.userdata);
+	if (callback)
+		new_owner = callback(err, bss_list, freqs, userdata);
 
 	if (bss_list && !new_owner)
 		l_queue_destroy(bss_list,
 				(l_queue_destroy_func_t) scan_bss_free);
+
+	if (!sr)
+		return;
+
+	/*
+	 * Can start a new scan now that we've removed this one from the
+	 * queue.  If this were an external scan request (sr NULL) then the
+	 * SCAN_FINISHED or SCAN_ABORTED handler would have taken care of
+	 * sending the next command for a new or ongoing scan.
+	 */
+	wiphy_radio_work_done(sc->wiphy, sr->work.id);
 }
 
 static void get_scan_done(void *user)
