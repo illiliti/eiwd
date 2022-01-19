@@ -2246,6 +2246,8 @@ static void station_roam_scan_triggered(int err, void *user_data)
 		return;
 	}
 
+	station_debug_event(station, "roam-scan-triggered");
+
 	/*
 	 * Do not update the Scanning property as we won't be updating the
 	 * list of networks.
