@@ -1735,7 +1735,7 @@ static void get_scan_done(void *user)
 
 	sc->get_scan_cmd_id = 0;
 
-	if (l_queue_peek_head(sc->requests) == results->sr)
+	if (!results->sr || l_queue_peek_head(sc->requests) == results->sr)
 		scan_finished(sc, 0, results->bss_list,
 						results->freqs, results->sr);
 	else
