@@ -1231,9 +1231,12 @@ static bool new_scan_results(int err, struct l_queue *bss_list,
 	if (err)
 		return false;
 
-	station_set_scan_results(station, bss_list, freqs, true);
+	station_set_scan_results(station, bss_list, freqs, false);
 
 	station_process_owe_transition_networks(station);
+
+	station->autoconnect_can_start = true;
+	station_autoconnect_start(station);
 
 	return true;
 }
@@ -1303,9 +1306,12 @@ static bool station_quick_scan_results(int err, struct l_queue *bss_list,
 	if (err)
 		goto done;
 
-	station_set_scan_results(station, bss_list, freqs, true);
+	station_set_scan_results(station, bss_list, freqs, false);
 
 	station_process_owe_transition_networks(station);
+
+	station->autoconnect_can_start = true;
+	station_autoconnect_start(station);
 
 done:
 	if (station->state == STATION_STATE_AUTOCONNECT_QUICK)
