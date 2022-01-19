@@ -1844,9 +1844,6 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		bool retry = false;
 		bool get_results = false;
 
-		if (sc->state == SCAN_STATE_NOT_RUNNING)
-			break;
-
 		sc->state = SCAN_STATE_NOT_RUNNING;
 
 		/* Was this our own scan or an external scan */
@@ -1936,9 +1933,6 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		break;
 
 	case NL80211_CMD_SCAN_ABORTED:
-		if (sc->state == SCAN_STATE_NOT_RUNNING)
-			break;
-
 		sc->state = SCAN_STATE_NOT_RUNNING;
 
 		if (sc->triggered) {
