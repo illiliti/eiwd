@@ -938,7 +938,7 @@ static void p2p_group_event(enum ap_event_type type, const void *event_data,
 		p2p_clear_association_req(&req_info);
 
 		if (dev->conn_own_wfd)
-			wfd_data = ie_tlv_extract_p2p_payload(data->assoc_ies,
+			wfd_data = ie_tlv_extract_wfd_payload(data->assoc_ies,
 							data->assoc_ies_len,
 							&wfd_data_len);
 
