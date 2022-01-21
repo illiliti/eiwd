@@ -107,6 +107,11 @@ void handshake_state_free(struct handshake_state *s)
 {
 	__typeof__(s->free) destroy = s->free;
 
+	if (s->in_event) {
+		s->in_event = false;
+		return;
+	}
+
 	l_free(s->authenticator_ie);
 	l_free(s->supplicant_ie);
 	l_free(s->authenticator_rsnxe);

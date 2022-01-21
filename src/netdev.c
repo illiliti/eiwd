@@ -1482,7 +1482,9 @@ static void try_handshake_complete(struct netdev_handshake_state *nhs)
 	if (nhs->ptk_installed && nhs->gtk_installed && nhs->igtk_installed &&
 			!nhs->complete) {
 		nhs->complete = true;
-		handshake_event(&nhs->super, HANDSHAKE_EVENT_COMPLETE);
+
+		if (handshake_event(&nhs->super, HANDSHAKE_EVENT_COMPLETE))
+			return;
 
 		if (nhs->netdev->type == NL80211_IFTYPE_STATION ||
 				nhs->netdev->type == NL80211_IFTYPE_P2P_CLIENT)
@@ -2006,7 +2008,9 @@ static void netdev_group_timeout_cb(struct l_timeout *timeout, void *user_data)
 			nhs->netdev->index);
 
 	nhs->complete = true;
-	handshake_event(&nhs->super, HANDSHAKE_EVENT_COMPLETE);
+
+	if (handshake_event(&nhs->super, HANDSHAKE_EVENT_COMPLETE))
+		return;
 
 	netdev_connect_ok(nhs->netdev);
 }
@@ -2155,7 +2159,9 @@ static void netdev_set_pmk_cb(struct l_genl_msg *msg, void *user_data)
 		return;
 	}
 
-	handshake_event(netdev->handshake, HANDSHAKE_EVENT_SETTING_KEYS);
+	if (handshake_event(netdev->handshake, HANDSHAKE_EVENT_SETTING_KEYS))
+		return;
+
 	netdev_connect_ok(netdev);
 }
 
@@ -2906,8 +2912,8 @@ process_resp_ies:
 	}
 
 	/* Allow station to sync the PSK to disk */
-	if (is_offload(hs))
-		handshake_event(hs, HANDSHAKE_EVENT_SETTING_KEYS);
+	if (is_offload(hs) && handshake_event(hs, HANDSHAKE_EVENT_SETTING_KEYS))
+		return;
 
 	netdev_connect_ok(netdev);
 	return;
