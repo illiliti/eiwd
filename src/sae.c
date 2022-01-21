@@ -413,6 +413,7 @@ static struct l_ecc_point *sae_compute_pwe(const struct l_ecc_curve *curve,
 	struct l_ecc_scalar *qnr;
 	uint8_t qnr_bin[L_ECC_SCALAR_MAX_BYTES] = {0};
 	struct l_ecc_point *pwe;
+	unsigned int bytes = l_ecc_curve_get_scalar_bytes(curve);
 
 	/* create qr/qnr prior to beginning hunting-and-pecking loop */
 	qr = sae_new_residue(curve, true);
@@ -493,7 +494,7 @@ static struct l_ecc_point *sae_compute_pwe(const struct l_ecc_curve *curve,
 		return NULL;
 	}
 
-	pwe = l_ecc_point_from_data(curve, !is_odd + 2, x, sizeof(x));
+	pwe = l_ecc_point_from_data(curve, !is_odd + 2, x, bytes);
 	if (!pwe)
 		l_error("computing y failed, was x quadratic residue?");
 
