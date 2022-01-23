@@ -309,13 +309,16 @@ bool json_iter_get_int(struct json_iter *iter, int *i)
 	if (!iter_get_primitive_data(iter, &ptr, &len))
 		return false;
 
+	if (!len)
+		return false;
+
 	errno = 0;
 
 	t = r = strtol(ptr, &endp, 10);
 	if (endp != ptr + len)
 		return false;
 
-	if (errno == ERANGE || r != t)
+	if (errno == ERANGE || errno == EINVAL || r != t)
 		return false;
 
 	if (i)
@@ -335,13 +338,16 @@ bool json_iter_get_uint(struct json_iter *iter, unsigned int *i)
 	if (!iter_get_primitive_data(iter, &ptr, &len))
 		return false;
 
+	if (!len || *((char *) ptr) == '-')
+		return false;
+
 	errno = 0;
 
 	t = r = strtoul(ptr, &endp, 10);
 	if (endp != ptr + len)
 		return false;
 
-	if (errno == ERANGE || r != t)
+	if (errno == ERANGE || errno == EINVAL || r != t)
 		return false;
 
 	if (i)
