@@ -168,8 +168,9 @@ uint32_t offchannel_start(uint64_t wdev_id, uint32_t freq, uint32_t duration,
 	 */
 	info->error = -ECANCELED;
 
-	return wiphy_radio_work_insert(wiphy_find_by_wdev(wdev_id),
-					&info->work, 1, &offchannel_work_ops);
+	return wiphy_radio_work_insert(wiphy_find_by_wdev(wdev_id), &info->work,
+					WIPHY_WORK_PRIORITY_OFFCHANNEL,
+					&offchannel_work_ops);
 }
 
 void offchannel_cancel(uint64_t wdev_id, uint32_t id)

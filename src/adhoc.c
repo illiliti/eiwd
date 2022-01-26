@@ -668,7 +668,7 @@ static void sta_append(void *data, void *user_data)
 {
 	struct sta_state *sta = data;
 	struct l_dbus_message_builder *builder = user_data;
-	const char* macstr;
+	const char *macstr;
 
 	if (!sta->authenticated)
 		return;

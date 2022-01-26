@@ -1,3 +1,9 @@
+ver 1.22:
+	Fix issue with handling periodic scanning.
+	Fix issue with handling scanning completion.
+	Fix issue with handling scanning for OWE auto-connect.
+	Add support for additional DPP features.
+
 ver 1.21:
 	Fix issue with handling disconnect events issued by AP.
 	Add experimental support for DPP feature.

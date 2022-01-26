@@ -209,14 +209,14 @@ static bool wiphy_can_connect_sae(struct wiphy *wiphy)
 		 * TODO: No support for CMD_EXTERNAL_AUTH yet.
 		 */
 		return false;
-	} else {
-		/* Case (2) */
-		if (wiphy_has_ext_feature(wiphy,
-					NL80211_EXT_FEATURE_SAE_OFFLOAD))
-			return true;
-
-		return false;
 	}
+
+	/* Case (2) */
+	if (wiphy_has_ext_feature(wiphy,
+				NL80211_EXT_FEATURE_SAE_OFFLOAD))
+		return true;
+
+	return false;
 }
 
 enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
@@ -918,6 +918,7 @@ static void wiphy_print_band_info(struct band *band, const char *name)
 
 	if (band->ht_supported) {
 		uint8_t max_nss = bit_field(band->ht_mcs_set[12], 2, 2) + 1;
+
 		l_info("\t\tHT Capabilities:");
 
 		if (test_bit(band->ht_capabilities, 1))

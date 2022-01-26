@@ -44,7 +44,7 @@
 #include "src/erp.h"
 #include "src/band.h"
 
-static inline unsigned int n_ecc_groups()
+static inline unsigned int n_ecc_groups(void)
 {
 	const unsigned int *groups = l_ecc_supported_ike_groups();
 	unsigned int j = 0;
@@ -106,6 +106,11 @@ void __handshake_set_install_ext_tk_func(handshake_install_ext_tk_func_t func)
 void handshake_state_free(struct handshake_state *s)
 {
 	__typeof__(s->free) destroy = s->free;
+
+	if (s->in_event) {
+		s->in_event = false;
+		return;
+	}
 
 	l_free(s->authenticator_ie);
 	l_free(s->supplicant_ie);

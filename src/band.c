@@ -151,11 +151,11 @@ static const int32_t ht_vht_base_rssi[] = {
  * nsds = [52, 108, 234, 468]
  *
  * for nsd in nsds:
- * 	rates = []
- * 	for i in xrange(0, 10):
- * 		data_rate = (nsd * rfactors[i] * nbpscs[i]) / 0.004
- * 		rates.append(int(data_rate) * 1000)
- * 	print('rates for nsd: ' + nsd + ': ' + rates)
+ *	rates = []
+ *	for i in xrange(0, 10):
+ *		data_rate = (nsd * rfactors[i] * nbpscs[i]) / 0.004
+ *		rates.append(int(data_rate) * 1000)
+ *	print('rates for nsd: ' + nsd + ': ' + rates)
  */
 
 static const uint64_t ht_vht_rates[4][10] = {

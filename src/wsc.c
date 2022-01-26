@@ -555,7 +555,7 @@ static void wsc_store_credentials(struct wsc_credentials_info *creds,
 			else
 				l_settings_set_bytes(settings, "Security",
 						"PreSharedKey", creds[i].psk,
-                                                sizeof(creds[i].psk));
+						sizeof(creds[i].psk));
 		}
 
 		l_debug("Storing credential for '%s(%s)'", ssid,
@@ -664,7 +664,7 @@ static void wsc_check_can_connect(struct wsc_station_dbus *wsc,
 	case STATION_STATE_AUTOCONNECT_QUICK:
 	case STATION_STATE_AUTOCONNECT_FULL:
 	case STATION_STATE_ROAMING:
-		l_warn("wsc_check_can_connect: invalid station state");
+		l_warn("%s: invalid station state", __func__);
 		break;
 	}
 error:

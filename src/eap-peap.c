@@ -473,10 +473,10 @@ static bool eap_peap_tunnel_ready(struct eap_state *eap,
 	struct peap_state *peap_state = eap_tls_common_get_variant_data(eap);
 
 	/*
-	* PEAPv1: draft-josefsson-pppext-eap-tls-eap-05, Section 2.1.1
-	*
-	* Cleartext Success/Failure packets MUST be silently discarded once TLS
-	* tunnel has been brought up.
+	 * PEAPv1: draft-josefsson-pppext-eap-tls-eap-05, Section 2.1.1
+	 *
+	 * Cleartext Success/Failure packets MUST be silently discarded once
+	 * TLS tunnel has been brought up.
 	*/
 	eap_discard_success_and_failure(eap, true);
 

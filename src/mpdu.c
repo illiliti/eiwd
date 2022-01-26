@@ -364,6 +364,7 @@ static bool validate_mgmt_ies(const uint8_t *ies, size_t ies_len,
 
 	while (ie_tlv_iter_next(&iter)) {
 		int i = 0;
+
 		tag = ie_tlv_iter_get_tag(&iter);
 
 		/* Check that the tag is part of the valid set */

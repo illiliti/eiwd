@@ -673,6 +673,7 @@ class Namespace:
 
 		if self.args.valgrind:
 			args.extend(['valgrind', '--leak-check=full', '--track-origins=yes',
+					'--show-leak-kinds=all',
 					'--log-file=/tmp/valgrind.log.%p'])
 
 		args.extend(['iwd', '-p', iwd_radios, '-E'])

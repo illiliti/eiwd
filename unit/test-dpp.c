@@ -143,7 +143,10 @@ int main(int argc, char *argv[])
 {
 	l_test_init(&argc, &argv);
 
-	l_test_add("DPP test key derivation", test_key_derivation, NULL);
+	if (l_checksum_is_supported(L_CHECKSUM_SHA256, true) &&
+						l_getrandom_is_supported())
+		l_test_add("DPP test key derivation",
+						test_key_derivation, NULL);
 
 	return l_test_run();
 }

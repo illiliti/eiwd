@@ -42,6 +42,7 @@ struct json_iter {
 	struct json_contents *contents;
 	int start;
 	int count;
+	int current;
 };
 
 #define JSON_MANDATORY(key, type, out) \
@@ -68,16 +69,33 @@ void json_iter_init(struct json_iter *iter, struct json_contents *c);
  * Arguments should be specified using JSON_MANDATORY or JSON_OPTIONAL:
  *
  * r = json_iter_parse(iter, JSON_MANDATORY("mykey", JSON_STRING, &strvalue),
- * 			JSON_OPTIONAL("optkey", JSON_STRING, &optvalue),
- * 			JSON_UNDEFINED);
+ *			JSON_OPTIONAL("optkey", JSON_STRING, &optvalue),
+ *			JSON_UNDEFINED);
  *
  * String values should be of type char ** and must be freed
  * Object values should be of type struct json_iter *
+ * Primitive types (numbers, booleans, null) should be of type
+ *		struct json_iter *. This is to allow the caller to distinguish
+ *		between the actual value type after parsing using a getter for
+ *		the expected type (get_uint/get_int/get_boolean etc.). In
+ *		addition this lets the caller use JSON_OPTIONAL and check post
+ *		json_iter_parse if the iterator is valid (json_iter_is_valid).
  *
  * No other types are supported at this time, and json_iter_parse will fail if
  * other types are encountered.
  *
  * JSON_OPTIONAL string values will point to NULL if not found
- * JSON_OPTIONAL objects can be checked with json_object_not_found.
+ * JSON_OPTIONAL objects/primitives can be checked with json_object_is_valid.
  */
 bool json_iter_parse(struct json_iter *iter, enum json_type type, ...);
+
+bool json_iter_get_int(struct json_iter *iter, int *i);
+bool json_iter_get_uint(struct json_iter *iter, unsigned int *i);
+bool json_iter_get_boolean(struct json_iter *iter, bool *b);
+bool json_iter_get_null(struct json_iter *iter);
+bool json_iter_get_container(struct json_iter *iter,
+				struct json_iter *container);
+bool json_iter_get_string(struct json_iter *iter, char **s);
+
+enum json_type json_iter_get_type(struct json_iter *iter);
+bool json_iter_next(struct json_iter *iter);

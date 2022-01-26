@@ -222,7 +222,7 @@ static int fils_derive_key_data(struct fils_sm *fils)
 
 	/*
 	 * IEEE 802.11ai - 12.12.2.6.2 (Re)Association Request for FILS key
-	 * 			confirmation
+	 *			confirmation
 	 *
 	 * Key-Auth = HMAC-Hash(ICK, SNonce || ANonce || STA-MAC || AP-BSSID)
 	 */

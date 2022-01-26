@@ -598,8 +598,8 @@ static void eap_pwd_send_ack(struct eap_state *eap)
 }
 
 #define FRAG_BYTES(mtu, remaining) \
-	((mtu - EAP_PWD_HDR_LEN) < remaining) ? (mtu - EAP_PWD_HDR_LEN) : \
-			remaining
+	(((mtu - EAP_PWD_HDR_LEN) < remaining) ? (mtu - EAP_PWD_HDR_LEN) : \
+			remaining)
 
 static void eap_pwd_handle_request(struct eap_state *eap,
 					const uint8_t *pkt, size_t len)
@@ -669,6 +669,14 @@ static void eap_pwd_handle_request(struct eap_state *eap,
 
 		/* remove length of Total-Length parameter (2) */
 		pwd->rx_frag_total = l_get_be16(pkt + 1) - 2;
+
+		if (pwd->rx_frag_total < len - 2) {
+			l_error("Total-Length too small for remaining length");
+			pwd->rx_frag_total = 0;
+
+			return;
+		}
+
 		pwd->rx_frag_buf = l_malloc(pwd->rx_frag_total);
 
 		/* skip copying Total-Length for easier processing later */
@@ -687,6 +695,12 @@ static void eap_pwd_handle_request(struct eap_state *eap,
 
 	/* more rx fragments */
 	if (pwd->rx_frag_buf) {
+		if (pwd->rx_frag_total - pwd->rx_frag_count <
+						(uint16_t) len - 1) {
+			l_error("Not enough room for fragment (%zu)", len - 1);
+			return;
+
+		}
 		/* continue building packet (not including PWD-Exch byte) */
 		memcpy(pwd->rx_frag_buf + pwd->rx_frag_count, pkt + 1, len - 1);
 		pwd->rx_frag_count += (len - 1);

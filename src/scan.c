@@ -69,7 +69,6 @@ struct scan_periodic {
 	scan_trigger_func_t trigger;
 	scan_notify_func_t callback;
 	void *userdata;
-	bool retry:1;
 	uint32_t id;
 	bool needs_active_scan:1;
 };
@@ -80,7 +79,21 @@ struct scan_request {
 	scan_notify_func_t callback;
 	void *userdata;
 	scan_destroy_func_t destroy;
+	bool canceled : 1; /* Is scan_cancel being called on this request? */
 	bool passive:1; /* Active or Passive scan? */
+	bool started : 1; /* Has TRIGGER_SCAN succeeded at least once? */
+	bool periodic : 1; /* Started as a periodic scan? */
+	/*
+	 * Set to true if the TRIGGER_SCAN command at the head of the 'cmds'
+	 * queue was acked by the kernel indicating that the scan request was
+	 * successful.  May be set and cleared multiple times during a
+	 * the scan_request lifetime (as each command in the 'cmds' queue is
+	 * issued to the kernel).  Will be false if the current request
+	 * was not started due to an -EBUSY error from the kernel.  Also will
+	 * be false when the scan is complete and GET_SCAN is pending.
+	 */
+	bool triggered : 1;
+	bool in_callback : 1; /* Scan request complete, re-entrancy guard */
 	struct l_queue *cmds;
 	/* The time the current scan was started. Reported in TRIGGER_SCAN */
 	uint64_t start_time_tsf;
@@ -106,18 +119,6 @@ struct scan_context {
 	 * roamed automatically.
 	 */
 	unsigned int get_fw_scan_cmd_id;
-	/*
-	 * Whether the top request in the queue has triggered the current
-	 * scan.  May be set and cleared multiple times during a single
-	 * request.  May be false when the current request is waiting due
-	 * to an EBUSY or an external scan (sr->cmds non-empty), when
-	 * start_cmd_id is non-zero and for a brief moment when GET_SCAN
-	 * is running.
-	 */
-	bool triggered:1;
-	/* Whether any commands from current request's queue have started */
-	bool started:1;
-	bool work_started:1;
 	struct wiphy *wiphy;
 };
 
@@ -164,13 +165,15 @@ static void scan_request_free(struct wiphy_radio_work_item *item)
 static void scan_request_failed(struct scan_context *sc,
 				struct scan_request *sr, int err)
 {
-	l_queue_remove(sc->requests, sr);
+	sr->in_callback = true;
 
 	if (sr->trigger)
 		sr->trigger(err, sr->userdata);
 	else if (sr->callback)
 		sr->callback(err, NULL, NULL, sr->userdata);
 
+	sr->in_callback = false;
+	l_queue_remove(sc->requests, sr);
 	wiphy_radio_work_done(sc->wiphy, sr->work.id);
 }
 
@@ -236,8 +239,6 @@ static void scan_request_triggered(struct l_genl_msg *msg, void *userdata)
 			return;
 		}
 
-		l_queue_remove(sc->requests, sr);
-
 		scan_request_failed(sc, sr, err);
 
 		l_error("Received error during CMD_TRIGGER_SCAN: %s (%d)",
@@ -250,8 +251,8 @@ static void scan_request_triggered(struct l_genl_msg *msg, void *userdata)
 	l_debug("%s scan triggered for wdev %" PRIx64,
 		sr->passive ? "Passive" : "Active", sc->wdev_id);
 
-	sc->triggered = true;
-	sc->started = true;
+	sr->triggered = true;
+	sr->started = true;
 	l_genl_msg_unref(l_queue_pop_head(sr->cmds));
 
 	if (sr->trigger) {
@@ -562,6 +563,7 @@ static int scan_request_send_trigger(struct scan_context *sc,
 					struct scan_request *sr)
 {
 	struct l_genl_msg *cmd = l_queue_peek_head(sr->cmds);
+
 	if (!cmd)
 		return -ENOMSG;
 
@@ -607,6 +609,7 @@ static struct scan_request *scan_request_new(struct scan_context *sc,
 
 static uint32_t scan_common(uint64_t wdev_id, bool passive,
 				const struct scan_parameters *params,
+				int priority,
 				scan_trigger_func_t trigger,
 				scan_notify_func_t notify, void *userdata,
 				scan_destroy_func_t destroy)
@@ -625,7 +628,8 @@ static uint32_t scan_common(uint64_t wdev_id, bool passive,
 
 	l_queue_push_tail(sc->requests, sr);
 
-	return wiphy_radio_work_insert(sc->wiphy, &sr->work, 2, &work_ops);
+	return wiphy_radio_work_insert(sc->wiphy, &sr->work,
+					priority, &work_ops);
 }
 
 uint32_t scan_passive(uint64_t wdev_id, struct scan_freq_set *freqs,
@@ -634,8 +638,8 @@ uint32_t scan_passive(uint64_t wdev_id, struct scan_freq_set *freqs,
 {
 	struct scan_parameters params = { .freqs = freqs };
 
-	return scan_common(wdev_id, true, &params, trigger, notify,
-							userdata, destroy);
+	return scan_common(wdev_id, true, &params, WIPHY_WORK_PRIORITY_SCAN,
+				trigger, notify, userdata, destroy);
 }
 
 uint32_t scan_passive_full(uint64_t wdev_id,
@@ -644,8 +648,8 @@ uint32_t scan_passive_full(uint64_t wdev_id,
 			scan_notify_func_t notify, void *userdata,
 			scan_destroy_func_t destroy)
 {
-	return scan_common(wdev_id, true, params, trigger,
-				notify, userdata, destroy);
+	return scan_common(wdev_id, true, params, WIPHY_WORK_PRIORITY_SCAN,
+				trigger, notify, userdata, destroy);
 }
 
 uint32_t scan_active(uint64_t wdev_id, uint8_t *extra_ie, size_t extra_ie_size,
@@ -658,7 +662,7 @@ uint32_t scan_active(uint64_t wdev_id, uint8_t *extra_ie, size_t extra_ie_size,
 	params.extra_ie = extra_ie;
 	params.extra_ie_size = extra_ie_size;
 
-	return scan_common(wdev_id, false, &params,
+	return scan_common(wdev_id, false, &params, WIPHY_WORK_PRIORITY_SCAN,
 					trigger, notify, userdata, destroy);
 }
 
@@ -667,7 +671,7 @@ uint32_t scan_active_full(uint64_t wdev_id,
 			scan_trigger_func_t trigger, scan_notify_func_t notify,
 			void *userdata, scan_destroy_func_t destroy)
 {
-	return scan_common(wdev_id, false, params,
+	return scan_common(wdev_id, false, params, WIPHY_WORK_PRIORITY_SCAN,
 					trigger, notify, userdata, destroy);
 }
 
@@ -795,7 +799,8 @@ uint32_t scan_owe_hidden(uint64_t wdev_id, struct l_queue *list,
 done:
 	l_queue_push_tail(sc->requests, sr);
 
-	return wiphy_radio_work_insert(sc->wiphy, &sr->work, 2, &work_ops);
+	return wiphy_radio_work_insert(sc->wiphy, &sr->work,
+					WIPHY_WORK_PRIORITY_SCAN, &work_ops);
 }
 
 bool scan_cancel(uint64_t wdev_id, uint32_t id)
@@ -813,23 +818,33 @@ bool scan_cancel(uint64_t wdev_id, uint32_t id)
 	if (!sr)
 		return false;
 
+	/* We're in the callback and about to be removed, invoke destroy now */
+	if (sr->in_callback)
+		goto call_destroy;
+
 	/* If already triggered, just zero out the callback */
-	if (sr == l_queue_peek_head(sc->requests) && sc->triggered) {
-		l_debug("Scan is at the top of the queue and triggered");
+	if (sr->triggered) {
+		l_debug("Scan has been triggered, wait for it to complete");
 
 		sr->callback = NULL;
-
-		if (sr->destroy) {
-			sr->destroy(sr->userdata);
-			sr->destroy = NULL;
-		}
-
-		return true;
+		goto call_destroy;
 	}
 
-	/* If we already sent the trigger command, cancel the scan */
-	if (sr == l_queue_peek_head(sc->requests)) {
-		l_debug("Scan is at the top of the queue, but not triggered");
+	/*
+	 * Takes care of the following cases:
+	 * 1. If TRIGGER_SCAN is in flight
+	 * 2. TRIGGER_SCAN sent but bounced with -EBUSY
+	 * 3. Scan request is done but GET_SCAN is still pending
+	 *
+	 * For case 3, we can easily cancel the command and proceed with the
+	 * other pending requests.  For case 1 & 2, the subsequent pending
+	 * request might bounce off with an -EBUSY.
+	 */
+	if (wiphy_radio_work_is_running(sc->wiphy, sr->work.id)) {
+		l_debug("Scan is already started");
+
+		/* l_genl_family_cancel will trigger destroy callbacks */
+		sr->canceled = true;
 
 		if (sc->start_cmd_id)
 			l_genl_family_cancel(nl80211, sc->start_cmd_id);
@@ -838,13 +853,19 @@ bool scan_cancel(uint64_t wdev_id, uint32_t id)
 			l_genl_family_cancel(nl80211, sc->get_scan_cmd_id);
 
 		sc->start_cmd_id = 0;
-		l_queue_remove(sc->requests, sr);
-		sc->started = false;
-		sc->work_started = false;
-	} else
-		l_queue_remove(sc->requests, sr);
+		sc->get_scan_cmd_id = 0;
+	}
 
+	l_queue_remove(sc->requests, sr);
 	wiphy_radio_work_done(sc->wiphy, sr->work.id);
+
+	return true;
+
+call_destroy:
+	if (sr->destroy) {
+		sr->destroy(sr->userdata);
+		sr->destroy = NULL;
+	}
 
 	return true;
 }
@@ -878,29 +899,41 @@ static bool scan_periodic_notify(int err, struct l_queue *bss_list,
 	return false;
 }
 
+static void scan_periodic_destroy(void *user_data)
+{
+	struct scan_context *sc = user_data;
+
+	sc->sp.id = 0;
+}
+
 static bool scan_periodic_queue(struct scan_context *sc)
 {
-	if (!l_queue_isempty(sc->requests)) {
-		sc->sp.retry = true;
-		return false;
-	}
+	struct scan_parameters params = {};
+	struct scan_request *sr;
 
 	if (sc->sp.needs_active_scan && known_networks_has_hidden()) {
-		struct scan_parameters params = {
-			.randomize_mac_addr_hint = true
-		};
+		params.randomize_mac_addr_hint = true;
 
 		sc->sp.needs_active_scan = false;
-
-		sc->sp.id = scan_active_full(sc->wdev_id, &params,
-						scan_periodic_triggered,
-						scan_periodic_notify, sc, NULL);
+		sc->sp.id = scan_common(sc->wdev_id, false, &params,
+					WIPHY_WORK_PRIORITY_PERIODIC_SCAN,
+					scan_periodic_triggered,
+					scan_periodic_notify, sc,
+					scan_periodic_destroy);
 	} else
-		sc->sp.id = scan_passive(sc->wdev_id, NULL,
-						scan_periodic_triggered,
-						scan_periodic_notify, sc, NULL);
+		sc->sp.id = scan_common(sc->wdev_id, true, &params,
+					WIPHY_WORK_PRIORITY_PERIODIC_SCAN,
+					scan_periodic_triggered,
+					scan_periodic_notify, sc,
+					scan_periodic_destroy);
 
-	return sc->sp.id != 0;
+	if (!sc->sp.id)
+		return false;
+
+	sr = l_queue_peek_tail(sc->requests);
+	sr->periodic = true;
+
+	return true;
 }
 
 static bool scan_periodic_is_disabled(void)
@@ -926,7 +959,7 @@ void scan_periodic_start(uint64_t wdev_id, scan_trigger_func_t trigger,
 	sc = l_queue_find(scan_contexts, scan_context_match, &wdev_id);
 
 	if (!sc) {
-		l_error("scan_periodic_start called without scan_wdev_add");
+		l_error("%s called without scan_wdev_add", __func__);
 		return;
 	}
 
@@ -970,7 +1003,6 @@ bool scan_periodic_stop(uint64_t wdev_id)
 	sc->sp.trigger = NULL;
 	sc->sp.callback = NULL;
 	sc->sp.userdata = NULL;
-	sc->sp.retry = false;
 	sc->sp.needs_active_scan = false;
 
 	return true;
@@ -985,11 +1017,8 @@ uint64_t scan_get_triggered_time(uint64_t wdev_id, uint32_t id)
 	if (!sc)
 		return 0;
 
-	if (!sc->triggered)
-		return 0;
-
 	sr = l_queue_find(sc->requests, scan_request_match, L_UINT_TO_PTR(id));
-	if (!sr)
+	if (!sr || !sr->triggered)
 		return 0;
 
 	return sr->start_time_tsf;
@@ -999,7 +1028,17 @@ static void scan_periodic_timeout(struct l_timeout *timeout, void *user_data)
 {
 	struct scan_context *sc = user_data;
 
-	l_debug("scan_periodic_timeout: %" PRIx64, sc->wdev_id);
+	l_debug("%" PRIx64, sc->wdev_id);
+
+	/*
+	 * Timeout triggered before periodic scan could even start, just rearm
+	 * with the same interval.
+	 */
+	if (sc->sp.id) {
+		l_debug("Periodic scan timer called before scan could start!");
+		scan_periodic_rearm(sc);
+		return;
+	}
 
 	sc->sp.interval *= 2;
 	if (sc->sp.interval > SCAN_MAX_INTERVAL)
@@ -1033,22 +1072,13 @@ static bool start_next_scan_request(struct wiphy_radio_work_item *item)
 						struct scan_request, work);
 	struct scan_context *sc = sr->sc;
 
-	sc->work_started = true;
-
 	if (sc->state != SCAN_STATE_NOT_RUNNING)
 		return false;
 
 	if (!scan_request_send_trigger(sc, sr))
 		return false;
 
-	sc->work_started = false;
-
 	scan_request_failed(sc, sr, -EIO);
-
-	if (sc->sp.retry) {
-		sc->sp.retry = false;
-		scan_periodic_queue(sc);
-	}
 
 	return true;
 }
@@ -1691,34 +1721,34 @@ static void scan_finished(struct scan_context *sc,
 				struct scan_request *sr)
 {
 	bool new_owner = false;
+	scan_notify_func_t callback = sr ? sr->callback : sc->sp.callback;
+	void *userdata = sr ? sr->userdata : sc->sp.userdata;
 
 	if (bss_list)
 		discover_hidden_network_bsses(sc, bss_list);
 
-	if  (sr) {
-		l_queue_remove(sc->requests, sr);
-		sc->started = false;
-		sc->work_started = false;
+	if (sr)
+		sr->in_callback = true;
 
-		if (sr->callback)
-			new_owner = sr->callback(err, bss_list,
-							freqs, sr->userdata);
-
-		/*
-		 * Can start a new scan now that we've removed this one from
-		 * the queue.  If this were an external scan request (sr NULL)
-		 * then the SCAN_FINISHED or SCAN_ABORTED handler would have
-		 * taken care of sending the next command for a new or ongoing
-		 * scan, or scheduling the next periodic scan.
-		 */
-		wiphy_radio_work_done(sc->wiphy, sr->work.id);
-	} else if (sc->sp.callback)
-		new_owner = sc->sp.callback(err, bss_list,
-						freqs, sc->sp.userdata);
+	if (callback)
+		new_owner = callback(err, bss_list, freqs, userdata);
 
 	if (bss_list && !new_owner)
 		l_queue_destroy(bss_list,
 				(l_queue_destroy_func_t) scan_bss_free);
+
+	if (!sr)
+		return;
+
+	/*
+	 * Can start a new scan now that we've removed this one from the
+	 * queue.  If this were an external scan request (sr NULL) then the
+	 * SCAN_FINISHED or SCAN_ABORTED handler would have taken care of
+	 * sending the next command for a new or ongoing scan.
+	 */
+	sr->in_callback = false;
+	l_queue_remove(sc->requests, sr);
+	wiphy_radio_work_done(sc->wiphy, sr->work.id);
 }
 
 static void get_scan_done(void *user)
@@ -1730,7 +1760,7 @@ static void get_scan_done(void *user)
 
 	sc->get_scan_cmd_id = 0;
 
-	if (l_queue_peek_head(sc->requests) == results->sr)
+	if (!results->sr || !results->sr->canceled)
 		scan_finished(sc, 0, results->bss_list,
 						results->freqs, results->sr);
 	else
@@ -1799,8 +1829,6 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 
 	cmd = l_genl_msg_get_command(msg);
 
-	l_debug("Scan notification %s(%u)", nl80211cmd_to_string(cmd), cmd);
-
 	if (nl80211_parse_attrs(msg, NL80211_ATTR_WDEV, &wdev_id,
 					NL80211_ATTR_WIPHY, &wiphy_id,
 					NL80211_ATTR_UNSPEC) < 0)
@@ -1809,6 +1837,8 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 	sc = l_queue_find(scan_contexts, scan_context_match, &wdev_id);
 	if (!sc)
 		return;
+
+	l_debug("Scan notification %s(%u)", nl80211cmd_to_string(cmd), cmd);
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
@@ -1835,16 +1865,14 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		struct l_genl_msg *scan_msg;
 		struct scan_results *results;
 		bool send_next = false;
+		bool retry = false;
 		bool get_results = false;
-
-		if (sc->state == SCAN_STATE_NOT_RUNNING)
-			break;
 
 		sc->state = SCAN_STATE_NOT_RUNNING;
 
 		/* Was this our own scan or an external scan */
-		if (sc->triggered) {
-			sc->triggered = false;
+		if (sr && sr->triggered) {
+			sr->triggered = false;
 
 			if (!sr->callback) {
 				scan_finished(sc, -ECANCELED, NULL, NULL, sr);
@@ -1868,28 +1896,31 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			if (sc->sp.callback)
 				get_results = true;
 
-			/* An external scan may have flushed our results */
-			if (sc->started && scan_parse_flush_flag_from_msg(msg))
+			/*
+			 * Drop the ongoing scan if an external scan flushed
+			 * our results.  Otherwise, try to retry the trigger
+			 * request if it failed with an -EBUSY.
+			 */
+			if (sr && sr->started &&
+					scan_parse_flush_flag_from_msg(msg))
 				scan_finished(sc, -EAGAIN, NULL, NULL, sr);
 			else
-				send_next = true;
+				retry = true;
 
 			sr = NULL;
 		}
 
 		/*
-		 * Send the next command of an ongoing request, or continue with
-		 * a previously busy scan attempt due to an external scan. A
-		 * temporary scan_request object is used (rather than 'sr')
-		 * because the state of 'sr' tells us if the results should
-		 * be used either as normal scan results, or to take advantage
-		 * of the external scan as a 'free' periodic scan of sorts.
+		 * Send the next command of an ongoing request, or continue
+		 * with a previously busy scan attempt due to an external
+		 * scan.
 		 */
-		if (sc->work_started && send_next) {
+		if (send_next || retry) {
 			struct scan_request *next = l_queue_peek_head(
 								sc->requests);
 
-			if (next)
+			if (next && wiphy_radio_work_is_running(sc->wiphy,
+								next->work.id))
 				start_next_scan_request(&next->work);
 		}
 
@@ -1926,16 +1957,25 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		break;
 
 	case NL80211_CMD_SCAN_ABORTED:
-		if (sc->state == SCAN_STATE_NOT_RUNNING)
-			break;
-
 		sc->state = SCAN_STATE_NOT_RUNNING;
 
-		if (sc->triggered) {
-			sc->triggered = false;
+		/*
+		 * If there's nothing pending, then most likely an external
+		 * scan got aborted.  We don't care, ignore.
+		 */
+		if (!sr)
+			break;
 
-			scan_finished(sc, -ECANCELED, NULL, NULL, sr);
-		} else {
+		if (sr->triggered) {
+			sr->triggered = false;
+
+			/* If periodic scan, don't report the abort */
+			if (sr->periodic)
+				wiphy_radio_work_done(sc->wiphy, sr->work.id);
+			else
+				scan_finished(sc, -ECANCELED, NULL, NULL, sr);
+		} else if (wiphy_radio_work_is_running(sc->wiphy,
+							sr->work.id)) {
 			/*
 			 * If this was an external scan that got aborted
 			 * we may be able to now queue our own scan although
@@ -1943,8 +1983,7 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			 * hardware or the driver because of another activity
 			 * starting in which case we should just get an EBUSY.
 			 */
-			if (sc->work_started)
-				start_next_scan_request(&sr->work);
+			start_next_scan_request(&sr->work);
 		}
 
 		break;
@@ -2087,7 +2126,7 @@ static int scan_init(void)
 	return 0;
 }
 
-static void scan_exit()
+static void scan_exit(void)
 {
 	l_queue_destroy(scan_contexts,
 				(l_queue_destroy_func_t) scan_context_free);

@@ -2389,11 +2389,11 @@ static void eapol_eap_complete_cb(enum eap_result result, void *user_data)
 		sm->eap = NULL;
 		handshake_failed(sm, MMPDU_REASON_CODE_IEEE8021X_FAILED);
 		return;
-	} else {
-		if (install_pmk)
-			install_pmk(sm->handshake, sm->handshake->pmk,
-					sm->handshake->pmk_len);
 	}
+
+	if (install_pmk)
+		install_pmk(sm->handshake, sm->handshake->pmk,
+				sm->handshake->pmk_len);
 
 	eap_reset(sm->eap);
 

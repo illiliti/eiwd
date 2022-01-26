@@ -998,8 +998,8 @@ bool network_bss_add(struct network *network, struct scan_bss *bss)
 	/* Done if BSS is not HS20 or we already have network_info set */
 	if (!bss->hs20_capable)
 		return true;
-	else
-		network->is_hs20 = true;
+
+	network->is_hs20 = true;
 
 	if (network->info)
 		return true;

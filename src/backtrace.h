@@ -20,6 +20,6 @@
  *
  */
 #ifdef HAVE_BACKTRACE
-void __iwd_backtrace_init();
+void __iwd_backtrace_init(void);
 void __iwd_backtrace_print(unsigned int offset);
 #endif

@@ -1482,7 +1482,9 @@ static void try_handshake_complete(struct netdev_handshake_state *nhs)
 	if (nhs->ptk_installed && nhs->gtk_installed && nhs->igtk_installed &&
 			!nhs->complete) {
 		nhs->complete = true;
-		handshake_event(&nhs->super, HANDSHAKE_EVENT_COMPLETE);
+
+		if (handshake_event(&nhs->super, HANDSHAKE_EVENT_COMPLETE))
+			return;
 
 		if (nhs->netdev->type == NL80211_IFTYPE_STATION ||
 				nhs->netdev->type == NL80211_IFTYPE_P2P_CLIENT)
@@ -2006,7 +2008,9 @@ static void netdev_group_timeout_cb(struct l_timeout *timeout, void *user_data)
 			nhs->netdev->index);
 
 	nhs->complete = true;
-	handshake_event(&nhs->super, HANDSHAKE_EVENT_COMPLETE);
+
+	if (handshake_event(&nhs->super, HANDSHAKE_EVENT_COMPLETE))
+		return;
 
 	netdev_connect_ok(nhs->netdev);
 }
@@ -2155,7 +2159,9 @@ static void netdev_set_pmk_cb(struct l_genl_msg *msg, void *user_data)
 		return;
 	}
 
-	handshake_event(netdev->handshake, HANDSHAKE_EVENT_SETTING_KEYS);
+	if (handshake_event(netdev->handshake, HANDSHAKE_EVENT_SETTING_KEYS))
+		return;
+
 	netdev_connect_ok(netdev);
 }
 
@@ -2710,6 +2716,7 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 	struct ie_tlv_iter iter;
 	const uint8_t *resp_ies = NULL;
 	size_t resp_ies_len;
+	struct handshake_state *hs = netdev->handshake;
 
 	l_debug("");
 
@@ -2809,15 +2816,13 @@ process_resp_ies:
 				qos_len = ie_tlv_iter_get_length(&iter);
 				break;
 			case IE_TYPE_FILS_IP_ADDRESS:
-				if (netdev->handshake->fils_ip_resp_ie) {
+				if (hs->fils_ip_resp_ie) {
 					l_debug("Duplicate response FILS IP "
 						"Address Assignment IE");
-					l_free(netdev->handshake->
-						fils_ip_resp_ie);
+					l_free(hs->fils_ip_resp_ie);
 				}
 
-				netdev->handshake->fils_ip_resp_ie = l_memdup(
-					data - 3,
+				hs->fils_ip_resp_ie = l_memdup(data - 3,
 					ie_tlv_iter_get_length(&iter) + 3);
 				break;
 			case IE_TYPE_OWE_DH_PARAM:
@@ -2871,7 +2876,7 @@ process_resp_ies:
 
 		if (fte) {
 			uint32_t kck_len =
-				handshake_state_get_kck_len(netdev->handshake);
+				handshake_state_get_kck_len(hs);
 			/*
 			 * If we are here, then most likely we have a FullMac
 			 * hw performing initial mobility association.  We need
@@ -2881,8 +2886,8 @@ process_resp_ies:
 			 */
 			if (ie_parse_fast_bss_transition_from_data(fte,
 					fte[1] + 2, kck_len, &ft_info) >= 0) {
-				handshake_state_set_fte(netdev->handshake, fte);
-				handshake_state_set_kh_ids(netdev->handshake,
+				handshake_state_set_fte(hs, fte);
+				handshake_state_set_kh_ids(hs,
 							ft_info.r0khid,
 							ft_info.r0khid_len,
 							ft_info.r1khid);
@@ -2897,22 +2902,20 @@ process_resp_ies:
 	}
 
 	if (netdev->sm) {
-		if (!netdev->handshake->chandef) {
+		if (!hs->chandef) {
 			if (netdev_get_oci(netdev) < 0)
 				goto deauth;
 		} else if (!eapol_start(netdev->sm))
-				goto deauth;
+			goto deauth;
 
 		return;
 	}
 
 	/* Allow station to sync the PSK to disk */
-	if (is_offload(netdev->handshake))
-		handshake_event(netdev->handshake,
-				HANDSHAKE_EVENT_SETTING_KEYS);
+	if (is_offload(hs) && handshake_event(hs, HANDSHAKE_EVENT_SETTING_KEYS))
+		return;
 
 	netdev_connect_ok(netdev);
-
 	return;
 
 error:
@@ -3109,7 +3112,8 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 		const struct mmpdu_authentication *auth;
 		bool retry;
 
-		if (L_WARN_ON(!(hdr = mpdu_validate(frame, frame_len))))
+		hdr = mpdu_validate(frame, frame_len);
+		if (L_WARN_ON(!hdr))
 			goto auth_error;
 
 		auth = mmpdu_body(hdr);
@@ -3219,7 +3223,8 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 		const struct mmpdu_header *hdr;
 		const struct mmpdu_association_response *assoc;
 
-		if (L_WARN_ON(!(hdr = mpdu_validate(frame, frame_len))))
+		hdr = mpdu_validate(frame, frame_len);
+		if (L_WARN_ON(!hdr))
 			goto assoc_failed;
 
 		assoc = mmpdu_body(hdr);
@@ -4040,8 +4045,8 @@ build_cmd_connect:
 					NL80211_EXT_FEATURE_CAN_REPLACE_PTK0))
 		handshake_state_set_no_rekey(hs, true);
 
-	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
-				&connect_work_ops);
+	wiphy_radio_work_insert(netdev->wiphy, &netdev->work,
+				WIPHY_WORK_PRIORITY_CONNECT, &connect_work_ops);
 }
 
 int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
@@ -4620,8 +4625,8 @@ int netdev_fast_transition(struct netdev *netdev,
 					netdev_get_oci, netdev);
 	memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
 
-	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
-				&ft_work_ops);
+	wiphy_radio_work_insert(netdev->wiphy, &netdev->work,
+				WIPHY_WORK_PRIORITY_CONNECT, &ft_work_ops);
 
 	return 0;
 }
@@ -4661,8 +4666,8 @@ int netdev_fast_transition_over_ds(struct netdev *netdev,
 					netdev);
 	memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
 
-	wiphy_radio_work_insert(netdev->wiphy, &netdev->work, 1,
-				&ft_work_ops);
+	wiphy_radio_work_insert(netdev->wiphy, &netdev->work,
+				WIPHY_WORK_PRIORITY_CONNECT, &ft_work_ops);
 
 	return 0;
 }

@@ -33,9 +33,9 @@
 #include "shared/jsmn.h"
 
 /* Max number of tokens supported. Increase if larger objects are expected */
-#define JSON_DEFAULT_TOKENS 30
+#define JSON_DEFAULT_TOKENS 60
 
-#define TOK_LEN(token) (token)->end - (token)->start
+#define TOK_LEN(token) ((token)->end - (token)->start)
 #define TOK_PTR(json, token) (void *)((json) + (token)->start)
 #define TOK_TO_STR(json, token) \
 ({ \
@@ -69,30 +69,37 @@ static jsmntok_t *next_key_in_parent(struct json_iter *iter, jsmntok_t *current)
 	return NULL;
 }
 
-/*
- * 'object' is expected to be a value, so object - 1 is its key. Find
- * the next key who's parent matches the parent of object - 1. The
- * token preceeding this next key will mark the end of 'object'.
- */
-static int find_object_tokens(struct json_iter *iter, jsmntok_t *object)
+static int count_tokens_in_container(struct json_iter *iter,
+							jsmntok_t *container)
 {
-	jsmntok_t *next = next_key_in_parent(iter, object - 1);
+	int idx = container - iter->contents->tokens;
+	jsmntok_t *contents;
 
-	/* End of token list */
-	if (!next)
-		next = ITER_END(iter);
+	for (contents = ++container; contents < ITER_END(iter); contents++)
+		if (contents->parent < idx)
+			break;
 
-	return next - object - 1;
+	return contents - container;
 }
 
-static void iter_recurse(struct json_iter *iter, jsmntok_t *object,
+static void iter_recurse(struct json_iter *iter, jsmntok_t *token,
 				struct json_iter *child)
 {
 	struct json_contents *c = iter->contents;
 
 	child->contents = c;
-	child->start = object - c->tokens;
-	child->count = find_object_tokens(iter, object);
+	child->start = token - c->tokens;
+	child->current = child->start;
+	child->count = count_tokens_in_container(iter, token);
+
+	/*
+	 * Add one to include the object/array token itself. This is required
+	 * since 'current' points to the container initially. Only after a call
+	 * to json_iter_next() will 'current' point to the first token in the
+	 * container.
+	 */
+	if (token->type == JSMN_OBJECT || token->type == JSMN_ARRAY)
+		child->count++;
 }
 
 struct json_contents *json_contents_new(const char *json, size_t json_len)
@@ -153,7 +160,7 @@ static void assign_arg(void *data, void *user_data)
 	struct json_arg *arg = data;
 	struct json_contents *c = iter->contents;
 	char **sval;
-	struct json_iter *oval;
+	struct json_iter *iter_val;
 
 	switch (arg->type) {
 	case JSON_STRING:
@@ -163,12 +170,14 @@ static void assign_arg(void *data, void *user_data)
 
 		break;
 	case JSON_OBJECT:
-		oval = arg->value;
+	case JSON_PRIMITIVE:
+	case JSON_ARRAY:
+		iter_val = arg->value;
 
 		if (!arg->v)
-			oval->start = -1;
+			iter_val->start = -1;
 		else
-			iter_recurse(iter, arg->v, oval);
+			iter_recurse(iter, arg->v, iter_val);
 
 		break;
 	default:
@@ -191,6 +200,9 @@ bool json_iter_parse(struct json_iter *iter, enum json_type type, ...)
 	if (iter->start == -1)
 		return false;
 
+	if (c->tokens[iter->start].type != JSMN_OBJECT)
+		return false;
+
 	args = l_queue_new();
 
 	va_start(va, type);
@@ -209,6 +221,8 @@ bool json_iter_parse(struct json_iter *iter, enum json_type type, ...)
 			goto done;
 		case JSON_STRING:
 		case JSON_OBJECT:
+		case JSON_PRIMITIVE:
+		case JSON_ARRAY:
 			break;
 		default:
 			goto error;
@@ -267,4 +281,188 @@ done:
 error:
 	l_queue_destroy(args, l_free);
 	return false;
+}
+
+static bool iter_get_primitive_data(struct json_iter *iter, void **ptr,
+					size_t *len)
+{
+	struct json_contents *c = iter->contents;
+	jsmntok_t *t = c->tokens + iter->current;
+
+	if (t->type != JSMN_PRIMITIVE)
+		return false;
+
+	*ptr = TOK_PTR(c->json, t);
+	*len = TOK_LEN(t);
+
+	return true;
+}
+
+bool json_iter_get_int(struct json_iter *iter, int *i)
+{
+	void *ptr;
+	size_t len;
+	long r;
+	int t;
+	char *endp;
+
+	if (!iter_get_primitive_data(iter, &ptr, &len))
+		return false;
+
+	if (!len)
+		return false;
+
+	errno = 0;
+
+	t = r = strtol(ptr, &endp, 10);
+	if (endp != ptr + len)
+		return false;
+
+	if (errno == ERANGE || errno == EINVAL || r != t)
+		return false;
+
+	if (i)
+		*i = r;
+
+	return true;
+}
+
+bool json_iter_get_uint(struct json_iter *iter, unsigned int *i)
+{
+	void *ptr;
+	size_t len;
+	unsigned long r;
+	unsigned int t;
+	char *endp;
+
+	if (!iter_get_primitive_data(iter, &ptr, &len))
+		return false;
+
+	if (!len || *((char *) ptr) == '-')
+		return false;
+
+	errno = 0;
+
+	t = r = strtoul(ptr, &endp, 10);
+	if (endp != ptr + len)
+		return false;
+
+	if (errno == ERANGE || errno == EINVAL || r != t)
+		return false;
+
+	if (i)
+		*i = r;
+
+	return true;
+}
+
+bool json_iter_get_boolean(struct json_iter *iter, bool *b)
+{
+	void *ptr;
+	size_t len;
+
+	if (!iter_get_primitive_data(iter, &ptr, &len))
+		return false;
+
+	if (len == 4 && !memcmp(ptr, "true", 4)) {
+		if (b)
+			*b = true;
+
+		return true;
+	} else if (len == 5 && !memcmp(ptr, "false", 5)) {
+		if (b)
+			*b = false;
+
+		return true;
+	}
+
+	return false;
+}
+
+bool json_iter_get_null(struct json_iter *iter)
+{
+	void *ptr;
+	size_t len;
+
+	if (!iter_get_primitive_data(iter, &ptr, &len))
+		return false;
+
+	if (len == 4 && !memcmp(ptr, "null", 4))
+		return true;
+
+	return false;
+}
+
+bool json_iter_get_container(struct json_iter *iter,
+				struct json_iter *container)
+{
+	struct json_contents *c = iter->contents;
+	jsmntok_t *t = c->tokens + iter->current;
+
+	if (t->type != JSMN_OBJECT && t->type != JSMN_ARRAY)
+		return false;
+
+	if (container)
+		iter_recurse(iter, t, container);
+
+	return true;
+}
+
+bool json_iter_get_string(struct json_iter *iter, char **s)
+{
+	struct json_contents *c = iter->contents;
+	jsmntok_t *t = c->tokens + iter->current;
+
+	if (t->type != JSMN_STRING)
+		return false;
+
+	if (s)
+		*s = TOK_TO_STR(c->json, t);
+
+	return true;
+}
+
+enum json_type json_iter_get_type(struct json_iter *iter)
+{
+	struct json_contents *c = iter->contents;
+	jsmntok_t *t = c->tokens + iter->current;
+
+	return (enum json_type) t->type;
+}
+
+bool json_iter_next(struct json_iter *iter)
+{
+	struct json_contents *c = iter->contents;
+	jsmntok_t *t = c->tokens + iter->current;
+	int inc = 1;
+
+	if (c->tokens[iter->start].type != JSMN_ARRAY)
+		return false;
+
+	/*
+	 * If this is the initial iteration skip this and just increment
+	 * current by 1 since this iterator points to a container which needs to
+	 * be advanced to the first token..
+	 *
+	 * In addition primitive types and empty containers will have a size
+	 * of 1, so no special handling is needed there.
+	 *
+	 * For non-empty containers 'current' needs to be advanced by all the
+	 * containers child tokens, plus the container itself.
+	 *
+	 * This check ensures:
+	 *    1. It is not the initial iteration
+	 *    2. This is a container
+	 *    3. The container is not empty
+	 */
+	if (iter->current != iter->start && ((t->type == JSMN_OBJECT ||
+					t->type == JSMN_ARRAY) && t->size))
+		inc = count_tokens_in_container(iter, t) + 1;
+
+	if (c->tokens + iter->current + inc >= ITER_END(iter))
+		return false;
+
+	iter->current += inc;
+
+	return true;
 }

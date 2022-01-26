@@ -30,6 +30,7 @@
 
 #include "linux/nl80211.h"
 
+#include "src/missing.h"
 #include "src/dbus.h"
 #include "src/netdev.h"
 #include "src/module.h"
@@ -51,10 +52,15 @@
 #include "src/scan.h"
 #include "src/network.h"
 #include "src/handshake.h"
+#include "src/nl80211util.h"
+
+#define DPP_FRAME_MAX_RETRIES 5
 
 static uint32_t netdev_watch;
 static struct l_genl_family *nl80211;
 static uint8_t broadcast[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+static struct l_queue *dpp_list;
+static uint32_t mlme_watch;
 
 enum dpp_state {
 	DPP_STATE_NOTHING,
@@ -75,9 +81,9 @@ struct dpp_sm {
 
 	uint64_t wdev_id;
 
-	uint8_t *pub_asn1;
-	size_t pub_asn1_len;
-	uint8_t pub_boot_hash[32];
+	uint8_t *own_asn1;
+	size_t own_asn1_len;
+	uint8_t own_boot_hash[32];
 	const struct l_ecc_curve *curve;
 	size_t key_len;
 	size_t nonce_len;
@@ -91,6 +97,7 @@ struct dpp_sm {
 	size_t freqs_idx;
 	uint32_t dwell;
 	uint32_t current_freq;
+	uint32_t new_freq;
 	struct scan_freq_set *presence_list;
 
 	uint32_t offchannel_id;
@@ -102,11 +109,12 @@ struct dpp_sm {
 
 	uint64_t ke[L_ECC_MAX_DIGITS];
 	uint64_t k2[L_ECC_MAX_DIGITS];
+	uint64_t auth_tag[L_ECC_MAX_DIGITS];
 
 	struct l_ecc_scalar *proto_private;
-	struct l_ecc_point *proto_public;
+	struct l_ecc_point *own_proto_public;
 
-	struct l_ecc_point *i_proto_public;
+	struct l_ecc_point *peer_proto_public;
 
 	uint8_t diag_token;
 
@@ -114,13 +122,18 @@ struct dpp_sm {
 	struct l_timeout *timeout;
 
 	struct dpp_configuration *config;
+	uint32_t connect_scan_id;
+	uint64_t frame_cookie;
+	uint8_t frame_retry;
+
+	struct l_dbus_message *pending;
 };
 
 static void dpp_free_auth_data(struct dpp_sm *dpp)
 {
-	if (dpp->proto_public) {
-		l_ecc_point_free(dpp->proto_public);
-		dpp->proto_public = NULL;
+	if (dpp->own_proto_public) {
+		l_ecc_point_free(dpp->own_proto_public);
+		dpp->own_proto_public = NULL;
 	}
 
 	if (dpp->proto_private) {
@@ -128,9 +141,9 @@ static void dpp_free_auth_data(struct dpp_sm *dpp)
 		dpp->proto_private = NULL;
 	}
 
-	if (dpp->i_proto_public) {
-		l_ecc_point_free(dpp->i_proto_public);
-		dpp->i_proto_public = NULL;
+	if (dpp->peer_proto_public) {
+		l_ecc_point_free(dpp->peer_proto_public);
+		dpp->peer_proto_public = NULL;
 	}
 }
 
@@ -161,13 +174,22 @@ static void dpp_reset(struct dpp_sm *dpp)
 		dpp->config = NULL;
 	}
 
+	if (dpp->connect_scan_id) {
+		scan_cancel(dpp->wdev_id, dpp->connect_scan_id);
+		dpp->connect_scan_id = 0;
+	}
+
 	dpp->state = DPP_STATE_NOTHING;
+	dpp->new_freq = 0;
+	dpp->frame_retry = 0;
+	dpp->frame_cookie = 0;
 
 	explicit_bzero(dpp->r_nonce, dpp->nonce_len);
 	explicit_bzero(dpp->i_nonce, dpp->nonce_len);
 	explicit_bzero(dpp->e_nonce, dpp->nonce_len);
 	explicit_bzero(dpp->ke, dpp->key_len);
 	explicit_bzero(dpp->k2, dpp->key_len);
+	explicit_bzero(dpp->auth_tag, dpp->key_len);
 
 	dpp_free_auth_data(dpp);
 }
@@ -176,9 +198,9 @@ static void dpp_free(struct dpp_sm *dpp)
 {
 	dpp_reset(dpp);
 
-	if (dpp->pub_asn1) {
-		l_free(dpp->pub_asn1);
-		dpp->pub_asn1 = NULL;
+	if (dpp->own_asn1) {
+		l_free(dpp->own_asn1);
+		dpp->own_asn1 = NULL;
 	}
 
 	if (dpp->boot_public) {
@@ -196,25 +218,36 @@ static void dpp_free(struct dpp_sm *dpp)
 
 static void dpp_send_frame_cb(struct l_genl_msg *msg, void *user_data)
 {
-	if (l_genl_msg_get_error(msg) < 0)
+	struct dpp_sm *dpp = user_data;
+
+	if (l_genl_msg_get_error(msg) < 0) {
 		l_error("Error sending frame");
+		return;
+	}
+
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_COOKIE, &dpp->frame_cookie,
+				NL80211_ATTR_UNSPEC) < 0)
+		l_error("Error parsing frame cookie");
 }
 
-static void dpp_send_frame(uint64_t wdev_id, struct iovec *iov, size_t iov_len,
-			uint32_t freq)
+static void dpp_send_frame(struct dpp_sm *dpp,
+				struct iovec *iov, size_t iov_len,
+				uint32_t freq)
 {
 	struct l_genl_msg *msg;
 
 	msg = l_genl_msg_new_sized(NL80211_CMD_FRAME, 512);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_WDEV, 8, &wdev_id);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_WDEV, 8, &dpp->wdev_id);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY_FREQ, 4, &freq);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_OFFCHANNEL_TX_OK, 0, NULL);
 	l_genl_msg_append_attrv(msg, NL80211_ATTR_FRAME, iov, iov_len);
 
 	l_debug("Sending frame on frequency %u", freq);
 
-	if (!l_genl_family_send(nl80211, msg, dpp_send_frame_cb, NULL, NULL))
+	if (!l_genl_family_send(nl80211, msg, dpp_send_frame_cb, dpp, NULL)) {
 		l_error("Could not send CMD_FRAME");
+		l_genl_msg_unref(msg);
+	}
 }
 
 static size_t dpp_build_header(const uint8_t *src, const uint8_t *dest,
@@ -363,7 +396,7 @@ static void dpp_configuration_start(struct dpp_sm *dpp, const uint8_t *addr)
 
 	dpp->state = DPP_STATE_CONFIGURING;
 
-	dpp_send_frame(dpp->wdev_id, iov, 2, dpp->current_freq);
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
 static void send_config_result(struct dpp_sm *dpp, const uint8_t *to)
@@ -386,14 +419,17 @@ static void send_config_result(struct dpp_sm *dpp, const uint8_t *to)
 	iov[1].iov_base = attrs;
 	iov[1].iov_len = ptr - attrs;
 
-	dpp_send_frame(dpp->wdev_id, iov, 2, dpp->current_freq);
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
-static void dpp_write_config(struct dpp_configuration *config)
+static void dpp_write_config(struct dpp_configuration *config,
+				struct network *network)
 {
-	_auto_(l_free) char *ssid = l_malloc(config->ssid_len + 1);
+	char ssid[33];
 	_auto_(l_settings_free) struct l_settings *settings = l_settings_new();
 	_auto_(l_free) char *path;
+	_auto_(l_free) uint8_t *psk = NULL;
+	size_t psk_len;
 
 	memcpy(ssid, config->ssid, config->ssid_len);
 	ssid[config->ssid_len] = '\0';
@@ -405,16 +441,55 @@ static void dpp_write_config(struct dpp_configuration *config)
 		l_settings_remove_group(settings, "Security");
 	}
 
-	if (config->passphrase)
+	if (config->passphrase) {
 		l_settings_set_string(settings, "Security", "Passphrase",
 				config->passphrase);
-	else if (config->psk)
+		if (network)
+			network_set_passphrase(network, config->passphrase);
+
+	} else if (config->psk) {
 		l_settings_set_string(settings, "Security", "PreSharedKey",
 				config->psk);
+
+		psk = l_util_from_hexstring(config->psk, &psk_len);
+
+		if (network)
+			network_set_psk(network, psk);
+	}
 
 	l_debug("Storing credential for '%s(%s)'", ssid,
 						security_to_str(SECURITY_PSK));
 	storage_network_sync(SECURITY_PSK, ssid, settings);
+}
+
+static void dpp_scan_triggered(int err, void *user_data)
+{
+	/* Not much can be done in this case */
+	if (err < 0)
+		l_error("Failed to trigger DPP scan");
+}
+
+static bool dpp_scan_results(int err, struct l_queue *bss_list,
+				const struct scan_freq_set *freqs,
+				void *userdata)
+{
+	struct dpp_sm *dpp = userdata;
+	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+
+	if (err < 0)
+		return false;
+
+	station_set_scan_results(station, bss_list, freqs, true);
+
+	return true;
+}
+
+static void dpp_scan_destroy(void *userdata)
+{
+	struct dpp_sm *dpp = userdata;
+
+	dpp->connect_scan_id = 0;
+	dpp_reset(dpp);
 }
 
 static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
@@ -441,6 +516,10 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	size_t wrapped_len = 0;
 	_auto_(l_free) uint8_t *unwrapped = NULL;
 	struct dpp_configuration *config;
+	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+	struct network *network = NULL;
+	struct scan_bss *bss = NULL;
+	char ssid[33];
 
 	if (dpp->state != DPP_STATE_CONFIGURING)
 		return;
@@ -564,30 +643,50 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 		return;
 	}
 
-	dpp_write_config(config);
 	/*
-	 * TODO: Depending on the info included in the configuration object a
-	 * limited scan could be issued to get autoconnect to trigger faster.
-	 * In addition this network may already be in past scan results and
-	 * could be joined immediately.
-	 *
-	 * For now just wait for autoconnect.
+	 * We should have a station device, but if not DPP can write the
+	 * credentials out and be done
 	 */
+	if (station) {
+		memcpy(ssid, config->ssid, config->ssid_len);
+		ssid[config->ssid_len] = '\0';
 
+		network = station_network_find(station, ssid, SECURITY_PSK);
+		if (network)
+			bss = network_bss_select(network, true);
+	}
+
+	dpp_write_config(config, network);
 	dpp_configuration_free(config);
 
 	send_config_result(dpp, dpp->auth_addr);
+
+	offchannel_cancel(dpp->wdev_id, dpp->offchannel_id);
+
+	if (network && bss)
+		__station_connect_network(station, network, bss);
+	else if (station) {
+		dpp->connect_scan_id = scan_active(dpp->wdev_id, NULL, 0,
+						dpp_scan_triggered,
+						dpp_scan_results, dpp,
+						dpp_scan_destroy);
+		if (dpp->connect_scan_id)
+			return;
+	}
+
+	dpp_reset(dpp);
 }
 
-static void dpp_send_config_response(struct dpp_sm *dpp)
+static void dpp_send_config_response(struct dpp_sm *dpp, uint8_t status)
 {
-	_auto_(l_free) char *json;
+	_auto_(l_free) char *json = NULL;
 	struct iovec iov[3];
 	uint8_t hdr[41];
 	uint8_t attrs[512];
 	size_t json_len;
-	uint8_t zero = 0;
 	uint8_t *ptr = hdr + 24;
+
+	memset(hdr, 0, sizeof(hdr));
 
 	l_put_le16(0x00d0, hdr);
 	memcpy(hdr + 4, dpp->auth_addr, 6);
@@ -611,9 +710,6 @@ static void dpp_send_config_response(struct dpp_sm *dpp)
 	*ptr++ = 0x1a;
 	*ptr++ = 1;
 
-	json = dpp_configuration_to_json(dpp->config);
-	json_len = strlen(json);
-
 	iov[0].iov_base = hdr;
 	iov[0].iov_len = ptr - hdr;
 
@@ -621,19 +717,38 @@ static void dpp_send_config_response(struct dpp_sm *dpp)
 
 	ptr += 2; /* length */
 
-	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &zero, 1);
+	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &status, 1);
 
-	ptr += dpp_append_wrapped_data(attrs + 2, ptr - attrs - 2, NULL, 0, ptr,
-			sizeof(attrs), dpp->ke, dpp->key_len, 2,
-			DPP_ATTR_ENROLLEE_NONCE, dpp->nonce_len, dpp->e_nonce,
-			DPP_ATTR_CONFIGURATION_OBJECT, json_len, json);
+	/*
+	 * There are several failure status codes that can be used (defined in
+	 * 6.4.3.1), each with their own set of attributes that should be
+	 * included. For now IWD's basic DPP implementation will assume
+	 * STATUS_CONFIGURE_FAILURE which only includes the E-Nonce.
+	 */
+	if (status == DPP_STATUS_OK) {
+		json = dpp_configuration_to_json(dpp->config);
+		json_len = strlen(json);
+
+		ptr += dpp_append_wrapped_data(attrs + 2, ptr - attrs - 2,
+						NULL, 0, ptr, sizeof(attrs),
+						dpp->ke, dpp->key_len, 2,
+						DPP_ATTR_ENROLLEE_NONCE,
+						dpp->nonce_len, dpp->e_nonce,
+						DPP_ATTR_CONFIGURATION_OBJECT,
+						json_len, json);
+	} else
+		ptr += dpp_append_wrapped_data(attrs + 2, ptr - attrs - 2,
+						NULL, 0, ptr, sizeof(attrs),
+						dpp->ke, dpp->key_len, 2,
+						DPP_ATTR_ENROLLEE_NONCE,
+						dpp->nonce_len, dpp->e_nonce);
 
 	l_put_le16(ptr - attrs - 2, attrs);
 
 	iov[1].iov_base = attrs;
 	iov[1].iov_len = ptr - attrs;
 
-	dpp_send_frame(dpp->wdev_id, iov, 2, dpp->current_freq);
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
 static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
@@ -655,6 +770,9 @@ static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
 	_auto_(l_free) uint8_t *unwrapped = NULL;
 	uint8_t hdr_check[] = { IE_TYPE_ADVERTISEMENT_PROTOCOL, 0x08, 0x7f,
 				IE_TYPE_VENDOR_SPECIFIC, 5 };
+	struct json_iter jsiter;
+	_auto_(l_free) char *tech = NULL;
+	_auto_(l_free) char *role = NULL;
 
 	if (dpp->state != DPP_STATE_AUTHENTICATING) {
 		l_debug("Configuration request in wrong state");
@@ -747,17 +865,30 @@ static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
 		return;
 	}
 
-	/*
-	 * TODO: Full JSON type support (arrays/numbers) is not yet implemented.
-	 * Just verify the JSON is valid for now. There really isn't much need
-	 * to parse this anyhow since IWD only supports configuring stations.
-	 * If this request is for anything else it will fail regardless.
-	 */
 	c = json_contents_new(json, json_len);
 	if (!c) {
 		json_contents_free(c);
 		return;
 	}
+
+	json_iter_init(&jsiter, c);
+
+	/*
+	 * Check mandatory values (Table 7). There isn't much that can be done
+	 * with these, but the spec requires they be included.
+	 */
+	if (!json_iter_parse(&jsiter,
+			JSON_MANDATORY("name", JSON_STRING, NULL),
+			JSON_MANDATORY("wi-fi_tech", JSON_STRING, &tech),
+			JSON_MANDATORY("netRole", JSON_STRING, &role),
+			JSON_UNDEFINED))
+		goto configure_failure;
+
+	if (strcmp(tech, "infra"))
+		goto configure_failure;
+
+	if (strcmp(role, "sta"))
+		goto configure_failure;
 
 	json_contents_free(c);
 
@@ -765,7 +896,16 @@ static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
 
 	dpp->state = DPP_STATE_CONFIGURING;
 
-	dpp_send_config_response(dpp);
+	dpp_send_config_response(dpp, DPP_STATUS_OK);
+
+	return;
+
+configure_failure:
+	dpp_send_config_response(dpp, DPP_STATUS_CONFIGURE_FAILURE);
+	/*
+	 * The other peer is still authenticated, and can potentially send
+	 * additional requests so keep this session alive.
+	 */
 }
 
 static void dpp_handle_config_result_frame(struct dpp_sm *dpp,
@@ -858,7 +998,7 @@ static void dpp_handle_config_result_frame(struct dpp_sm *dpp,
  * ad1 = attrs
  * ad1_len = ptr - attrs
  */
-static void send_authenticate_response(struct dpp_sm *dpp, void *r_auth)
+static void send_authenticate_response(struct dpp_sm *dpp)
 {
 	uint8_t hdr[32];
 	uint8_t attrs[256];
@@ -871,7 +1011,7 @@ static void send_authenticate_response(struct dpp_sm *dpp, void *r_auth)
 	uint8_t wrapped2[dpp->key_len + 16 + 8];
 	size_t wrapped2_len;
 
-	l_ecc_point_get_data(dpp->proto_public, r_proto_key,
+	l_ecc_point_get_data(dpp->own_proto_public, r_proto_key,
 				sizeof(r_proto_key));
 
 	iov[0].iov_len = dpp_build_header(netdev_get_address(dpp->netdev),
@@ -881,7 +1021,7 @@ static void send_authenticate_response(struct dpp_sm *dpp, void *r_auth)
 
 	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &status, 1);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH,
-				dpp->pub_boot_hash, 32);
+				dpp->own_boot_hash, 32);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_PROTOCOL_KEY,
 				r_proto_key, dpp->key_len * 2);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_PROTOCOL_VERSION, &version, 1);
@@ -889,7 +1029,7 @@ static void send_authenticate_response(struct dpp_sm *dpp, void *r_auth)
 	/* Wrap up secondary data (R-Auth) */
 	wrapped2_len = dpp_append_attr(wrapped2_plaintext,
 					DPP_ATTR_RESPONDER_AUTH_TAG,
-					r_auth, dpp->key_len);
+					dpp->auth_tag, dpp->key_len);
 	/*
 	 * "Invocations of AES-SIV in the DPP Authentication protocol that
 	 * produce ciphertext that is part of an additional AES-SIV invocation
@@ -911,8 +1051,7 @@ static void send_authenticate_response(struct dpp_sm *dpp, void *r_auth)
 	iov[1].iov_base = attrs;
 	iov[1].iov_len = ptr - attrs;
 
-	dpp_send_frame(netdev_get_wdev_id(dpp->netdev), iov, 2,
-				dpp->current_freq);
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
 static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
@@ -1026,7 +1165,7 @@ static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
 	}
 
 	dpp_derive_i_auth(dpp->r_nonce, dpp->i_nonce, dpp->nonce_len,
-				dpp->proto_public, dpp->i_proto_public,
+				dpp->own_proto_public, dpp->peer_proto_public,
 				dpp->boot_public, i_auth_check);
 
 	if (memcmp(i_auth, i_auth_check, i_auth_len)) {
@@ -1066,7 +1205,7 @@ static void dpp_auth_request_failed(struct dpp_sm *dpp,
 
 	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &s, 1);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH,
-				dpp->pub_boot_hash, 32);
+				dpp->own_boot_hash, 32);
 
 	ptr += dpp_append_attr(ptr, DPP_ATTR_PROTOCOL_VERSION, &version, 1);
 
@@ -1078,8 +1217,7 @@ static void dpp_auth_request_failed(struct dpp_sm *dpp,
 	iov[1].iov_base = attrs;
 	iov[1].iov_len = ptr - attrs;
 
-	dpp_send_frame(netdev_get_wdev_id(dpp->netdev), iov, 2,
-				dpp->current_freq);
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
 static bool dpp_check_roles(struct dpp_sm *dpp, uint8_t peer_capa)
@@ -1092,6 +1230,151 @@ static bool dpp_check_roles(struct dpp_sm *dpp, uint8_t peer_capa)
 		return false;
 
 	return true;
+}
+
+static void dpp_presence_announce(struct dpp_sm *dpp)
+{
+	struct netdev *netdev = dpp->netdev;
+	uint8_t hdr[32];
+	uint8_t attrs[32 + 4];
+	uint8_t hash[32];
+	uint8_t *ptr = attrs;
+	const uint8_t *addr = netdev_get_address(netdev);
+	struct iovec iov[2];
+
+	iov[0].iov_len = dpp_build_header(addr, broadcast,
+					DPP_FRAME_PRESENCE_ANNOUNCEMENT, hdr);
+	iov[0].iov_base = hdr;
+
+	dpp_hash(L_CHECKSUM_SHA256, hash, 2, "chirp", strlen("chirp"),
+			dpp->own_asn1, dpp->own_asn1_len);
+
+	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH, hash, 32);
+
+	iov[1].iov_base = attrs;
+	iov[1].iov_len = ptr - attrs;
+
+	l_debug("Sending presence announcement on frequency %u and waiting %u",
+		dpp->current_freq, dpp->dwell);
+
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
+}
+
+static void dpp_roc_started(void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+
+	/*
+	 * - If a configurator, nothing to do but wait for a request
+	 * - If in the presence state continue sending announcements.
+	 * - If authenticating, and this is a result of a channel switch send
+	 *   the authenticate response now.
+	 */
+	if (dpp->role == DPP_CAPABILITY_CONFIGURATOR)
+		return;
+
+	switch (dpp->state) {
+	case DPP_STATE_PRESENCE:
+		if (dpp->pending) {
+			struct l_dbus_message *reply =
+				l_dbus_message_new_method_return(dpp->pending);
+
+			l_dbus_message_set_arguments(reply, "s", dpp->uri);
+
+			dbus_pending_reply(&dpp->pending, reply);
+		}
+
+		dpp_presence_announce(dpp);
+		break;
+	case DPP_STATE_AUTHENTICATING:
+		if (dpp->new_freq) {
+			dpp->current_freq = dpp->new_freq;
+			dpp->new_freq = 0;
+			send_authenticate_response(dpp);
+		}
+
+		break;
+	default:
+		break;
+	}
+}
+
+static void dpp_start_offchannel(struct dpp_sm *dpp, uint32_t freq);
+
+static void dpp_presence_timeout(int error, void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+
+	dpp->offchannel_id = 0;
+
+	/*
+	 * If cancelled this is likely due to netdev going down or from Stop().
+	 * Otherwise there was some other problem which is probably not
+	 * recoverable.
+	 */
+	if (error == -ECANCELED)
+		return;
+	else if (error == -EIO)
+		goto next_roc;
+	else if (error < 0)
+		goto protocol_failed;
+
+	switch (dpp->state) {
+	case DPP_STATE_PRESENCE:
+		break;
+	case DPP_STATE_NOTHING:
+		/* Protocol already terminated */
+		return;
+	case DPP_STATE_AUTHENTICATING:
+	case DPP_STATE_CONFIGURING:
+		goto next_roc;
+	}
+
+	dpp->freqs_idx++;
+
+	if (dpp->freqs_idx >= dpp->freqs_len) {
+		l_debug("Max retries on presence announcements");
+		dpp->freqs_idx = 0;
+	}
+
+	dpp->current_freq = dpp->freqs[dpp->freqs_idx];
+
+	l_debug("Presence timeout, moving to next frequency %u, duration %u",
+			dpp->current_freq, dpp->dwell);
+
+next_roc:
+	dpp_start_offchannel(dpp, dpp->current_freq);
+
+	return;
+
+protocol_failed:
+	dpp_reset(dpp);
+}
+
+static void dpp_start_offchannel(struct dpp_sm *dpp, uint32_t freq)
+{
+	/*
+	 * This needs to be handled carefully for a few reasons:
+	 *
+	 * First, the next offchannel operation needs to be started prior to
+	 * canceling an existing one. This is so the offchannel work can
+	 * continue uninterrupted without any other work items starting in
+	 * between canceling and starting the next (e.g. if a scan request is
+	 * sitting in the queue).
+	 *
+	 * Second, dpp_presence_timeout resets dpp->offchannel_id to zero which
+	 * is why the new ID is saved and only set to dpp->offchannel_id once
+	 * the previous offchannel work is cancelled (i.e. destroy() has been
+	 * called).
+	 */
+	uint32_t id = offchannel_start(netdev_get_wdev_id(dpp->netdev),
+				freq, dpp->dwell, dpp_roc_started,
+				dpp, dpp_presence_timeout);
+
+	if (dpp->offchannel_id)
+		offchannel_cancel(dpp->wdev_id, dpp->offchannel_id);
+
+	dpp->offchannel_id = id;
 }
 
 static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
@@ -1113,9 +1396,9 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *m = NULL;
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *n = NULL;
 	uint64_t k1[L_ECC_MAX_DIGITS];
-	uint64_t r_auth[L_ECC_MAX_DIGITS];
 	const void *ad0 = body + 2;
 	const void *ad1 = body + 8;
+	uint32_t freq;
 
 	if (dpp->state != DPP_STATE_PRESENCE)
 		return;
@@ -1155,20 +1438,38 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 			}
 
 			break;
-		/*
-		 * TODO: Go on this channel for remainder of auth protocol.
-		 *
-		 * "the Responder determines whether it can use the requested
-		 * channel for the following exchanges. If so, it sends the DPP
-		 * Authentication Response frame on that channel. If not, it
-		 * discards the DPP Authentication Request frame without
-		 * replying to it."
-		 *
-		 * For the time being this feature is not being implemented and
-		 * the frame will be dropped.
-		 */
+
 		case DPP_ATTR_CHANNEL:
-			return;
+			if (len != 2)
+				return;
+
+			freq = oci_to_frequency(l_get_u8(data),
+						l_get_u8(data + 1));
+
+			if (freq == dpp->current_freq)
+				break;
+
+			/*
+			 * Configurators are already connected to a network, so
+			 * to preserve wireless performance the enrollee will
+			 * be required to be on this channel, not a channel it
+			 * requests.
+			 */
+			if (dpp->role == DPP_CAPABILITY_CONFIGURATOR)
+				return;
+
+			/*
+			 * Otherwise, as an enrollee, we can jump to whatever
+			 * channel the configurator requests
+			 */
+			dpp->new_freq = freq;
+
+			l_debug("Configurator requested a new frequency %u",
+					dpp->new_freq);
+
+			dpp_start_offchannel(dpp, dpp->new_freq);
+
+			break;
 		default:
 			break;
 		}
@@ -1177,21 +1478,21 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	if (!r_boot || !i_boot || !i_proto || !wrapped)
 		goto auth_request_failed;
 
-	if (r_boot_len != 32 || memcmp(dpp->pub_boot_hash,
+	if (r_boot_len != 32 || memcmp(dpp->own_boot_hash,
 					r_boot, r_boot_len)) {
 		l_debug("Responder boot key hash failed to verify");
 		goto auth_request_failed;
 	}
 
-	dpp->i_proto_public = l_ecc_point_from_data(dpp->curve,
+	dpp->peer_proto_public = l_ecc_point_from_data(dpp->curve,
 						L_ECC_POINT_TYPE_FULL,
 						i_proto, i_proto_len);
-	if (!dpp->i_proto_public) {
+	if (!dpp->peer_proto_public) {
 		l_debug("Initiators protocol key invalid");
 		goto auth_request_failed;
 	}
 
-	m = dpp_derive_k1(dpp->i_proto_public, dpp->boot_private, k1);
+	m = dpp_derive_k1(dpp->peer_proto_public, dpp->boot_private, k1);
 	if (!m)
 		goto auth_request_failed;
 
@@ -1241,9 +1542,9 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	/* Derive keys k2, ke, and R-Auth for authentication response */
 
 	l_ecdh_generate_key_pair(dpp->curve, &dpp->proto_private,
-					&dpp->proto_public);
+					&dpp->own_proto_public);
 
-	n = dpp_derive_k2(dpp->i_proto_public, dpp->proto_private, dpp->k2);
+	n = dpp_derive_k2(dpp->peer_proto_public, dpp->proto_private, dpp->k2);
 	if (!n)
 		goto auth_request_failed;
 
@@ -1253,8 +1554,8 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 		goto auth_request_failed;
 
 	if (!dpp_derive_r_auth(dpp->i_nonce, dpp->r_nonce, dpp->nonce_len,
-				dpp->i_proto_public, dpp->proto_public,
-				dpp->boot_public, r_auth))
+				dpp->peer_proto_public, dpp->own_proto_public,
+				dpp->boot_public, dpp->auth_tag))
 		goto auth_request_failed;
 
 	memcpy(dpp->auth_addr, from, 6);
@@ -1262,7 +1563,9 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	dpp->state = DPP_STATE_AUTHENTICATING;
 	dpp_reset_protocol_timer(dpp);
 
-	send_authenticate_response(dpp, r_auth);
+	/* Don't send if the frequency is changing */
+	if (!dpp->new_freq)
+		send_authenticate_response(dpp);
 
 	return;
 
@@ -1305,47 +1608,57 @@ static void dpp_handle_frame(const struct mmpdu_header *frame,
 	}
 }
 
-static void dpp_presence_announce(struct dpp_sm *dpp)
+static bool match_wdev(const void *a, const void *b)
 {
-	struct netdev *netdev = dpp->netdev;
-	uint8_t hdr[32];
-	uint8_t attrs[32 + 4];
-	uint8_t hash[32];
-	uint8_t *ptr = attrs;
-	const uint8_t *addr = netdev_get_address(netdev);
-	struct iovec iov[2];
+	const struct dpp_sm *dpp = a;
+	const uint64_t *wdev_id = b;
 
-	iov[0].iov_len = dpp_build_header(addr, broadcast,
-					DPP_FRAME_PRESENCE_ANNOUNCEMENT, hdr);
-	iov[0].iov_base = hdr;
-
-	dpp_hash(L_CHECKSUM_SHA256, hash, 2, "chirp", strlen("chirp"),
-			dpp->pub_asn1, dpp->pub_asn1_len);
-
-	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH, hash, 32);
-
-	iov[1].iov_base = attrs;
-	iov[1].iov_len = ptr - attrs;
-
-	l_debug("Sending presense annoucement on frequency %u and waiting %u",
-		dpp->current_freq, dpp->dwell);
-
-	dpp_send_frame(netdev_get_wdev_id(netdev), iov, 2, dpp->current_freq);
+	return *wdev_id == dpp->wdev_id;
 }
 
-static void dpp_roc_started(void *user_data)
+static void dpp_mlme_notify(struct l_genl_msg *msg, void *user_data)
 {
-	struct dpp_sm *dpp = user_data;
+	struct dpp_sm *dpp;
+	uint64_t wdev_id = 0;
+	uint64_t cookie = 0;
+	bool ack = false;
+	struct iovec iov;
+	uint8_t cmd = l_genl_msg_get_command(msg);
 
-	/*
-	 * If not in presence procedure or in a configurator role, just stay
-	 * on channel.
-	 */
-	if (dpp->state != DPP_STATE_PRESENCE ||
-			dpp->role == DPP_CAPABILITY_CONFIGURATOR)
+	if (cmd != NL80211_CMD_FRAME_TX_STATUS)
 		return;
 
-	dpp_presence_announce(dpp);
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_WDEV, &wdev_id,
+				NL80211_ATTR_COOKIE, &cookie,
+				NL80211_ATTR_ACK, &ack,
+				NL80211_ATTR_FRAME, &iov,
+				NL80211_ATTR_UNSPEC) < 0)
+		return;
+
+	dpp = l_queue_find(dpp_list, match_wdev, &wdev_id);
+	if (!dpp)
+		return;
+
+	if (dpp->state <= DPP_STATE_PRESENCE)
+		return;
+
+	/*
+	 * Only want to handle the no-ACK case. Re-transmitting an ACKed
+	 * frame likely wont do any good, at least in the case of DPP.
+	 */
+	if (dpp->frame_cookie != cookie || ack)
+		return;
+
+	if (dpp->frame_retry > DPP_FRAME_MAX_RETRIES) {
+		dpp_reset(dpp);
+		return;
+	}
+
+	l_debug("No ACK from peer, re-transmitting");
+
+	dpp->frame_retry++;
+
+	dpp_send_frame(dpp, &iov, 1, dpp->current_freq);
 }
 
 static void dpp_create(struct netdev *netdev)
@@ -1366,10 +1679,10 @@ static void dpp_create(struct netdev *netdev)
 	l_ecdh_generate_key_pair(dpp->curve, &dpp->boot_private,
 					&dpp->boot_public);
 
-	dpp->pub_asn1 = dpp_point_to_asn1(dpp->boot_public, &dpp->pub_asn1_len);
+	dpp->own_asn1 = dpp_point_to_asn1(dpp->boot_public, &dpp->own_asn1_len);
 
-	dpp_hash(L_CHECKSUM_SHA256, dpp->pub_boot_hash, 1,
-			dpp->pub_asn1, dpp->pub_asn1_len);
+	dpp_hash(L_CHECKSUM_SHA256, dpp->own_boot_hash, 1,
+			dpp->own_asn1, dpp->own_asn1_len);
 
 	l_dbus_object_add_interface(dbus, netdev_get_path(netdev),
 					IWD_DPP_INTERFACE, dpp);
@@ -1385,6 +1698,8 @@ static void dpp_create(struct netdev *netdev)
 				dpp_conf_request_prefix,
 				sizeof(dpp_conf_request_prefix),
 				dpp_handle_config_request_frame, dpp, NULL);
+
+	l_queue_push_tail(dpp_list, dpp);
 }
 
 static void dpp_netdev_watch(struct netdev *netdev,
@@ -1406,56 +1721,6 @@ static void dpp_netdev_watch(struct netdev *netdev,
 	default:
 		break;
 	}
-}
-
-static void dpp_presence_timeout(int error, void *user_data)
-{
-	struct dpp_sm *dpp = user_data;
-
-	/*
-	 * If cancelled this is likely due to netdev going down or from Stop().
-	 * Otherwise there was some other problem which is probably not
-	 * recoverable.
-	 */
-	if (error == -ECANCELED)
-		return;
-	else if (error == -EIO)
-		goto next_roc;
-	else if (error < 0)
-		goto protocol_failed;
-
-	switch (dpp->state) {
-	case DPP_STATE_PRESENCE:
-		break;
-	case DPP_STATE_NOTHING:
-		/* Protocol already terminated */
-		return;
-	case DPP_STATE_AUTHENTICATING:
-	case DPP_STATE_CONFIGURING:
-		goto next_roc;
-	}
-
-	dpp->freqs_idx++;
-
-	if (dpp->freqs_idx >= dpp->freqs_len) {
-		l_debug("Max retries on presence announcements");
-		dpp->freqs_idx = 0;
-	}
-
-	dpp->current_freq = dpp->freqs[dpp->freqs_idx];
-
-	l_debug("Presence timeout, moving to next frequency %u, duration %u",
-			dpp->current_freq, dpp->dwell);
-
-next_roc:
-	dpp->offchannel_id = offchannel_start(netdev_get_wdev_id(dpp->netdev),
-			dpp->current_freq, dpp->dwell, dpp_roc_started,
-			dpp, dpp_presence_timeout);
-	return;
-
-protocol_failed:
-	dpp_reset(dpp);
-	return;
 }
 
 /*
@@ -1517,9 +1782,7 @@ static void dpp_start_presence(struct dpp_sm *dpp, uint32_t *limit_freqs,
 	dpp->freqs_idx = 0;
 	dpp->current_freq = dpp->freqs[0];
 
-	dpp->offchannel_id = offchannel_start(netdev_get_wdev_id(dpp->netdev),
-			dpp->current_freq, dpp->dwell, dpp_roc_started,
-			dpp, dpp_presence_timeout);
+	dpp_start_offchannel(dpp, dpp->current_freq);
 }
 
 static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
@@ -1528,12 +1791,22 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 {
 	struct dpp_sm *dpp = user_data;
 	uint32_t freq = band_channel_to_freq(6, BAND_FREQ_2_4_GHZ);
-	struct l_dbus_message *reply;
+	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
 
 	if (dpp->state != DPP_STATE_NOTHING)
 		return dbus_error_busy(message);
 
-	dpp->uri = dpp_generate_uri(dpp->pub_asn1, dpp->pub_asn1_len, 2,
+	/*
+	 * Station isn't actually required for DPP itself, although this will
+	 * prevent connecting to the network once configured.
+	 */
+	if (station && station_get_connected_network(station)) {
+		l_warn("cannot be enrollee while connected, please disconnect");
+		return dbus_error_busy(message);
+	} else if (!station)
+		l_debug("No station device, continuing anyways...");
+
+	dpp->uri = dpp_generate_uri(dpp->own_asn1, dpp->own_asn1_len, 2,
 					netdev_get_address(dpp->netdev), &freq,
 					1, NULL, NULL);
 
@@ -1542,6 +1815,8 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 
 	l_debug("DPP Start Enrollee: %s", dpp->uri);
 
+	dpp->pending = l_dbus_message_ref(message);
+
 	/*
 	 * Going off spec here. Select a single channel to send presence
 	 * announcements on. This will be advertised in the URI. The full
@@ -1549,11 +1824,9 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	 */
 	dpp_start_presence(dpp, &freq, 1);
 
-	reply = l_dbus_message_new_method_return(message);
+	scan_periodic_stop(dpp->wdev_id);
 
-	l_dbus_message_set_arguments(reply, "s", dpp->uri);
-
-	return reply;
+	return NULL;
 }
 
 static struct l_dbus_message *dpp_dbus_start_configurator(struct l_dbus *dbus,
@@ -1590,7 +1863,7 @@ static struct l_dbus_message *dpp_dbus_start_configurator(struct l_dbus *dbus,
 	if (dpp->state != DPP_STATE_NOTHING)
 		return dbus_error_busy(message);
 
-	dpp->uri = dpp_generate_uri(dpp->pub_asn1, dpp->pub_asn1_len, 2,
+	dpp->uri = dpp_generate_uri(dpp->own_asn1, dpp->own_asn1_len, 2,
 					netdev_get_address(dpp->netdev),
 					&bss->frequency, 1, NULL, NULL);
 
@@ -1600,6 +1873,8 @@ static struct l_dbus_message *dpp_dbus_start_configurator(struct l_dbus *dbus,
 	dpp->config = dpp_configuration_new(settings,
 						network_get_ssid(network),
 						hs->akm_suite);
+
+	scan_periodic_stop(dpp->wdev_id);
 
 	l_debug("DPP Start Configurator: %s", dpp->uri);
 
@@ -1635,6 +1910,8 @@ static void dpp_destroy_interface(void *user_data)
 {
 	struct dpp_sm *dpp = user_data;
 
+	l_queue_remove(dpp_list, dpp);
+
 	dpp_free(dpp);
 }
 
@@ -1651,6 +1928,12 @@ static int dpp_init(void)
 	l_dbus_register_interface(dbus_get_bus(), IWD_DPP_INTERFACE,
 					dpp_setup_interface,
 					dpp_destroy_interface, false);
+
+	mlme_watch = l_genl_family_register(nl80211, "mlme", dpp_mlme_notify,
+						NULL, NULL);
+
+	dpp_list = l_queue_new();
+
 	return 0;
 }
 
@@ -1659,6 +1942,14 @@ static void dpp_exit(void)
 	l_debug("");
 
 	netdev_watch_remove(netdev_watch);
+
+	l_genl_family_unregister(nl80211, mlme_watch);
+	mlme_watch = 0;
+
+	l_genl_family_free(nl80211);
+	nl80211 = NULL;
+
+	l_queue_destroy(dpp_list, (l_queue_destroy_func_t) dpp_free);
 }
 
 IWD_MODULE(dpp, dpp_init, dpp_exit);

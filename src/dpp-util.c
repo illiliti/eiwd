@@ -36,6 +36,7 @@
 #include "src/crypto.h"
 #include "src/json.h"
 #include "ell/useful.h"
+#include "ell/asn1-private.h"
 #include "src/ie.h"
 
 static void append_freqs(struct l_string *uri,
@@ -155,7 +156,7 @@ struct dpp_configuration *dpp_parse_configuration_object(const char *json,
 			JSON_UNDEFINED))
 		goto free_contents;
 
-	if (!ssid || !util_ssid_is_utf8(strlen(ssid),(const uint8_t *)ssid))
+	if (!ssid || !util_ssid_is_utf8(strlen(ssid), (const uint8_t *) ssid))
 		goto free_contents;
 
 	if (!json_iter_parse(&cred,
@@ -297,7 +298,7 @@ bool dpp_attr_iter_next(struct dpp_attr_iter *iter,
 			const uint8_t **data_out)
 {
 	enum dpp_attribute_type type;
-	size_t len;
+	uint16_t len;
 
 	if (iter->pos + 4 > iter->end)
 		return false;
@@ -307,7 +308,7 @@ bool dpp_attr_iter_next(struct dpp_attr_iter *iter,
 
 	iter->pos += 4;
 
-	if (iter->pos + len > iter->end)
+	if (iter->end - iter->pos < len)
 		return false;
 
 	*type_out = type;
@@ -694,46 +695,47 @@ bool dpp_derive_ke(const uint8_t *i_nonce, const uint8_t *r_nonce,
 	return hkdf_expand(sha, bk, key_len, "DPP Key", ke, key_len);
 }
 
-#define ASN1_ID(class, pc, tag)	(((class) << 6) | ((pc) << 5) | (tag))
-
-#define ASN1_ID_SEQUENCE	ASN1_ID(0, 1, 0x10)
-#define ASN1_ID_BIT_STRING	ASN1_ID(0, 0, 0x03)
-#define ASN1_ID_OID		ASN1_ID(0, 0, 0x06)
-
 /*
  * Values derived from OID definitions in https://www.secg.org/sec2-v2.pdf
  * Appendix A.2.1
  *
  * 1.2.840.10045.2.1 (ecPublicKey)
  */
-static uint8_t ec_oid[] = { 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01 };
+static struct asn1_oid ec_oid = {
+	.asn1_len = 7,
+	.asn1 = { 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01 }
+};
 
 /* 1.2.840.10045.3.1.7 (prime256v1) */
-static uint8_t ec_p256_oid[] = { 0x2a, 0x86, 0x48, 0xce,
-				0x3d, 0x03, 0x01, 0x07 };
+static struct asn1_oid ec_p256_oid = {
+	.asn1_len = 8,
+	.asn1 = { 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07 }
+};
+
 /* 1.3.132.0.34 (secp384r1) */
-static uint8_t ec_p384_oid[] = { 0x2B, 0x81, 0x04, 0x00, 0x22 };
+static struct asn1_oid ec_p384_oid = {
+	.asn1_len = 5,
+	.asn1 = { 0x2B, 0x81, 0x04, 0x00, 0x22 }
+};
 
 uint8_t *dpp_point_to_asn1(const struct l_ecc_point *p, size_t *len_out)
 {
 	uint8_t *asn1;
 	uint8_t *ptr;
-	uint8_t *type_oid;
-	size_t type_oid_len;
+	struct asn1_oid *key_type;
 	const struct l_ecc_curve *curve = l_ecc_point_get_curve(p);
 	ssize_t key_size = l_ecc_curve_get_scalar_bytes(curve);
 	uint64_t x[L_ECC_MAX_DIGITS];
 	ssize_t ret;
 	size_t len;
+	uint8_t point_type;
 
 	switch (key_size) {
 	case 32:
-		type_oid = ec_p256_oid;
-		type_oid_len = sizeof(ec_p256_oid);
+		key_type = &ec_p256_oid;
 		break;
 	case 48:
-		type_oid = ec_p384_oid;
-		type_oid_len = sizeof(ec_p384_oid);
+		key_type = &ec_p384_oid;
 		break;
 	default:
 		return NULL;
@@ -743,7 +745,18 @@ uint8_t *dpp_point_to_asn1(const struct l_ecc_point *p, size_t *len_out)
 	if (ret < 0 || ret != key_size)
 		return NULL;
 
-	len = 2 + sizeof(ec_oid) + 2 + type_oid_len + 2 + key_size + 4;
+	len = 2 + ec_oid.asn1_len + 2 + key_type->asn1_len + 2 + key_size + 4;
+
+	/*
+	 * Set the type to whatever avoids doing p - y when reading in the
+	 * key. Working backwards from l_ecc_point_from_data if Y is odd and
+	 * the type is BIT0 there is no subtraction. Similarly if Y is even
+	 * and the type is BIT1.
+	 */
+	if (l_ecc_point_y_isodd(p))
+		point_type = L_ECC_POINT_TYPE_COMPRESSED_BIT0;
+	else
+		point_type = L_ECC_POINT_TYPE_COMPRESSED_BIT1;
 
 	if (L_WARN_ON(len > 128))
 		return NULL;
@@ -757,24 +770,24 @@ uint8_t *dpp_point_to_asn1(const struct l_ecc_point *p, size_t *len_out)
 
 	*ptr++ = ASN1_ID_SEQUENCE;
 
-	len = sizeof(ec_oid) + type_oid_len + 4;
+	len = ec_oid.asn1_len + key_type->asn1_len + 4;
 
 	*ptr++ = len;
 
 	*ptr++ = ASN1_ID_OID;
-	*ptr++ = sizeof(ec_oid);
-	memcpy(ptr, ec_oid, sizeof(ec_oid));
-	ptr += sizeof(ec_oid);
+	*ptr++ = ec_oid.asn1_len;
+	memcpy(ptr, ec_oid.asn1, ec_oid.asn1_len);
+	ptr += ec_oid.asn1_len;
 
 	*ptr++ = ASN1_ID_OID;
-	*ptr++ = type_oid_len;
-	memcpy(ptr, type_oid, type_oid_len);
-	ptr += type_oid_len;
+	*ptr++ = key_type->asn1_len;
+	memcpy(ptr, key_type->asn1, key_type->asn1_len);
+	ptr += key_type->asn1_len;
 
 	*ptr++ = ASN1_ID_BIT_STRING;
 	*ptr++ = key_size + 2;
 	*ptr++ = 0x00;
-	*ptr++ = 0x03;
+	*ptr++ = point_type;
 	memcpy(ptr, x, key_size);
 	ptr += key_size;
 
@@ -782,4 +795,73 @@ uint8_t *dpp_point_to_asn1(const struct l_ecc_point *p, size_t *len_out)
 		*len_out = ptr - asn1;
 
 	return asn1;
+}
+
+/*
+ * Only checking for the ASN.1 form:
+ *
+ * SEQUENCE {
+ * 	SEQUENCE {
+ * 		OBJECT IDENTIFIER ecPublicKey
+ * 		OBJECT IDENTIFIER key type (p256/p384)
+ * 	}
+ * 	BITSTRING (key data)
+ * }
+ */
+struct l_ecc_point *dpp_point_from_asn1(const uint8_t *asn1, size_t len)
+{
+
+	const uint8_t *outer_seq;
+	size_t outer_len;
+	const uint8_t *inner_seq;
+	size_t inner_len;
+	const uint8_t *elem;
+	const uint8_t *key_data;
+	size_t elen = 0;
+	uint8_t tag;
+	unsigned int curve_num;
+	const struct l_ecc_curve *curve;
+
+	/* SEQUENCE */
+	outer_seq = asn1_der_find_elem(asn1, len, 0, &tag, &outer_len);
+	if (!outer_seq || tag != ASN1_ID_SEQUENCE)
+		return NULL;
+
+	/* SEQUENCE */
+	inner_seq = asn1_der_find_elem(outer_seq, outer_len, 0, &tag, &inner_len);
+	if (!inner_seq || tag != ASN1_ID_SEQUENCE)
+		return NULL;
+
+	/* OBJECT IDENTIFIER (ecPublicKey) */
+	elem = asn1_der_find_elem(inner_seq, inner_len, 0, &tag, &elen);
+	if (!elem || tag != ASN1_ID_OID)
+		return NULL;
+
+	/* Check that this OID is ecPublicKey */
+	if (!asn1_oid_eq(&ec_oid, elen, elem))
+		return NULL;
+
+	elem = asn1_der_find_elem(inner_seq, inner_len, 1, &tag, &elen);
+	if (!elem || tag != ASN1_ID_OID)
+		return NULL;
+
+	/* Check if ELL supports this curve */
+	if (asn1_oid_eq(&ec_p256_oid, elen, elem))
+		curve_num = 19;
+	else if (asn1_oid_eq(&ec_p384_oid, elen, elem))
+		curve_num = 20;
+	else
+		return NULL;
+
+	curve = l_ecc_curve_from_ike_group(curve_num);
+	if (!curve)
+		return NULL;
+
+	/* BITSTRING */
+	key_data = asn1_der_find_elem(outer_seq, outer_len, 1, &tag, &elen);
+	if (!key_data || tag != ASN1_ID_BIT_STRING || elen > 2)
+		return NULL;
+
+	return l_ecc_point_from_data(curve, key_data[1],
+					key_data + 2, elen - 2);
 }

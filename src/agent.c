@@ -290,8 +290,6 @@ static void agent_send_next_request(struct agent *agent)
 #endif
 
 	pending->message = NULL;
-
-	return;
 }
 
 #ifdef HAVE_DBUS

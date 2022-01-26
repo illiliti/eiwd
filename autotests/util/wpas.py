@@ -58,29 +58,20 @@ class Wpas:
         f.close()
         return dict([[v.strip() for v in kv] for kv in [l.split('#', 1)[0].split('=', 1) for l in lines] if len(kv) == 2])
 
+    def _check_event(self, event):
+        if not event and len(self._rx_data) >= 1:
+            print("returning %s" % self._rx_data[0])
+            return self._rx_data[0]
+
+        for e in self._rx_data:
+            if event in e:
+                return self._rx_data
+
+        return False
+
     def wait_for_event(self, event, timeout=10):
-        self._wait_timed_out = False
-
-        def wait_timeout_cb():
-            self._wait_timed_out = True
-            return False
-
-        timeout = GLib.timeout_add_seconds(timeout, wait_timeout_cb)
-        context = ctx.mainloop.get_context()
-
-        while True:
-            context.iteration(may_block=True)
-
-            if not event and len(self._rx_data) >= 1:
-                return self._rx_data[0]
-
-            for e in self._rx_data:
-                if event in e:
-                    GLib.source_remove(timeout)
-                    return self._rx_data
-
-            if self._wait_timed_out:
-                raise TimeoutError('waiting for wpas event timed out')
+        self._rx_data = []
+        return ctx.non_block_wait(self._check_event, timeout, event)
 
     def wait_for_result(self, timeout=10):
         self._rx_data = []
@@ -251,29 +242,54 @@ class Wpas:
         self._ctrl_request('SET ' + key + ' ' + value, **kwargs)
 
     def dpp_enrollee_start(self, uri=None):
+        self._rx_data = []
         self._ctrl_request('DPP_BOOTSTRAP_GEN type=qrcode')
         self.wait_for_result()
 
         if uri:
+            self._rx_data = []
             self._ctrl_request('DPP_QR_CODE ' + uri)
             self._dpp_qr_id = self.wait_for_result()
+            self._rx_data = []
             self._ctrl_request('DPP_AUTH_INIT peer=%s role=enrollee' % self._dpp_qr_id)
 
     def dpp_configurator_create(self, uri):
+        self._rx_data = []
         self._ctrl_request('DPP_CONFIGURATOR_ADD')
         self._dpp_conf_id = self.wait_for_result()
+        while not self._dpp_conf_id.isnumeric():
+            self._dpp_conf_id = self.wait_for_result()
+
+        self._rx_data = []
         self._ctrl_request('DPP_QR_CODE ' + uri)
         self._dpp_qr_id = self.wait_for_result()
+        while not self._dpp_conf_id.isnumeric():
+            self._dpp_qr_id = self.wait_for_result()
 
         print("DPP Configurator ID: %s. DPP QR ID: %s" % (self._dpp_conf_id, self._dpp_qr_id))
 
-    def dpp_configurator_start(self, ssid, passphrase):
+    def dpp_configurator_start(self, ssid, passphrase, freq=None):
         ssid = binascii.hexlify(ssid.encode()).decode()
         passphrase = binascii.hexlify(passphrase.encode()).decode()
 
-        self._ctrl_request('DPP_AUTH_INIT peer=%s conf=sta-psk ssid=%s pass=%s' % (self._dpp_qr_id, ssid, passphrase))
-        self.wait_for_event('DPP-AUTH-SUCCESS')
+        cmd = 'DPP_AUTH_INIT peer=%s conf=sta-psk ssid=%s pass=%s ' % (self._dpp_qr_id, ssid, passphrase)
+
+        if freq:
+            cmd += 'neg_freq=%u ' % freq
+
+        self._rx_data = []
+        self._ctrl_request(cmd)
+        self.wait_for_event('DPP-AUTH-SUCCESS', timeout=30)
         self.wait_for_event('DPP-CONF-SENT')
+
+    def dpp_configurator_remove(self):
+        self._ctrl_request('DPP_CONFIGURATOR_REMOVE *')
+        self.wait_for_result()
+        self._ctrl_request('DPP_BOOTSTRAP_REMOVE *')
+        self.wait_for_result()
+
+    def disconnect(self):
+        self._ctrl_request('DISCONNECT')
 
     # Probably needed: remove references to self so that the GC can call __del__ automatically
     def clean_up(self):

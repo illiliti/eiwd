@@ -726,10 +726,10 @@ static bool frame_watch_remove_by_handler(uint64_t wdev_id, uint32_t group_id,
 						frame_watch_cb_t handler,
 						void *user_data)
 {
-	struct watch_group_match_info group_info =
-		{ group_id == 0 ? 0 : wdev_id, group_id };
-	struct frame_watch_handler_check_info handler_info =
-		{ wdev_id, handler, user_data };
+	struct watch_group_match_info group_info = {
+				group_id == 0 ? 0 : wdev_id, group_id };
+	struct frame_watch_handler_check_info handler_info = {
+					wdev_id, handler, user_data };
 	struct watch_group *group = l_queue_find(watch_groups,
 						frame_watch_group_match,
 						&group_info);
@@ -1213,7 +1213,8 @@ uint32_t frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 	 * wait on channel) are introduced.
 	 */
 	return wiphy_radio_work_insert(wiphy_find_by_wdev(wdev_id),
-					&fx->work, 0, &work_ops);
+					&fx->work, WIPHY_WORK_PRIORITY_FRAME,
+					&work_ops);
 }
 
 static bool frame_xchg_cancel_by_wdev(void *data, void *user_data)

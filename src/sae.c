@@ -413,6 +413,7 @@ static struct l_ecc_point *sae_compute_pwe(const struct l_ecc_curve *curve,
 	struct l_ecc_scalar *qnr;
 	uint8_t qnr_bin[L_ECC_SCALAR_MAX_BYTES] = {0};
 	struct l_ecc_point *pwe;
+	unsigned int bytes = l_ecc_curve_get_scalar_bytes(curve);
 
 	/* create qr/qnr prior to beginning hunting-and-pecking loop */
 	qr = sae_new_residue(curve, true);
@@ -438,7 +439,7 @@ static struct l_ecc_point *sae_compute_pwe(const struct l_ecc_curve *curve,
 		 * Set base to either dummy or password, depending on found's
 		 * value.
 		 * A non-secure version would be:
-		 * 	base = (found ? dummy : password);
+		 *	base = (found ? dummy : password);
 		 */
 		util_secure_select(found, dummy, (uint8_t *)password,
 					base, base_len);
@@ -493,7 +494,7 @@ static struct l_ecc_point *sae_compute_pwe(const struct l_ecc_curve *curve,
 		return NULL;
 	}
 
-	pwe = l_ecc_point_from_data(curve, !is_odd + 2, x, sizeof(x));
+	pwe = l_ecc_point_from_data(curve, !is_odd + 2, x, bytes);
 	if (!pwe)
 		l_error("computing y failed, was x quadratic residue?");
 
@@ -729,7 +730,7 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	 *
 	 * NOTE: We use hkdf_extract here since it is just an hmac invocation
 	 * and it handles the case of the zero key for us.
-	*/
+	 */
 	if (sm->sae_type != CRYPTO_SAE_LOOPING && sm->rejected_groups) {
 		salt = sm->rejected_groups + 1;
 		salt_len = sm->rejected_groups[0] * sizeof(uint16_t);
@@ -999,7 +1000,7 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 		 * checking that the group matches here, e.g.
 		 *
 		 * if (l_get_le16(frame) != sm->group)
-		 * 	return false;
+		 *	return false;
 		 *
 		 * According to 802.11 Section 12.4.8.6.4:
 		 *

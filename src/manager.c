@@ -196,7 +196,7 @@ static void manager_create_interfaces(struct wiphy_setup_state *state)
 	struct l_genl_msg *msg;
 	char ifname[10];
 	uint32_t iftype;
-	unsigned cmd_id;
+	unsigned int cmd_id;
 
 	if (state->aborted)
 		return;
@@ -341,7 +341,7 @@ static void manager_get_interface_cb(struct l_genl_msg *msg, void *user_data)
 	uint64_t wdev;
 	const char *ifname;
 	struct l_genl_msg *del_msg;
-	unsigned cmd_id;
+	unsigned int cmd_id;
 	char *pattern;
 	unsigned int i;
 	bool whitelisted = false, blacklisted = false;
@@ -703,7 +703,7 @@ static void manager_config_notify(struct l_genl_msg *msg, void *user_data)
 	case NL80211_CMD_NEW_INTERFACE:
 		/*
 		 * Interfaces are normally dumped on the NEW_WIPHY events and
-		 * and we have nothing to do here.  But check if by any chance
+		 * we have nothing to do here.  But check if by any chance
 		 * we've queried this wiphy and it was still busy initialising,
 		 * in that case retry the setup now that an interface, likely
 		 * the initial default one, has been added.

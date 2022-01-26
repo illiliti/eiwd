@@ -121,8 +121,8 @@ enum p2p_public_action_frame_type {
 /* Table 75 */
 enum p2p_action_frame_type {
 	P2P_ACTION_NOTICE_OF_ABSENCE		= 0,
-	P2P_ACTION_PRESENCE_REQ 		= 1,
-	P2P_ACTION_PRESENCE_RESP 		= 2,
+	P2P_ACTION_PRESENCE_REQ			= 1,
+	P2P_ACTION_PRESENCE_RESP		= 2,
 	P2P_ACTION_GO_DISCOVERABILITY_REQ	= 3,
 };
 

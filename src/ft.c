@@ -640,9 +640,10 @@ static int ft_rx_authenticate(struct auth_proto *ap, const uint8_t *frame,
 	 * FT Protocol.
 	 */
 	if (!ft_parse_authentication_resp_frame(frame, frame_len, ft->hs->spa,
-					ft->hs->aa, ft->hs->aa, 2, &status_code,
-					&ies, &ies_len))
-			goto auth_error;
+						ft->hs->aa, ft->hs->aa,
+						2, &status_code,
+						&ies, &ies_len))
+		goto auth_error;
 
 	/* AP Rejected the authenticate / associate */
 	if (status_code != 0)

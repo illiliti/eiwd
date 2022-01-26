@@ -239,9 +239,10 @@ static int station_autoconnect_next(struct station *station)
 			}
 
 			return 0;
-		} else
-			l_debug("autoconnect: network_autoconnect: %s (%d)",
-				strerror(-r), r);
+		}
+
+		l_debug("autoconnect: network_autoconnect: %s (%d)",
+							strerror(-r), r);
 	}
 
 	return -ENOENT;
@@ -1107,7 +1108,7 @@ build_ie:
 	 * any offload features are detected (since IWD prefers to use offload).
 	 */
 	info.ocvc = !disable_ocv && bss_info.ocvc && info.mfpc &&
-			!wiphy_can_offload(wiphy);;
+			!wiphy_can_offload(wiphy);
 
 	/*
 	 * IEEE 802.11-2020 9.4.2.24.4 states extended key IDs can only be used
@@ -1232,9 +1233,12 @@ static bool new_scan_results(int err, struct l_queue *bss_list,
 	if (err)
 		return false;
 
-	station_set_scan_results(station, bss_list, freqs, true);
+	station_set_scan_results(station, bss_list, freqs, false);
 
 	station_process_owe_transition_networks(station);
+
+	station->autoconnect_can_start = true;
+	station_autoconnect_start(station);
 
 	return true;
 }
@@ -1304,9 +1308,12 @@ static bool station_quick_scan_results(int err, struct l_queue *bss_list,
 	if (err)
 		goto done;
 
-	station_set_scan_results(station, bss_list, freqs, true);
+	station_set_scan_results(station, bss_list, freqs, false);
 
 	station_process_owe_transition_networks(station);
+
+	station->autoconnect_can_start = true;
+	station_autoconnect_start(station);
 
 done:
 	if (station->state == STATION_STATE_AUTOCONNECT_QUICK)
@@ -1587,6 +1594,8 @@ bool station_set_autoconnect(struct station *station, bool autoconnect)
 
 static void station_roam_state_clear(struct station *station)
 {
+	l_debug("%u", netdev_get_ifindex(station->netdev));
+
 	l_timeout_remove(station->roam_trigger_timeout);
 	station->roam_trigger_timeout = NULL;
 	station->preparing_roam = false;
@@ -1610,6 +1619,8 @@ static void station_reset_connection_state(struct station *station)
 #ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
 #endif
+
+	l_debug("%u", netdev_get_ifindex(station->netdev));
 
 	if (!network)
 		return;
@@ -1901,9 +1912,9 @@ static void station_ft_ds_action_start(struct station *station)
 			continue;
 
 		/*
-		* Fire and forget. Netdev will maintain a cache of responses and
-		* when the time comes these can be referenced for a roam
-		*/
+		 * Fire and forget. Netdev will maintain a cache of responses
+		 * and when the time comes these can be referenced for a roam
+		 */
 		netdev_fast_transition_over_ds_action(station->netdev, bss);
 	}
 }
@@ -2254,6 +2265,8 @@ static void station_roam_scan_triggered(int err, void *user_data)
 		station_roam_failed(station);
 		return;
 	}
+
+	station_debug_event(station, "roam-scan-triggered");
 
 	/*
 	 * Do not update the Scanning property as we won't be updating the
@@ -2615,7 +2628,7 @@ static void station_ap_directed_roam(struct station *station,
 		pos += 12;
 	}
 
-	if (req_mode & WNM_REQUEST_MODE_ESS_DISASSOCIATION_IMMINENT ) {
+	if (req_mode & WNM_REQUEST_MODE_ESS_DISASSOCIATION_IMMINENT) {
 		uint8_t url_len;
 
 		if (pos + 1 > body_len)
@@ -2639,7 +2652,7 @@ static void station_ap_directed_roam(struct station *station,
 	if (req_mode & WNM_REQUEST_MODE_PREFERRED_CANDIDATE_LIST) {
 		l_debug("roam: AP sent a preferred candidate list");
 		station_neighbor_report_cb(station->netdev, 0, body + pos,
-				body_len - pos,station);
+				body_len - pos, station);
 	} else {
 		l_debug("roam: AP did not include a preferred candidate list");
 		if (station_roam_scan(station, NULL) < 0)

@@ -223,7 +223,7 @@ static uint8_t *encrypted_settings_decrypt(struct eap_wsc_state *wsc,
 	 *
 	 * Account for the IV being in the beginning 16 bytes
 	 */
-	if (len < 16 )
+	if (len < 16)
 		return NULL;
 
 	encrypted_len = len - 16;
