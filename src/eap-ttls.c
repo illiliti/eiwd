@@ -375,7 +375,7 @@ static bool avp_iter_next(struct avp_iter *iter)
 
 	len -= TTLS_AVP_HEADER_LEN;
 
-	if (len > end - start)
+	if ((ptrdiff_t) len > end - start)
 		return false;
 
 	if (flags & TTLS_AVP_FLAG_V) {

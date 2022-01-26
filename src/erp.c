@@ -114,8 +114,8 @@ static bool erp_tlv_iter_next(struct erp_tlv_iter *iter)
 {
 	const unsigned char *tlv = iter->tlv + iter->pos;
 	const unsigned char *end = iter->tlv + iter->max;
-	unsigned int tag;
-	unsigned int len;
+	uint8_t tag;
+	uint8_t len;
 
 	if (end - tlv < 2)
 		return false;
