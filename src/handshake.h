@@ -166,19 +166,18 @@ struct handshake_state {
 
 #define handshake_event(_hs, event, ...)	\
 	(__extension__ ({	\
-		struct handshake_state *hs = (_hs);	\
 		bool freed = false;	\
 	\
-		if (hs->event_func && !hs->in_event) {	\
-			hs->in_event = true;	\
-			hs->event_func(hs, event, hs->user_data,	\
+		if ((_hs)->event_func && !(_hs)->in_event) {	\
+			(_hs)->in_event = true;	\
+			(_hs)->event_func((_hs), event, (_hs)->user_data,	\
 					##__VA_ARGS__); \
 	\
-			if (!hs->in_event) {	\
-				handshake_state_free(hs);	\
+			if (!(_hs)->in_event) {	\
+				handshake_state_free((_hs));	\
 				freed = true;	\
 			} else	\
-				hs->in_event = false;	\
+				(_hs)->in_event = false;	\
 		}	\
 		freed;	\
 	}))
