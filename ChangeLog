@@ -1,3 +1,7 @@
+ver 1.23:
+	Fix issue with handling handshake offloading.
+	Fix issue with at_console and D-Bus policy.
+
 ver 1.22:
 	Fix issue with handling periodic scanning.
 	Fix issue with handling scanning completion.
