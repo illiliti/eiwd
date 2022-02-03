@@ -80,7 +80,7 @@ class Test(unittest.TestCase):
 
         self.wpas.dpp_enrollee_start(uri)
 
-        self.hapd.wait_for_event('AP-STA-CONNECTED 42:00:00:00:00:00')
+        self.wpas.wait_for_event('DPP-CONF-RECEIVED')
 
     def setUp(self):
         self.wd = IWD(True)
