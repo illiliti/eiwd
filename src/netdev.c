@@ -2830,7 +2830,7 @@ process_resp_ies:
 					continue;
 
 				owe_dh = data;
-				owe_dh_len = len;
+				owe_dh_len = ie_tlv_iter_get_length(&iter);
 
 				break;
 
