@@ -1,3 +1,8 @@
+ver 1.24:
+	Fix issue with handshake and missing rekeying support.
+	Fix issue with BSS ranking and zero signal strength.
+	Fix issue with setting OWE IE length correctly.
+
 ver 1.23:
 	Fix issue with handling handshake offloading.
 	Fix issue with at_console and D-Bus policy.
