@@ -838,6 +838,11 @@ static void netdev_connect_free(struct netdev *netdev)
 		netdev->disconnect_cmd_id = 0;
 	}
 
+	if (netdev->get_oci_cmd_id) {
+		l_genl_family_cancel(nl80211, netdev->get_oci_cmd_id);
+		netdev->get_oci_cmd_id = 0;
+	}
+
 	if (netdev->ft_ds_list) {
 		l_queue_destroy(netdev->ft_ds_list, netdev_ft_ds_entry_free);
 		netdev->ft_ds_list = NULL;
@@ -947,11 +952,6 @@ static void netdev_free(void *data)
 	if (netdev->get_station_cmd_id) {
 		l_genl_family_cancel(nl80211, netdev->get_station_cmd_id);
 		netdev->get_station_cmd_id = 0;
-	}
-
-	if (netdev->get_oci_cmd_id) {
-		l_genl_family_cancel(nl80211, netdev->get_oci_cmd_id);
-		netdev->get_oci_cmd_id = 0;
 	}
 
 	if (netdev->fw_roam_bss)
