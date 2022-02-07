@@ -1993,9 +1993,10 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			sr->triggered = false;
 
 			/* If periodic scan, don't report the abort */
-			if (sr->periodic)
+			if (sr->periodic) {
+				l_queue_remove(sc->requests, sr);
 				wiphy_radio_work_done(sc->wiphy, sr->work.id);
-			else
+			} else
 				scan_finished(sc, -ECANCELED, NULL, NULL, sr);
 		} else if (wiphy_radio_work_is_running(sc->wiphy,
 							sr->work.id)) {
