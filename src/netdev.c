@@ -6199,6 +6199,9 @@ static void netdev_newlink_notify(const struct ifinfomsg *ifi, int bytes)
 
 	new_up = netdev_get_is_up(netdev);
 
+	if (!new_up)
+		netdev_connect_free(netdev);
+
 	/*
 	 * If mac_change_cmd_id is set we are in the process of changing the
 	 * MAC address and this event is a result of powering down/up. In this
