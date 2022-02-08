@@ -450,7 +450,7 @@ class Device(IWDDBusAbstract):
         self._station_debug._prop_proxy.Set(IWD_STATION_DEBUG_INTERFACE,
                                             'AutoConnect', value)
 
-    def scan(self):
+    def scan(self, wait=True):
         '''Schedule a network scan.
 
            Possible exception: BusyEx
@@ -460,7 +460,8 @@ class Device(IWDDBusAbstract):
                                reply_handler=self._success,
                                error_handler=self._failure)
 
-        self._wait_for_async_op()
+        if wait:
+            self._wait_for_async_op()
 
     def disconnect(self):
         '''Disconnect from the network
