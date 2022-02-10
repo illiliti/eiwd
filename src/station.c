@@ -248,8 +248,6 @@ static int station_autoconnect_next(struct station *station)
 
 static void station_autoconnect_start(struct station *station)
 {
-	l_debug("");
-
 	if (!station->autoconnect_can_start)
 		return;
 
@@ -264,6 +262,8 @@ static void station_autoconnect_start(struct station *station)
 
 	if (L_WARN_ON(station->autoconnect_list))
 		l_queue_destroy(station->autoconnect_list, NULL);
+
+	l_debug("");
 
 	station->autoconnect_list = l_queue_new();
 	station_network_foreach(station, network_add_foreach, station);
