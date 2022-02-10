@@ -1472,8 +1472,10 @@ static void station_enter_state(struct station *station,
 	case STATION_STATE_CONNECTING_AUTO:
 		/* Refresh the ordered network list */
 		network_rank_update(station->connected_network, true);
-		l_queue_remove(station->networks_sorted, station->connected_network);
-		l_queue_insert(station->networks_sorted, station->connected_network,
+		l_queue_remove(station->networks_sorted,
+					station->connected_network);
+		l_queue_insert(station->networks_sorted,
+					station->connected_network,
 					network_rank_compare, NULL);
 
 		l_dbus_property_changed(dbus, netdev_get_path(station->netdev),
