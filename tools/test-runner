@@ -676,7 +676,10 @@ class Namespace:
 					'--show-leak-kinds=all',
 					'--log-file=/tmp/valgrind.log.%p'])
 
-		args.extend(['iwd', '-p', iwd_radios, '-E'])
+		args.extend(['iwd', '-E'])
+
+		if iwd_radios != '':
+			args.extend(['-p', iwd_radios])
 
 		if self.is_verbose(args[0]):
 			args.append('-d')
