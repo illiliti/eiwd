@@ -828,7 +828,8 @@ struct l_ecc_point *dpp_point_from_asn1(const uint8_t *asn1, size_t len)
 		return NULL;
 
 	/* SEQUENCE */
-	inner_seq = asn1_der_find_elem(outer_seq, outer_len, 0, &tag, &inner_len);
+	inner_seq = asn1_der_find_elem(outer_seq, outer_len, 0, &tag,
+					&inner_len);
 	if (!inner_seq || tag != ASN1_ID_SEQUENCE)
 		return NULL;
 
@@ -859,7 +860,7 @@ struct l_ecc_point *dpp_point_from_asn1(const uint8_t *asn1, size_t len)
 
 	/* BITSTRING */
 	key_data = asn1_der_find_elem(outer_seq, outer_len, 1, &tag, &elen);
-	if (!key_data || tag != ASN1_ID_BIT_STRING || elen > 2)
+	if (!key_data || tag != ASN1_ID_BIT_STRING || elen < 2)
 		return NULL;
 
 	return l_ecc_point_from_data(curve, key_data[1],
