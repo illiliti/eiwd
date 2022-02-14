@@ -1336,11 +1336,7 @@ static void send_frame_callback(struct l_genl_msg *msg, void *user_data)
 {
 	struct send_frame_info *info = user_data;
 
-	if (l_genl_msg_get_error(msg) < 0)
-		/* Radio address or frequency didn't match */
-		l_debug("HWSIM_CMD_FRAME failed for destination %s",
-			util_address_to_string(info->radio->addrs[0]));
-	else {
+	if (l_genl_msg_get_error(msg) == 0) {
 		info->frame->acked = true;
 		info->frame->ack_radio = info->radio;
 	}
