@@ -1941,6 +1941,8 @@ static void dpp_exit(void)
 {
 	l_debug("");
 
+	l_dbus_unregister_interface(dbus_get_bus(), IWD_DPP_INTERFACE);
+
 	netdev_watch_remove(netdev_watch);
 
 	l_genl_family_unregister(nl80211, mlme_watch);
