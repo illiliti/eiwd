@@ -381,7 +381,8 @@ tools_hwsim_SOURCES = tools/hwsim.c src/mpdu.h \
 					src/nl80211util.h src/nl80211util.c \
 					src/storage.h src/storage.c \
 					src/common.h src/common.c \
-					src/band.h src/band.c
+					src/band.h src/band.c \
+					src/crypto.h src/crypto.c
 tools_hwsim_LDADD = $(ell_ldadd)
 
 if DBUS_POLICY
