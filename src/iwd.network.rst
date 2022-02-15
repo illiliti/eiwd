@@ -179,7 +179,11 @@ Network Authentication Settings
 -------------------------------
 
 The group ``[Security]`` contains settings for Wi-Fi security and
-authentication configuration.
+authentication configuration. This group can be encrypted by enabling
+``SystemdEncrypt``, see *iwd.config* for details on this option. If this
+section is encrypted (only contains EncryptedSalt/EncryptedSecurity) it should
+not be modified. Modifying these values will result in the inability to
+connect to that network.
 
 .. list-table::
    :header-rows: 0
