@@ -309,14 +309,12 @@ class RadioList(collections.Mapping):
     def _interfaces_removed_handler(self, path, interfaces):
         del _dict[path]
 
-    def create(self, name=None, p2p_device=False, iftype_disable=None,
-                cipher_disable=None):
+    def create(self, name, p2p_device=False, iftype_disable=None,
+                cipher_disable=None, wait=True):
         args = dbus.Dictionary({
+            'Name': name,
             'P2P': p2p_device,
         }, signature='sv')
-
-        if name:
-            args['Name'] = name
 
         if iftype_disable:
             args['InterfaceTypeDisable'] = iftype_disable
@@ -324,10 +322,21 @@ class RadioList(collections.Mapping):
         if cipher_disable:
             args['CipherTypeDisable'] = cipher_disable
 
+        if not wait:
+            self._radio_manager.CreateRadio(args, reply_handler=self._success,
+                                                error_handler=self._failure)
+            return None
+
         path = self._radio_manager.CreateRadio(args)
         obj = Radio(path)
         self._dict[path] = obj
         return obj
+
+    def _success(self, bla):
+        pass
+
+    def _failure(self, ex):
+        pass
 
 class Hwsim(iwd.AsyncOpAbstract):
     _instances = WeakValueDictionary()
