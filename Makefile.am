@@ -362,7 +362,7 @@ man_MANS += wired/ead.8
 endif
 endif
 
-noinst_PROGRAMS += tools/probe-req
+noinst_PROGRAMS += tools/probe-req tools/iwd-decrypt-profile
 
 tools_probe_req_SOURCES = tools/probe-req.c src/mpdu.h src/mpdu.c \
 					src/ie.h src/ie.c \
@@ -371,6 +371,12 @@ tools_probe_req_SOURCES = tools/probe-req.c src/mpdu.h src/mpdu.c \
 					src/common.h src/common.c \
 					src/band.h src/band.c
 tools_probe_req_LDADD = $(ell_ldadd)
+
+tools_iwd_decrypt_profile_SOURCES = tools/iwd-decrypt-profile.c \
+					src/common.h src/common.c \
+					src/crypto.h src/crypto.c \
+					src/storage.h src/storage.c
+tools_iwd_decrypt_profile_LDADD = ${ell_ldadd}
 
 if HWSIM
 bin_PROGRAMS += tools/hwsim
