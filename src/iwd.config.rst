@@ -189,6 +189,8 @@ The group ``[General]`` contains general settings.
        be disabled here.
 
    * - SystemdEncrypt
+
+       **Warning: This is a highly experimental feature**
      - Value: Systemd key ID
 
        Enables network profile encryption using a systemd provided secret key.
