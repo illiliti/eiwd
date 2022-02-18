@@ -639,6 +639,9 @@ static void get_radio_callback(struct l_genl_msg *msg, void *user_data)
 			break;
 
 		case HWSIM_ATTR_RADIO_NAME:
+			if (name)
+				break;
+
 			name = l_strndup(data, len);
 			break;
 		}
