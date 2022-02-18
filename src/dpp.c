@@ -1036,8 +1036,11 @@ static void send_authenticate_response(struct dpp_sm *dpp)
 	 * do not use AAD; in other words, the number of AAD components is set
 	 * to zero.""
 	 */
-	aes_siv_encrypt(dpp->ke, dpp->key_len, wrapped2_plaintext,
-					dpp->key_len + 4, NULL, 0, wrapped2);
+	if (!aes_siv_encrypt(dpp->ke, dpp->key_len, wrapped2_plaintext,
+					dpp->key_len + 4, NULL, 0, wrapped2)) {
+		l_error("Failed to encrypt wrapped data");
+		return;
+	}
 
 	wrapped2_len += 16;
 
