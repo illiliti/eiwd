@@ -429,11 +429,6 @@ static bool setup_system_key(void)
 
 	path = l_strdup_printf("%s/%s", cred_dir, key_id);
 
-	if (stat(path, &st) < 0) {
-		l_warn("SystemdEncrypt: Could not stat %s", path);
-		return false;
-	}
-
 	fd = open(path, O_RDONLY, 0);
 	if (fd < 0) {
 		l_warn("SystemdEncrypt: Cannot open secret: %s (%d)",
