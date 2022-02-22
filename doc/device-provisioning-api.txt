@@ -37,3 +37,22 @@ Methods		string StartEnrollee()
 						net.connman.iwd.NotConfigured
 						net.connman.iwd.NotSupported
 						net.connman.iwd.Busy
+
+		string ConfigureEnrollee(string uri)
+
+			Start a DPP configurator with an enrollees URI.
+			Only connected station devices are supported and will
+			only configure the enrollee to the currently connected
+			network.
+
+			This API is to handle the use case where the enrollee
+			has shared its URI to IWD (unlike StartConfigurator)
+
+			The URI for IWD is also returned which could be used
+			in the same way as it is with StartConfigurator().
+
+			Possible errors:	net.connman.iwd.NotAvailable
+						net.connman.iwd.NotConnected
+						net.connman.iwd.NotConfigured
+						net.connman.iwd.NotSupported
+						net.connman.iwd.Busy
