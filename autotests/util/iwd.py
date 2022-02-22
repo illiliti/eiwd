@@ -280,8 +280,11 @@ class DeviceProvisioning(IWDDBusAbstract):
     def start_enrollee(self):
         return self._iface.StartEnrollee()
 
-    def start_configurator(self):
-        return self._iface.StartConfigurator()
+    def start_configurator(self, uri=None):
+        if uri:
+            return self._iface.ConfigureEnrollee(uri)
+        else:
+            return self._iface.StartConfigurator()
 
     def stop(self):
         self._iface.Stop()
@@ -668,8 +671,8 @@ class Device(IWDDBusAbstract):
     def dpp_start_enrollee(self):
         return self._device_provisioning.start_enrollee()
 
-    def dpp_start_configurator(self):
-        return self._device_provisioning.start_configurator()
+    def dpp_start_configurator(self, uri=None):
+        return self._device_provisioning.start_configurator(uri)
 
     def dpp_stop(self):
         return self._device_provisioning.stop()
