@@ -88,8 +88,6 @@ class Wpas:
         def handle_eow():
             nonlocal key, value, count, event
             if count == 0:
-                if key is not None or not value:
-                    raise Exception('Bad event name')
                 key = 'event'
             elif key is None:
                 if not value:
