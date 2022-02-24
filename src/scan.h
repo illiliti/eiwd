@@ -28,6 +28,7 @@ struct p2p_probe_req;
 struct p2p_beacon;
 struct mmpdu_header;
 struct wiphy;
+enum security;
 
 enum scan_state {
 	SCAN_STATE_NOT_RUNNING,
@@ -161,6 +162,7 @@ void scan_bss_free(struct scan_bss *bss);
 int scan_bss_rank_compare(const void *a, const void *b, void *user);
 
 int scan_bss_get_rsn_info(const struct scan_bss *bss, struct ie_rsn_info *info);
+int scan_bss_get_security(const struct scan_bss *bss, enum security *security);
 
 struct scan_bss *scan_bss_new_from_probe_req(const struct mmpdu_header *mpdu,
 						const uint8_t *body,

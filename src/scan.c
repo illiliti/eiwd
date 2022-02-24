@@ -1680,6 +1680,23 @@ int scan_bss_get_rsn_info(const struct scan_bss *bss, struct ie_rsn_info *info)
 	return 0;
 }
 
+int scan_bss_get_security(const struct scan_bss *bss, enum security *security)
+{
+	int ret;
+	struct ie_rsn_info info;
+
+	ret = scan_bss_get_rsn_info(bss, &info);
+	if (ret < 0) {
+		if (ret != -ENOENT)
+			return ret;
+
+		*security = security_determine(bss->capability, NULL);
+	} else
+		*security = security_determine(bss->capability, &info);
+
+	return 0;
+}
+
 int scan_bss_rank_compare(const void *a, const void *b, void *user_data)
 {
 	const struct scan_bss *new_bss = a, *bss = b;
