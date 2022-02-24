@@ -362,7 +362,8 @@ static struct l_genl_msg *scan_build_cmd(struct scan_context *sc,
 	if (params->freqs)
 		scan_build_attr_scan_frequencies(msg, params->freqs);
 
-	if (params->flush && !ignore_flush_flag)
+	if (params->flush && !ignore_flush_flag && wiphy_has_feature(sc->wiphy,
+						NL80211_FEATURE_SCAN_FLUSH))
 		flags |= NL80211_SCAN_FLAG_FLUSH;
 
 	if (!is_passive && params->randomize_mac_addr_hint &&
