@@ -196,7 +196,7 @@ int main(int argc, char *argv[])
 		close(fd);
 
 		if (len < 0) {
-			printf("Unable to write to %s (%ld)\n", outfile, len);
+			printf("Unable to write to %s (%zd)\n", outfile, len);
 			goto failed;
 		}
 	}
