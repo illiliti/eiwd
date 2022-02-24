@@ -346,25 +346,6 @@ static int bss_signal_strength_compare(const void *a, const void *b, void *user)
 	return (bss->signal_strength > new_bss->signal_strength) ? 1 : -1;
 }
 
-static int station_parse_bss_security(struct station *station,
-				struct scan_bss *bss,
-				enum security *security_out)
-{
-	struct ie_rsn_info info;
-	int r;
-
-	r = scan_bss_get_rsn_info(bss, &info);
-	if (r < 0) {
-		if (r != -ENOENT)
-			return r;
-
-		*security_out = security_determine(bss->capability, NULL);
-	} else
-		*security_out = security_determine(bss->capability, &info);
-
-	return 0;
-}
-
 /*
  * Returns the network object the BSS was added to or NULL if ignored.
  */
@@ -400,7 +381,7 @@ static struct network *station_add_seen_bss(struct station *station,
 		return NULL;
 	}
 
-	if (station_parse_bss_security(station, bss, &security) < 0)
+	if (scan_bss_get_security(bss, &security) < 0)
 		return NULL;
 
 	/* Hidden OWE transition network */
@@ -2341,7 +2322,7 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 				memcmp(bss->ssid, hs->ssid, hs->ssid_len))
 			goto next;
 
-		if (station_parse_bss_security(station, bss, &security) < 0)
+		if (scan_bss_get_security(bss, &security) < 0)
 			goto next;
 
 		if (security != orig_security)
@@ -3483,7 +3464,7 @@ static struct l_dbus_message *station_dbus_get_hidden_access_points(
 		int16_t signal_strength = bss->signal_strength;
 		enum security security;
 
-		if (station_parse_bss_security(station, bss, &security) < 0)
+		if (scan_bss_get_security(bss, &security) < 0)
 			continue;
 
 		l_dbus_message_builder_enter_struct(builder, "sns");
@@ -4250,7 +4231,7 @@ static struct network *station_find_network_from_bss(struct station *station,
 	memcpy(ssid, bss->ssid, bss->ssid_len);
 	ssid[bss->ssid_len] = '\0';
 
-	if (station_parse_bss_security(station, bss, &security) < 0)
+	if (scan_bss_get_security(bss, &security) < 0)
 		return NULL;
 
 	return station_network_find(station, ssid, security);
