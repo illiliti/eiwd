@@ -902,8 +902,12 @@ int oci_verify(const uint8_t oci[static 3], const struct band_chandef *own)
 	 * on 40 Mhz channels.  If the STA is operating on 40 Mhz while the
 	 * peer is operating on 80 or 160 Mhz wide channels, then only the
 	 * primary channel validation is performed
+	 *
+	 * With 6GHz operating classes there is no concept of upper/lower 40mhz
+	 * channels, therefore this special handling list not needed.
 	 */
-	if (own_bandwidth == 40 && oci_bandwidth == 40) {
+	if (own_bandwidth == 40 && oci_bandwidth == 40 &&
+						info->operating_class < 131) {
 		uint32_t behavior;
 
 		/*
