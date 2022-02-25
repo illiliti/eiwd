@@ -325,8 +325,7 @@ static bool find_best_mcs_vht(uint8_t max_index, enum ofdm_channel_width width,
 	 */
 
 	for (i = max_index; i >= 0; i--)
-		if (band_ofdm_rate(i, width, rssi,
-						nss, sgi, out_data_rate))
+		if (band_ofdm_rate(i, width, rssi, nss, sgi, out_data_rate))
 			return true;
 
 	return false;
