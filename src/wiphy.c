@@ -106,6 +106,7 @@ struct wiphy {
 	struct scan_freq_set *supported_freqs;
 	struct band *band_2g;
 	struct band *band_5g;
+	struct band *band_6g;
 	char *model_str;
 	char *vendor_str;
 	char *driver_str;
@@ -350,6 +351,11 @@ static void wiphy_free(void *data)
 		wiphy->band_5g = NULL;
 	}
 
+	if (wiphy->band_6g) {
+		band_free(wiphy->band_6g);
+		wiphy->band_6g = NULL;
+	}
+
 	scan_freq_set_free(wiphy->supported_freqs);
 	watchlist_destroy(&wiphy->state_watches);
 	l_free(wiphy->model_str);
@@ -435,6 +441,9 @@ uint32_t wiphy_get_supported_bands(struct wiphy *wiphy)
 
 	if (wiphy->band_5g)
 		bands |= BAND_FREQ_5_GHZ;
+
+	if (wiphy->band_6g)
+		bands |= BAND_FREQ_6_GHZ;
 
 	return bands;
 }
@@ -739,6 +748,9 @@ const uint8_t *wiphy_get_supported_rates(struct wiphy *wiphy, unsigned int band,
 	case NL80211_BAND_5GHZ:
 		bandp = wiphy->band_5g;
 		break;
+	case NL80211_BAND_6GHZ:
+		bandp = wiphy->band_6g;
+		break;
 	default:
 		return NULL;
 	}
@@ -788,6 +800,9 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 		break;
 	case BAND_FREQ_5_GHZ:
 		bandp = wiphy->band_5g;
+		break;
+	case BAND_FREQ_6_GHZ:
+		bandp = wiphy->band_6g;
 		break;
 	default:
 		return -ENOTSUP;
@@ -978,6 +993,9 @@ static void wiphy_print_basic_info(struct wiphy *wiphy)
 
 	if (wiphy->band_5g)
 		wiphy_print_band_info(wiphy->band_5g, "5Ghz Band");
+
+	if (wiphy->band_6g)
+		wiphy_print_band_info(wiphy->band_6g, "6GHz Band");
 
 	if (wiphy->supported_ciphers) {
 		int len = 0;
@@ -1192,6 +1210,9 @@ static void parse_supported_bands(struct wiphy *wiphy,
 			break;
 		case NL80211_BAND_5GHZ:
 			bandp = &wiphy->band_5g;
+			break;
+		case NL80211_BAND_6GHZ:
+			bandp = &wiphy->band_6g;
 			break;
 		default:
 			continue;
