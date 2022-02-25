@@ -354,6 +354,12 @@ enum ie_rsn_akm_suite {
 		IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 | \
 		IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
 
+#define IE_AKM_IS_8021X(akm) \
+	(akm & (IE_RSN_AKM_SUITE_8021X | \
+		IE_RSN_AKM_SUITE_FT_OVER_8021X | \
+		IE_RSN_AKM_SUITE_8021X_SHA256 | \
+		IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384))
+
 #define IE_LEN(ie) \
 	((ie) ? (ie)[1] + 2 : 0)
 
