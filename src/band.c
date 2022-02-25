@@ -1016,6 +1016,25 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 		return channel;
 	}
 
+	if (freq > 5950 && freq <= 7115) {
+		if (freq % 5)
+			return 0;
+
+		channel = (freq - 5950) / 5;
+
+		if (out_band)
+			*out_band = BAND_FREQ_6_GHZ;
+
+		return channel;
+	}
+
+	if (freq == 5935) {
+		if (out_band)
+			*out_band = BAND_FREQ_6_GHZ;
+
+		return 2;
+	}
+
 	return 0;
 }
 
@@ -1035,6 +1054,22 @@ uint32_t band_channel_to_freq(uint8_t channel, enum band_freq band)
 
 		if (channel >= 181 && channel <= 199)
 			return 4000 + 5 * channel;
+	}
+
+	if (band == BAND_FREQ_6_GHZ) {
+		/* operating class 136 */
+		if (channel == 2)
+			return 5935;
+
+		/* Channels increment by 4, starting with 1 */
+		if (channel % 4 != 1)
+			return 0;
+
+		if (channel < 1 || channel > 233)
+			return 0;
+
+		/* operating classes 131, 132, 133, 134, 135 */
+		return 5950 + 5 * channel;
 	}
 
 	return 0;
