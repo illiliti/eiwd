@@ -1012,8 +1012,12 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 	struct ie_rsn_info info;
 	uint8_t *ap_ie;
 	bool disable_ocv;
+	enum band_freq band;
 
 	memset(&info, 0, sizeof(info));
+
+	if (!band_freq_to_channel(bss->frequency, &band))
+		goto not_supported;
 
 	memset(&bss_info, 0, sizeof(bss_info));
 	scan_bss_get_rsn_info(bss, &bss_info);
@@ -1061,12 +1065,31 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 
 	switch (mfp_setting) {
 	case 0:
-		break;
+		if (band != BAND_FREQ_6_GHZ)
+			break;
+
+		l_error("MFP turned off by [General].ManagementFrameProtection,"
+				" 6GHz frequencies are disabled");
+		goto not_supported;
 	case 1:
 		info.group_management_cipher =
 			wiphy_select_cipher(wiphy,
 				bss_info.group_management_cipher);
 		info.mfpc = info.group_management_cipher != 0;
+
+		if (band != BAND_FREQ_6_GHZ)
+			break;
+
+		if (!info.mfpc)
+			goto not_supported;
+
+		/*
+		 * 802.11ax Section 12.12.2
+		 * The STA shall use management frame protection
+		 * (MFPR=1) when using RSN.
+		 */
+		info.mfpr = true;
+
 		break;
 	case 2:
 		info.group_management_cipher =
