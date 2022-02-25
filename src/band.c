@@ -1092,10 +1092,11 @@ static const uint8_t oper_class_jp_to_global[] = {
 	/* 128 - 130 is a 1 to 1 mapping */
 };
 
-/* Annex E, table E-4 (only 2.4GHz and 4.9 / 5GHz bands) */
+/* Annex E, table E-4 (only 2.4GHz, 4.9 / 5GHz, and 6GHz bands) */
 static const enum band_freq oper_class_to_band_global[] = {
 	[81 ... 84]   = BAND_FREQ_2_4_GHZ,
 	[104 ... 130] = BAND_FREQ_5_GHZ,
+	[131 ... 136] = BAND_FREQ_6_GHZ,
 };
 
 /* Annex E, table E-5 */

@@ -39,6 +39,7 @@ enum band_chandef_width {
 enum band_freq {
 	BAND_FREQ_2_4_GHZ = 0x1,
 	BAND_FREQ_5_GHZ = 0x2,
+	BAND_FREQ_6_GHZ = 0x4,
 };
 
 struct band_chandef {

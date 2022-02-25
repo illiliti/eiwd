@@ -347,6 +347,8 @@ bool scan_freq_set_add(struct scan_freq_set *freqs, uint32_t freq)
 		return true;
 	case BAND_FREQ_5_GHZ:
 		return l_uintset_put(freqs->channels_5ghz, channel);
+	case BAND_FREQ_6_GHZ:
+		return false;
 	}
 
 	return false;
@@ -366,6 +368,8 @@ bool scan_freq_set_contains(const struct scan_freq_set *freqs, uint32_t freq)
 		return freqs->channels_2ghz & (1 << (channel - 1));
 	case BAND_FREQ_5_GHZ:
 		return l_uintset_contains(freqs->channels_5ghz, channel);
+	case BAND_FREQ_6_GHZ:
+		return false;
 	}
 
 	return false;
