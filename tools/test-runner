@@ -1327,6 +1327,11 @@ def pre_test(ctx, test, copied):
 
 		subtests = pruned
 
+	if ctx.args.log:
+		ctx.start_process(['iwmon', '--nowiphy'])
+	elif ctx.args.monitor:
+		ctx.start_process(['iwmon'], outfile=ctx.args.monitor)
+
 	ctx.start_dbus()
 	ctx.start_haveged()
 	ctx.start_dbus_monitor()
@@ -1335,11 +1340,6 @@ def pre_test(ctx, test, copied):
 	ctx.start_hostapd()
 	ctx.start_wpas_interfaces()
 	ctx.start_ofono()
-
-	if ctx.args.log:
-		ctx.start_process(['iwmon', '--nowiphy'])
-	elif ctx.args.monitor:
-		ctx.start_process(['iwmon', '--nowiphy'], outfile=ctx.args.monitor)
 
 	if ctx.hw_config.has_option('SETUP', 'start_iwd'):
 		start = ctx.hw_config.getboolean('SETUP', 'start_iwd')
