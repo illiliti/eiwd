@@ -337,8 +337,8 @@ enum ie_rsn_akm_suite {
 };
 
 #define IE_AKM_IS_SAE(akm) \
-	((akm == IE_RSN_AKM_SUITE_SAE_SHA256) || \
-	(akm == IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256))
+	(akm & (IE_RSN_AKM_SUITE_SAE_SHA256 | \
+		IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256))
 
 #define IE_AKM_IS_FT(akm) \
 	(akm & (IE_RSN_AKM_SUITE_FT_OVER_8021X | \
