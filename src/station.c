@@ -1167,10 +1167,7 @@ build_ie:
 	 * a reference now so it remains valid (in case of expiration) until
 	 * FILS starts.
 	 */
-	if (hs->akm_suite & (IE_RSN_AKM_SUITE_FILS_SHA256 |
-				IE_RSN_AKM_SUITE_FILS_SHA384 |
-				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |
-				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
+	if (IE_AKM_IS_FILS(hs->akm_suite))
 		hs->erp_cache = erp_cache;
 	else if (erp_cache)
 		erp_cache_put(erp_cache);
