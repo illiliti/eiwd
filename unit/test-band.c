@@ -331,6 +331,33 @@ static const struct band_chandef cd_4 = {
 	.center1_frequency = 2427,
 };
 
+static const struct band_chandef cd_5 = {
+	.frequency = 6235,
+	.channel_width = BAND_CHANDEF_WIDTH_20,
+};
+
+static const struct band_chandef cd_6 = {
+	.frequency = 6235,
+	.channel_width =  BAND_CHANDEF_WIDTH_40,
+};
+
+static const struct band_chandef cd_7 = {
+	.frequency = 6235,
+	.channel_width =  BAND_CHANDEF_WIDTH_80,
+};
+
+static const struct band_chandef cd_8 = {
+	.frequency = 6235,
+	.channel_width =  BAND_CHANDEF_WIDTH_160,
+};
+
+static const struct band_chandef cd_9 = {
+	.frequency = 6235,
+	.channel_width =  BAND_CHANDEF_WIDTH_80P80,
+	.center1_frequency = 6145,
+	.center2_frequency = 6225,
+};
+
 struct oci_data {
 	const struct band_chandef *cd;
 	uint8_t oci[3];
@@ -341,6 +368,11 @@ static const struct oci_data oci_data_1 = { &cd_1, { 129, 108, 0 } };
 static const struct oci_data oci_data_2 = { &cd_2, { 130, 36, 155 } };
 static const struct oci_data oci_data_3 = { &cd_3, { 81, 6, 0 } };
 static const struct oci_data oci_data_4 = { &cd_4, { 84, 6, 0 } };
+static const struct oci_data oci_data_5 = { &cd_5, { 131, 57, 0 } };
+static const struct oci_data oci_data_6 = { &cd_6, { 132, 57, 0 } };
+static const struct oci_data oci_data_7 = { &cd_7, { 133, 57, 0 } };
+static const struct oci_data oci_data_8 = { &cd_8, { 134, 57, 0 } };
+static const struct oci_data oci_data_9 = { &cd_9, { 135, 57, 55 } };
 
 static const struct oci_data oci_err_1 = { &cd_1, { 129, 36, 0 }, -EPERM };
 static const struct oci_data oci_err_2 = { &cd_1, { 121, 108, 0 }, -EPERM };
@@ -372,6 +404,26 @@ static void test_oci_from_chandef(const void *data)
 	assert(!memcmp(oci, test->oci, sizeof(oci)));
 }
 
+static void test_6ghz_channels(const void *data)
+{
+	unsigned int i;
+
+	/* Test all channels for 6GHz */
+	for (i = 1; i <= 233; i += 4)
+		assert(band_channel_to_freq(i, BAND_FREQ_6_GHZ) != 0);
+}
+
+static void test_6ghz_freqs(const void *data)
+{
+	uint32_t i;
+	enum band_freq band;
+
+	for (i = 5955; i < 7115; i += 5) {
+		assert(band_freq_to_channel(i, &band) != 0);
+		assert(band == BAND_FREQ_6_GHZ);
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	l_test_init(&argc, &argv);
@@ -395,6 +447,11 @@ int main(int argc, char *argv[])
 	l_test_add("/band/oci/verify 2", test_oci_verify, &oci_data_2);
 	l_test_add("/band/oci/verify 3", test_oci_verify, &oci_data_3);
 	l_test_add("/band/oci/verify 4", test_oci_verify, &oci_data_4);
+	l_test_add("/band/oci/verify 5", test_oci_verify, &oci_data_5);
+	l_test_add("/band/oci/verify 6", test_oci_verify, &oci_data_6);
+	l_test_add("/band/oci/verify 7", test_oci_verify, &oci_data_7);
+	l_test_add("/band/oci/verify 8", test_oci_verify, &oci_data_8);
+	l_test_add("/band/oci/verify 9", test_oci_verify, &oci_data_9);
 
 	l_test_add("/band/oci/noverify 1", test_oci_verify, &oci_err_1);
 	l_test_add("/band/oci/noverify 2", test_oci_verify, &oci_err_2);
@@ -409,6 +466,9 @@ int main(int argc, char *argv[])
 	l_test_add("/band/oci/chandef 2", test_oci_from_chandef, &oci_data_2);
 	l_test_add("/band/oci/chandef 3", test_oci_from_chandef, &oci_data_3);
 	l_test_add("/band/oci/chandef 4", test_oci_from_chandef, &oci_data_4);
+
+	l_test_add("/band/6ghz/channels", test_6ghz_channels, NULL);
+	l_test_add("/band/6ghz/freq", test_6ghz_freqs, NULL);
 
 	return l_test_run();
 }
