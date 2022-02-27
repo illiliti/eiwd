@@ -487,6 +487,20 @@ static void manager_interface_dump_callback(struct l_genl_msg *msg,
 	manager_get_interface_cb(msg, state);
 }
 
+static void manager_filtered_interface_dump_done(void *user_data)
+{
+	struct wiphy_setup_state *state = user_data;
+
+	l_debug("");
+
+	if (!manager_wiphy_check_setup_done(state))
+		return;
+
+	/* We decided to keep the the default interface(s) */
+	l_debug("Wiphy setup complete: %s", wiphy_get_name(state->wiphy));
+	wiphy_setup_state_destroy(state);
+}
+
 static bool manager_check_create_interfaces(void *data, void *user_data)
 {
 	struct wiphy_setup_state *state = data;
@@ -494,13 +508,14 @@ static bool manager_check_create_interfaces(void *data, void *user_data)
 	if (!manager_wiphy_check_setup_done(state))
 		return false;
 
-	/* If we are here, there were no interfaces for this phy */
 	wiphy_setup_state_free(state);
 	return true;
 }
 
 static void manager_interface_dump_done(void *user_data)
 {
+	l_debug("");
+
 	l_queue_foreach_remove(pending_wiphys,
 				manager_check_create_interfaces, NULL);
 }
@@ -552,43 +567,59 @@ static void manager_wiphy_filtered_dump_callback(struct l_genl_msg *msg,
 	wiphy_update_from_genl(state->wiphy, msg);
 }
 
+static void manager_filtered_wiphy_dump_done(void *user_data)
+{
+	struct wiphy_setup_state *state = user_data;
+
+	l_debug("");
+
+	wiphy_create_complete(state->wiphy);
+	state->use_default = use_default;
+
+	/*
+	 * If whitelist/blacklist were given only try to use existing
+	 * interfaces same as when the driver does not support
+	 * NEW_INTERFACE or DEL_INTERFACE, otherwise the interface
+	 * names will become meaningless after we've created our own
+	 * interface(s).  Optimally phy name white/blacklists should
+	 * be used.
+	 */
+	if (whitelist_filter || blacklist_filter)
+		state->use_default = true;
+
+	if (!state->use_default)
+		state->use_default = wiphy_uses_default_if(state->wiphy);
+
+	if (state->use_default)
+		l_info("Wiphy %s will only use the default interface",
+			wiphy_get_name(state->wiphy));
+}
+
 static void manager_wiphy_dump_done(void *user_data)
 {
 	const struct l_queue_entry *e;
 
-	for (e = l_queue_get_entries(pending_wiphys); e; e = e->next) {
-		struct wiphy_setup_state *state = e->data;
+	l_debug("");
 
-		wiphy_create_complete(state->wiphy);
-		state->use_default = use_default;
-
-		/* If whitelist/blacklist were given only try to use existing
-		 * interfaces same as when the driver does not support
-		 * NEW_INTERFACE or DEL_INTERFACE, otherwise the interface
-		 * names will become meaningless after we've created our own
-		 * interface(s).  Optimally phy name white/blacklists should
-		 * be used.
-		 */
-		if (whitelist_filter || blacklist_filter)
-			state->use_default = true;
-
-		if (!state->use_default)
-			state->use_default =
-				wiphy_uses_default_if(state->wiphy);
-
-		if (state->use_default)
-			l_info("Wiphy %s will only use the default interface",
-				wiphy_get_name(state->wiphy));
-	}
+	for (e = l_queue_get_entries(pending_wiphys); e; e = e->next)
+		manager_filtered_wiphy_dump_done(e->data);
 }
 
 static int manager_wiphy_filtered_dump(uint32_t wiphy_id,
-						l_genl_msg_func_t cb,
-						void *user_data)
+					l_genl_msg_func_t cb,
+					struct wiphy_setup_state *state)
 {
 	struct l_genl_msg *msg;
 	unsigned int wiphy_cmd_id;
 	unsigned int iface_cmd_id;
+	l_genl_destroy_func_t wiphy_done = manager_wiphy_dump_done;
+	l_genl_destroy_func_t interface_done = manager_interface_dump_done;
+
+	/* If state is provided, don't try to process other pending states */
+	if (state) {
+		wiphy_done = manager_filtered_wiphy_dump_done;
+		interface_done = manager_filtered_interface_dump_done;
+	}
 
 	/*
 	 * Until fixed, a NEW_WIPHY event will not include all the information
@@ -599,8 +630,7 @@ static int manager_wiphy_filtered_dump(uint32_t wiphy_id,
 	l_genl_msg_append_attr(msg, NL80211_ATTR_SPLIT_WIPHY_DUMP, 0, NULL);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY, 4, &wiphy_id);
 
-	wiphy_cmd_id = l_genl_family_dump(nl80211, msg, cb, user_data,
-						manager_wiphy_dump_done);
+	wiphy_cmd_id = l_genl_family_dump(nl80211, msg, cb, state, wiphy_done);
 	if (!wiphy_cmd_id) {
 		l_error("Could not dump wiphy %u", wiphy_id);
 		l_genl_msg_unref(msg);
@@ -625,8 +655,7 @@ static int manager_wiphy_filtered_dump(uint32_t wiphy_id,
 
 	iface_cmd_id = l_genl_family_dump(nl80211, msg,
 					manager_interface_dump_callback,
-					NULL, manager_interface_dump_done);
-
+					state, interface_done);
 	if (!iface_cmd_id) {
 		l_error("Could not dump interface for wiphy %u", wiphy_id);
 		l_genl_family_cancel(nl80211, wiphy_cmd_id);

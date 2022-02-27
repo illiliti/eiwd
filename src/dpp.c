@@ -61,6 +61,9 @@ static struct l_genl_family *nl80211;
 static uint8_t broadcast[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
 static struct l_queue *dpp_list;
 static uint32_t mlme_watch;
+static uint32_t unicast_watch;
+
+static uint8_t dpp_prefix[] = { 0x04, 0x09, 0x50, 0x6f, 0x9a, 0x1a, 0x01 };
 
 enum dpp_state {
 	DPP_STATE_NOTHING,
@@ -83,15 +86,23 @@ struct dpp_sm {
 
 	uint8_t *own_asn1;
 	size_t own_asn1_len;
+	uint8_t *peer_asn1;
+	size_t peer_asn1_len;
 	uint8_t own_boot_hash[32];
+	uint8_t peer_boot_hash[32];
 	const struct l_ecc_curve *curve;
 	size_t key_len;
 	size_t nonce_len;
 	struct l_ecc_scalar *boot_private;
 	struct l_ecc_point *boot_public;
+	struct l_ecc_point *peer_boot_public;
 
 	enum dpp_state state;
 
+	/*
+	 * List of frequencies to jump between. The presence of this list is
+	 * also used to signify that a configurator is an initiator vs responder
+	 */
 	uint32_t *freqs;
 	size_t freqs_len;
 	size_t freqs_idx;
@@ -107,7 +118,9 @@ struct dpp_sm {
 	uint8_t i_nonce[32];
 	uint8_t e_nonce[32];
 
+	struct l_ecc_scalar *m;
 	uint64_t ke[L_ECC_MAX_DIGITS];
+	uint64_t k1[L_ECC_MAX_DIGITS];
 	uint64_t k2[L_ECC_MAX_DIGITS];
 	uint64_t auth_tag[L_ECC_MAX_DIGITS];
 
@@ -127,6 +140,8 @@ struct dpp_sm {
 	uint8_t frame_retry;
 
 	struct l_dbus_message *pending;
+
+	bool mcast_support : 1;
 };
 
 static void dpp_free_auth_data(struct dpp_sm *dpp)
@@ -144,6 +159,16 @@ static void dpp_free_auth_data(struct dpp_sm *dpp)
 	if (dpp->peer_proto_public) {
 		l_ecc_point_free(dpp->peer_proto_public);
 		dpp->peer_proto_public = NULL;
+	}
+
+	if (dpp->peer_boot_public) {
+		l_ecc_point_free(dpp->peer_boot_public);
+		dpp->peer_boot_public = NULL;
+	}
+
+	if (dpp->m) {
+		l_ecc_scalar_free(dpp->m);
+		dpp->m = NULL;
 	}
 }
 
@@ -179,6 +204,11 @@ static void dpp_reset(struct dpp_sm *dpp)
 		dpp->connect_scan_id = 0;
 	}
 
+	if (dpp->peer_asn1) {
+		l_free(dpp->peer_asn1);
+		dpp->peer_asn1 = NULL;
+	}
+
 	dpp->state = DPP_STATE_NOTHING;
 	dpp->new_freq = 0;
 	dpp->frame_retry = 0;
@@ -188,6 +218,7 @@ static void dpp_reset(struct dpp_sm *dpp)
 	explicit_bzero(dpp->i_nonce, dpp->nonce_len);
 	explicit_bzero(dpp->e_nonce, dpp->nonce_len);
 	explicit_bzero(dpp->ke, dpp->key_len);
+	explicit_bzero(dpp->k1, dpp->key_len);
 	explicit_bzero(dpp->k2, dpp->key_len);
 	explicit_bzero(dpp->auth_tag, dpp->key_len);
 
@@ -1036,8 +1067,11 @@ static void send_authenticate_response(struct dpp_sm *dpp)
 	 * do not use AAD; in other words, the number of AAD components is set
 	 * to zero.""
 	 */
-	aes_siv_encrypt(dpp->ke, dpp->key_len, wrapped2_plaintext,
-					dpp->key_len + 4, NULL, 0, wrapped2);
+	if (!aes_siv_encrypt(dpp->ke, dpp->key_len, wrapped2_plaintext,
+					dpp->key_len + 4, NULL, 0, wrapped2)) {
+		l_error("Failed to encrypt wrapped data");
+		return;
+	}
 
 	wrapped2_len += 16;
 
@@ -1260,21 +1294,69 @@ static void dpp_presence_announce(struct dpp_sm *dpp)
 	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
+static void dpp_send_authenticate_request(struct dpp_sm *dpp)
+{
+	uint8_t hdr[32];
+	uint8_t attrs[256];
+	uint8_t *ptr = attrs;
+	uint64_t i_proto_key[L_ECC_MAX_DIGITS * 2];
+	uint8_t version = 2;
+	struct iovec iov[2];
+	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+	struct scan_bss *bss = station_get_connected_bss(station);
+
+	l_ecc_point_get_data(dpp->own_proto_public, i_proto_key,
+				sizeof(i_proto_key));
+
+	iov[0].iov_len = dpp_build_header(netdev_get_address(dpp->netdev),
+				dpp->auth_addr,
+				DPP_FRAME_AUTHENTICATION_REQUEST, hdr);
+	iov[0].iov_base = hdr;
+
+	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH,
+				dpp->peer_boot_hash, 32);
+	ptr += dpp_append_attr(ptr, DPP_ATTR_INITIATOR_BOOT_KEY_HASH,
+				dpp->own_boot_hash, 32);
+	ptr += dpp_append_attr(ptr, DPP_ATTR_INITIATOR_PROTOCOL_KEY,
+				i_proto_key, dpp->key_len * 2);
+	ptr += dpp_append_attr(ptr, DPP_ATTR_PROTOCOL_VERSION, &version, 1);
+
+	if (dpp->current_freq != bss->frequency) {
+		uint8_t pair[2] = { 81,
+				band_freq_to_channel(bss->frequency, NULL) };
+
+		ptr += dpp_append_attr(ptr, DPP_ATTR_CHANNEL, pair, 2);
+	}
+
+	ptr += dpp_append_wrapped_data(hdr + 26, 6, attrs, ptr - attrs,
+			ptr, sizeof(attrs), dpp->k1, dpp->key_len, 2,
+			DPP_ATTR_INITIATOR_NONCE, dpp->nonce_len, dpp->i_nonce,
+			DPP_ATTR_INITIATOR_CAPABILITIES, 1, &dpp->role);
+
+	iov[1].iov_base = attrs;
+	iov[1].iov_len = ptr - attrs;
+
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
+}
+
 static void dpp_roc_started(void *user_data)
 {
 	struct dpp_sm *dpp = user_data;
 
 	/*
 	 * - If a configurator, nothing to do but wait for a request
+	 *   (unless multicast frame registration is unsupported in which case
+	 *   send an authenticate request now)
 	 * - If in the presence state continue sending announcements.
 	 * - If authenticating, and this is a result of a channel switch send
 	 *   the authenticate response now.
 	 */
-	if (dpp->role == DPP_CAPABILITY_CONFIGURATOR)
-		return;
 
 	switch (dpp->state) {
 	case DPP_STATE_PRESENCE:
+		if (dpp->role == DPP_CAPABILITY_CONFIGURATOR)
+			return;
+
 		if (dpp->pending) {
 			struct l_dbus_message *reply =
 				l_dbus_message_new_method_return(dpp->pending);
@@ -1287,6 +1369,19 @@ static void dpp_roc_started(void *user_data)
 		dpp_presence_announce(dpp);
 		break;
 	case DPP_STATE_AUTHENTICATING:
+		/*
+		 * No multicast frame registration support, jump right into
+		 * sending auth frames. This diverges from the 2.0 spec, but in
+		 * reality the the main path nearly all drivers will hit.
+		 */
+		if (dpp->role == DPP_CAPABILITY_CONFIGURATOR) {
+			if (dpp->mcast_support)
+				return;
+
+			dpp_send_authenticate_request(dpp);
+			return;
+		}
+
 		if (dpp->new_freq) {
 			dpp->current_freq = dpp->new_freq;
 			dpp->new_freq = 0;
@@ -1399,6 +1494,9 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	const void *ad0 = body + 2;
 	const void *ad1 = body + 8;
 	uint32_t freq;
+
+	if (util_is_broadcast_address(from))
+		return;
 
 	if (dpp->state != DPP_STATE_PRESENCE)
 		return;
@@ -1541,9 +1639,6 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 
 	/* Derive keys k2, ke, and R-Auth for authentication response */
 
-	l_ecdh_generate_key_pair(dpp->curve, &dpp->proto_private,
-					&dpp->own_proto_public);
-
 	n = dpp_derive_k2(dpp->peer_proto_public, dpp->proto_private, dpp->k2);
 	if (!n)
 		goto auth_request_failed;
@@ -1574,11 +1669,298 @@ auth_request_failed:
 	dpp_free_auth_data(dpp);
 }
 
-static void dpp_handle_frame(const struct mmpdu_header *frame,
-				const void *body, size_t body_len,
-				int rssi, void *user_data)
+static void dpp_send_authenticate_confirm(struct dpp_sm *dpp)
 {
-	struct dpp_sm *dpp = user_data;
+	uint8_t hdr[32];
+	struct iovec iov[2];
+	uint8_t attrs[256];
+	uint8_t *ptr = attrs;
+	uint8_t zero = 0;
+
+	iov[0].iov_len = dpp_build_header(netdev_get_address(dpp->netdev),
+					dpp->auth_addr,
+					DPP_FRAME_AUTHENTICATION_CONFIRM, hdr);
+	iov[0].iov_base = hdr;
+
+	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &zero, 1);
+	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH,
+					dpp->peer_boot_hash, 32);
+
+	ptr += dpp_append_wrapped_data(hdr + 26, 6, attrs, ptr - attrs, ptr,
+			sizeof(attrs), dpp->ke, dpp->key_len, 1,
+			DPP_ATTR_INITIATOR_AUTH_TAG, dpp->key_len,
+			dpp->auth_tag);
+
+	iov[1].iov_base = attrs;
+	iov[1].iov_len = ptr - attrs;
+
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
+}
+
+static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
+					const uint8_t *body, size_t body_len)
+{
+	struct dpp_attr_iter iter;
+	enum dpp_attribute_type type;
+	size_t len;
+	const uint8_t *data;
+	int status = -1;
+	const void *r_boot_hash = NULL;
+	const void *r_proto = NULL;
+	size_t r_proto_len = 0;
+	const void *wrapped = NULL;
+	size_t wrapped_len;
+	_auto_(l_free) uint8_t *unwrapped1 = NULL;
+	_auto_(l_free) uint8_t *unwrapped2 = NULL;
+	const void *r_nonce = NULL;
+	const void *i_nonce = NULL;
+	const void *r_auth = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *r_proto_key = NULL;
+	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *n = NULL;
+	const void *ad0 = body + 2;
+	const void *ad1 = body + 8;
+	uint64_t r_auth_derived[L_ECC_MAX_DIGITS];
+
+	l_debug("Authenticate response");
+
+	if (dpp->state != DPP_STATE_AUTHENTICATING)
+		return;
+
+	if (dpp->role != DPP_CAPABILITY_CONFIGURATOR)
+		return;
+
+	if (!dpp->freqs)
+		return;
+
+	if (memcmp(from, dpp->auth_addr, 6))
+		return;
+
+	dpp_attr_iter_init(&iter, body + 8, body_len - 8);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_STATUS:
+			if (len != 1)
+				return;
+
+			status = l_get_u8(data);
+			break;
+		case DPP_ATTR_RESPONDER_BOOT_KEY_HASH:
+			r_boot_hash = data;
+			break;
+		case DPP_ATTR_RESPONDER_PROTOCOL_KEY:
+			r_proto = data;
+			r_proto_len = len;
+			break;
+		case DPP_ATTR_PROTOCOL_VERSION:
+			if (len != 1 || l_get_u8(data) != 2)
+				return;
+			break;
+		case DPP_ATTR_WRAPPED_DATA:
+			wrapped = data;
+			wrapped_len = len;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (status != DPP_STATUS_OK || !r_boot_hash || !r_proto ) {
+		l_debug("Auth response bad status or missing attributes");
+		return;
+	}
+
+	r_proto_key = l_ecc_point_from_data(dpp->curve, L_ECC_POINT_TYPE_FULL,
+						r_proto, r_proto_len);
+	if (!r_proto_key) {
+		l_debug("Peers protocol key was invalid");
+		return;
+	}
+
+	n = dpp_derive_k2(r_proto_key, dpp->proto_private, dpp->k2);
+
+	unwrapped1 = dpp_unwrap_attr(ad0, 6, ad1, wrapped - 4 - ad1, dpp->k2,
+					dpp->key_len, wrapped, wrapped_len,
+					&wrapped_len);
+	if (!unwrapped1) {
+		l_debug("Failed to unwrap primary data");
+		return;
+	}
+
+	wrapped = NULL;
+
+	dpp_attr_iter_init(&iter, unwrapped1, wrapped_len);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_RESPONDER_NONCE:
+			if (len != dpp->nonce_len)
+				return;
+
+			r_nonce = data;
+			break;
+		case DPP_ATTR_INITIATOR_NONCE:
+			if (len != dpp->nonce_len)
+				return;
+
+			i_nonce = data;
+			break;
+		case DPP_ATTR_RESPONDER_CAPABILITIES:
+			break;
+		case DPP_ATTR_WRAPPED_DATA:
+			wrapped = data;
+			wrapped_len = len;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (!r_nonce || !i_nonce || !wrapped) {
+		l_debug("Wrapped data missing attributes");
+		return;
+	}
+
+	if (!dpp_derive_ke(i_nonce, r_nonce, dpp->m, n, dpp->ke)) {
+		l_debug("Failed to derive ke");
+		return;
+	}
+
+	unwrapped2 = dpp_unwrap_attr(NULL, 0, NULL, 0, dpp->ke, dpp->key_len,
+					wrapped, wrapped_len, &wrapped_len);
+	if (!unwrapped2) {
+		l_debug("Failed to unwrap secondary data");
+		return;
+	}
+
+	dpp_attr_iter_init(&iter, unwrapped2, wrapped_len);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_RESPONDER_AUTH_TAG:
+			if (len != dpp->key_len)
+				return;
+
+			r_auth = data;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (!r_auth) {
+		l_debug("R-Auth was not in secondary wrapped data");
+		return;
+	}
+
+	if (!dpp_derive_r_auth(i_nonce, r_nonce, dpp->nonce_len,
+				dpp->own_proto_public, r_proto_key,
+				dpp->peer_boot_public, r_auth_derived)) {
+		l_debug("Failed to derive r_auth");
+		return;
+	}
+
+	if (memcmp(r_auth, r_auth_derived, dpp->key_len)) {
+		l_debug("R-Auth did not verify");
+		return;
+	}
+
+	if (!dpp_derive_i_auth(r_nonce, i_nonce, dpp->nonce_len,
+				r_proto_key, dpp->own_proto_public,
+				dpp->peer_boot_public, dpp->auth_tag)) {
+		l_debug("Could not derive I-Auth");
+		return;
+	}
+
+	dpp->current_freq = dpp->new_freq;
+
+	dpp_send_authenticate_confirm(dpp);
+}
+
+static void dpp_handle_presence_announcement(struct dpp_sm *dpp,
+						const uint8_t *from,
+						const uint8_t *body,
+						size_t body_len)
+{
+	struct dpp_attr_iter iter;
+	enum dpp_attribute_type type;
+	size_t len;
+	const uint8_t *data;
+	const void *r_boot = NULL;
+	size_t r_boot_len = 0;
+	uint8_t hash[32];
+
+	l_debug("Presence announcement "MAC, MAC_STR(from));
+
+	/* Must be a configurator, in an initiator role, in PRESENCE state */
+	if (dpp->state != DPP_STATE_PRESENCE)
+		return;
+
+	if (dpp->role != DPP_CAPABILITY_CONFIGURATOR)
+		return;
+
+	if (!dpp->freqs)
+		return;
+
+	/*
+	 * The URI may not have contained a MAC address, if this announcement
+	 * verifies set auth_addr then.
+	 */
+	if (!l_memeqzero(dpp->auth_addr, 6) &&
+				memcmp(from, dpp->auth_addr, 6)) {
+		l_debug("Unexpected source "MAC" expected "MAC, MAC_STR(from),
+						MAC_STR(dpp->auth_addr));
+		return;
+	}
+
+	dpp_attr_iter_init(&iter, body + 8, body_len - 8);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_RESPONDER_BOOT_KEY_HASH:
+			r_boot = data;
+			r_boot_len = len;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (!r_boot || r_boot_len != 32) {
+		l_debug("No responder boot hash");
+		return;
+	}
+
+	/* Hash what we have for the peer and check its our enrollee */
+	dpp_hash(L_CHECKSUM_SHA256, hash, 2, "chirp", strlen("chirp"),
+			dpp->peer_asn1, dpp->peer_asn1_len);
+
+	if (memcmp(hash, r_boot, sizeof(hash))) {
+		l_debug("Peers boot hash did not match");
+		return;
+	}
+
+	/*
+	 * This is the peer we expected, save away the address and derive the
+	 * initial keys.
+	 */
+	memcpy(dpp->auth_addr, from, 6);
+
+	dpp->state = DPP_STATE_AUTHENTICATING;
+
+	dpp_send_authenticate_request(dpp);
+
+	/*
+	 * Should we wait for an ACK then go offchannel?
+	 */
+	if (dpp->current_freq != dpp->new_freq)
+		dpp_start_offchannel(dpp, dpp->new_freq);
+}
+
+static void dpp_handle_frame(struct dpp_sm *dpp,
+				const struct mmpdu_header *frame,
+				const void *body, size_t body_len)
+{
 	const uint8_t *ptr;
 
 	/*
@@ -1595,12 +1977,19 @@ static void dpp_handle_frame(const struct mmpdu_header *frame,
 	case DPP_FRAME_AUTHENTICATION_REQUEST:
 		authenticate_request(dpp, frame->address_2, body, body_len);
 		break;
+	case DPP_FRAME_AUTHENTICATION_RESPONSE:
+		authenticate_response(dpp, frame->address_2, body, body_len);
+		break;
 	case DPP_FRAME_AUTHENTICATION_CONFIRM:
 		authenticate_confirm(dpp, frame->address_2, body, body_len);
 		break;
 	case DPP_FRAME_CONFIGURATION_RESULT:
 		dpp_handle_config_result_frame(dpp, frame->address_2,
 						body, body_len);
+		break;
+	case DPP_FRAME_PRESENCE_ANNOUNCEMENT:
+		dpp_handle_presence_announcement(dpp, frame->address_2,
+							body, body_len);
 		break;
 	default:
 		l_debug("Unhandled DPP frame %u", *ptr);
@@ -1661,11 +2050,103 @@ static void dpp_mlme_notify(struct l_genl_msg *msg, void *user_data)
 	dpp_send_frame(dpp, &iov, 1, dpp->current_freq);
 }
 
+static void dpp_unicast_notify(struct l_genl_msg *msg, void *user_data)
+{
+	struct dpp_sm *dpp;
+	const uint64_t *wdev_id = NULL;
+	struct l_genl_attr attr;
+	uint16_t type, len, frame_len;
+	const void *data;
+	const struct mmpdu_header *mpdu = NULL;
+	const uint8_t *body;
+	size_t body_len;
+
+	if (l_genl_msg_get_command(msg) != NL80211_CMD_FRAME)
+		return;
+
+	if (!l_genl_attr_init(&attr, msg))
+		return;
+
+	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+		switch (type) {
+		case NL80211_ATTR_WDEV:
+			if (len != 8)
+				break;
+
+			wdev_id = data;
+			break;
+
+		case NL80211_ATTR_FRAME:
+			mpdu = mpdu_validate(data, len);
+			if (!mpdu) {
+				l_warn("Frame didn't validate as MMPDU");
+				return;
+			}
+
+			frame_len = len;
+			break;
+		}
+	}
+
+	if (!wdev_id) {
+		l_warn("Bad wdev attribute");
+		return;
+	}
+
+	dpp = l_queue_find(dpp_list, match_wdev, wdev_id);
+	if (!dpp)
+		return;
+
+	if (!mpdu) {
+		l_warn("Missing frame data");
+		return;
+	}
+
+	body = mmpdu_body(mpdu);
+	body_len = (const uint8_t *) mpdu + frame_len - body;
+
+	if (body_len < sizeof(dpp_prefix) ||
+			memcmp(body, dpp_prefix, sizeof(dpp_prefix)) != 0)
+		return;
+
+	dpp_handle_frame(dpp, mpdu, body, body_len);
+}
+
+static void dpp_frame_watch_cb(struct l_genl_msg *msg, void *user_data)
+{
+	if (l_genl_msg_get_error(msg) < 0)
+		l_error("Could not register frame watch type %04x: %i",
+			L_PTR_TO_UINT(user_data), l_genl_msg_get_error(msg));
+}
+
+/*
+ * Special case the frame watch which includes the presence frames since they
+ * require multicast support. This is only supported by ath9k, so adding
+ * general support to frame-xchg isn't desireable.
+ */
+static void dpp_frame_watch(struct dpp_sm *dpp, uint16_t frame_type,
+				const uint8_t *prefix, size_t prefix_len)
+{
+	struct l_genl_msg *msg;
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_REGISTER_FRAME, 32 + prefix_len);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_WDEV, 8, &dpp->wdev_id);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_FRAME_TYPE, 2, &frame_type);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_FRAME_MATCH,
+				prefix_len, prefix);
+	if (dpp->mcast_support)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_RECEIVE_MULTICAST,
+					0, NULL);
+
+	l_genl_family_send(nl80211, msg, dpp_frame_watch_cb,
+					L_UINT_TO_PTR(frame_type), NULL);
+}
+
 static void dpp_create(struct netdev *netdev)
 {
 	struct l_dbus *dbus = dbus_get_bus();
 	struct dpp_sm *dpp = l_new(struct dpp_sm, 1);
-	uint8_t dpp_prefix[] = { 0x04, 0x09, 0x50, 0x6f, 0x9a, 0x1a, 0x01 };
 	uint8_t dpp_conf_response_prefix[] = { 0x04, 0x0b };
 	uint8_t dpp_conf_request_prefix[] = { 0x04, 0x0a };
 
@@ -1675,6 +2156,9 @@ static void dpp_create(struct netdev *netdev)
 	dpp->curve = l_ecc_curve_from_ike_group(19);
 	dpp->key_len = l_ecc_curve_get_scalar_bytes(dpp->curve);
 	dpp->nonce_len = dpp_nonce_len_from_key_len(dpp->key_len);
+	dpp->mcast_support = wiphy_has_ext_feature(
+				wiphy_find_by_wdev(dpp->wdev_id),
+				NL80211_EXT_FEATURE_MULTICAST_REGISTRATIONS);
 
 	l_ecdh_generate_key_pair(dpp->curve, &dpp->boot_private,
 					&dpp->boot_public);
@@ -1687,9 +2171,8 @@ static void dpp_create(struct netdev *netdev)
 	l_dbus_object_add_interface(dbus, netdev_get_path(netdev),
 					IWD_DPP_INTERFACE, dpp);
 
-	frame_watch_add(netdev_get_wdev_id(netdev), 0, 0x00d0, dpp_prefix,
-				sizeof(dpp_prefix), dpp_handle_frame,
-				dpp, NULL);
+	dpp_frame_watch(dpp, 0x00d0, dpp_prefix, sizeof(dpp_prefix));
+
 	frame_watch_add(netdev_get_wdev_id(netdev), 0, 0x00d0,
 				dpp_conf_response_prefix,
 				sizeof(dpp_conf_response_prefix),
@@ -1813,6 +2296,9 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	dpp->state = DPP_STATE_PRESENCE;
 	dpp->role = DPP_CAPABILITY_ENROLLEE;
 
+	l_ecdh_generate_key_pair(dpp->curve, &dpp->proto_private,
+					&dpp->own_proto_public);
+
 	l_debug("DPP Start Enrollee: %s", dpp->uri);
 
 	dpp->pending = l_dbus_message_ref(message);
@@ -1829,9 +2315,66 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	return NULL;
 }
 
-static struct l_dbus_message *dpp_dbus_start_configurator(struct l_dbus *dbus,
+/*
+ * Set up the configurator for an initiator role. The configurator
+ * will go offchannel to frequencies advertised by the enrollees URI or,
+ * if no channels are provided, use a default channel list.
+ */
+static bool dpp_configurator_start_presence(struct dpp_sm *dpp, const char *uri)
+{
+	_auto_(l_free) uint32_t *freqs = NULL;
+	size_t freqs_len = 0;
+	struct dpp_uri_info *info;
+
+	info = dpp_parse_uri(uri);
+	if (!info)
+		return false;
+
+	/*
+	 * Very few drivers actually support registration of multicast frames.
+	 * This renders the presence procedure impossible on most drivers.
+	 * But not all is lost. If the URI contains the MAC and channel
+	 * info we an start going through channels sending auth requests which
+	 * is basically DPP 1.0. Otherwise DPP cannot start.
+	 */
+	if (!dpp->mcast_support &&
+				(l_memeqzero(info->mac, 6) || !info->freqs)) {
+		l_error("No multicast registration support, URI must contain "
+			"MAC and channel information");
+		dpp_free_uri_info(info);
+		return false;
+	}
+
+	if (!l_memeqzero(info->mac, 6))
+		memcpy(dpp->auth_addr, info->mac, 6);
+
+	if (info->freqs)
+		freqs = scan_freq_set_to_fixed_array(info->freqs, &freqs_len);
+
+	dpp->peer_boot_public = l_ecc_point_clone(info->boot_public);
+	dpp->peer_asn1 = dpp_point_to_asn1(info->boot_public,
+						&dpp->peer_asn1_len);
+
+	dpp_free_uri_info(info);
+
+	if (!dpp->peer_asn1) {
+		l_debug("Peer boot key did not convert to asn1");
+		return false;
+	}
+
+	dpp_hash(L_CHECKSUM_SHA256, dpp->peer_boot_hash, 1, dpp->peer_asn1,
+			dpp->peer_asn1_len);
+
+	dpp_start_presence(dpp, freqs, freqs_len);
+
+	return true;
+}
+
+static struct l_dbus_message *dpp_start_configurator_common(
+						struct l_dbus *dbus,
 						struct l_dbus_message *message,
-						void *user_data)
+						void *user_data,
+						bool responder)
 {
 	struct dpp_sm *dpp = user_data;
 	struct l_dbus_message *reply;
@@ -1840,6 +2383,7 @@ static struct l_dbus_message *dpp_dbus_start_configurator(struct l_dbus *dbus,
 	struct network *network;
 	struct l_settings *settings;
 	struct handshake_state *hs = netdev_get_handshake(dpp->netdev);
+	const char *uri;
 
 	/*
 	 * For now limit the configurator to only configuring enrollees to the
@@ -1863,13 +2407,33 @@ static struct l_dbus_message *dpp_dbus_start_configurator(struct l_dbus *dbus,
 	if (dpp->state != DPP_STATE_NOTHING)
 		return dbus_error_busy(message);
 
+	l_ecdh_generate_key_pair(dpp->curve, &dpp->proto_private,
+					&dpp->own_proto_public);
+
+	dpp->state = DPP_STATE_PRESENCE;
+
+	if (!responder) {
+		if (!l_dbus_message_get_arguments(message, "s", &uri))
+			return dbus_error_invalid_args(message);
+
+		if (!dpp_configurator_start_presence(dpp, uri))
+			return dbus_error_invalid_args(message);
+
+		/* Since we have the peer's URI generate the keys now */
+		l_getrandom(dpp->i_nonce, dpp->nonce_len);
+
+		dpp->m = dpp_derive_k1(dpp->peer_boot_public,
+					dpp->proto_private, dpp->k1);
+
+		if (!dpp->mcast_support)
+			dpp->state = DPP_STATE_AUTHENTICATING;
+	} else
+		dpp->current_freq = bss->frequency;
+
 	dpp->uri = dpp_generate_uri(dpp->own_asn1, dpp->own_asn1_len, 2,
 					netdev_get_address(dpp->netdev),
 					&bss->frequency, 1, NULL, NULL);
-
-	dpp->state = DPP_STATE_PRESENCE;
 	dpp->role = DPP_CAPABILITY_CONFIGURATOR;
-	dpp->current_freq = bss->frequency;
 	dpp->config = dpp_configuration_new(settings,
 						network_get_ssid(network),
 						hs->akm_suite);
@@ -1883,6 +2447,20 @@ static struct l_dbus_message *dpp_dbus_start_configurator(struct l_dbus *dbus,
 	l_dbus_message_set_arguments(reply, "s", dpp->uri);
 
 	return reply;
+}
+
+static struct l_dbus_message *dpp_dbus_start_configurator(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	return dpp_start_configurator_common(dbus, message, user_data, true);
+}
+
+static struct l_dbus_message *dpp_dbus_configure_enrollee(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	return dpp_start_configurator_common(dbus, message, user_data, false);
 }
 
 static struct l_dbus_message *dpp_dbus_stop(struct l_dbus *dbus,
@@ -1902,6 +2480,8 @@ static void dpp_setup_interface(struct l_dbus_interface *interface)
 				dpp_dbus_start_enrollee, "s", "", "uri");
 	l_dbus_interface_method(interface, "StartConfigurator", 0,
 				dpp_dbus_start_configurator, "s", "", "uri");
+	l_dbus_interface_method(interface, "ConfigureEnrollee", 0,
+				dpp_dbus_configure_enrollee, "", "s", "uri");
 	l_dbus_interface_method(interface, "Stop", 0,
 				dpp_dbus_stop, "", "");
 }
@@ -1932,6 +2512,11 @@ static int dpp_init(void)
 	mlme_watch = l_genl_family_register(nl80211, "mlme", dpp_mlme_notify,
 						NULL, NULL);
 
+	unicast_watch = l_genl_add_unicast_watch(iwd_get_genl(),
+						NL80211_GENL_NAME,
+						dpp_unicast_notify,
+						NULL, NULL);
+
 	dpp_list = l_queue_new();
 
 	return 0;
@@ -1941,7 +2526,11 @@ static void dpp_exit(void)
 {
 	l_debug("");
 
+	l_dbus_unregister_interface(dbus_get_bus(), IWD_DPP_INTERFACE);
+
 	netdev_watch_remove(netdev_watch);
+
+	l_genl_remove_unicast_watch(iwd_get_genl(), unicast_watch);
 
 	l_genl_family_unregister(nl80211, mlme_watch);
 	mlme_watch = 0;

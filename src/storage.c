@@ -39,11 +39,14 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 
 #include <ell/ell.h>
+#include "ell/useful.h"
 
 #include "src/common.h"
 #include "src/storage.h"
+#include "src/crypto.h"
 
 #define STORAGE_DIR_MODE (S_IRUSR | S_IWUSR | S_IXUSR)
 #define STORAGE_FILE_MODE (S_IRUSR | S_IWUSR)
@@ -52,6 +55,8 @@
 
 static char *storage_path = NULL;
 static char *storage_hotspot_path = NULL;
+static uint8_t system_key[32];
+static bool system_key_set = false;
 
 static int create_dirs(const char *filename)
 {
@@ -347,24 +352,263 @@ const char *storage_network_ssid_from_path(const char *path,
 	return buf;
 }
 
+/* Groups requiring encryption (if enabled) */
+static char *encrypt_groups[] = {
+	"Security",
+	NULL
+};
+
+static bool encrypt_group(const char *group)
+{
+	char **g;
+
+	for (g = encrypt_groups; *g; g++) {
+		if (!strcmp(*g, group))
+			return true;
+	}
+
+	return false;
+}
+
+/*
+ * Encrypt needed groups of 'settings' without modifying the object. Returns
+ * the entire settings object as data, with encrypted groups as a bytestring
+ * set as the value to [Security].EncryptedSecurity. This also includes any
+ * embedded groups.
+ *
+ * Note: If encryption is not enabled or there is no Security group this is
+ *       effectively l_settings_to_data.
+ */
+char *__storage_encrypt(const struct l_settings *settings, const char *name,
+				size_t *out_len)
+{
+	struct iovec ad[2];
+	uint8_t salt[32];
+	size_t len;
+	_auto_(l_settings_free) struct l_settings *to_encrypt = NULL;
+	_auto_(l_settings_free) struct l_settings *original = NULL;
+	_auto_(l_free) char *plaintext = NULL;
+	_auto_(l_free) uint8_t *enc = NULL;
+	_auto_(l_strv_free) char **groups = NULL;
+	char **i;
+
+	if (!system_key_set || !l_settings_has_group(settings, "Security"))
+		return l_settings_to_data(settings, out_len);
+
+	/*
+	 * Make two copies of the settings: One will contain only data to be
+	 * encrypted (to_encrypt), the other will contain data to be left
+	 * unencrypted (original). At the end any encrypted data will be set
+	 * into 'original' as EncryptedSecurity.
+	 */
+	to_encrypt = l_settings_clone(settings);
+	original = l_settings_clone(settings);
+
+	groups = l_settings_get_groups(to_encrypt);
+	for (i = groups; *i; i++) {
+		if (encrypt_group(*i))
+			l_settings_remove_group(original, *i);
+		else
+			l_settings_remove_group(to_encrypt, *i);
+	}
+
+	l_settings_remove_embedded_groups(original);
+
+	plaintext = l_settings_to_data(to_encrypt, &len);
+	if (!plaintext)
+		return NULL;
+
+	l_getrandom(salt, 32);
+
+	ad[0].iov_base = (void *) salt;
+	ad[0].iov_len = 32;
+	ad[1].iov_base = (void *) name;
+	ad[1].iov_len = strlen(name);
+
+	/*
+	 * AES-SIV automatically prepends the IV (16 bytes) to the encrypted
+	 * data.
+	 */
+	enc = l_malloc(len + 16);
+
+	if (!aes_siv_encrypt(system_key, sizeof(system_key), plaintext, len,
+				ad, 2, enc)) {
+		l_error("Could not encrypt [Security] group");
+		return NULL;
+	}
+
+	l_settings_set_bytes(original, "Security", "EncryptedSalt", salt, 32);
+	l_settings_set_bytes(original, "Security", "EncryptedSecurity",
+				enc, len + 16);
+
+	return l_settings_to_data(original, out_len);
+}
+
+/*
+ * Decrypt data in [Security].EncryptedSecurity. This data also includes
+ * embedded groups potentially. Once decrypted the data is put back into the
+ * object.
+ *
+ * Note: if encryption is not enabled or there is no Security group settings
+ *       is not modified.
+ */
+int __storage_decrypt(struct l_settings *settings, const char *ssid,
+				bool *encrypt)
+{
+	_auto_(l_settings_free) struct l_settings *security = NULL;
+	_auto_(l_free) uint8_t *encrypted = NULL;
+	_auto_(l_free) uint8_t *decrypted = NULL;
+	_auto_(l_free) uint8_t *salt = NULL;
+	_auto_(l_strv_free) char **embedded = NULL;
+	_auto_(l_strv_free) char **groups = NULL;
+	char **i;
+	size_t elen, slen;
+	struct iovec ad[2];
+
+	if (!system_key_set)
+		goto done;
+
+	if (!l_settings_has_group(settings, "Security"))
+		goto done;
+
+	encrypted = l_settings_get_bytes(settings, "Security",
+						"EncryptedSecurity", &elen);
+	salt = l_settings_get_bytes(settings, "Security",
+						"EncryptedSalt", &slen);
+
+	/*
+	 * Either profile has never been loaded after enabling encryption or is
+	 * missing Encrypted{Salt,Security} values. If either are missing this
+	 * profile is corrupted and must be fixed.
+	 */
+	if (!(encrypted && salt)) {
+		/* Profile corrupted */
+		if (encrypted || salt) {
+			l_warn("Profile %s is corrupted reconfigure manually",
+					ssid);
+			return -EBADMSG;
+		}
+
+		if (encrypt)
+			*encrypt = true;
+
+		return 0;
+	}
+
+	/*
+	 * AES-SIV automatically verifies the IV (16 bytes) and returns only
+	 * the decrypted data portion. We add one here for the NULL terminator
+	 * since this is always going to be textual data after decryption.
+	 */
+	decrypted = l_malloc(elen - 16 + 1);
+
+	ad[0].iov_base = (void *)salt;
+	ad[0].iov_len = slen;
+	ad[1].iov_base = (void *)ssid;
+	ad[1].iov_len = strlen(ssid);
+
+	if (!aes_siv_decrypt(system_key, sizeof(system_key), encrypted, elen,
+				ad, 2, decrypted)) {
+		l_error("Could not decrypt %s profile, did the secret change?",
+				ssid);
+		return -ENOKEY;
+	}
+
+	decrypted[elen - 16] = '\0';
+
+	/*
+	 * Remove any groups that are marked as encrypted (plus embedded),
+	 * and copy the decrypted groups back into settings.
+	 */
+	groups = l_settings_get_groups(settings);
+	for (i = groups; *i; i++) {
+		if (encrypt_group(*i))
+			l_settings_remove_group(settings, *i);
+	}
+
+	l_settings_remove_embedded_groups(settings);
+
+	/*
+	 * Load decrypted data into existing settings. This is not how the API
+	 * is indended to be used (since this could result in duplicate groups)
+	 * but since the Security group was just removed and EncryptedSecurity
+	 * should only contain a Security group its safe to use it this way.
+	 */
+	if (!l_settings_load_from_data(settings, (const char *) decrypted,
+					elen - 16)) {
+		l_error("Could not load decrypted security group");
+		return -EBADMSG;
+	}
+
+done:
+	if (encrypt)
+		*encrypt = false;
+
+	return 0;
+}
+
+/*
+ * Decrypts a network profile (if needed). If profile encryption is enabled
+ * and the profile is unencrypted it will be encrypted and written back to
+ * the file system automatically.
+ *
+ * 'name' is used for decryption and is used as part of the IV.  Callers
+ * should provide a unique identifier here if available.  For example, the
+ * SSID, consortium name, etc.
+ */
+bool storage_decrypt(struct l_settings *settings, const char *path,
+			const char *name)
+{
+	bool needs_encryption;
+	_auto_(l_free) char *encrypted = NULL;
+	size_t elen;
+
+	if (__storage_decrypt(settings, name, &needs_encryption) < 0)
+		return false;
+
+	if (!needs_encryption)
+		return true;
+
+	/* Profile never encrypted before. Encrypt and write to disk */
+	encrypted = __storage_encrypt(settings, name, &elen);
+	if (!encrypted) {
+		l_error("Could not encrypt new profile %s", name);
+		return false;
+	}
+
+	if (write_file(encrypted, elen, false, "%s", path) < 0) {
+		l_error("Failed to write out encrypted profile");
+		return false;
+	}
+
+	l_debug("Encrypted a new profile %s", path);
+
+	return true;
+}
+
 struct l_settings *storage_network_open(enum security type, const char *ssid)
 {
 	struct l_settings *settings;
-	char *path;
+	_auto_(l_free) char *path = NULL;
 
 	if (ssid == NULL)
 		return NULL;
 
 	path = storage_get_network_file_path(type, ssid);
+
 	settings = l_settings_new();
 
-	if (!l_settings_load_from_file(settings, path)) {
-		l_settings_free(settings);
-		settings = NULL;
-	}
+	if (!l_settings_load_from_file(settings, path))
+		goto error;
 
-	l_free(path);
+	if (type != SECURITY_NONE && !storage_decrypt(settings, path, ssid))
+		goto error;
+
 	return settings;
+
+error:
+	l_settings_free(settings);
+	return NULL;
 }
 
 int storage_network_touch(enum security type, const char *ssid)
@@ -388,15 +632,19 @@ int storage_network_touch(enum security type, const char *ssid)
 void storage_network_sync(enum security type, const char *ssid,
 				struct l_settings *settings)
 {
-	char *data;
+	_auto_(l_free) char *data = NULL;
+	_auto_(l_free) char *path = NULL;
 	size_t length = 0;
-	char *path;
 
 	path = storage_get_network_file_path(type, ssid);
-	data = l_settings_to_data(settings, &length);
+	data = __storage_encrypt(settings, ssid, &length);
+
+	if (!data) {
+		l_error("Unable to sync profile %s", ssid);
+		return;
+	}
+
 	write_file(data, length, true, "%s", path);
-	l_free(data);
-	l_free(path);
 }
 
 int storage_network_remove(enum security type, const char *ssid)
@@ -462,4 +710,46 @@ bool storage_is_file(const char *filename)
 		return true;
 
 	return false;
+}
+
+/*
+ * Initialize a systemd encryption key for encrypting/decrypting credentials.
+ * This uses the 'extract and expand' concept from RFC 5869 to derive a new
+ * fixed length key. Note that a 'zero salt' is used in this derivation which
+ * is handled internally in hkdf_extract(). 'TK' denotes the temporary key
+ * derived from 'extract' and used as the input to 'expand'.
+ *
+ * Inputs:
+ *	IKM -	Input keying material of arbitrary length. This is the key
+ *		obtained directly from systemd.
+ * Outputs:
+ *	OKM -	Output key material of 32 bytes
+ *
+ *	TK = HKDF-Extract(<zero>, IKM)
+ *	OKM = HKDF-Expand(TK, "System Key", 32)
+ */
+bool storage_init(const uint8_t *key, size_t key_len)
+{
+	uint8_t tmp[32];
+
+	if (mlock(system_key, sizeof(system_key)) < 0)
+		return false;
+
+	if (!hkdf_extract(L_CHECKSUM_SHA256, NULL, 0, 1, tmp, key, key_len))
+		return false;
+
+	system_key_set = hkdf_expand(L_CHECKSUM_SHA256, tmp, sizeof(tmp),
+					"System Key",
+					system_key, sizeof(system_key));
+
+	explicit_bzero(tmp, sizeof(tmp));
+	return system_key_set;
+}
+
+void storage_exit(void)
+{
+	if (system_key_set) {
+		explicit_bzero(system_key, sizeof(system_key));
+		munlock(system_key, sizeof(system_key));
+	}
 }

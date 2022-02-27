@@ -33,6 +33,131 @@
 #include "src/util.h"
 #include "ell/useful.h"
 
+struct dpp_test_info {
+	const char *uri;
+	bool expect_fail;
+	uint32_t expected_freqs[10];
+	struct dpp_uri_info result;
+};
+
+struct dpp_test_info all_values = {
+	.uri = "DPP:C:81/1,115/36;I:SN=4774LH2b4044;M:5254005828e5;V:2;K:MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADURzxmttZoIRIPWGoQMV00XHWCAQIhXruVWOz0NjlkIA=;;",
+	.result = {
+		.mac = { 0x52, 0x54, 0x00, 0x58, 0x28, 0xe5 },
+		.version = 2,
+	},
+	.expected_freqs = { 2412, 5180, 0 }
+};
+
+struct dpp_test_info no_type = {
+	.uri = "C:81/1;K:shouldnotmatter;;",
+	.expect_fail = true
+};
+
+struct dpp_test_info empty = {
+	.uri = "DPP:",
+	.expect_fail = true
+};
+
+struct dpp_test_info no_key = {
+	.uri = "DPP:C:81/1,115/36;I:SN=4774LH2b4044;M:5254005828e5;V:2;;",
+	.expect_fail = true
+};
+
+struct dpp_test_info data_after_terminator = {
+	.uri = "DPP:K:MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADURzxmttZoIRIPWGoQMV00XHWCAQIhXruVWOz0NjlkIA=;;C:81/1;;",
+	.expect_fail = true
+};
+
+struct dpp_test_info single_terminator = {
+	.uri = "DPP:K:MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADURzxmttZoIRIPWGoQMV00XHWCAQIhXruVWOz0NjlkIA=;",
+	.expect_fail = true
+};
+
+struct dpp_test_info no_terminator = {
+	.uri = "DPP:K:MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADURzxmttZoIRIPWGoQMV00XHWCAQIhXruVWOz0NjlkIA=",
+	.expect_fail = true
+};
+
+struct dpp_test_info bad_key = {
+	.uri = "DPP:K:MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADURzxmttZoIRIPWGoQMV00XHWCAQIhXruVWOz0;;",
+	.expect_fail = true
+};
+
+struct dpp_test_info unexpected_id = {
+	.uri = "DPP:Z:somedata;K:MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADURzxmttZoIRIPWGoQMV00XHWCAQIhXruVWOz0NjlkIA=;;",
+	.expect_fail = true
+};
+
+struct dpp_test_info bad_channels[] = {
+	{
+		.uri = "DPP:C:;K:MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADURzxmttZoIRIPWGoQMV00XHWCAQIhXruVWOz0NjlkIA=;;",
+		.expect_fail = true
+	},
+	{
+		.uri = "DPP:C:81;K:MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADURzxmttZoIRIPWGoQMV00XHWCAQIhXruVWOz0NjlkIA=;;",
+		.expect_fail = true
+	},
+	{
+		.uri = "DPP:C:81/;K:MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADURzxmttZoIRIPWGoQMV00XHWCAQIhXruVWOz0NjlkIA=;;",
+		.expect_fail = true
+	},
+	{
+		.uri = "DPP:C:81/1,;K:MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADURzxmttZoIRIPWGoQMV00XHWCAQIhXruVWOz0NjlkIA=;;",
+		.expect_fail = true
+	},
+	{
+		.uri = "DPP:C:81/1,81/;K:MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADURzxmttZoIRIPWGoQMV00XHWCAQIhXruVWOz0NjlkIA=;;",
+		.expect_fail = true
+	},
+	{
+		.uri = "DPP:C:81/1,/;K:MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADURzxmttZoIRIPWGoQMV00XHWCAQIhXruVWOz0NjlkIA=;;",
+		.expect_fail = true
+	},
+};
+
+static bool verify_info(const struct dpp_uri_info *parsed,
+			const struct dpp_test_info *result)
+{
+	const struct dpp_uri_info *expected = &result->result;
+	uint32_t i;
+
+	assert(!memcmp(parsed->mac, expected->mac, 6));
+	assert(parsed->version == expected->version);
+	assert(parsed->boot_public != NULL);
+
+	for (i = 0; result->expected_freqs[i]; i++)
+		assert(scan_freq_set_contains(parsed->freqs,
+						result->expected_freqs[i]));
+
+	return true;
+}
+
+static void test_uri_parse(const void *data)
+{
+	const struct dpp_test_info *test_info = data;
+	struct dpp_uri_info *info;
+
+	info = dpp_parse_uri(test_info->uri);
+	if (test_info->expect_fail) {
+		assert(info == NULL);
+		return;
+	}
+
+	assert(verify_info(info, test_info));
+
+	dpp_free_uri_info(info);
+}
+
+
+static void test_bad_channels(const void *data)
+{
+	unsigned int i;
+
+	for (i = 0; i < L_ARRAY_SIZE(bad_channels); i++)
+		test_uri_parse(&bad_channels[i]);
+}
+
 /*
  * B.2 Test Vectors for DPP Authentication Using P-256 for
  * Responder-only Authentication
@@ -147,6 +272,20 @@ int main(int argc, char *argv[])
 						l_getrandom_is_supported())
 		l_test_add("DPP test key derivation",
 						test_key_derivation, NULL);
+
+	l_test_add("DPP URI parse", test_uri_parse, &all_values);
+	l_test_add("DPP URI no type", test_uri_parse, &no_type);
+	l_test_add("DPP URI empty", test_uri_parse, &empty);
+	l_test_add("DPP URI no key", test_uri_parse, &no_key);
+	l_test_add("DPP URI data after terminator", test_uri_parse,
+				&data_after_terminator);
+	l_test_add("DPP URI single terminator", test_uri_parse,
+				&single_terminator);
+	l_test_add("DPP URI no terminator", test_uri_parse,
+				&no_terminator);
+	l_test_add("DPP URI bad key", test_uri_parse, &bad_key);
+	l_test_add("DPP URI bad channels", test_bad_channels, &bad_channels);
+	l_test_add("DPP URI unexpected ID", test_uri_parse, &unexpected_id);
 
 	return l_test_run();
 }

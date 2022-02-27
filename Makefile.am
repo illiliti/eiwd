@@ -364,7 +364,7 @@ endif
 endif
 
 if TOOLS
-noinst_PROGRAMS += tools/probe-req
+noinst_PROGRAMS += tools/probe-req tools/iwd-decrypt-profile
 
 tools_probe_req_SOURCES = tools/probe-req.c src/mpdu.h src/mpdu.c \
 					src/ie.h src/ie.c \
@@ -375,6 +375,12 @@ tools_probe_req_SOURCES = tools/probe-req.c src/mpdu.h src/mpdu.c \
 tools_probe_req_LDADD = $(ell_ldadd)
 endif
 
+tools_iwd_decrypt_profile_SOURCES = tools/iwd-decrypt-profile.c \
+					src/common.h src/common.c \
+					src/crypto.h src/crypto.c \
+					src/storage.h src/storage.c
+tools_iwd_decrypt_profile_LDADD = ${ell_ldadd}
+
 if HWSIM
 bin_PROGRAMS += tools/hwsim
 
@@ -384,7 +390,8 @@ tools_hwsim_SOURCES = tools/hwsim.c src/mpdu.h \
 					src/nl80211util.h src/nl80211util.c \
 					src/storage.h src/storage.c \
 					src/common.h src/common.c \
-					src/band.h src/band.c
+					src/band.h src/band.c \
+					src/crypto.h src/crypto.c
 tools_hwsim_LDADD = $(ell_ldadd)
 
 if DBUS_POLICY

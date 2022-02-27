@@ -164,24 +164,27 @@ struct handshake_state {
 	handshake_event_func_t event_func;
 };
 
-#define handshake_event(_hs, event, ...)	\
-	(__extension__ ({	\
-		struct handshake_state *hs = (_hs);	\
-		bool freed = false;	\
-	\
-		if (hs->event_func && !hs->in_event) {	\
-			hs->in_event = true;	\
-			hs->event_func(hs, event, hs->user_data,	\
-					##__VA_ARGS__); \
-	\
-			if (!hs->in_event) {	\
-				handshake_state_free(hs);	\
-				freed = true;	\
-			} else	\
-				hs->in_event = false;	\
-		}	\
-		freed;	\
-	}))
+#define HSID(x) UNIQUE_ID(handshake_, x)
+
+#define handshake_event(_hs, event, ...)				\
+	({								\
+		bool HSID(freed) = false;				\
+		typeof(_hs) HSID(hs) = (_hs);				\
+									\
+		if (HSID(hs)->event_func && !HSID(hs)->in_event) {	\
+			HSID(hs)->in_event = true;			\
+			HSID(hs)->event_func(HSID(hs), (event),		\
+					HSID(hs)->user_data,		\
+					##__VA_ARGS__);			\
+									\
+			if (!HSID(hs)->in_event) {			\
+				handshake_state_free(HSID(hs));		\
+				HSID(freed) = true;			\
+			} else						\
+				HSID(hs)->in_event = false;		\
+		}							\
+		HSID(freed);						\
+	})
 
 void handshake_state_free(struct handshake_state *s);
 

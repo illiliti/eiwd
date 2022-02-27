@@ -1228,7 +1228,7 @@ static struct l_dbus_message *network_connect_psk(struct network *network,
 	 */
 	bool need_passphrase = bss_is_sae(bss);
 
-	if  (!network_settings_load(network)) {
+	if (!network_settings_load(network)) {
 		network->settings = l_settings_new();
 		network->ask_passphrase = true;
 	} else if (!network->ask_passphrase)

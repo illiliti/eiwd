@@ -1,3 +1,19 @@
+ver 1.25:
+	Fix issue with handling abort of periodic scans.
+	Fix issue with handling connection when link goes down.
+	Fix issue with handling operating channel information.
+	Add support for encrypted network profile storage.
+	Add support for DPP initiating as a configurator.
+
+ver 1.24:
+	Fix issue with handshake and missing rekeying support.
+	Fix issue with BSS ranking and zero signal strength.
+	Fix issue with setting OWE IE length correctly.
+
+ver 1.23:
+	Fix issue with handling handshake offloading.
+	Fix issue with at_console and D-Bus policy.
+
 ver 1.22:
 	Fix issue with handling periodic scanning.
 	Fix issue with handling scanning completion.

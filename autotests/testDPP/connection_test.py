@@ -80,6 +80,22 @@ class Test(unittest.TestCase):
 
         self.wpas.dpp_enrollee_start(uri)
 
+        self.wpas.wait_for_event('DPP-CONF-RECEIVED')
+
+    def test_iwd_as_configurator_initiator(self):
+        self.hapd.reload()
+        self.hapd.wait_for_event('AP-ENABLED')
+
+        IWD.copy_to_storage('ssidCCMP.psk')
+        self.device.autoconnect = True
+
+        condition = 'obj.state == DeviceState.connected'
+        self.wd.wait_for_object_condition(self.device, condition)
+
+        uri = self.wpas.dpp_enrollee_start(oper_and_channel='81/2')
+
+        self.device.dpp_start_configurator(uri)
+
         self.hapd.wait_for_event('AP-STA-CONNECTED 42:00:00:00:00:00')
 
     def setUp(self):

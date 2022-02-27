@@ -35,6 +35,7 @@
 #include <net/if_arp.h>
 
 #include <ell/ell.h>
+#include "ell/useful.h"
 
 #include "linux/nl80211.h"
 
@@ -405,7 +406,7 @@ static void list_callback(struct l_genl_msg *msg, void *user_data)
 }
 
 struct radio_info_rec {
-	uint32_t id;
+	int32_t id;
 	uint32_t wiphy_id;
 	char alpha2[2];
 	bool p2p;
@@ -415,6 +416,8 @@ struct radio_info_rec {
 	uint8_t addrs[2][ETH_ALEN];
 	char *name;
 	bool ap_only;
+	struct l_dbus_message *pending;
+	uint32_t cmd_id;
 };
 
 struct interface_info_rec {
@@ -428,12 +431,15 @@ struct interface_info_rec {
 static struct l_queue *radio_info;
 static struct l_queue *interface_info;
 
-static struct l_dbus_message *pending_create_msg;
-static uint32_t pending_create_radio_id;
-
 static void radio_free(void *user_data)
 {
 	struct radio_info_rec *rec = user_data;
+
+	if (rec->cmd_id)
+		l_genl_family_cancel(nl80211, rec->cmd_id);
+
+	if (rec->pending)
+		l_dbus_message_unref(rec->pending);
 
 	l_free(rec->name);
 	l_free(rec);
@@ -458,7 +464,7 @@ static void hwsim_radio_cache_cleanup(void)
 static bool radio_info_match_id(const void *a, const void *b)
 {
 	const struct radio_info_rec *rec = a;
-	uint32_t id = L_PTR_TO_UINT(b);
+	int32_t id = L_PTR_TO_INT(b);
 
 	return rec->id == id;
 }
@@ -510,12 +516,6 @@ static const char *interface_get_path(const struct interface_info_rec *rec)
 	snprintf(path, sizeof(path), "%s/%u",
 			radio_get_path(rec->radio_rec), rec->id);
 	return path;
-}
-
-static struct l_dbus_message *dbus_error_busy(struct l_dbus_message *msg)
-{
-	return l_dbus_message_new_error(msg, HWSIM_SERVICE ".InProgress",
-					"Operation already in progress");
 }
 
 static struct l_dbus_message *dbus_error_failed(struct l_dbus_message *msg)
@@ -603,17 +603,19 @@ static void get_radio_callback(struct l_genl_msg *msg, void *user_data)
 	struct l_genl_attr attr;
 	uint16_t type, len;
 	const void *data;
-	const char *name = NULL;
-	const uint32_t *id = NULL;
-	size_t name_len = 0;
-	struct radio_info_rec *rec;
+	_auto_(l_free) char *name = NULL;
+	const int32_t *id = NULL;
+	struct radio_info_rec *rec = NULL;
 	uint8_t file_buffer[128];
 	int bytes, consumed;
 	unsigned int uintval;
-	bool old;
+	bool changed = false;
+	bool new = false;
 	struct radio_info_rec prev_rec;
 	bool name_change = false;
 	const char *path;
+	struct l_dbus_message *reply;
+	const struct l_queue_entry *entry;
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
@@ -625,11 +627,22 @@ static void get_radio_callback(struct l_genl_msg *msg, void *user_data)
 				break;
 
 			id = data;
+
+			/*
+			 * ID of -1 denotes a pending creation, so if somehow
+			 * the kernel ID counter reaches an extremely high
+			 * number of radios we just bail.
+			 */
+			if (L_WARN_ON(*id < 0))
+				return;
+
 			break;
 
 		case HWSIM_ATTR_RADIO_NAME:
-			name = data;
-			name_len = len;
+			if (name)
+				break;
+
+			name = l_strndup(data, len);
 			break;
 		}
 	}
@@ -637,23 +650,36 @@ static void get_radio_callback(struct l_genl_msg *msg, void *user_data)
 	if (!id || !name)
 		return;
 
-	rec = l_queue_find(radio_info, radio_info_match_id, L_UINT_TO_PTR(*id));
-	if (rec) {
-		old = true;
-		memcpy(&prev_rec, rec, sizeof(prev_rec));
+	for (entry = l_queue_get_entries(radio_info); entry;
+						entry = entry->next) {
+		struct radio_info_rec *r = entry->data;
 
-		if (strlen(rec->name) != name_len ||
-				memcmp(rec->name, name, name_len))
-			name_change = true;
+		if (*id == r->id) {
+			changed = true;
+			memcpy(&prev_rec, r, sizeof(prev_rec));
 
-		l_free(rec->name);
-	} else {
-		old = false;
-		rec = l_new(struct radio_info_rec, 1);
-		rec->id = *id;
+			if (strcmp(r->name, name))
+				name_change = true;
+
+			l_free(r->name);
+			r->name = l_steal_ptr(name);
+
+			rec = r;
+			break;
+		} else if (!strcmp(r->name, name)) {
+			rec = r;
+			rec->id = *id;
+
+			break;
+		}
 	}
 
-	rec->name = l_strndup(name, name_len);
+	if (!rec) {
+		new = true;
+		rec = l_new(struct radio_info_rec, 1);
+		rec->id = *id;
+		rec->name = l_steal_ptr(name);
+	}
 
 	l_genl_attr_init(&attr, msg);
 
@@ -726,12 +752,12 @@ static void get_radio_callback(struct l_genl_msg *msg, void *user_data)
 	if (!radio_info)
 		radio_info = l_queue_new();
 
-	if (!old)
+	if (new)
 		l_queue_push_tail(radio_info, rec);
 
 	path = radio_get_path(rec);
 
-	if (!old) {
+	if (!changed) {
 		/* Create Dbus object */
 
 		if (!l_dbus_object_add_interface(dbus, path,
@@ -758,23 +784,24 @@ static void get_radio_callback(struct l_genl_msg *msg, void *user_data)
 	}
 
 	/* Send pending CreateRadio reply */
-	if (pending_create_msg && pending_create_radio_id == rec->id) {
-		struct l_dbus_message *reply =
-			l_dbus_message_new_method_return(pending_create_msg);
+	if (rec->pending) {
+		reply = l_dbus_message_new_method_return(rec->pending);
 
 		l_dbus_message_set_arguments(reply, "o", path);
-		dbus_pending_reply(&pending_create_msg, reply);
+		dbus_pending_reply(&rec->pending, reply);
 	}
 
 	return;
 
 err_free_radio:
-	if (!old)
-		radio_free(rec);
+	if (rec->pending)
+		dbus_pending_reply(&rec->pending,
+					dbus_error_failed(rec->pending));
 
-	if (pending_create_msg && pending_create_radio_id == *id)
-		dbus_pending_reply(&pending_create_msg,
-					dbus_error_failed(pending_create_msg));
+	if (!new)
+		l_queue_remove(radio_info, rec);
+
+	radio_free(rec);
 }
 
 static bool radio_ap_only(struct radio_info_rec *rec)
@@ -934,7 +961,7 @@ static void del_radio_event(struct l_genl_msg *msg)
 	struct l_genl_attr attr;
 	uint16_t type, len;
 	const void *data;
-	const uint32_t *id = NULL;
+	const int32_t *id = NULL;
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
@@ -947,6 +974,9 @@ static void del_radio_event(struct l_genl_msg *msg)
 
 			id = data;
 
+			if (L_WARN_ON(*id < 0))
+				return;
+
 			break;
 		}
 	}
@@ -955,7 +985,7 @@ static void del_radio_event(struct l_genl_msg *msg)
 		return;
 
 	radio = l_queue_find(radio_info, radio_info_match_id,
-				L_UINT_TO_PTR(*id));
+				L_INT_TO_PTR(*id));
 	if (!radio)
 		return;
 
@@ -1336,11 +1366,7 @@ static void send_frame_callback(struct l_genl_msg *msg, void *user_data)
 {
 	struct send_frame_info *info = user_data;
 
-	if (l_genl_msg_get_error(msg) < 0)
-		/* Radio address or frequency didn't match */
-		l_debug("HWSIM_CMD_FRAME failed for destination %s",
-			util_address_to_string(info->radio->addrs[0]));
-	else {
+	if (l_genl_msg_get_error(msg) == 0) {
 		info->frame->acked = true;
 		info->frame->ack_radio = info->radio;
 	}
@@ -1646,44 +1672,27 @@ static void unicast_handler(struct l_genl_msg *msg, void *user_data)
 static void radio_manager_create_callback(struct l_genl_msg *msg,
 						void *user_data)
 {
+	struct radio_info_rec *radio = user_data;
 	struct l_dbus_message *reply;
-	struct l_genl_attr attr;
-	struct radio_info_rec *radio;
-	int err;
+
+	radio->cmd_id = 0;
+
+	if (l_genl_msg_get_error(msg) >= 0)
+		return;
 
 	/*
-	 * Note that the radio id is returned in the error field of
-	 * the returned message.
+	 * In theory pending should always be set. This is to handle the
+	 * NEW_RADIO event coming prior to this callback and this callback
+	 * also having an error. It doesn't seem possible for this to happen,
+	 * but who knows.
 	 */
-	if (l_genl_attr_init(&attr, msg))
-		goto error;
-
-	err = l_genl_msg_get_error(msg);
-	if (err < 0)
-		goto error;
-
-	pending_create_radio_id = err;
-
-	/*
-	 * If the NEW_RADIO event has been received we'll have added the
-	 * radio to radio_info already but we can send the method return
-	 * only now that we know the ID returned by our command.
-	 */
-	radio = l_queue_find(radio_info, radio_info_match_id,
-				L_UINT_TO_PTR(pending_create_radio_id));
-	if (radio && pending_create_msg) {
-		const char *path = radio_get_path(radio);
-
-		reply = l_dbus_message_new_method_return(pending_create_msg);
-		l_dbus_message_set_arguments(reply, "o", path);
-		dbus_pending_reply(&pending_create_msg, reply);
+	if (radio->pending) {
+		reply = dbus_error_failed(radio->pending);
+		dbus_pending_reply(&radio->pending, reply);
 	}
 
-	return;
-
-error:
-	reply = dbus_error_failed(pending_create_msg);
-	dbus_pending_reply(&pending_create_msg, reply);
+	l_queue_remove(radio_info, radio);
+	radio_free(radio);
 }
 
 static struct l_dbus_message *radio_manager_create(struct l_dbus *dbus,
@@ -1698,9 +1707,7 @@ static struct l_dbus_message *radio_manager_create(struct l_dbus *dbus,
 	bool p2p = false;
 	const char *disabled_iftypes = NULL;
 	const char *disabled_ciphers = NULL;
-
-	if (pending_create_msg)
-		return dbus_error_busy(message);
+	struct radio_info_rec *radio;
 
 	if (!l_dbus_message_get_arguments(message, "a{sv}", &dict))
 		goto invalid;
@@ -1724,13 +1731,15 @@ static struct l_dbus_message *radio_manager_create(struct l_dbus *dbus,
 			goto invalid;
 	}
 
+	if (!name)
+		goto invalid;
+
 	new_msg = l_genl_msg_new(HWSIM_CMD_NEW_RADIO);
 	l_genl_msg_append_attr(new_msg, HWSIM_ATTR_DESTROY_RADIO_ON_CLOSE,
 				0, NULL);
 
-	if (name)
-		l_genl_msg_append_attr(new_msg, HWSIM_ATTR_RADIO_NAME,
-					strlen(name) + 1, name);
+	l_genl_msg_append_attr(new_msg, HWSIM_ATTR_RADIO_NAME,
+				strlen(name) + 1, name);
 
 	if (p2p)
 		l_genl_msg_append_attr(new_msg, HWSIM_ATTR_SUPPORT_P2P_DEVICE,
@@ -1756,11 +1765,19 @@ static struct l_dbus_message *radio_manager_create(struct l_dbus *dbus,
 
 	}
 
-	l_genl_family_send(hwsim, new_msg, radio_manager_create_callback,
-				pending_create_msg, NULL);
+	radio = l_new(struct radio_info_rec, 1);
+	radio->pending = l_dbus_message_ref(message);
+	radio->name = l_strdup(name);
+	radio->id = -1;
 
-	pending_create_msg = l_dbus_message_ref(message);
-	pending_create_radio_id = 0;
+	if (!radio_info)
+		radio_info = l_queue_new();
+
+	l_queue_push_tail(radio_info, radio);
+
+	radio->cmd_id = l_genl_family_send(hwsim, new_msg,
+						radio_manager_create_callback,
+						radio, NULL);
 
 	return NULL;
 
@@ -3091,9 +3108,6 @@ int main(int argc, char *argv[])
 	l_genl_family_free(hwsim);
 	l_genl_family_free(nl80211);
 	l_genl_unref(genl);
-
-	if (pending_create_msg)
-		l_dbus_message_unref(pending_create_msg);
 
 	l_dbus_destroy(dbus);
 	hwsim_radio_cache_cleanup();

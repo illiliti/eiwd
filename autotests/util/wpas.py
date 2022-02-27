@@ -88,8 +88,6 @@ class Wpas:
         def handle_eow():
             nonlocal key, value, count, event
             if count == 0:
-                if key is not None or not value:
-                    raise Exception('Bad event name')
                 key = 'event'
             elif key is None:
                 if not value:
@@ -241,10 +239,17 @@ class Wpas:
     def set(self, key, value, **kwargs):
         self._ctrl_request('SET ' + key + ' ' + value, **kwargs)
 
-    def dpp_enrollee_start(self, uri=None):
+    def dpp_enrollee_start(self, uri=None, oper_and_channel=None):
+        if not oper_and_channel:
+            oper_and_channel = '81/1'
+
         self._rx_data = []
-        self._ctrl_request('DPP_BOOTSTRAP_GEN type=qrcode')
-        self.wait_for_result()
+        self._ctrl_request('DPP_BOOTSTRAP_GEN type=qrcode chan=%s' % oper_and_channel)
+        self._dpp_qr_id = self.wait_for_result()
+        self._ctrl_request('DPP_BOOTSTRAP_GET_URI %s' % self._dpp_qr_id)
+        self._dpp_uri = self.wait_for_result()
+
+        print("DPP Enrollee QR: %s" % self._dpp_uri)
 
         if uri:
             self._rx_data = []
@@ -252,6 +257,10 @@ class Wpas:
             self._dpp_qr_id = self.wait_for_result()
             self._rx_data = []
             self._ctrl_request('DPP_AUTH_INIT peer=%s role=enrollee' % self._dpp_qr_id)
+        else:
+            self._ctrl_request('DPP_CHIRP own=%s iter=100' % self._dpp_qr_id)
+
+        return self._dpp_uri
 
     def dpp_configurator_create(self, uri):
         self._rx_data = []

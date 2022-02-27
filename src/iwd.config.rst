@@ -188,6 +188,24 @@ The group ``[General]`` contains general settings.
        by the kernel so if kernels/drivers exist which don't support OCV it can
        be disabled here.
 
+   * - SystemdEncrypt
+
+       **Warning: This is a highly experimental feature**
+     - Value: Systemd key ID
+
+       Enables network profile encryption using a systemd provided secret key.
+       Once enabled all PSK/8021x network profiles will be encrypted
+       automatically. Once the profile is encrypted there is no way of going
+       back using IWD alone. A tool, **iwd-decrypt-profile**, is provided
+       assuming the secret is known which will decrypt a profile. This
+       decrypted profile could manually be set to /var/lib/iwd to 'undo' any
+       profile encryption, but its going to be a manual process.
+
+       Setting up systemd to provide the secret is left up to the user as IWD
+       has no way of performing this automatically. The systemd options
+       required are LoadCredentialEncrypted or SetCredentialEncrypted, and the
+       secret identifier should be named whatever SystemdEncrypt is set to.
+
 Network
 -------
 

@@ -22,6 +22,16 @@
 struct l_ecc_point;
 struct l_ecc_scalar;
 enum ie_rsn_akm_suite;
+struct scan_freq_set;
+
+struct dpp_uri_info {
+	struct scan_freq_set *freqs;
+	struct l_ecc_point *boot_public;
+	uint8_t mac[6];
+	char *information;
+	uint8_t version;
+	char *host;
+};
 
 enum dpp_frame_type {
 	DPP_FRAME_AUTHENTICATION_REQUEST	= 0,
@@ -168,3 +178,6 @@ bool dpp_derive_ke(const uint8_t *i_nonce, const uint8_t *r_nonce,
 
 uint8_t *dpp_point_to_asn1(const struct l_ecc_point *p, size_t *len_out);
 struct l_ecc_point *dpp_point_from_asn1(const uint8_t *asn1, size_t len);
+
+struct dpp_uri_info *dpp_parse_uri(const char *uri);
+void dpp_free_uri_info(struct dpp_uri_info *info);

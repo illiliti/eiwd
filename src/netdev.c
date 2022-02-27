@@ -838,6 +838,11 @@ static void netdev_connect_free(struct netdev *netdev)
 		netdev->disconnect_cmd_id = 0;
 	}
 
+	if (netdev->get_oci_cmd_id) {
+		l_genl_family_cancel(nl80211, netdev->get_oci_cmd_id);
+		netdev->get_oci_cmd_id = 0;
+	}
+
 	if (netdev->ft_ds_list) {
 		l_queue_destroy(netdev->ft_ds_list, netdev_ft_ds_entry_free);
 		netdev->ft_ds_list = NULL;
@@ -947,11 +952,6 @@ static void netdev_free(void *data)
 	if (netdev->get_station_cmd_id) {
 		l_genl_family_cancel(nl80211, netdev->get_station_cmd_id);
 		netdev->get_station_cmd_id = 0;
-	}
-
-	if (netdev->get_oci_cmd_id) {
-		l_genl_family_cancel(nl80211, netdev->get_oci_cmd_id);
-		netdev->get_oci_cmd_id = 0;
 	}
 
 	if (netdev->fw_roam_bss)
@@ -2830,7 +2830,7 @@ process_resp_ies:
 					continue;
 
 				owe_dh = data;
-				owe_dh_len = len;
+				owe_dh_len = ie_tlv_iter_get_length(&iter);
 
 				break;
 
@@ -6198,6 +6198,9 @@ static void netdev_newlink_notify(const struct ifinfomsg *ifi, int bytes)
 	}
 
 	new_up = netdev_get_is_up(netdev);
+
+	if (!new_up)
+		netdev_connect_free(netdev);
 
 	/*
 	 * If mac_change_cmd_id is set we are in the process of changing the

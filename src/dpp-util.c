@@ -828,7 +828,8 @@ struct l_ecc_point *dpp_point_from_asn1(const uint8_t *asn1, size_t len)
 		return NULL;
 
 	/* SEQUENCE */
-	inner_seq = asn1_der_find_elem(outer_seq, outer_len, 0, &tag, &inner_len);
+	inner_seq = asn1_der_find_elem(outer_seq, outer_len, 0, &tag,
+					&inner_len);
 	if (!inner_seq || tag != ASN1_ID_SEQUENCE)
 		return NULL;
 
@@ -859,9 +860,259 @@ struct l_ecc_point *dpp_point_from_asn1(const uint8_t *asn1, size_t len)
 
 	/* BITSTRING */
 	key_data = asn1_der_find_elem(outer_seq, outer_len, 1, &tag, &elen);
-	if (!key_data || tag != ASN1_ID_BIT_STRING || elen > 2)
+	if (!key_data || tag != ASN1_ID_BIT_STRING || elen < 2)
 		return NULL;
 
 	return l_ecc_point_from_data(curve, key_data[1],
 					key_data + 2, elen - 2);
+}
+
+/*
+ * Advances 'p' to the next character 'sep' plus one. strchr can be trusted to
+ * find the next character, but we do need to check that the next character + 1
+ * isn't the NULL terminator, i.e. that data actually exists past this point.
+ */
+#define TOKEN_NEXT(p, sep) \
+({ \
+	const char *_next = strchr((p), (sep)); \
+	if (_next) { \
+		if (*(_next + 1) == '\0') \
+			_next = NULL; \
+		else \
+			_next++; \
+	} \
+	_next; \
+})
+
+/*
+ * Finds the length of the current token (characters until next 'sep'). If no
+ * 'sep' is found zero is returned.
+ */
+#define TOKEN_LEN(p, sep) \
+({ \
+	const char *_next = strchr((p), (sep)); \
+	if (!_next) \
+		_next = (p); \
+	(_next - (p)); \
+})
+
+/*
+ * Ensures 'p' points to something resembling a single character followed by
+ * ':' followed by at least one non-null byte of data. This allows the parse
+ * loop to safely advance the pointer to each tokens data (pos + 2)
+ */
+#define TOKEN_OK(p) \
+	((p) && (p)[0] != '\0' && (p)[1] == ':' && (p)[2] != '\0') \
+
+static struct scan_freq_set *dpp_parse_class_and_channel(const char *token,
+							unsigned int len)
+{
+	const char *pos = token;
+	char *end;
+	struct scan_freq_set *freqs = scan_freq_set_new();
+
+	/* Checking for <operclass>/<channel>,<operclass>/<channel>,... */
+	for (; pos && pos < token + len; pos = TOKEN_NEXT(pos, ',')) {
+		unsigned long r;
+		uint8_t channel;
+		uint8_t oper_class;
+		uint32_t freq;
+
+		/* strtoul accepts minus and plus signs before value */
+		if (*pos == '-' || *pos == '+')
+			goto free_set;
+
+		/* to check uint8_t overflow */
+		errno = 0;
+		r = oper_class = strtoul(pos, &end, 10);
+
+		if (errno == ERANGE || errno == EINVAL)
+			goto free_set;
+		/*
+		 * Did strtoul not advance pointer, not reach the next
+		 * token, or overflow?
+		 */
+		if (end == pos || *end != '/' || r != oper_class)
+			goto free_set;
+
+		pos = end + 1;
+
+		if (*pos == '-' || *pos == '+')
+			goto free_set;
+
+		errno = 0;
+		r = channel = strtoul(pos, &end, 10);
+
+		if (errno == ERANGE || errno == EINVAL)
+			goto free_set;
+		/*
+		 * Same verification as above, but also checks either for
+		 * another pair (,) or end of this token (;)
+		 */
+		if (end == pos || (*end != ',' && *end != ';') || r != channel)
+			goto free_set;
+
+		freq = oci_to_frequency(oper_class, channel);
+		if (!freq)
+			goto free_set;
+
+		scan_freq_set_add(freqs, freq);
+	}
+
+	if (token + len != end)
+		goto free_set;
+
+	if (scan_freq_set_isempty(freqs)) {
+free_set:
+		scan_freq_set_free(freqs);
+		return NULL;
+	}
+
+	return freqs;
+}
+
+static int dpp_parse_mac(const char *str, unsigned int len, uint8_t *mac_out)
+{
+	uint8_t mac[6];
+	unsigned int i;
+
+	if (len != 12)
+		return -EINVAL;
+
+	for (i = 0; i < 12; i += 2) {
+		if (!l_ascii_isxdigit(str[i]))
+			return -EINVAL;
+
+		if (!l_ascii_isxdigit(str[i + 1]))
+			return -EINVAL;
+	}
+
+	if (sscanf(str, "%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx",
+			&mac[0], &mac[1], &mac[2],
+			&mac[3], &mac[4], &mac[5]) != 6)
+		return -EINVAL;
+
+	if (!util_is_valid_sta_address(mac))
+		return -EINVAL;
+
+	memcpy(mac_out, mac, 6);
+
+	return 0;
+}
+
+static int dpp_parse_version(const char *str, unsigned int len,
+				uint8_t *version_out)
+{
+	if (len != 1)
+		return -EINVAL;
+
+	if (str[0] != '1' && str[0] != '2')
+		return -EINVAL;
+
+	*version_out = str[0] - '0';
+
+	return 0;
+}
+
+static struct l_ecc_point *dpp_parse_key(const char *str, unsigned int len)
+{
+	_auto_(l_free) uint8_t *decoded = NULL;
+	size_t decoded_len;
+
+	decoded = l_base64_decode(str, len, &decoded_len);
+	if (!decoded)
+		return NULL;
+
+	return dpp_point_from_asn1(decoded, decoded_len);
+}
+
+/*
+ * Parse a bootstrapping URI. This parses the tokens defined in the Easy Connect
+ * spec, and verifies they are the correct syntax. Some values have extra
+ * verification:
+ *  - The bootstrapping key is base64 decoded and converted to an l_ecc_point
+ *  - The operating class and channels are checked against the OCI table.
+ *  - The version is checked to be either 1 or 2, as defined by the spec.
+ *  - The MAC is verified to be a valid station address.
+ */
+struct dpp_uri_info *dpp_parse_uri(const char *uri)
+{
+	struct dpp_uri_info *info;
+	const char *pos = uri;
+	const char *end = uri + strlen(uri) - 1;
+	int ret = 0;
+
+	if (!l_str_has_prefix(pos, "DPP:"))
+		return NULL;
+
+	info = l_new(struct dpp_uri_info, 1);
+
+	pos += 4;
+
+	/* EasyConnect 5.2.1 - Bootstrapping information format */
+	for (; TOKEN_OK(pos); pos = TOKEN_NEXT(pos, ';')) {
+		unsigned int len = TOKEN_LEN(pos + 2, ';');
+
+		if (!len)
+			goto free_info;
+
+		switch (*pos) {
+		case 'C':
+			info->freqs = dpp_parse_class_and_channel(pos + 2, len);
+			if (!info->freqs)
+				goto free_info;
+			break;
+		case 'M':
+			ret = dpp_parse_mac(pos + 2, len, info->mac);
+			if (ret < 0)
+				goto free_info;
+			break;
+		case 'V':
+			ret = dpp_parse_version(pos + 2, len, &info->version);
+			if (ret < 0)
+				goto free_info;
+			break;
+		case 'K':
+			info->boot_public = dpp_parse_key(pos + 2, len);
+			if (!info->boot_public)
+				goto free_info;
+			break;
+		case 'H':
+		case 'I':
+			break;
+		default:
+			goto free_info;
+		}
+	}
+
+	/* Extra data found after last token */
+	if (pos != end)
+		goto free_info;
+
+	/* The public bootstrapping key is the only required token */
+	if (!info->boot_public)
+		goto free_info;
+
+	return info;
+
+free_info:
+	dpp_free_uri_info(info);
+	return NULL;
+}
+
+void dpp_free_uri_info(struct dpp_uri_info *info)
+{
+	if (info->freqs)
+		scan_freq_set_free(info->freqs);
+
+	if (info->boot_public)
+		l_ecc_point_free(info->boot_public);
+
+	if (info->information)
+		l_free(info->information);
+
+	if (info->host)
+		l_free(info->host);
+
+	l_free(info);
 }

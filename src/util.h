@@ -26,6 +26,10 @@
 #include <stdint.h>
 #include <unistd.h>
 
+#define ___PASTE(a, b) a ## b
+#define __PASTE(a, b) ___PASTE(a, b)
+#define UNIQUE_ID(x, id) __PASTE(__unique_prefix_, __PASTE(x, id))
+
 #define align_len(len, boundary) (((len)+(boundary)-1) & ~((boundary)-1))
 
 #define MAC "%02x:%02x:%02x:%02x:%02x:%02x"

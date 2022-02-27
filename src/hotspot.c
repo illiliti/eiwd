@@ -95,12 +95,17 @@ static struct l_settings *hotspot_network_open(struct network_info *info)
 
 	settings = l_settings_new();
 
-	if (!l_settings_load_from_file(settings, config->filename)) {
-		l_settings_free(settings);
-		return NULL;
-	}
+	if (!l_settings_load_from_file(settings, config->filename))
+		goto error;
+
+	if (!storage_decrypt(settings, config->filename, config->name))
+		goto error;
 
 	return settings;
+
+error:
+	l_settings_free(settings);
+	return NULL;
 }
 
 static void hotspot_network_sync(struct network_info *info,
@@ -111,7 +116,12 @@ static void hotspot_network_sync(struct network_info *info,
 	struct hs20_config *config = l_container_of(info, struct hs20_config,
 							super);
 
-	data = l_settings_to_data(settings, &length);
+	data = __storage_encrypt(settings, config->name, &length);
+	if (!data) {
+		l_error("Unable to sync profile %s", config->filename);
+		return;
+	}
+
 	write_file(data, length, true, "%s", config->filename);
 	l_free(data);
 }
@@ -335,6 +345,11 @@ static struct hs20_config *hs20_config_new(struct l_settings *settings,
 
 	if ((!hessid_str && !nai_realms && !rc) || !name) {
 		l_error("Could not parse hotspot config %s", filename);
+		goto free_values;
+	}
+
+	if (!storage_decrypt(settings, filename, name)) {
+		l_error("Could not open hotspot profile %s", filename);
 		goto free_values;
 	}
 

@@ -1372,6 +1372,22 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 	return have_ssid;
 }
 
+/*
+ * Maps 0..100 values to -10000..0
+ *
+ * This isn't really mapping to mBm since the input is unit-less and we have no
+ * idea what the driver itself does to come up with this 'strength' value but
+ * this is really the best that can be done for these drivers (its only 4 in
+ * tree drivers after all).
+ */
+static int32_t signal_unspec_to_mbm(uint8_t strength)
+{
+	if (L_WARN_ON(strength > 100))
+		return 0;
+
+	return ((int32_t)strength * 100) - 10000;
+}
+
 static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr,
 						struct wiphy *wiphy,
 						uint32_t *out_seen_ms_ago)
@@ -1413,6 +1429,13 @@ static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr,
 				goto fail;
 
 			bss->signal_strength = *((int32_t *) data);
+			break;
+		case NL80211_BSS_SIGNAL_UNSPEC:
+			if (len != 1)
+				goto fail;
+
+			bss->signal_strength =
+					signal_unspec_to_mbm(l_get_u8(data));
 			break;
 		case NL80211_BSS_INFORMATION_ELEMENTS:
 			ies = data;
@@ -1970,9 +1993,10 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			sr->triggered = false;
 
 			/* If periodic scan, don't report the abort */
-			if (sr->periodic)
+			if (sr->periodic) {
+				l_queue_remove(sc->requests, sr);
 				wiphy_radio_work_done(sc->wiphy, sr->work.id);
-			else
+			} else
 				scan_finished(sc, -ECANCELED, NULL, NULL, sr);
 		} else if (wiphy_radio_work_is_running(sc->wiphy,
 							sr->work.id)) {
