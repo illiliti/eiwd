@@ -58,6 +58,7 @@
 #include "src/storage.h"
 #include "src/diagnostic.h"
 #include "src/band.h"
+#include "src/common.h"
 
 struct ap_state {
 	struct netdev *netdev;
@@ -99,11 +100,16 @@ struct ap_state {
 	uint8_t netconfig_gateway4_mac[6];
 	uint8_t netconfig_dns4_mac[6];
 
+	uint32_t scan_id;
+	struct l_dbus_message *scan_pending;
+	struct l_queue *networks;
+
 	bool started : 1;
 	bool gtk_set : 1;
 	bool netconfig_set_addr4 : 1;
 	bool in_event : 1;
 	bool free_pending : 1;
+	bool scanning : 1;
 };
 
 struct sta_state {
@@ -136,9 +142,75 @@ struct ap_wsc_pbc_probe_record {
 	uint64_t timestamp;
 };
 
+struct ap_network {
+	char ssid[33];
+	int16_t signal;
+	enum security security;
+};
+
 static char **global_addr4_strs;
 static uint32_t netdev_watch;
 static struct l_netlink *rtnl;
+
+static bool network_match_ssid(const void *a, const void *b)
+{
+	const struct ap_network *network = a;
+	const char *ssid = b;
+
+	return !strcmp(network->ssid, ssid);
+}
+
+static int network_signal_compare(const void *a, const void *b, void *user)
+{
+	const struct ap_network *new_network = a;
+	const struct ap_network *network = b;
+
+	return (network->signal > new_network->signal) ? 1 : -1;
+}
+
+static struct ap_network *ap_network_find(struct ap_state *ap,
+						struct scan_bss *bss)
+{
+	char ssid[33];
+
+	memcpy(ssid, bss->ssid, bss->ssid_len);
+	ssid[bss->ssid_len] = '\0';
+
+	return l_queue_find(ap->networks, network_match_ssid, ssid);
+}
+
+static void ap_network_append(struct ap_state *ap, struct scan_bss *bss)
+{
+	struct ap_network *network;
+	enum security security;
+
+	if (util_ssid_is_hidden(bss->ssid_len, bss->ssid))
+		return;
+
+	network = ap_network_find(ap, bss);
+	if (!network) {
+		if (scan_bss_get_security(bss, &security) < 0)
+			return;
+
+		network = l_new(struct ap_network, 1);
+		network->signal = bss->signal_strength;
+		network->security = security;
+
+		memcpy(network->ssid, bss->ssid, bss->ssid_len);
+		network->ssid[bss->ssid_len] = '\0';
+
+		goto insert;
+	}
+
+	if (bss->signal_strength <= network->signal)
+		return;
+
+	l_queue_remove(ap->networks, network);
+	network->signal = bss->signal_strength;
+
+insert:
+	l_queue_insert(ap->networks, network, network_signal_compare, NULL);
+}
 
 static void ap_stop_handshake(struct sta_state *sta)
 {
@@ -256,6 +328,16 @@ static void ap_reset(struct ap_state *ap)
 	if (ap->netconfig_dhcp) {
 		l_dhcp_server_destroy(ap->netconfig_dhcp);
 		ap->netconfig_dhcp = NULL;
+	}
+
+	if (ap->scan_id) {
+		scan_cancel(netdev_get_wdev_id(ap->netdev), ap->scan_id);
+		ap->scan_id = 0;
+	}
+
+	if (ap->networks) {
+		l_queue_destroy(ap->networks, l_free);
+		ap->networks = NULL;
 	}
 }
 
@@ -3207,6 +3289,7 @@ struct ap_state *ap_start(struct netdev *netdev, struct l_settings *config,
 	ap->ciphers = wiphy_select_cipher(wiphy, 0xffff);
 	ap->group_cipher = wiphy_select_cipher(wiphy, 0xffff);
 	ap->beacon_interval = 100;
+	ap->networks = l_queue_new();
 
 	wsc_uuid_from_addr(netdev_get_address(netdev), ap->wsc_uuid_r);
 
@@ -3670,6 +3753,147 @@ error:
 	return dbus_error_from_errno(err, message);
 }
 
+static void ap_set_scanning(struct ap_state *ap, bool scanning)
+{
+	if (ap->scanning == scanning)
+		return;
+
+	ap->scanning = scanning;
+
+	l_dbus_property_changed(dbus_get_bus(), netdev_get_path(ap->netdev),
+					IWD_AP_INTERFACE, "Scanning");
+}
+
+static void ap_scan_triggered(int err, void *user_data)
+{
+	struct ap_state *ap = user_data;
+	struct l_dbus_message *reply;
+
+	if (err < 0) {
+		reply = dbus_error_from_errno(err, ap->scan_pending);
+		dbus_pending_reply(&ap->scan_pending, reply);
+		return;
+	}
+
+	l_debug("AP scan triggered for %s", netdev_get_name(ap->netdev));
+
+	reply = l_dbus_message_new_method_return(ap->scan_pending);
+	l_dbus_message_set_arguments(reply, "");
+	dbus_pending_reply(&ap->scan_pending, reply);
+
+	ap_set_scanning(ap, true);
+}
+
+static bool ap_scan_notify(int err, struct l_queue *bss_list,
+				const struct scan_freq_set *freqs,
+				void *user_data)
+{
+	struct ap_state *ap = user_data;
+	const struct l_queue_entry *bss_entry;
+
+	ap_set_scanning(ap, false);
+
+	/* Remove all networks, then re-populate with fresh BSS list */
+	l_queue_clear(ap->networks, l_free);
+
+	for (bss_entry = l_queue_get_entries(bss_list); bss_entry;
+						bss_entry = bss_entry->next) {
+		struct scan_bss *bss = bss_entry->data;
+
+		ap_network_append(ap, bss);
+	}
+
+	l_debug("");
+
+	return false;
+}
+
+static void ap_scan_destroy(void *user_data)
+{
+	struct ap_state *ap = user_data;
+
+	ap->scan_id = 0;
+}
+
+static struct l_dbus_message *ap_dbus_scan(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct ap_if_data *ap_if = user_data;
+	uint64_t wdev_id = netdev_get_wdev_id(ap_if->netdev);
+	struct scan_parameters params = { 0};
+
+	if (wiphy_has_feature(wiphy_find_by_wdev(wdev_id),
+				NL80211_FEATURE_AP_SCAN))
+		params.ap_scan = true;
+
+	/*
+	 * TODO: There is really nothing preventing scanning while stopped.
+	 *       The only consideration would be if a scan is ongoing and the
+	 *       AP is started. Queuing Start() as wiphy work may be required to
+	 *       handle this case if needed. For now just limit to started APs.
+	 */
+	if (!ap_if->ap || !ap_if->ap->started)
+		return dbus_error_not_available(message);
+
+	if (ap_if->ap->scan_id)
+		return dbus_error_busy(message);
+
+	ap_if->ap->scan_id = scan_active_full(wdev_id, &params,
+						ap_scan_triggered,
+						ap_scan_notify,
+						ap_if->ap, ap_scan_destroy);
+	if (!ap_if->ap->scan_id)
+		return dbus_error_failed(message);
+
+	ap_if->ap->scan_pending = l_dbus_message_ref(message);
+
+	return NULL;
+}
+
+static void dbus_append_network(struct l_dbus_message_builder *builder,
+					struct ap_network *network)
+{
+	l_dbus_message_builder_enter_array(builder, "{sv}");
+	dbus_append_dict_basic(builder, "Name", 's', network->ssid);
+	dbus_append_dict_basic(builder, "SignalStrength", 'n',
+					&network->signal);
+	dbus_append_dict_basic(builder, "Type", 's',
+					security_to_str(network->security));
+	l_dbus_message_builder_leave_array(builder);
+}
+
+static struct l_dbus_message *ap_dbus_get_networks(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct ap_if_data *ap_if = user_data;
+	struct l_dbus_message *reply;
+	struct l_dbus_message_builder *builder;
+	const struct l_queue_entry *entry;
+
+	if (!ap_if->ap || !ap_if->ap->started)
+		return dbus_error_not_available(message);
+
+	reply = l_dbus_message_new_method_return(message);
+	builder = l_dbus_message_builder_new(reply);
+
+	l_dbus_message_builder_enter_array(builder, "a{sv}");
+
+	for (entry = l_queue_get_entries(ap_if->ap->networks); entry;
+							entry = entry->next) {
+		struct ap_network *network = entry->data;
+
+		dbus_append_network(builder, network);
+	}
+
+	l_dbus_message_builder_leave_array(builder);
+	l_dbus_message_builder_finalize(builder);
+	l_dbus_message_builder_destroy(builder);
+
+	return reply;
+}
+
 static bool ap_dbus_property_get_started(struct l_dbus *dbus,
 					struct l_dbus_message *message,
 					struct l_dbus_message_builder *builder,
@@ -3699,6 +3923,24 @@ static bool ap_dbus_property_get_name(struct l_dbus *dbus,
 	return true;
 }
 
+static bool ap_dbus_property_get_scanning(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct ap_if_data *ap_if = user_data;
+	bool bval;
+
+	if (!ap_if->ap || !ap_if->ap->started)
+		return false;
+
+	bval = ap_if->ap->scanning;
+
+	l_dbus_message_builder_append_basic(builder, 'b', &bval);
+
+	return true;
+}
+
 static void ap_setup_interface(struct l_dbus_interface *interface)
 {
 	l_dbus_interface_method(interface, "Start", 0, ap_dbus_start, "",
@@ -3707,11 +3949,17 @@ static void ap_setup_interface(struct l_dbus_interface *interface)
 	l_dbus_interface_method(interface, "StartProfile", 0,
 					ap_dbus_start_profile, "", "s",
 					"ssid");
+	l_dbus_interface_method(interface, "Scan", 0, ap_dbus_scan, "", "");
+	l_dbus_interface_method(interface, "GetOrderedNetworks", 0,
+					ap_dbus_get_networks, "aa{sv}",
+					"", "networks");
 
 	l_dbus_interface_property(interface, "Started", 0, "b",
 					ap_dbus_property_get_started, NULL);
 	l_dbus_interface_property(interface, "Name", 0, "s",
 					ap_dbus_property_get_name, NULL);
+	l_dbus_interface_property(interface, "Scanning", 0, "b",
+					ap_dbus_property_get_scanning, NULL);
 }
 
 static void ap_destroy_interface(void *user_data)
