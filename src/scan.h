@@ -98,6 +98,7 @@ struct scan_parameters {
 	bool randomize_mac_addr_hint : 1;
 	bool no_cck_rates : 1;
 	bool duration_mandatory : 1;
+	bool ap_scan : 1;
 	const uint8_t *ssid;	/* Used for direct probe request */
 	size_t ssid_len;
 	const uint8_t *source_mac;
