@@ -72,7 +72,10 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 					bool fils_capable_hint);
 
 struct wiphy *wiphy_find(int wiphy_id);
-#define wiphy_find_by_wdev(w) wiphy_find(w >> 32)
+static inline struct wiphy *wiphy_find_by_wdev(uint64_t w)
+{
+	return wiphy_find(w >> 32);
+}
 
 bool wiphy_is_blacklisted(const struct wiphy *wiphy);
 
