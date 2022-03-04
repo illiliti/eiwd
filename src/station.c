@@ -2368,8 +2368,12 @@ next:
 
 	bss = network_bss_find_by_addr(network, best_bss->addr);
 	if (bss) {
-		scan_bss_free(best_bss);
-		best_bss = bss;
+		network_bss_update(network, best_bss);
+		l_queue_remove(station->bss_list, bss);
+		scan_bss_free(bss);
+
+		l_queue_insert(station->bss_list, best_bss,
+				scan_bss_rank_compare, NULL);
 	} else {
 		network_bss_add(network, best_bss);
 		l_queue_push_tail(station->bss_list, best_bss);
