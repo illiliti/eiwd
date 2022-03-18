@@ -391,7 +391,7 @@ static char *read_devtype_from_uevent(const char *ifname)
 	return devtype;
 }
 
-static int modify_membership(struct ethdev *dev, int optname)
+static int modify_membership(uint32_t index, int optname)
 {
 	struct packet_mreq mreq;
 	int fd;
@@ -401,7 +401,7 @@ static int modify_membership(struct ethdev *dev, int optname)
 		return -1;
 
 	memset(&mreq, 0, sizeof(mreq));
-	mreq.mr_ifindex = dev->index;
+	mreq.mr_ifindex = index;
 	mreq.mr_type = PACKET_MR_MULTICAST;
 	mreq.mr_alen = ETH_ALEN;
 	memcpy(mreq.mr_address, pae_group_addr, ETH_ALEN);
@@ -415,7 +415,8 @@ static void ethdev_free(void *data)
 
 	l_debug("Freeing device %s", dev->ifname);
 
-	modify_membership(dev, PACKET_DROP_MEMBERSHIP);
+	if (modify_membership(dev->index, PACKET_DROP_MEMBERSHIP) < 0)
+		l_error("Failed to drop membership");
 
 	l_queue_destroy(dev->eapol_sessions, eapol_free);
 
@@ -521,6 +522,11 @@ static void newlink_notify(const struct ifinfomsg *ifi, int bytes)
 			}
 		}
 
+		if (modify_membership(index, PACKET_ADD_MEMBERSHIP) < 0) {
+			l_error("Failed to add membership");
+			return;
+		}
+
 		dev = l_new(struct ethdev, 1);
 		dev->index = index;
 		dev->active = active;
@@ -531,8 +537,6 @@ static void newlink_notify(const struct ifinfomsg *ifi, int bytes)
 								dev->index);
 
 		l_debug("Creating device %u", dev->index);
-
-		modify_membership(dev, PACKET_ADD_MEMBERSHIP);
 
 		l_dbus_object_add_interface(dbus_app_get(), dev->path,
 						ADAPTER_INTERFACE, dev);
