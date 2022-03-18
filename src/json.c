@@ -279,6 +279,8 @@ done:
 	return true;
 
 error:
+	va_end(va);
+
 	l_queue_destroy(args, l_free);
 	return false;
 }
