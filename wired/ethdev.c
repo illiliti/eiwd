@@ -238,10 +238,15 @@ static void rx_packet(struct ethdev *dev, const uint8_t *addr,
 
 			l_debug("Created new EAPoL session");
 
-			l_queue_push_tail(dev->eapol_sessions, eapol);
-
 			eapol->cred = network_lookup_security("default");
-			eap_load_settings(eapol->eap, eapol->cred, "EAP-");
+			if (!eapol->cred || !eap_load_settings(eapol->eap,
+						eapol->cred, "EAP-")) {
+				l_error("Failed to load EAP settings");
+				eapol_free(eapol);
+				return;
+			}
+
+			l_queue_push_tail(dev->eapol_sessions, eapol);
 
 			eap_set_key_material_func(eapol->eap, eap_key_material);
 			eap_set_event_func(eapol->eap, eap_event);
