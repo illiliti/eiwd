@@ -1,3 +1,11 @@
+ver 1.26:
+	Fix issue with handling BSS that changed frequency.
+	Fix issue with handling frequencies in neighbor report.
+	Fix issue with operating classes for 802.11ax standard.
+	Fix issue with enforcing of MFPR for 6 GHz frequencies.
+	Add support for band defined in the WiFi 6E amendment.
+	Add support for scanning while in AP mode.
+
 ver 1.25:
 	Fix issue with handling abort of periodic scans.
 	Fix issue with handling connection when link goes down.
