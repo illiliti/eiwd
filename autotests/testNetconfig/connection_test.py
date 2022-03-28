@@ -12,6 +12,7 @@ from hostapd import HostapdCLI
 import testutil
 from config import ctx
 import os, time
+import subprocess
 
 class Test(unittest.TestCase):
 
@@ -40,8 +41,8 @@ class Test(unittest.TestCase):
         testutil.test_ifaces_connected()
 
         time.sleep(2)
-        ret = os.system('ip addr show ' + device.name + ' | grep \'inet6 3ffe:501:ffff:100::\'')
-        self.assertEqual(os.waitstatus_to_exitcode(ret), 0)
+        subprocess.check_output('ip addr show ' + device.name + \
+                            ' | grep \'inet6 3ffe:501:ffff:100::\'', shell=True)
 
         device.disconnect()
 
