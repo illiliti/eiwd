@@ -33,7 +33,7 @@ class Test(unittest.TestCase):
 
         dev1, dev2 = wd.list_devices(2)
 
-        ordered_network = dev1.get_ordered_network("TestBlacklist")
+        ordered_network = dev1.get_ordered_network("TestBlacklist", full_scan=True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
@@ -45,12 +45,12 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(dev1, condition)
 
-        self.assertIn(dev1.address, bss_hostapd[2].list_sta())
+        bss_hostapd[2].wait_for_event('AP-STA-CONNECTED %s' % dev1.address)
 
         # dev1 now connected, this should max out the first AP, causing the next
         # connection to fail to this AP.
 
-        ordered_network = dev2.get_ordered_network("TestBlacklist")
+        ordered_network = dev2.get_ordered_network("TestBlacklist", full_scan=True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
@@ -64,7 +64,7 @@ class Test(unittest.TestCase):
 
         # We should have temporarily blacklisted the first BSS, and connected
         # to this one.
-        self.assertIn(dev2.address, bss_hostapd[1].list_sta())
+        bss_hostapd[1].wait_for_event('AP-STA-CONNECTED %s' % dev2.address)
 
         # Now check that the first BSS is still not blacklisted. We can
         # disconnect dev1, opening up the AP for more connections
@@ -83,7 +83,7 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(dev2, condition)
 
-        self.assertIn(dev2.address, bss_hostapd[2].list_sta())
+        bss_hostapd[2].wait_for_event('AP-STA-CONNECTED %s' % dev2.address)
 
         wd.unregister_psk_agent(psk_agent)
 
@@ -134,7 +134,7 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
 
-        self.assertIn(device.address, bss_hostapd[0].list_sta())
+        bss_hostapd[0].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         wd.unregister_psk_agent(psk_agent)
 
@@ -214,7 +214,7 @@ class Test(unittest.TestCase):
         # should automatically try the next BSS in the list, which is
         # bss_hostapd[1]
         self.assertNotIn(device.address, bss_hostapd[0].list_sta())
-        self.assertIn(device.address, bss_hostapd[1].list_sta())
+        bss_hostapd[1].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         rule0.drop = False
 
@@ -234,7 +234,7 @@ class Test(unittest.TestCase):
 
         # Same as before, make sure we didn't connect to the blacklisted AP.
         self.assertNotIn(device.address, bss_hostapd[0].list_sta())
-        self.assertIn(device.address, bss_hostapd[1].list_sta())
+        bss_hostapd[1].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         # Wait for the blacklist to expire (10 seconds)
         elapsed = time.time() - start
@@ -264,7 +264,7 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
 
-        self.assertIn(device.address, bss_hostapd[0].list_sta())
+        bss_hostapd[0].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         self.wd.unregister_psk_agent(psk_agent)
 
