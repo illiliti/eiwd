@@ -62,7 +62,7 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(1)
         device = devices[0]
 
-        ordered_network = device.get_ordered_network('TestRoamRetry')
+        ordered_network = device.get_ordered_network('TestRoamRetry', full_scan=True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
@@ -74,8 +74,7 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
 
-        self.assertTrue(bss_hostapd[0].list_sta())
-        self.assertFalse(bss_hostapd[1].list_sta())
+        bss_hostapd[0].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         # Now push the signal below the RSSI threshold and check that iwd
         # connects to BSS 1
@@ -90,7 +89,7 @@ class Test(unittest.TestCase):
         to_condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_change(device, from_condition, to_condition)
 
-        self.assertTrue(bss_hostapd[1].list_sta())
+        bss_hostapd[1].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         # Now make sure that we don't roam anymore. In order to catch this via
         # DeviceState, a suitable roaming target needs to be available. So jack
