@@ -2436,6 +2436,8 @@ static struct l_dbus_message *dpp_start_configurator_common(
 
 		if (!dpp->mcast_support)
 			dpp->state = DPP_STATE_AUTHENTICATING;
+
+		dpp->new_freq = bss->frequency;
 	} else
 		dpp->current_freq = bss->frequency;
 
