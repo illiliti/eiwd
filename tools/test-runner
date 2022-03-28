@@ -1244,6 +1244,7 @@ def start_test(ctx, subtests, rqueue):
 		try:
 			module = importlib.import_module(os.path.splitext(s)[0])
 		except OSError as e:
+			dbg(subprocess.check_output("cat /proc/buddyinfo", shell=True).decode('utf-8'))
 			dbg(subprocess.check_output("dmesg | tail -80", shell=True).decode('utf-8'))
 			print(ctx)
 			raise e
@@ -1891,13 +1892,7 @@ class Main:
 		else:
 			smp = int(nproc / 2)
 
-		#
-		# Increase RAM if valgrind is being used
-		#
-		if self.args.valgrind:
-			ram = 512
-		else:
-			ram = 384
+		ram = 256
 
 		print("Using %d cores, %d RAM for VM" % (smp, ram))
 
@@ -1936,7 +1931,7 @@ class Main:
 			'-append',
 			'console=ttyS0,115200n8 earlyprintk=serial \
 				rootfstype=9p root=/dev/root \
-				rootflags=trans=virtio,msize=1048576,version=9p2000.u \
+				rootflags=trans=virtio \
 				acpi=off pci=noacpi %s ro \
 				mac80211_hwsim.radios=0 %s' % (kern_log, options),
 			'-smp', str(smp)
