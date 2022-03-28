@@ -807,6 +807,47 @@ class Namespace:
 
 		return ret
 
+class BarChart():
+	def __init__(self, height=10, max_width=80):
+		self._height = height
+		self._max_width = max_width
+		self._values = []
+		self._max_value = 0
+		self._min_value = 0
+
+	def add_value(self, value):
+		if len(self._values) == 0:
+			self._max_value = int(1.01 * value)
+			self._min_value = int(0.99 * value)
+		elif value > self._max_value:
+			self._max_value = int(1.01 * value)
+		elif value < self._min_value:
+			self._min_value = int(0.99 * value)
+
+		self._values.append(value)
+
+	def _value_to_stars(self, value):
+		# Need to scale value (range of min_value -> max_value) to
+		# a range of 0 -> height
+		#
+		# Scaled = ((value - min_value) / ( max_value - min_value)) * (Height - 0) + 0
+
+		return int(((value - self._min_value) /
+			(self._max_value - self._min_value)) * self._height)
+
+	def __str__(self):
+		# Need to map value from range 0 - self._height
+		ret = ''
+
+		for i, value in enumerate(self._values):
+			stars = self._value_to_stars(value)
+			ret += '[%3u] ' % i + '%-10s' % ('*' * stars) + '\t\t\t%d\n' % value
+
+		ret += '\n'
+
+		return ret
+
+
 class TestContext(Namespace):
 	'''
 		Contains all information for a given set of tests being run
@@ -825,6 +866,8 @@ class TestContext(Namespace):
 		self.results = {}
 		self.mainloop = GLib.MainLoop()
 		self.namespaces = []
+		self._last_mem_available = 0
+		self._mem_chart = BarChart()
 
 	def start_dbus_monitor(self):
 		if not self.is_verbose('dbus-monitor'):
@@ -1036,6 +1079,23 @@ class TestContext(Namespace):
 
 		self.reset()
 
+	def meminfo_to_dict(self):
+		def removesuffix(string, suffix):
+			if string.endswith(suffix):
+				return string[:-len(suffix)]
+			return string
+
+		ret = {}
+
+		with open('/proc/meminfo', 'r') as f:
+			data = f.read().strip().split('\n')
+
+		for l in data:
+			entry = l.split(':')
+			ret[entry[0]] = int(removesuffix(entry[1], 'kB'))
+
+		return ret
+
 	def __str__(self):
 		ret = 'Arguments:\n'
 		for arg in vars(self.args):
@@ -1047,6 +1107,16 @@ class TestContext(Namespace):
 				ret += '\t%s\n' % str(h)
 		else:
 			ret += '\tNo Hostapd instances\n'
+
+		info = self.meminfo_to_dict()
+		self._mem_chart.add_value(info['MemAvailable'])
+
+		ret += 'Available Memory: %u kB\n' % info['MemAvailable']
+		ret += 'Last Test Delta: %+d kB\n' % (info['MemAvailable'] - self._last_mem_available)
+		ret += 'Per-test Usage:\n'
+		ret += str(self._mem_chart)
+
+		self._last_mem_available = info['MemAvailable']
 
 		ret += super().__str__()
 
@@ -1171,7 +1241,13 @@ def start_test(ctx, subtests, rqueue):
 	#
 	for s in subtests:
 		loader = unittest.TestLoader()
-		module = importlib.import_module(os.path.splitext(s)[0])
+		try:
+			module = importlib.import_module(os.path.splitext(s)[0])
+		except OSError as e:
+			dbg(subprocess.check_output("dmesg | tail -80", shell=True).decode('utf-8'))
+			print(ctx)
+			raise e
+
 		subtest = loader.loadTestsFromModule(module)
 
 		# The test suite is being (ab)used to get a bit more granularity
