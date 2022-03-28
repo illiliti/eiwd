@@ -1294,7 +1294,7 @@ static void dpp_presence_announce(struct dpp_sm *dpp)
 	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
-static void dpp_send_authenticate_request(struct dpp_sm *dpp)
+static bool dpp_send_authenticate_request(struct dpp_sm *dpp)
 {
 	uint8_t hdr[32];
 	uint8_t attrs[256];
@@ -1304,6 +1304,12 @@ static void dpp_send_authenticate_request(struct dpp_sm *dpp)
 	struct iovec iov[2];
 	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
 	struct scan_bss *bss = station_get_connected_bss(station);
+
+	/* Got disconnected by the time the peer was discovered */
+	if (!bss) {
+		dpp_reset(dpp);
+		return false;
+	}
 
 	l_ecc_point_get_data(dpp->own_proto_public, i_proto_key,
 				sizeof(i_proto_key));
@@ -1337,6 +1343,8 @@ static void dpp_send_authenticate_request(struct dpp_sm *dpp)
 	iov[1].iov_len = ptr - attrs;
 
 	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
+
+	return true;
 }
 
 static void dpp_roc_started(void *user_data)
@@ -1948,7 +1956,8 @@ static void dpp_handle_presence_announcement(struct dpp_sm *dpp,
 
 	dpp->state = DPP_STATE_AUTHENTICATING;
 
-	dpp_send_authenticate_request(dpp);
+	if (!dpp_send_authenticate_request(dpp))
+		return;
 
 	/*
 	 * Should we wait for an ACK then go offchannel?
