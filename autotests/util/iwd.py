@@ -492,17 +492,18 @@ class Device(IWDDBusAbstract):
            main sorting factor.
         '''
         ordered_networks = []
-        for bus_obj in self._station.GetOrderedNetworks():
-            ordered_network = OrderedNetwork(bus_obj, self._bus, self._namespace)
-            ordered_networks.append(ordered_network)
+        if not full_scan:
+            for bus_obj in self._station.GetOrderedNetworks():
+                ordered_network = OrderedNetwork(bus_obj, self._bus, self._namespace)
+                ordered_networks.append(ordered_network)
 
-        names = [x.name for x in ordered_networks]
+            names = [x.name for x in ordered_networks]
 
-        # all() will always return true if 'list' is empty
-        if all(x in names for x in list) and len(names) > 0:
-            return ordered_networks
-        elif not scan_if_needed:
-            return None
+            # all() will always return true if 'list' is empty
+            if all(x in names for x in list) and len(names) > 0:
+                return ordered_networks
+            elif not scan_if_needed:
+                return None
 
         condition = 'not obj.scanning'
         IWD._wait_for_object_condition(self, condition)
