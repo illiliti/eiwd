@@ -20,18 +20,7 @@ class Test(unittest.TestCase):
 
         if not autoconnect:
             if not connect_hidden:
-                condition = 'not obj.scanning'
-                wd.wait_for_object_condition(device, condition)
-
-                device.scan()
-
-                condition = 'obj.scanning'
-                wd.wait_for_object_condition(device, condition)
-
-                condition = 'not obj.scanning'
-                wd.wait_for_object_condition(device, condition)
-
-                network = device.get_ordered_network('transition', scan_if_needed=False)
+                network = device.get_ordered_network('transition', full_scan=True)
 
                 network.network_object.connect()
             else:
