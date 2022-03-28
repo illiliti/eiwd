@@ -80,7 +80,7 @@ class Test(unittest.TestCase):
 
         self.wpas.dpp_enrollee_start(uri)
 
-        self.wpas.wait_for_event('DPP-CONF-RECEIVED')
+        self.wpas.wait_for_event('DPP-CONF-RECEIVED', timeout=30)
 
     def test_iwd_as_configurator_initiator(self):
         self.hapd.reload()
@@ -96,7 +96,7 @@ class Test(unittest.TestCase):
 
         self.device.dpp_start_configurator(uri)
 
-        self.hapd.wait_for_event('AP-STA-CONNECTED 42:00:00:00:00:00')
+        self.wpas.wait_for_event('DPP-CONF-RECEIVED', timeout=30)
 
     def setUp(self):
         self.wd = IWD(True)
@@ -118,6 +118,7 @@ class Test(unittest.TestCase):
         self.device.disconnect()
         self.device.dpp_stop()
         self.wpas.dpp_configurator_remove()
+        self.wpas.clean_up()
 
         self.wd = None
         self.device = None
