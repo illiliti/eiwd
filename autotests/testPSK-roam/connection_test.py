@@ -16,20 +16,7 @@ class Test(unittest.TestCase):
     def validate_connection(self, wd, over_ds=False):
         device = wd.list_devices(1)[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        # Scanning is unavoidable in this case since several hostapd
-        # configurations are tested and changed mid-test
-        device.scan()
-
-        condition = 'obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        ordered_network = device.get_ordered_network('TestFT')
+        ordered_network = device.get_ordered_network('TestFT', full_scan=True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
@@ -44,15 +31,7 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
 
-        self.assertTrue(self.bss_hostapd[0].list_sta())
-
-        # list_sta actually reports any authenticated stations. Due to the
-        # nature of FT-over-DS IWD should authenticate to all stations with
-        # the same mobility domain. This means both APs should show our station.
-        if over_ds:
-            self.assertTrue(self.bss_hostapd[1].list_sta())
-        else:
-            self.assertFalse(self.bss_hostapd[1].list_sta())
+        self.bss_hostapd[0].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         testutil.test_iface_operstate(device.name)
         testutil.test_ifaces_connected(self.bss_hostapd[0].ifname, device.name)
@@ -73,7 +52,7 @@ class Test(unittest.TestCase):
         to_condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_change(device, from_condition, to_condition)
 
-        self.assertTrue(self.bss_hostapd[1].list_sta())
+        self.bss_hostapd[1].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         testutil.test_iface_operstate(device.name)
         testutil.test_ifaces_connected(self.bss_hostapd[1].ifname, device.name)
@@ -93,7 +72,7 @@ class Test(unittest.TestCase):
         to_condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_change(device, from_condition, to_condition)
 
-        self.assertTrue(self.bss_hostapd[0].list_sta())
+        self.bss_hostapd[0].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         testutil.test_iface_operstate(device.name)
         testutil.test_ifaces_connected(self.bss_hostapd[0].ifname, device.name)
