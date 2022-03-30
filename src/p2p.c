@@ -3655,11 +3655,15 @@ static bool p2p_peer_update_existing(struct scan_bss *bss,
 	 * Some property changes may need to be notified here.
 	 */
 
-	if (peer->device_addr == peer->bss->addr)
-		peer->device_addr = bss->addr;
-	else
+	if (bss->source_frame == SCAN_BSS_PROBE_RESP)
 		peer->device_addr =
 			bss->p2p_probe_resp_info->device_info.device_addr;
+	else if (bss->source_frame == SCAN_BSS_PROBE_REQ && !l_memeqzero(
+			bss->p2p_probe_req_info->device_info.device_addr, 6))
+		peer->device_addr =
+			bss->p2p_probe_req_info->device_info.device_addr;
+	else
+		peer->device_addr = bss->addr;
 
 	scan_bss_free(peer->bss);
 	peer->bss = bss;
