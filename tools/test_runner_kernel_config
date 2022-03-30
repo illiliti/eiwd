@@ -46,3 +46,7 @@ scripts/config --enable CONFIG_HW_RANDOM_VIRTIO
 scripts/config --enable CONFIG_HW_RANDOM_INTEL
 #scripts/config --enable CONFIG_HW_RANDOM_AMD
 scripts/config --enable CONFIG_SECURITYFS
+
+# Options needed for UML
+scripts/config --enable CONFIG_BINFMT_ELF
+scripts/config --enable CONFIG_HOSTFS
