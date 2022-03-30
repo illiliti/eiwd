@@ -17,6 +17,15 @@ import subprocess
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
+        def check_addr(device):
+            try:
+                subprocess.check_output('ip addr show ' + device.name + \
+                            ' | grep \'inet6 3ffe:501:ffff:100::\'', shell=True)
+            except:
+                return False
+
+            return True
+
         wd = IWD(True)
 
         psk_agent = PSKAgent("secret123")
@@ -40,9 +49,8 @@ class Test(unittest.TestCase):
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected()
 
-        time.sleep(2)
-        subprocess.check_output('ip addr show ' + device.name + \
-                            ' | grep \'inet6 3ffe:501:ffff:100::\'', shell=True)
+        ctx.non_block_wait(check_addr, 10, device,
+                            exception=Exception("IPv6 address was not set"))
 
         device.disconnect()
 
@@ -70,15 +78,15 @@ class Test(unittest.TestCase):
         # TODO: This could be moved into test-runner itself if other tests ever
         #       require this functionality (p2p, FILS, etc.). Since its simple
         #       enough it can stay here for now.
-        ctx.start_process(['ip', 'addr','add','dev',  hapd.ifname,
-                           '192.168.1.1/255.255.255.0']).wait()
+        ctx.start_process(['ip', 'addr','add', '192.168.1.1/255.255.255.0',
+                            'dev', hapd.ifname,]).wait()
         ctx.start_process(['touch', '/tmp/dhcpd.leases']).wait()
         cls.dhcpd_pid = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf',
                                             '-lf', '/tmp/dhcpd.leases',
                                             hapd.ifname], cleanup=remove_lease4)
 
-        ctx.start_process(['ip', 'addr', 'add', 'dev', hapd.ifname,
-                           '3ffe:501:ffff:100::1/64']).wait()
+        ctx.start_process(['ip', 'addr', 'add', '3ffe:501:ffff:100::1/64',
+                            'dev', hapd.ifname]).wait()
         ctx.start_process(['touch', '/tmp/dhcpd6.leases']).wait()
         cls.dhcpd6_pid = ctx.start_process(['dhcpd', '-6', '-f', '-cf', '/tmp/dhcpd-v6.conf',
                                             '-lf', '/tmp/dhcpd6.leases',

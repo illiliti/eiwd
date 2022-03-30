@@ -81,7 +81,8 @@ class Test(unittest.TestCase):
         # TODO: This could be moved into test-runner itself if other tests ever
         #       require this functionality (p2p, FILS, etc.). Since its simple
         #       enough it can stay here for now.
-        ctx.start_process(['ip', 'addr','add', hapd.ifname, '192.168.1.1/255.255.255.0']).wait()
+        ctx.start_process(['ip', 'addr','add', '192.168.1.1/255.255.255.0',
+                            'dev', hapd.ifname]).wait()
         ctx.start_process(['touch', '/tmp/dhcpd.leases']).wait()
         cls.dhcpd_pid = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf',
                                             '-lf', '/tmp/dhcpd.leases',
