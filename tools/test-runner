@@ -61,15 +61,15 @@ def exit_vm():
 			print("Process %s still running!" % p.args[0])
 			p.kill()
 
-	if config.ctx and config.ctx.results:
-		success = print_results(config.ctx.results)
-	else:
-		success = False
+		if config.ctx and config.ctx.results:
+			success = print_results(config.ctx.results)
+		else:
+			success = False
 
-	if config.ctx.args.result:
-		result = 'PASS' if success else 'FAIL'
-		with open(config.ctx.args.result, 'w') as f:
-			f.write(result)
+		if config.ctx and config.ctx.args.result:
+			result = 'PASS' if success else 'FAIL'
+			with open(config.ctx.args.result, 'w') as f:
+				f.write(result)
 
 	os.sync()
 
