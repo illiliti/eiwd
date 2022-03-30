@@ -36,7 +36,6 @@ class Test(unittest.TestCase):
 
         bss_hostapd[0].wait_for_event('AP-STA-CONNECTED')
 
-        self.assertTrue(bss_hostapd[0].list_sta())
         self.assertFalse(bss_hostapd[1].list_sta())
 
         bss_hostapd[0].send_bss_transition(device.address,
@@ -51,8 +50,8 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
 
-        self.assertEqual(device.state, iwd.DeviceState.connected)
-        self.assertTrue(bss_hostapd[1].list_sta())
+        bss_hostapd[1].wait_for_event('AP-STA-CONNECTED %s' % device.address)
+
         device.disconnect()
 
         condition = 'not obj.connected'
