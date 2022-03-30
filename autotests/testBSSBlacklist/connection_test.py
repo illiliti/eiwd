@@ -244,15 +244,7 @@ class Test(unittest.TestCase):
 
         device.disconnect()
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        ordered_network = device.get_ordered_network("TestBlacklist")
+        ordered_network = device.get_ordered_network("TestBlacklist", full_scan=True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 

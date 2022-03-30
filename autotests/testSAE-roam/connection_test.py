@@ -16,16 +16,9 @@ class Test(unittest.TestCase):
     def validate_connection(self, wd, ft=True):
         device = wd.list_devices(1)[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
+        # This won't guarantee all BSS's are found, but at least ensures that
+        # at least one will be.
+        device.get_ordered_network('TestFT', full_scan=True)
 
         self.assertFalse(self.bss_hostapd[0].list_sta())
         self.assertFalse(self.bss_hostapd[1].list_sta())

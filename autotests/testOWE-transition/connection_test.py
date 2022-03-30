@@ -230,16 +230,6 @@ class Test(unittest.TestCase):
         self.rule0.signal = -4000
         self.rule0.enabled = True
 
-        devices = self.wd.list_devices(1)
-        device = devices[0]
-
-        device.scan()
-        condition = 'obj.scanning'
-        self.wd.wait_for_object_condition(device, condition)
-        condition = 'not obj.scanning'
-        self.wd.wait_for_object_condition(device, condition)
-
-
         self.validate(self.wd, self.hapd_owe)
 
     def setUp(self):

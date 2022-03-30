@@ -47,12 +47,7 @@ class Test(unittest.TestCase):
 
         testutil.test_ip_address_match(dev1.name, '192.168.1.10')
 
-        dev2.scan()
-
-        condition = 'not obj.scanning'
-        wd_ns0.wait_for_object_condition(dev2, condition)
-
-        ordered_network = dev2.get_ordered_network('ssidTKIP', scan_if_needed=True)
+        ordered_network = dev2.get_ordered_network('ssidTKIP')
 
         condition = 'not obj.connected'
         wd_ns0.wait_for_object_condition(ordered_network.network_object, condition)

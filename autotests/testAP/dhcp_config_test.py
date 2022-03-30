@@ -29,14 +29,6 @@ class Test(unittest.TestCase):
         dev1.start_ap('APConfig')
 
         try:
-            condition = 'not obj.scanning'
-            wd.wait_for_object_condition(dev2, condition)
-            dev2.scan()
-            condition = 'obj.scanning'
-            wd.wait_for_object_condition(dev2, condition)
-            condition = 'not obj.scanning'
-            wd.wait_for_object_condition(dev2, condition)
-
             networks = {}
             networks['APConfig'] = dev2.get_ordered_network('APConfig', full_scan=True)
 

@@ -31,18 +31,7 @@ class Test(unittest.TestCase):
         agent.calls = 0
         device.register_signal_agent(agent, [-20, -40, -60, -80])
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        ordered_network = device.get_ordered_network('TestOpen')
+        ordered_network = device.get_ordered_network('TestOpen', full_scan=True)
 
         self.assertEqual(ordered_network.type, NetworkType.open)
         self.assertEqual(ordered_network.signal_strength, -4000)

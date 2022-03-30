@@ -21,16 +21,8 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(4)
         self.assertIsNotNone(devices)
 
-        for d in devices:
-            d.disconnect()
-            d.scan()
-            wd.wait_for_object_condition(d, 'obj.scanning')
-
-        for d in devices:
-            wd.wait_for_object_condition(d, 'not obj.scanning')
-
         for i in range(len(devices)):
-            network = devices[i].get_ordered_network('ssidSAE-Clogging')
+            network = devices[i].get_ordered_network('ssidSAE-Clogging', full_scan=True)
             self.assertEqual(network.type, NetworkType.psk)
             networks.append(network)
 

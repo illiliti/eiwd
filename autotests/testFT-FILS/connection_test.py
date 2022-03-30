@@ -13,21 +13,10 @@ class Test(unittest.TestCase):
     def validate_connection(self, wd):
         device = wd.list_devices(1)[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
         # Scanning is unavoidable in this case since both FILS-SHA256 and
         # FILS-SHA384 are tested. Without a new scan the cached scan results
         # would cause IWD to choose an incorrect AKM for the second test.
-        device.scan()
-
-        condition = 'obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        ordered_network = device.get_ordered_network('TestFT')
+        ordered_network = device.get_ordered_network('TestFT', full_scan=True)
 
         self.assertEqual(ordered_network.type, NetworkType.eap)
 
