@@ -120,13 +120,13 @@ class Test(unittest.TestCase):
                             HostapdCLI(config='ft-sae-2.conf'),
                             HostapdCLI(config='ft-psk-3.conf') ]
 
-        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[0].ifname, 'down'])
+        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[0].ifname, 'down']).wait()
         ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[0].ifname, \
                            'addr', '12:00:00:00:00:01', 'up']).wait()
-        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[1].ifname, 'down'])
+        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[1].ifname, 'down']).wait()
         ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[1].ifname, \
                            'addr', '12:00:00:00:00:02', 'up']).wait()
-        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[2].ifname, 'down'])
+        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[2].ifname, 'down']).wait()
         ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[2].ifname, \
                            'addr', '12:00:00:00:00:03', 'up']).wait()
 
