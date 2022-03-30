@@ -300,7 +300,7 @@ class Process(subprocess.Popen):
 			f = open(os.path.join(dir, file), mode)
 		except Exception as e:
 			traceback.print_exc()
-			exit(0)
+			sys.exit(0)
 
 		if self.ctx.args.log_gid:
 			os.fchown(f.fileno(), uid, gid)
@@ -1545,11 +1545,11 @@ def run_auto_tests(ctx, args):
 				os.chdir(tests[0])
 				os.environ['DBUS_SYSTEM_BUS_ADDRESS'] = ctx.dbus_address
 				os.system('/bin/bash')
-				exit()
+				sys.exit()
 
 			if len(subtests) < 1:
 				dbg("No tests to run")
-				exit()
+				sys.exit()
 
 			rqueue = multiprocessing.Queue()
 			p = multiprocessing.Process(target=start_test, args=(ctx, subtests, rqueue))
@@ -1994,7 +1994,7 @@ if __name__ == '__main__':
 		prepare_sandbox()
 		run_tests()
 
-		exit()
+		sys.exit()
 
 	main = Main()
 	main.start()
