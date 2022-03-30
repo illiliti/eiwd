@@ -276,13 +276,16 @@ class Process(subprocess.Popen):
 		return True
 
 	def _append_outfile(self, file, append=True):
-		gid = int(self.ctx.args.log_gid)
-		uid = int(self.ctx.args.log_uid)
 		dir = os.path.dirname(file)
+
+		if self.ctx.args.log_gid:
+			gid = int(self.ctx.args.log_gid)
+			uid = int(self.ctx.args.log_uid)
 
 		if not path_exists(dir):
 			os.mkdir(dir)
-			os.chown(dir, uid, gid)
+			if self.ctx.args.log_gid:
+				os.chown(dir, uid, gid)
 
 		file = os.path.join(dir,file)
 
@@ -299,7 +302,8 @@ class Process(subprocess.Popen):
 			traceback.print_exc()
 			exit(0)
 
-		os.fchown(f.fileno(), uid, gid)
+		if self.ctx.args.log_gid:
+			os.fchown(f.fileno(), uid, gid)
 
 		self.write_fds.append(f)
 
@@ -1833,46 +1837,47 @@ class Main:
 		if self.args.sub_tests:
 			options += ' --sub_tests %s' % ','.join(self.args.sub_tests)
 
+		gid = None
+		if os.environ.get('SUDO_GID', None):
+			uid = int(os.environ['SUDO_UID'])
+			gid = int(os.environ['SUDO_GID'])
+
+		append_gid_uid = False
+
 		if self.args.log:
-			if os.environ.get('SUDO_GID', None) is None:
+			if os.getuid() != 0:
 				print("--log can only be used as root user")
 				quit()
 
 			self.args.log = os.path.abspath(self.args.log)
-			uid = int(os.environ['SUDO_UID'])
-			gid = int(os.environ['SUDO_GID'])
+			append_gid_uid = True
 
 			if not path_exists(self.args.log):
 				os.mkdir(self.args.log)
-				os.chown(self.args.log, uid, gid)
-
-			options += ' --log-gid %u' % gid
-			options += ' --log-uid %u' % uid
+				if gid:
+					os.chown(self.args.log, uid, gid)
 
 		if self.args.monitor:
-			if os.environ.get('SUDO_GID', None) is None:
+			if os.getuid() != 0:
 				print("--monitor can only be used as root user")
 				quit()
 
 			self.args.monitor = os.path.abspath(self.args.monitor)
 			mon_parent_dir = os.path.abspath(os.path.join(self.args.monitor, os.pardir))
-
-			options += ' --log-gid %u' % int(os.environ['SUDO_GID'])
-			options += ' --log-uid %u' % int(os.environ['SUDO_UID'])
+			append_gid_uid = True
 
 		if self.args.result:
-			if os.environ.get('SUDO_GID', None) is None:
+			if os.getuid() != 0:
 				print("--result can only be used as root user")
 				quit()
 
 			self.args.result = os.path.abspath(self.args.result)
 			result_parent_dir = os.path.abspath(os.path.join(self.args.result, os.pardir))
+			append_gid_uid = True
 
-			if '--log-gid' not in options:
-				options += ' --log-gid %u' % int(os.environ['SUDO_GID'])
-
-			if '--log-uid' not in options:
-				options += ' --log-uid %u' % int(os.environ['SUDO_UID'])
+		if append_gid_uid and gid:
+			options += ' --log-gid %u' % (gid,)
+			options += ' --log-uid %u' % (uid,)
 
 		denylist = [
 			'auto_tests',
