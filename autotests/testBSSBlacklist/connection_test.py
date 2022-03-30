@@ -101,7 +101,7 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(1)
         device = devices[0]
 
-        ordered_network = device.get_ordered_network("TestBlacklist")
+        ordered_network = device.get_ordered_network("TestBlacklist", full_scan=True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
@@ -148,7 +148,7 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(1)
         device = devices[0]
 
-        ordered_network = device.get_ordered_network("TestBlacklist")
+        ordered_network = device.get_ordered_network("TestBlacklist", full_scan=True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
@@ -188,7 +188,7 @@ class Test(unittest.TestCase):
 
         devices[1].disconnect()
 
-        ordered_network = device.get_ordered_network("TestBlacklist")
+        ordered_network = device.get_ordered_network("TestBlacklist", full_scan=True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
