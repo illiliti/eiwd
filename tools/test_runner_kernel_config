@@ -50,3 +50,4 @@ scripts/config --enable CONFIG_SECURITYFS
 # Options needed for UML
 scripts/config --enable CONFIG_BINFMT_ELF
 scripts/config --enable CONFIG_HOSTFS
+scripts/config --enable CONFIG_UML_TIME_TRAVEL_SUPPORT
