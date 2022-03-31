@@ -213,7 +213,9 @@ class Runner:
 			else:
 				args.runner = 'qemu'
 
-		if args.runner == 'qemu':
+		if args.runner == 'uml':
+			return UmlRunner(args)
+		elif args.runner == 'qemu':
 			return QemuRunner(args)
 		else:
 			raise Exception("Unknown runner %s" % args.runner)
@@ -483,3 +485,29 @@ class QemuRunner(RunnerAbstract):
 		# gracefully.
 		#
 		libc.reboot(RB_AUTOBOOT)
+
+class UmlRunner(RunnerAbstract):
+	name = "UML Runner"
+
+	def __init__(self, args):
+		super().__init__(args)
+
+		if len(sys.argv) <= 1:
+			return
+
+		if not which(args.kernel):
+			raise Exception('Cannot locate UML binary %s' % args.kernel)
+
+		kern_log = "ignore_loglevel" if "kernel" in args.verbose else "quiet"
+
+		cmd = [args.kernel, 'rootfstype=hostfs', 'ro', 'mem=256M', 'mac80211_hwsim.radios=0',
+				'time-travel=inf-cpu', 'eth0=mcast', 'eth1=mcast',
+				'%s '% kern_log, 'init=%s' % args.start]
+		cmd.extend(args.to_cmd().split(' '))
+
+		self.cmdline = cmd
+
+	def prepare_environment(self):
+		self._prepare_mounts()
+
+		super().prepare_environment()
