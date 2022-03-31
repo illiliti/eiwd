@@ -722,8 +722,6 @@ class Namespace:
 		context = mainloop.get_context()
 
 		while True:
-			context.iteration(may_block=False)
-
 			try:
 				ret = func(*args)
 				if ret:
@@ -735,8 +733,6 @@ class Namespace:
 					GLib.source_remove(timeout)
 				raise e
 
-			sleep(0.1)
-
 			if done.value == True:
 				if isinstance(exception, Exception):
 					raise exception
@@ -744,6 +740,8 @@ class Namespace:
 					raise TimeoutError("Timeout on non_block_wait")
 				else:
 					return
+
+			context.iteration(may_block=True)
 
 	def __str__(self):
 		ret = 'Namespace: %s\n' % self.name
