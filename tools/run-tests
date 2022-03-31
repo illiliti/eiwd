@@ -186,6 +186,9 @@ class Process(subprocess.Popen):
 	@classmethod
 	def kill_all(cls):
 		for p in cls.processes.values():
+			if p.args[0] == 'dmesg':
+				continue
+
 			p.kill()
 
 	@staticmethod
