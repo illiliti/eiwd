@@ -1,0 +1,485 @@
+#!/usr/bin/python3
+
+from argparse import ArgumentParser
+from argparse import Namespace
+from configparser import ConfigParser
+from collections import namedtuple
+from shutil import copy, copytree, which, rmtree
+from glob import glob
+
+import os
+import ctypes
+import fcntl
+import sys
+
+libc = ctypes.cdll['libc.so.6']
+libc.mount.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, \
+			ctypes.c_ulong, ctypes.c_char_p)
+
+# Using ctypes to load the libc library is somewhat low level. Because of this
+# we need to define our own flags/options for use with mounting.
+MS_NOSUID = 2
+MS_NODEV = 4
+MS_NOEXEC = 8
+MS_STRICTATIME = 1 << 24
+STDIN_FILENO = 0
+TIOCSTTY = 0x540E
+
+MountInfo = namedtuple('MountInfo', 'fstype target options flags')
+DevInfo = namedtuple('DevInfo', 'target linkpath')
+
+mounts_common = [
+	MountInfo('sysfs', '/sys', '', MS_NOSUID|MS_NOEXEC|MS_NODEV),
+	MountInfo('proc', '/proc', '', MS_NOSUID|MS_NOEXEC|MS_NODEV),
+	MountInfo('devpts', '/dev/pts', 'mode=0620', MS_NOSUID|MS_NOEXEC),
+	MountInfo('tmpfs', '/dev/shm', 'mode=1777',
+					MS_NOSUID|MS_NODEV|MS_STRICTATIME),
+	MountInfo('tmpfs', '/run', 'mode=0755',
+					MS_NOSUID|MS_NODEV|MS_STRICTATIME),
+	MountInfo('tmpfs', '/tmp', '', 0),
+	MountInfo('tmpfs', '/usr/share/dbus-1', 'mode=0755',
+					MS_NOSUID|MS_NOEXEC|MS_NODEV|MS_STRICTATIME),
+]
+
+dev_table = [
+	DevInfo('/proc/self/fd', '/dev/fd'),
+	DevInfo('/proc/self/fd/0', '/dev/stdin'),
+	DevInfo('/proc/self/fd/1', '/dev/stdout'),
+	DevInfo('/proc/self/fd/2', '/dev/stderr')
+]
+
+def mount(source, target, fs, flags, options=''):
+	'''
+		Python wrapper for libc mount()
+	'''
+	ret = libc.mount(source.encode(), target.encode(), fs.encode(), flags,
+				options.encode())
+	if ret < 0:
+		errno = ctypes.get_errno()
+		raise Exception("Could not mount %s (%d)" % (target, errno))
+
+#
+# Custom argparse.Namespace class to stringify arguments in a way that can be
+# directly passed to the test environment as kernel arguments. This also removes
+# any None, False, or [] arguments.
+#
+class RunnerNamespace(Namespace):
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+
+	def to_cmd(self):
+		ret = ''
+		for k, v in self.__dict__.items():
+			if v in [None, False, [], '']:
+				continue
+
+			ret += '%s=%s ' % (k, str(v))
+
+		return ret.strip()
+
+#
+# The core arguments needed both inside and outside the test environment
+#
+class RunnerCoreArgParse(ArgumentParser):
+	def __init__(self, *args, **kwargs):
+		super().__init__(self, *args, **kwargs)
+
+		self.add_argument('--start', '-s',
+				help='Custom init process in virtual environment',
+				dest='start',
+				default=None)
+		self.add_argument('--verbose', '-v', metavar='<list>',
+				type=str,
+				help='Comma separated list of applications',
+				dest='verbose',
+				default=[])
+		self.add_argument('--debug', '--dbg', '-d',
+				action='store_true',
+				help='Enable test-runner debugging',
+				dest='dbg')
+		self.add_argument('--log', '-l',
+				type=str,
+				help='Directory for log files')
+		self.add_argument('--monitor', '-m',
+				type=str,
+				help='Enables iwmon output to file')
+		self.add_argument('--sub-tests', '-S',
+				metavar='<subtests>',
+				type=str, nargs=1, help='List of subtests to run',
+				default=None, dest='sub_tests')
+		self.add_argument('--result', '-e', type=str,
+				help='Writes PASS/FAIL to results file')
+		self.add_argument('--hw', '-w',
+				type=str,
+				help='Use physical adapters for tests (passthrough)')
+		self.add_argument('--testhome')
+
+		# Prevent --autotest/--unittest from being used together
+		auto_unit_group = self.add_mutually_exclusive_group()
+		auto_unit_group.add_argument('--autotests', '-A',
+				metavar='<tests>',
+				type=str,
+				help='List of tests to run',
+				default=None,
+				dest='autotests')
+		auto_unit_group.add_argument('--unit-tests', '-U',
+				metavar='<tests>',
+				type=str,
+				nargs='?',
+				const='*',
+				help='List of unit tests to run',
+				dest='unit_tests')
+
+		# Prevent --valgrind/--gdb from being used together
+		valgrind_gdb_group = self.add_mutually_exclusive_group()
+		valgrind_gdb_group.add_argument('--gdb', '-g',
+				metavar='<exec>',
+				type=str,
+				nargs=1,
+				help='Run gdb on specified executable',
+				dest='gdb')
+		valgrind_gdb_group.add_argument('--valgrind', '-V',
+				action='store_true',
+				help='Run valgrind on IWD',
+				dest='valgrind')
+
+	# Overwrite to use a custom namespace class and parse from env
+	def parse_args(self, *args, namespace=RunnerNamespace()):
+		if len(sys.argv) > 1:
+			return super().parse_args(*args, namespace=namespace)
+
+		options = []
+		for k, v in os.environ.items():
+			options.append('--' + k)
+			options.append(v)
+
+		return self.parse_known_args(args=options, namespace=namespace)[0]
+
+#
+# Arguments only needed outside the test environment
+#
+class RunnerArgParse(RunnerCoreArgParse):
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+
+		self.add_argument('--runner', '-r',
+				metavar='<runner type>',
+				type=str,
+				help='Type of runner to use (qemu, uml, host)',
+				dest='runner',
+				default=None)
+		self.add_argument('--kernel', '-k',
+				metavar='<kernel>',
+				type=str,
+				help='Path to kernel/uml image',
+				dest='kernel',
+				default=None)
+
+#
+# Class to sort out what type of runner this is, returns the RunnerAbstract
+# implementation.
+#
+class Runner:
+	def __new__(self):
+		parser = RunnerArgParse(description='IWD Test Runner')
+
+		args = parser.parse_args()
+
+		# Common options
+		args.PATH = os.environ['PATH']
+
+		if 'testhome' not in args.to_cmd():
+			if os.getcwd().endswith('tools'):
+				args.testhome = '%s/../' % os.getcwd()
+			else:
+				args.testhome = os.getcwd()
+
+		if args.start is None:
+			if os.path.exists('run-tests'):
+				args.start = os.path.abspath('run-tests')
+			elif os.path.exists('tools/run-tests'):
+				args.start = os.path.abspath('tools/run-tests')
+			else:
+				raise Exception("Cannot locate run-tests binary")
+
+		# If no runner is specified but we have a kernel image assume
+		# if the kernel is executable its UML, otherwise qemu
+		if not args.runner:
+			if not args.kernel:
+				raise Exception("Please specify --runner/--kernel")
+
+			if os.access(args.kernel, os.X_OK):
+				args.runner = 'uml'
+			else:
+				args.runner = 'qemu'
+
+		if args.runner == 'qemu':
+			return QemuRunner(args)
+		else:
+			raise Exception("Unknown runner %s" % args.runner)
+
+class RunnerAbstract:
+	cmdline = []
+	env = None
+	name = "unnamed"
+
+	def __init__(self, args):
+		self.args = args
+
+		if self.args.log:
+			self.args.log = os.path.abspath(self.args.log)
+
+	def start(self):
+		print("Starting %s" % self.name)
+		os.execlpe(self.cmdline[0], *self.cmdline, self.env)
+
+	def prepare_environment(self):
+		path = os.environ['PATH']
+		os.environ['PATH'] = '%s/src' % self.args.testhome
+		os.environ['PATH'] += ':%s/tools' % self.args.testhome
+		os.environ['PATH'] += ':%s/client' % self.args.testhome
+		os.environ['PATH'] += ':%s/monitor' % self.args.testhome
+		os.environ['PATH'] += ':%s/wired' % self.args.testhome
+		os.environ['PATH'] += ':' + path
+
+		sys.path.append(self.args.testhome + '/autotests/util')
+
+		if not os.path.exists('/tmp/iwd'):
+			os.mkdir('/tmp/iwd')
+
+		#
+		# This prevents any print() calls in this script from printing unless
+		# --debug is passed. For an 'always print' option use dbg()
+		#
+		if not self.args.dbg:
+			sys.stdout = open(os.devnull, 'w')
+
+		# Copy autotests/misc/{certs,secrets,phonesim} so any test can refer to them
+		if os.path.exists('/tmp/certs'):
+			rmtree('/tmp/certs')
+
+		if os.path.exists('/tmp/secrets'):
+			rmtree('/tmp/secrets')
+
+		copytree(self.args.testhome + '/autotests/misc/certs', '/tmp/certs')
+		copytree(self.args.testhome + '/autotests/misc/secrets', '/tmp/secrets')
+		copy(self.args.testhome + '/autotests/misc/phonesim/phonesim.conf', '/tmp')
+
+	def cleanup_environment(self):
+		rmtree('/tmp/iwd')
+		rmtree('/tmp/certs')
+		rmtree('/tmp/secrets')
+		os.remove('/tmp/phonesim.conf')
+
+		os.sync()
+
+	# For QEMU/UML runners
+	def _prepare_mounts(self):
+		for entry in mounts_common:
+			try:
+				os.lstat(entry.target)
+			except:
+				os.mkdir(entry.target, 755)
+
+			mount(entry.fstype, entry.target, entry.fstype, entry.flags,
+				entry.options)
+
+		for entry in dev_table:
+			os.symlink(entry.target, entry.linkpath)
+
+		os.setsid()
+
+	def stop(self):
+		exit()
+
+class QemuRunner(RunnerAbstract):
+	name = "Qemu Runner"
+
+	def __init__(self, args):
+		def mount_options(id):
+			return 'mount_tag=%s,security_model=passthrough,id=%s' % (id, id)
+
+		usb_adapters = None
+		pci_adapters = None
+		gid = None
+		append_gid_uid = False
+
+		super().__init__(args)
+
+		if len(sys.argv) <= 1:
+			return
+
+		if not which('qemu-system-x86_64'):
+			raise Exception('Cannot locate qemu binary')
+
+		if not args.kernel or not os.path.exists(args.kernel):
+			raise Exception('Cannot locate kernel image %s' % args.kernel)
+
+		if args.hw:
+			hw_conf = ConfigParser()
+			hw_conf.read(args.hw)
+
+			if hw_conf.has_section('USBAdapters'):
+				# The actual key name of the adapter
+				# doesn't matter since all we need is the
+				# bus/address. This gets named by the kernel
+				# anyways once in the VM.
+				usb_adapters = [v for v in hw_conf['USBAdapters'].values()]
+
+			if hw_conf.has_section('PCIAdapters'):
+				pci_adapters = [v for v in hw_conf['PCIAdapters'].values()]
+
+		if os.environ.get('SUDO_GID', None):
+			uid = int(os.environ['SUDO_UID'])
+			gid = int(os.environ['SUDO_GID'])
+
+		if args.log:
+			if os.getuid() != 0:
+				print("--log can only be used as root user")
+				quit()
+
+			append_gid_uid = True
+
+			args.log = os.path.abspath(args.log)
+			if not os.path.exists(self.args.log):
+				os.mkdir(self.args.log)
+
+				if gid:
+					os.chown(self.args.log, uid, gid)
+
+		if args.monitor:
+			if os.getuid() != 0:
+				print("--monitor can only be used as root user")
+				quit()
+
+			append_gid_uid = True
+
+			args.monitor = os.path.abspath(args.monitor)
+			monitor_parent_dir = os.path.abspath(os.path.join(self.args.monitor,
+										os.pardir))
+
+		if args.result:
+			if os.getuid() != 0:
+				print("--result can only be used as root user")
+				quit()
+
+			append_gid_uid = True
+
+			args.result = os.path.abspath(args.result)
+			result_parent_dir = os.path.abspath(os.path.join(self.args.result,
+										os.pardir))
+
+		if append_gid_uid:
+			args.SUDO_UID = uid
+			args.SUDO_GID = gid
+
+		kern_log = "ignore_loglevel" if "kernel" in args.verbose else "quiet"
+
+		qemu_cmdline = [
+			'qemu-system-x86_64',
+			'-machine', 'type=q35,accel=kvm:tcg',
+			'-nodefaults', '-no-user-config', '-monitor', 'none',
+			'-display', 'none', '-m', '256M', '-nographic', '-vga',
+			'none', '-no-acpi', '-no-hpet',
+			'-no-reboot', '-fsdev',
+			'local,id=fsdev-root,path=/,readonly=on,security_model=none,multidevs=remap',
+			'-device',
+			'virtio-9p-pci,fsdev=fsdev-root,mount_tag=/dev/root',
+			'-chardev', 'stdio,id=chardev-serial0,signal=off',
+			'-device', 'pci-serial,chardev=chardev-serial0',
+			'-device', 'virtio-rng-pci',
+			'-kernel', args.kernel,
+			'-smp', '2',
+			'-append',
+			'console=ttyS0,115200n8 earlyprintk=serial \
+				rootfstype=9p root=/dev/root \
+				rootflags=trans=virtio \
+				acpi=off pci=noacpi %s ro \
+				mac80211_hwsim.radios=0 init=%s %s' %
+						(kern_log, args.start, args.to_cmd()),
+		]
+
+		# Add two ethernet devices for testing EAD
+		qemu_cmdline.extend([
+				'-net', 'nic,model=virtio',
+				'-net', 'nic,model=virtio',
+				'-net', 'user'
+		])
+
+		if usb_adapters:
+			for bus, addr in [s.split(',') for s in usb_adapters]:
+				qemu_cmdline.extend(['-usb',
+							'-device',
+							'usb-host,hostbus=%s,hostaddr=%s' % \
+							(bus, addr)])
+		if pci_adapters:
+			qemu_cmdline.extend(['-enable-kvm'])
+			for addr in pci_adapters:
+				qemu_cmdline.extend(['-device', 'vfio-pci,host=%s' % addr])
+
+		if args.log:
+			#
+			# Creates a virtfs device that can be mounted. This mount
+			# will point back to the provided log directory and is
+			# writable unlike the rest of the mounted file system.
+			#
+			qemu_cmdline.extend([
+				'-virtfs',
+				'local,path=%s,%s' % (args.log, mount_options('logdir'))
+			])
+
+		if args.monitor:
+			qemu_cmdline.extend([
+				'-virtfs',
+				'local,path=%s,%s' % (monitor_parent_dir, mount_options('mondir'))
+			])
+
+		if args.result:
+			qemu_cmdline.extend([
+				'-virtfs',
+				'local,path=%s,%s' % (result_parent_dir, mount_options('resultdir'))
+			])
+
+		self.cmdline = qemu_cmdline
+
+	def prepare_environment(self):
+		mounts_common.extend([
+			MountInfo('debugfs', '/sys/kernel/debug', '', 0)
+		])
+
+		self._prepare_mounts()
+
+		super().prepare_environment()
+
+		fcntl.ioctl(STDIN_FILENO, TIOCSTTY, 1)
+
+		if self.args.log:
+			mount('logdir', self.args.log, '9p', 0,
+					'trans=virtio,version=9p2000.L,msize=10240')
+			# Clear out any log files from other test runs
+			for f in glob('%s/*' % self.args.log):
+				print("removing %s" % f)
+
+				if os.path.isdir(f):
+					rmtree(f)
+				else:
+					os.remove(f)
+		elif self.args.monitor:
+			parent = os.path.abspath(os.path.join(self.args.monitor, os.pardir))
+			mount('mondir', parent, '9p', 0,
+					'trans=virtio,version=9p2000.L,msize=10240')
+
+		if self.args.result:
+			parent = os.path.abspath(os.path.join(self.args.result, os.pardir))
+			mount('resultdir', parent, '9p', 0,
+					'trans=virtio,version=9p2000.L,msize=10240')
+
+	def stop(self):
+		RB_AUTOBOOT = 0x01234567
+		#
+		# Calling 'reboot' or 'shutdown' from a shell (e.g. os.system('reboot'))
+		# is not the same the POSIX reboot() and will cause a kernel panic since
+		# we are the init process. The libc.reboot() allows the VM to exit
+		# gracefully.
+		#
+		libc.reboot(RB_AUTOBOOT)
