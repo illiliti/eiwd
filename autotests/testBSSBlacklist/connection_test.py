@@ -110,11 +110,11 @@ class Test(unittest.TestCase):
 
         # Have both APs drop all packets, both should get blacklisted
         rule0.drop = True
-        rule0.enable = True
+        rule0.enabled = True
         rule1.drop = True
-        rule1.enable = True
+        rule1.enabled = True
         rule2.drop = True
-        rule2.enable = True
+        rule2.enabled = True
 
         with self.assertRaises(iwd.FailedEx):
             ordered_network.network_object.connect()
