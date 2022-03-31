@@ -232,16 +232,14 @@ class StationDebug(IWDDBusAbstract):
     _iface_name = IWD_STATION_DEBUG_INTERFACE
 
     def __init__(self, *args, **kwargs):
-        self._last_event = None
-        self._last_event_data = []
+        self._events = []
 
         IWDDBusAbstract.__init__(self, *args, **kwargs)
 
         self._iface.connect_to_signal("Event", self._event_handler)
 
     def _event_handler(self, event, data):
-        self._last_event = event
-        self._last_event_data = data
+        self._events.insert(0, (event, data))
 
     @property
     def autoconnect(self):
@@ -257,19 +255,18 @@ class StationDebug(IWDDBusAbstract):
         frequencies = dbus.Array([dbus.UInt16(f) for f in frequencies])
         self._iface.Scan(frequencies)
 
+    def _poll_event(self, event):
+        for idx, e in enumerate(self._events):
+            if event == e[0]:
+                # Consume any older events
+                self._events = self._events[:idx]
+                return True
+
+        return False
+
     def wait_for_event(self, event, timeout=10):
-        try:
-            if self._last_event is not None:
-                return self._last_event_data
-
-            ctx.non_block_wait(lambda s, e : s._last_event == e, timeout, self, event,
-                                exception=TimeoutError("waiting for StationDebug.Event"))
-
-            return self._last_event_data
-        finally:
-            # Consume the event
-            self._last_event_data = None
-            self._last_event = None
+        return ctx.non_block_wait(self._poll_event, timeout, event,
+                                    exception=TimeoutError("waiting for event"))
 
 class DeviceProvisioning(IWDDBusAbstract):
     '''
