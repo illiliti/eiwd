@@ -540,7 +540,8 @@ class Hostapd:
 		except:
 			print("Failed to remove %s" % self.global_ctrl_iface)
 
-		self.instances = None
+		for hapd in self.instances:
+			GLib.source_remove(hapd.cli.io_watch)
 
 		# Hostapd may have already been stopped
 		if self.process:
