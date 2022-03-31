@@ -11,8 +11,6 @@ from iwd import NetworkType
 from hostapd import HostapdCLI
 import testutil
 
-from time import sleep
-
 # Table beacon with wildcard BSSID
 basic_beacon = '51000000000002ffffffffffff020100'
 # Table beacon with wildcard BSSID and SSID filter
@@ -53,51 +51,43 @@ class Test(unittest.TestCase):
 
         hapd.wait_for_event('AP-STA-CONNECTED')
 
+        wd.wait(1)
+
         # This should return both APs
         hapd.req_beacon(device.address, basic_beacon)
 
         for e in ['BEACON-RESP-RX', 'BEACON-RESP-RX']:
-            event = hapd.wait_for_event(e)
-            if event:
-                print(event)
+            hapd.wait_for_event(e)
 
-        sleep(0.5)
+        wd.wait(1)
 
         # This should return just ssidRRM
         hapd.req_beacon(device.address, beacon_with_ssid)
-        event = hapd.wait_for_event('BEACON-RESP-RX')
-        if event:
-            print(event)
+        hapd.wait_for_event('BEACON-RESP-RX')
 
-        sleep(0.5)
+        wd.wait(1)
 
         # This should passive scan on channel 11, returning otherSSID
         hapd.req_beacon(device.address, beacon_passive)
         # TODO: See if we are scanning here (scan not initiated from station)
 
-        event = hapd.wait_for_event('BEACON-RESP-RX')
-        if event:
-            print(event)
+        hapd.wait_for_event('BEACON-RESP-RX')
 
-        sleep(0.5)
+        wd.wait(1)
 
         # This should active scan on channel 11, returning otherSSID
         hapd.req_beacon(device.address, beacon_active)
         # TODO: See if we are scanning here (scan not initiated from station)
 
-        event = hapd.wait_for_event('BEACON-RESP-RX')
-        if event:
-            print(event)
+        hapd.wait_for_event('BEACON-RESP-RX')
 
-        sleep(0.5)
+        wd.wait(1)
 
          # This should passive scan on channel 11, returning otherSSID
         hapd.req_beacon(device.address, beacon_passive_duration)
         # TODO: See if we are scanning here (scan not initiated from station)
 
-        event = hapd.wait_for_event('BEACON-RESP-RX')
-        if event:
-            print(event)
+        hapd.wait_for_event('BEACON-RESP-RX')
 
         device.disconnect()
 
