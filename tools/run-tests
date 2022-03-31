@@ -129,6 +129,8 @@ class Process(subprocess.Popen):
 		self.killed = False
 		self.namespace = namespace
 
+		logfile = args[0]
+
 		if not self.ctx:
 			global config
 			self.ctx = config.ctx
@@ -138,6 +140,7 @@ class Process(subprocess.Popen):
 
 		if namespace:
 			args = ['ip', 'netns', 'exec', namespace] + args
+			logfile += '-%s' % namespace
 
 		if outfile:
 			# outfile is only used by iwmon, in which case we don't want
@@ -145,9 +148,16 @@ class Process(subprocess.Popen):
 			self._append_outfile(outfile, append=False)
 
 		if self.ctx.args.log:
-			logfile = '%s/%s/%s' % (self.ctx.args.log,
-						os.path.basename(os.getcwd()),
-						args[0])
+			testdir = os.getcwd()
+
+			# Special case any processes started prior to a test
+			# (i.e. from testhome). Put these in the root log directory
+			if testdir == self.ctx.args.testhome:
+				testdir = '.'
+			else:
+				testdir = os.path.basename(testdir)
+
+			logfile = '%s/%s/%s' % (self.ctx.args.log, testdir, logfile)
 			self._append_outfile(logfile)
 
 		super().__init__(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
