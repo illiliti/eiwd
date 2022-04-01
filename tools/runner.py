@@ -479,10 +479,8 @@ class QemuRunner(RunnerAbstract):
 	def stop(self):
 		RB_AUTOBOOT = 0x01234567
 		#
-		# Calling 'reboot' or 'shutdown' from a shell (e.g. os.system('reboot'))
-		# is not the same the POSIX reboot() and will cause a kernel panic since
-		# we are the init process. The libc.reboot() allows the VM to exit
-		# gracefully.
+		# Killing init() results in a kernel panic. For QEMU a graceful
+		# exit is achieved with RB_AUTOBOOT
 		#
 		libc.reboot(RB_AUTOBOOT)
 
@@ -511,3 +509,11 @@ class UmlRunner(RunnerAbstract):
 		self._prepare_mounts()
 
 		super().prepare_environment()
+
+	def stop(self):
+		RB_POWER_OFF = 0x4321fedc
+		#
+		# Killing init() results in a kernel panic. For UML a graceful
+		# exit is achieved with RB_POWER_OFF
+		#
+		libc.reboot(RB_POWER_OFF)
