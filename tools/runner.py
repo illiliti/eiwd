@@ -201,6 +201,8 @@ class Runner:
 				args.start = os.path.abspath('tools/run-tests')
 			else:
 				raise Exception("Cannot locate run-tests binary")
+		else:
+			args.start = os.path.abspath(args.start)
 
 		# If no runner is specified but we have a kernel image assume
 		# if the kernel is executable its UML, otherwise qemu
