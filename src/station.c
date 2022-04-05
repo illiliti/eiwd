@@ -2615,9 +2615,12 @@ static void station_ap_directed_roam(struct station *station,
 	valid_interval = l_get_u8(body + pos);
 	pos++;
 
-	l_debug("roam: BSS transition received from AP: "
+	l_debug("roam: BSS transition received from AP: " MAC", "
 			"Disassociation Time: %u, "
-			"Validity interval: %u", dtimer, valid_interval);
+			"Validity interval: %u, Address3: " MAC,
+			MAC_STR(hdr->address_2),
+			dtimer, valid_interval,
+			MAC_STR(hdr->address_3));
 
 	/* check req_mode for optional values */
 	if (req_mode & WNM_REQUEST_MODE_TERMINATION_IMMINENT) {
@@ -2644,6 +2647,26 @@ static void station_ap_directed_roam(struct station *station,
 
 	if (station->state != STATION_STATE_CONNECTED) {
 		l_debug("roam: unexpected AP directed roam -- ignore");
+		return;
+	}
+
+	/*
+	 * Sanitize the frame to check that it is from our current AP.
+	 *
+	 * 802.11-2020 Section 9.3.3.1 about Address2:
+	 * "If the STA is an AP with dot11MultiBSSDImplemented set to false,
+	 * then this address is the BSSID."
+	 *
+	 * Address3:
+	 * "If the STA is an AP or PCP, the Address 3 field is the same as the
+	 * Address 2 field."
+	 *
+	 * For now check that Address2 & Address3 is the same as the connected
+	 * BSS address.
+	 */
+	if (memcmp(hdr->address_2, station->connected_bss, ETH_ALEN) ||
+			memcmp(hdr->address_2, hdr->address_3, ETH_ALEN)) {
+		l_debug("roam: AP directed roam not from our AP -- ignore");
 		return;
 	}
 
