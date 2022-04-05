@@ -82,7 +82,7 @@ class RunnerNamespace(Namespace):
 #
 class RunnerCoreArgParse(ArgumentParser):
 	def __init__(self, *args, **kwargs):
-		super().__init__(self, *args, **kwargs)
+		ArgumentParser.__init__(self, *args, **kwargs)
 
 		self.add_argument('--start', '-s',
 				help='Custom init process in virtual environment',
@@ -144,23 +144,23 @@ class RunnerCoreArgParse(ArgumentParser):
 				dest='valgrind')
 
 	# Overwrite to use a custom namespace class and parse from env
-	def parse_args(self, *args, namespace=RunnerNamespace()):
+	def parse_args(self, *args):
 		if len(sys.argv) > 1:
-			return super().parse_args(*args, namespace=namespace)
+			return super().parse_args(*args, namespace=RunnerNamespace())
 
 		options = []
 		for k, v in os.environ.items():
 			options.append('--' + k)
 			options.append(v)
 
-		return self.parse_known_args(args=options, namespace=namespace)[0]
+		return self.parse_known_args(args=options, namespace=RunnerNamespace())[0]
 
 #
 # Arguments only needed outside the test environment
 #
 class RunnerArgParse(RunnerCoreArgParse):
 	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
+		RunnerCoreArgParse.__init__(self, *args, **kwargs)
 
 		self.add_argument('--runner', '-r',
 				metavar='<runner type>',
