@@ -5,17 +5,33 @@ Service		net.connman.hwsim
 Interface	net.connman.hwsim.RadioManager [Experimental]
 Object path	/
 
-Methods		object CreateRadio(string name, boolean p2p_device)
+Methods		object CreateRadio(dict)
 			Add one virtual radio device to the simulator, a
 			path to a new object with the
 			net.connman.hwsim.Radio interface is returned.
-			The radio is created with one network interface of
-			the type "managed" (Station) and optionally one
-			P2P Device interface.  The name parameter may be
-			an empty string or a requested name for the radio
-			and its wiphy.  If empty, the kernel will use a
-			default name.  If non-empty, the kernel may still
-			use the default name if the requested name can not
+
+			This API takes a dictionary of arguments (all optional)
+			with keys:
+
+			string Name -			Name of radio
+			bool P2P -			Create a P2P device
+			string InterfaceTypeDisable -	List of disabled
+							interface types (comma
+							separated)
+			string CipherTypeDisable -	List of disabled
+							cipher types (comma
+							separated)
+			string NoVirtualInterface -	Don't create an
+							interface for this
+							radio.
+
+			The radio is created with one network interface (unless
+			NoVirtualInterface is used) of the type "managed"
+			(Station) and optionally one P2P Device interface.
+			The name parameter may be an empty string or a requested
+			name for the radio and its wiphy.  If empty, the kernel
+			will use a default name. If non-empty, the kernel may
+			still use the default name if the requested name can not
 			be used.
 
 Service		net.connman.hwsim
