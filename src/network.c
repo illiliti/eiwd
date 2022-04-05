@@ -85,6 +85,7 @@ struct network {
 	bool is_hs20:1;
 	bool anqp_pending:1;	/* Set if there is a pending ANQP request */
 	bool owe_hidden_pending:1;
+	bool provisioning_hidden:1;
 	uint8_t transition_disable; /* Temporary cache until info is set */
 	bool have_transition_disable:1;
 	int rank;
@@ -188,6 +189,8 @@ void network_connected(struct network *network)
 				network_secret_check_cacheable, network);
 
 	l_queue_clear(network->blacklist, NULL);
+
+	network->provisioning_hidden = false;
 }
 
 void network_disconnected(struct network *network)
@@ -980,6 +983,9 @@ void network_connect_failed(struct network *network, bool in_handshake)
 
 	l_queue_destroy(network->secrets, eap_secret_info_free);
 	network->secrets = NULL;
+
+	if (network->provisioning_hidden)
+		station_hide_network(network->station, network);
 }
 
 static bool hotspot_info_matches(struct network *network,
@@ -1242,6 +1248,9 @@ static void passphrase_callback(enum agent_result result,
 	return;
 
 err:
+	if (network->provisioning_hidden)
+		station_hide_network(station, network);
+
 	network_settings_close(network);
 }
 
@@ -1661,8 +1670,10 @@ struct l_dbus_message *network_connect_new_hidden_network(
 
 	switch (network_get_security(network)) {
 	case SECURITY_PSK:
+		network->provisioning_hidden = true;
 		return network_connect_psk(network, bss, message);
 	case SECURITY_NONE:
+		network->provisioning_hidden = true;
 		station_connect_network(station, network, bss, message);
 		return NULL;
 	default:

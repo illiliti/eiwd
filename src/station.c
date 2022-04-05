@@ -3198,6 +3198,8 @@ next:
 	}
 
 	if (network_psk && network_open) {
+		station_hide_network(station, network_psk);
+		station_hide_network(station, network_open);
 		dbus_pending_reply(&msg, dbus_error_service_set_overlap(msg));
 		return true;
 	}
