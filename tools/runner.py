@@ -87,7 +87,8 @@ class RunnerCoreArgParse(ArgumentParser):
 		self.add_argument('--start', '-s',
 				help='Custom init process in virtual environment',
 				dest='start',
-				default=None)
+				default=None,
+				type=os.path.abspath)
 		self.add_argument('--verbose', '-v', metavar='<list>',
 				type=str,
 				help='Comma separated list of applications',
@@ -98,16 +99,17 @@ class RunnerCoreArgParse(ArgumentParser):
 				help='Enable test-runner debugging',
 				dest='dbg')
 		self.add_argument('--log', '-l',
-				type=str,
+				type=os.path.abspath,
 				help='Directory for log files')
 		self.add_argument('--monitor', '-m',
-				type=str,
+				type=os.path.abspath,
 				help='Enables iwmon output to file')
 		self.add_argument('--sub-tests', '-S',
 				metavar='<subtests>',
 				type=str, nargs=1, help='List of subtests to run',
 				default=None, dest='sub_tests')
-		self.add_argument('--result', '-e', type=str,
+		self.add_argument('--result', '-e',
+				type=os.path.abspath,
 				help='Writes PASS/FAIL to results file')
 		self.add_argument('--hw', '-w',
 				type=str,
@@ -201,8 +203,6 @@ class Runner:
 				args.start = os.path.abspath('tools/run-tests')
 			else:
 				raise Exception("Cannot locate run-tests binary")
-		else:
-			args.start = os.path.abspath(args.start)
 
 		# If no runner is specified but we have a kernel image assume
 		# if the kernel is executable its UML, otherwise qemu
@@ -229,9 +229,6 @@ class RunnerAbstract:
 
 	def __init__(self, args):
 		self.args = args
-
-		if self.args.log:
-			self.args.log = os.path.abspath(self.args.log)
 
 	def start(self):
 		print("Starting %s" % self.name)
