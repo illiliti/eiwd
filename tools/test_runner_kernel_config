@@ -51,3 +51,4 @@ scripts/config --enable CONFIG_SECURITYFS
 scripts/config --enable CONFIG_BINFMT_ELF
 scripts/config --enable CONFIG_HOSTFS
 scripts/config --enable CONFIG_UML_TIME_TRAVEL_SUPPORT
+scripts/config --enable CONFIG_BINFMT_SCRIPT
