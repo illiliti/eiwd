@@ -2670,6 +2670,11 @@ static void station_ap_directed_roam(struct station *station,
 		return;
 	}
 
+	if (station->preparing_roam) {
+		l_debug("roam: roam attempt already in progress -- ignore");
+		return;
+	}
+
 	station->ap_directed_roaming = true;
 	station->preparing_roam = true;
 
