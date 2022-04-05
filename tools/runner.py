@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 
-from argparse import ArgumentParser
-from argparse import Namespace
+from argparse import ArgumentParser, Namespace, SUPPRESS
 from configparser import ConfigParser
 from collections import namedtuple
 from shutil import copy, copytree, which, rmtree
@@ -114,7 +113,9 @@ class RunnerCoreArgParse(ArgumentParser):
 		self.add_argument('--hw', '-w',
 				type=str,
 				help='Use physical adapters for tests (passthrough)')
-		self.add_argument('--testhome')
+		self.add_argument('--testhome', help=SUPPRESS)
+		self.add_argument('--monitor_parent', help=SUPPRESS)
+		self.add_argument('--result_parent', help=SUPPRESS)
 
 		# Prevent --autotest/--unittest from being used together
 		auto_unit_group = self.add_mutually_exclusive_group()
@@ -275,8 +276,8 @@ class RunnerAbstract:
 		os.sync()
 
 	# For QEMU/UML runners
-	def _prepare_mounts(self):
-		for entry in mounts_common:
+	def _prepare_mounts(self, extra=[]):
+		for entry in mounts_common + extra:
 			try:
 				os.lstat(entry.target)
 			except:
@@ -290,6 +291,52 @@ class RunnerAbstract:
 
 		os.setsid()
 
+	# For QEMU/UML --log, --monitor, --result
+	def _prepare_outfiles(self):
+		gid = None
+		append_gid_uid = False
+
+		if os.environ.get('SUDO_GID', None):
+			uid = int(os.environ['SUDO_UID'])
+			gid = int(os.environ['SUDO_GID'])
+
+		if self.args.log:
+			if os.getuid() != 0:
+				print("--log can only be used as root user")
+				quit()
+
+			append_gid_uid = True
+
+			if not os.path.exists(self.args.log):
+				os.mkdir(self.args.log)
+
+			if gid:
+				os.chown(self.args.log, uid, gid)
+
+		if self.args.monitor:
+			if os.getuid() != 0:
+				print("--monitor can only be used as root user")
+				quit()
+
+			append_gid_uid = True
+
+			self.args.monitor_parent = os.path.abspath(
+						os.path.join(self.args.monitor, os.pardir))
+
+		if self.args.result:
+			if os.getuid() != 0:
+				print("--result can only be used as root user")
+				quit()
+
+			append_gid_uid = True
+
+			self.args.result_parent = os.path.abspath(
+						os.path.join(self.args.result, os.pardir))
+
+		if append_gid_uid:
+			self.args.SUDO_UID = uid
+			self.args.SUDO_GID = gid
+
 	def stop(self):
 		exit()
 
@@ -302,8 +349,6 @@ class QemuRunner(RunnerAbstract):
 
 		usb_adapters = None
 		pci_adapters = None
-		gid = None
-		append_gid_uid = False
 
 		super().__init__(args)
 
@@ -315,6 +360,8 @@ class QemuRunner(RunnerAbstract):
 
 		if not args.kernel or not os.path.exists(args.kernel):
 			raise Exception('Cannot locate kernel image %s' % args.kernel)
+
+		self._prepare_outfiles()
 
 		if args.hw:
 			hw_conf = ConfigParser()
@@ -329,50 +376,6 @@ class QemuRunner(RunnerAbstract):
 
 			if hw_conf.has_section('PCIAdapters'):
 				pci_adapters = [v for v in hw_conf['PCIAdapters'].values()]
-
-		if os.environ.get('SUDO_GID', None):
-			uid = int(os.environ['SUDO_UID'])
-			gid = int(os.environ['SUDO_GID'])
-
-		if args.log:
-			if os.getuid() != 0:
-				print("--log can only be used as root user")
-				quit()
-
-			append_gid_uid = True
-
-			args.log = os.path.abspath(args.log)
-			if not os.path.exists(self.args.log):
-				os.mkdir(self.args.log)
-
-				if gid:
-					os.chown(self.args.log, uid, gid)
-
-		if args.monitor:
-			if os.getuid() != 0:
-				print("--monitor can only be used as root user")
-				quit()
-
-			append_gid_uid = True
-
-			args.monitor = os.path.abspath(args.monitor)
-			monitor_parent_dir = os.path.abspath(os.path.join(self.args.monitor,
-										os.pardir))
-
-		if args.result:
-			if os.getuid() != 0:
-				print("--result can only be used as root user")
-				quit()
-
-			append_gid_uid = True
-
-			args.result = os.path.abspath(args.result)
-			result_parent_dir = os.path.abspath(os.path.join(self.args.result,
-										os.pardir))
-
-		if append_gid_uid:
-			args.SUDO_UID = uid
-			args.SUDO_GID = gid
 
 		kern_log = "ignore_loglevel" if "kernel" in args.verbose else "quiet"
 
@@ -426,29 +429,31 @@ class QemuRunner(RunnerAbstract):
 			#
 			qemu_cmdline.extend([
 				'-virtfs',
-				'local,path=%s,%s' % (args.log, mount_options('logdir'))
+				'local,path=%s,%s' % (args.log,
+							mount_options('logdir'))
 			])
 
 		if args.monitor:
 			qemu_cmdline.extend([
 				'-virtfs',
-				'local,path=%s,%s' % (monitor_parent_dir, mount_options('mondir'))
+				'local,path=%s,%s' % (self.args.monitor_parent,
+							mount_options('mondir'))
 			])
 
 		if args.result:
 			qemu_cmdline.extend([
 				'-virtfs',
-				'local,path=%s,%s' % (result_parent_dir, mount_options('resultdir'))
+				'local,path=%s,%s' % (self.args.result_parent,
+							mount_options('resultdir'))
 			])
+
 
 		self.cmdline = qemu_cmdline
 
 	def prepare_environment(self):
-		mounts_common.extend([
-			MountInfo('debugfs', '/sys/kernel/debug', '', 0)
-		])
+		mounts = [ MountInfo('debugfs', '/sys/kernel/debug', '', 0) ]
 
-		self._prepare_mounts()
+		self._prepare_mounts(extra=mounts)
 
 		super().prepare_environment()
 
@@ -465,14 +470,12 @@ class QemuRunner(RunnerAbstract):
 					rmtree(f)
 				else:
 					os.remove(f)
-		elif self.args.monitor:
-			parent = os.path.abspath(os.path.join(self.args.monitor, os.pardir))
-			mount('mondir', parent, '9p', 0,
+		if self.args.monitor:
+			mount('mondir', self.args.monitor_parent, '9p', 0,
 					'trans=virtio,version=9p2000.L,msize=10240')
 
 		if self.args.result:
-			parent = os.path.abspath(os.path.join(self.args.result, os.pardir))
-			mount('resultdir', parent, '9p', 0,
+			mount('resultdir', self.args.result_parent, '9p', 0,
 					'trans=virtio,version=9p2000.L,msize=10240')
 
 	def stop(self):
@@ -495,6 +498,8 @@ class UmlRunner(RunnerAbstract):
 		if not which(args.kernel):
 			raise Exception('Cannot locate UML binary %s' % args.kernel)
 
+		self._prepare_outfiles()
+
 		kern_log = "ignore_loglevel" if "kernel" in args.verbose else "quiet"
 
 		cmd = [args.kernel, 'rootfstype=hostfs', 'ro', 'mem=256M', 'mac80211_hwsim.radios=0',
@@ -505,7 +510,21 @@ class UmlRunner(RunnerAbstract):
 		self.cmdline = cmd
 
 	def prepare_environment(self):
-		self._prepare_mounts()
+		mounts = []
+
+		if self.args.log:
+			mounts.append(MountInfo('hostfs', self.args.log,
+							self.args.log, 0))
+
+		if self.args.monitor:
+			mounts.append(MountInfo('hostfs', self.args.monitor_parent,
+							self.args.monitor_parent, 0))
+
+		if self.args.result:
+			mounts.append(MountInfo('hostfs', self.args.result_parent,
+							self.args.result_parent, 0))
+
+		self._prepare_mounts(extra=mounts)
 
 		super().prepare_environment()
 
