@@ -2642,6 +2642,11 @@ static void station_ap_directed_roam(struct station *station,
 		pos += url_len;
 	}
 
+	if (station->state != STATION_STATE_CONNECTED) {
+		l_debug("roam: unexpected AP directed roam -- ignore");
+		return;
+	}
+
 	station->ap_directed_roaming = true;
 	station->preparing_roam = true;
 
