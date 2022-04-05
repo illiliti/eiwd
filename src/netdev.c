@@ -4525,6 +4525,9 @@ static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
 	size_t ies_len;
 	struct ft_ds_finder finder;
 
+	if (!netdev->connected)
+		return;
+
 	ret = ft_over_ds_parse_action_response(body, body_len, &spa, &aa,
 						&ies, &ies_len);
 	if (ret < 0)
