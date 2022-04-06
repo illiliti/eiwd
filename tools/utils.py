@@ -453,3 +453,43 @@ class Namespace:
 		ret += '===================================================\n\n'
 
 		return ret
+
+class BarChart():
+	def __init__(self, height=10, max_width=80):
+		self._height = height
+		self._max_width = max_width
+		self._values = []
+		self._max_value = 0
+		self._min_value = 0
+
+	def add_value(self, value):
+		if len(self._values) == 0:
+			self._max_value = int(1.01 * value)
+			self._min_value = int(0.99 * value)
+		elif value > self._max_value:
+			self._max_value = int(1.01 * value)
+		elif value < self._min_value:
+			self._min_value = int(0.99 * value)
+
+		self._values.append(value)
+
+	def _value_to_stars(self, value):
+		# Need to scale value (range of min_value -> max_value) to
+		# a range of 0 -> height
+		#
+		# Scaled = ((value - min_value) / ( max_value - min_value)) * (Height - 0) + 0
+
+		return int(((value - self._min_value) /
+			(self._max_value - self._min_value)) * self._height)
+
+	def __str__(self):
+		# Need to map value from range 0 - self._height
+		ret = ''
+
+		for i, value in enumerate(self._values):
+			stars = self._value_to_stars(value)
+			ret += '[%3u] ' % i + '%-10s' % ('*' * stars) + '\t\t\t%d\n' % value
+
+		ret += '\n'
+
+		return ret
