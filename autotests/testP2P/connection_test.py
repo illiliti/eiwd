@@ -11,6 +11,8 @@ import testutil
 from config import ctx
 from wpas import Wpas
 
+from utils import Process
+
 class Test(unittest.TestCase):
     leases_path = '/tmp/dhcp.lease'
 
@@ -110,7 +112,7 @@ class Test(unittest.TestCase):
             self.assertEqual(wpas.p2p_group['go_ip_addr'], '192.168.1.1')
 
             extra_params = []
-            if ctx.is_verbose('dhclient'):
+            if Process.is_verbose('dhclient'):
                 extra_params.append('-v')
 
             dhcp = ctx.start_process(['dhclient', '-d', '--no-pid', '-cf', '/dev/null', '-lf', self.leases_path,
