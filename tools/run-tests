@@ -886,15 +886,8 @@ def pre_test(ctx, test, copied):
 	ctx.start_wpas_interfaces()
 	ctx.start_ofono()
 
-	if ctx.hw_config.has_option('SETUP', 'start_iwd'):
-		start = ctx.hw_config.getboolean('SETUP', 'start_iwd')
-	else:
-		start = True
-
-	if start:
+	if ctx.hw_config.getboolean('SETUP', 'start_iwd', fallback=True):
 		ctx.start_iwd()
-	else:
-		print("Not starting IWD from test-runner")
 
 	print(ctx)
 
