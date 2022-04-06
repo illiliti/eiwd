@@ -168,7 +168,10 @@ class Process(subprocess.Popen):
 		if not data:
 			return True
 
-		data = data.decode('utf-8')
+		try:
+			data = data.decode('utf-8')
+		except:
+			return True
 
 		# Save data away in case the caller needs it (e.g. list_sta)
 		self.out += data
