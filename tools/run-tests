@@ -461,7 +461,7 @@ class TestContext(Namespace):
 			os.environ['IWD_SIM_KEYS'] = sim_keys
 			return
 
-		if not shutil.which('ofonod') or not shutil.which(['phonesim']):
+		if not shutil.which('ofonod') or not shutil.which('phonesim'):
 			print("Ofono or Phonesim not found, skipping test")
 			return
 
