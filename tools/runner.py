@@ -173,7 +173,7 @@ class RunnerArgParse(RunnerCoreArgParse):
 				default=None)
 		self.add_argument('--kernel', '-k',
 				metavar='<kernel>',
-				type=str,
+				type=os.path.abspath,
 				help='Path to kernel/uml image',
 				dest='kernel',
 				default=None)
