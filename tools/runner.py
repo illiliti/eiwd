@@ -277,6 +277,8 @@ class RunnerAbstract:
 				else:
 					os.remove(f)
 
+		fcntl.ioctl(STDIN_FILENO, TIOCSTTY, 1)
+
 	def cleanup_environment(self):
 		rmtree('/tmp/iwd')
 		rmtree('/tmp/certs')
@@ -478,8 +480,6 @@ class QemuRunner(RunnerAbstract):
 		self._prepare_mounts(extra=mounts)
 
 		super().prepare_environment()
-
-		fcntl.ioctl(STDIN_FILENO, TIOCSTTY, 1)
 
 	def stop(self):
 		RB_AUTOBOOT = 0x01234567
