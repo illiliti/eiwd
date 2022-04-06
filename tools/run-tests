@@ -724,7 +724,10 @@ def start_test(ctx, subtests, rqueue):
 
 					sys.__stdout__.flush()
 
-					Process.write_separators("\n====== %s:%s ======\n\n" % (file, func))
+					name = os.path.basename(os.getcwd())
+
+					Process.write_separators(name, "\n====== %s:%s:%s ======\n\n" %
+									(name, file, func))
 
 					if not skip:
 						# Run test (setUp/tearDown run automatically)

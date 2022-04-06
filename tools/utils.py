@@ -131,12 +131,33 @@ class Process(subprocess.Popen):
 			sys.__stdout__.flush()
 
 	@classmethod
-	def write_separators(cls, sep):
+	def write_separators(cls, test, sep):
+		#
+		# There are either log running processes (cls.processes) or
+		# processes that have terminated already but a log file exists
+		# on disk. We still want the separators to show for both cases
+		# so after writing separators for running processes, also
+		# write them in any additional log files.
+		#
+		nowrite = []
+
 		for proc in cls.processes.values():
 			if proc.killed:
 				continue
 
 			cls._write_io(proc, sep, stdout=False)
+			nowrite.append(proc.args[0])
+
+		if cls.testargs.log:
+			logfiles = os.listdir('%s/%s' % (cls.testargs.log, test))
+
+			extra = list(set(logfiles) - set(nowrite))
+
+			for log in extra:
+				logfile = '%s/%s/%s' % (cls.testargs.log, test, log)
+				with open(logfile, 'a') as f:
+					f.write(sep)
+				f.close()
 
 	def process_io(self, source, condition):
 		if condition & GLib.IO_HUP:
