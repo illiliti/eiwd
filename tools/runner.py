@@ -24,19 +24,19 @@ MS_STRICTATIME = 1 << 24
 STDIN_FILENO = 0
 TIOCSTTY = 0x540E
 
-MountInfo = namedtuple('MountInfo', 'fstype target options flags')
+MountInfo = namedtuple('MountInfo', 'fstype source target options flags')
 DevInfo = namedtuple('DevInfo', 'target linkpath')
 
 mounts_common = [
-	MountInfo('sysfs', '/sys', '', MS_NOSUID|MS_NOEXEC|MS_NODEV),
-	MountInfo('proc', '/proc', '', MS_NOSUID|MS_NOEXEC|MS_NODEV),
-	MountInfo('devpts', '/dev/pts', 'mode=0620', MS_NOSUID|MS_NOEXEC),
-	MountInfo('tmpfs', '/dev/shm', 'mode=1777',
+	MountInfo('sysfs', 'sysfs', '/sys', '', MS_NOSUID|MS_NOEXEC|MS_NODEV),
+	MountInfo('proc', 'proc', '/proc', '', MS_NOSUID|MS_NOEXEC|MS_NODEV),
+	MountInfo('devpts', 'devpts', '/dev/pts', 'mode=0620', MS_NOSUID|MS_NOEXEC),
+	MountInfo('tmpfs', 'tmpfs', '/dev/shm', 'mode=1777',
 					MS_NOSUID|MS_NODEV|MS_STRICTATIME),
-	MountInfo('tmpfs', '/run', 'mode=0755',
+	MountInfo('tmpfs', 'tmpfs', '/run', 'mode=0755',
 					MS_NOSUID|MS_NODEV|MS_STRICTATIME),
-	MountInfo('tmpfs', '/tmp', '', 0),
-	MountInfo('tmpfs', '/usr/share/dbus-1', 'mode=0755',
+	MountInfo('tmpfs', 'tmpfs', '/tmp', '', 0),
+	MountInfo('tmpfs', 'tmpfs', '/usr/share/dbus-1', 'mode=0755',
 					MS_NOSUID|MS_NOEXEC|MS_NODEV|MS_STRICTATIME),
 ]
 
@@ -267,6 +267,16 @@ class RunnerAbstract:
 		copytree(self.args.testhome + '/autotests/misc/secrets', '/tmp/secrets')
 		copy(self.args.testhome + '/autotests/misc/phonesim/phonesim.conf', '/tmp')
 
+		# Clear out any log files from other test runs
+		if self.args.log:
+			for f in [os.path.join(self.args.log, file) for file in os.listdir(self.args.log)]:
+				print("removing %s" % f)
+
+				if os.path.isdir(f):
+					rmtree(f)
+				else:
+					os.remove(f)
+
 	def cleanup_environment(self):
 		rmtree('/tmp/iwd')
 		rmtree('/tmp/certs')
@@ -283,7 +293,7 @@ class RunnerAbstract:
 			except:
 				os.mkdir(entry.target, 755)
 
-			mount(entry.fstype, entry.target, entry.fstype, entry.flags,
+			mount(entry.source, entry.target, entry.fstype, entry.flags,
 				entry.options)
 
 		for entry in dev_table:
@@ -451,32 +461,25 @@ class QemuRunner(RunnerAbstract):
 		self.cmdline = qemu_cmdline
 
 	def prepare_environment(self):
-		mounts = [ MountInfo('debugfs', '/sys/kernel/debug', '', 0) ]
+		mounts = [ MountInfo('debugfs', 'debugfs', '/sys/kernel/debug', '', 0) ]
+
+		if self.args.log:
+			mounts.append(MountInfo('9p', 'logdir', self.args.log,
+					'trans=virtio,version=9p2000.L,msize=10240', 0))
+
+		if self.args.monitor:
+			mounts.append(MountInfo('9p', 'mondir', self.args.monitor_parent,
+					'trans=virtio,version=9p2000.L,msize=10240', 0))
+
+		if self.args.result:
+			mounts.append(MountInfo('9p', 'resultdir', self.args.result_parent,
+					'trans=virtio,version=9p2000.L,msize=10240', 0))
 
 		self._prepare_mounts(extra=mounts)
 
 		super().prepare_environment()
 
 		fcntl.ioctl(STDIN_FILENO, TIOCSTTY, 1)
-
-		if self.args.log:
-			mount('logdir', self.args.log, '9p', 0,
-					'trans=virtio,version=9p2000.L,msize=10240')
-			# Clear out any log files from other test runs
-			for f in glob('%s/*' % self.args.log):
-				print("removing %s" % f)
-
-				if os.path.isdir(f):
-					rmtree(f)
-				else:
-					os.remove(f)
-		if self.args.monitor:
-			mount('mondir', self.args.monitor_parent, '9p', 0,
-					'trans=virtio,version=9p2000.L,msize=10240')
-
-		if self.args.result:
-			mount('resultdir', self.args.result_parent, '9p', 0,
-					'trans=virtio,version=9p2000.L,msize=10240')
 
 	def stop(self):
 		RB_AUTOBOOT = 0x01234567
@@ -513,16 +516,16 @@ class UmlRunner(RunnerAbstract):
 		mounts = []
 
 		if self.args.log:
-			mounts.append(MountInfo('hostfs', self.args.log,
-							self.args.log, 0))
+			mounts.append(MountInfo('hostfs', 'hostfs', self.args.log,
+						self.args.log, 0))
 
 		if self.args.monitor:
-			mounts.append(MountInfo('hostfs', self.args.monitor_parent,
-							self.args.monitor_parent, 0))
+			mounts.append(MountInfo('hostfs', 'hostfs', self.args.monitor_parent,
+						self.args.monitor_parent, 0))
 
 		if self.args.result:
-			mounts.append(MountInfo('hostfs', self.args.result_parent,
-							self.args.result_parent, 0))
+			mounts.append(MountInfo('hostfs', 'hostfs', self.args.result_parent,
+						self.args.result_parent, 0))
 
 		self._prepare_mounts(extra=mounts)
 
