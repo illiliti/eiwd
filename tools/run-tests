@@ -343,12 +343,8 @@ class TestContext(Namespace):
 		self.hw_config = None
 		self.hostapd = None
 		self.wpas_interfaces = None
-		self.cur_radio_id = 0
-		self.cur_iface_id = 0
 		self.radios = []
-		self.loopback_started = False
 		self.results = {}
-		self.mainloop = GLib.MainLoop()
 		self.namespaces = []
 		self._last_mem_available = 0
 		self._mem_chart = BarChart()
@@ -387,7 +383,6 @@ class TestContext(Namespace):
 				rad_config = self.hw_config[name]
 
 			self.radios.append(VirtualRadio(name, rad_config))
-			self.cur_radio_id += 1
 
 	def discover_radios(self):
 		import pyroute2
