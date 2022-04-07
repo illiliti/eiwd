@@ -8,7 +8,6 @@ test-runner is an automated test execution tool for IWD. It is capable of
 creating the emulated environments representing a variety of network topologies
 and run the automated tests of IWD functionality.
 
-
 Software Prerequisites
 ======================
 
@@ -30,6 +29,7 @@ OS:
 	12. phonesim (optional)
 	13. wpa_supplicant	2.9
 	14. radvd		2.18
+	15. dhcpd
 
 Note: The version for hostapd is listed as 'recent'. Older hostapd versions
 will work but we are continually adopting new features from hostapd and using
@@ -54,34 +54,48 @@ In addition, the following Python packages are required:
 Building Kernel
 ===============
 
+test-runner can work both in a fully virtualized environment (QEMU) or inside
+a UML (User Mode Linux) instance. Its recommended using UML as its both faster
+and more reliable than QEMU for timing specific scenarios. When building the
+kernel for UML its important to always specify ARCH=um for any build command.
+The default architectures seem to muck with the kernel config that UML needs
+and will likely result in a UML binary that won't run under test-runner.
+
 The test-runner tool requires a kernel that is at least build with these
 minimal options for a successful boot and execution:
 
 	<arch>_defconfig 			Default kernel configuration
 
 	kvm_guest.config			Default configuration for
-						kvm guests
+						kvm guests (QEMU only)
 
 	<iwd>/tools/test_runner_kernel_config	The test-runner specific
 						configuration
 
 These configurations should be installed as .config in the kernel source
-directory. To make a x86_64 guest kernel the sequence of commands may look
+directory. To build a x86_64 UML kernel the sequence of commands may look
 as follows:
 
 	$ cd linux-X.X.X
 
-	$ make x86_64_defconfig
+	$ make ARCH=um x86_64_defconfig
 
-	$ make kvm_guest.config
+	$ ARCH=um sh <iwd>/tools/test_runner_kernel_config
 
-	$ sh <iwd>/tools/test_runner_kernel_config
-
-	$ make olddefconfig
+	$ make ARCH=um olddefconfig
 
 After that a default kernel with the required options can be built:
 
-	$ make -j$(nproc)
+	$ make ARCH=um -j$(nproc)
+
+If you do need to build a QEMU kernel you can remove ARCH=um and make the
+kvm_guest.config target as well.
+
+After building (for UML) there should be a 'linux' executable at the root of the
+repository, this is the UML binary that should be supplied to test-runner with
+the --kernel,-k option.
+
+For QEMU it is instead a kernel image located at arch/boot/<arch>/bzImage.
 
 Note: If your host distribution does not contain a regulatory.db you may get an
 error similar to this when building the kernel:
@@ -136,7 +150,7 @@ tests shipped with IWD:
 
 	$ cd <iwd>/tools
 
-	$ sudo ./test-runner
+	$ sudo ./test-runner -k <kernel binary>
 
 One can specify a particular set of test configurations to be executed by using
 '-A <dir1,dir2>' parameter. An absolute path is necessary for the test
