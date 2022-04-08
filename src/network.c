@@ -1248,10 +1248,10 @@ static void passphrase_callback(enum agent_result result,
 	return;
 
 err:
+	network_settings_close(network);
+
 	if (network->provisioning_hidden)
 		station_hide_network(station, network);
-
-	network_settings_close(network);
 }
 
 static struct l_dbus_message *network_connect_psk(struct network *network,
