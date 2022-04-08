@@ -1616,12 +1616,6 @@ static void station_reset_connection_state(struct station *station)
 	if (!network)
 		return;
 
-	if (station->state == STATION_STATE_CONNECTED ||
-			station->state == STATION_STATE_CONNECTING ||
-			station->state == STATION_STATE_CONNECTING_AUTO ||
-			station->state == STATION_STATE_ROAMING)
-		network_disconnected(network);
-
 	station_roam_state_clear(station);
 
 	/* Refresh the ordered network list */
@@ -1639,6 +1633,17 @@ static void station_reset_connection_state(struct station *station)
 				IWD_NETWORK_INTERFACE, "Connected");
 	l_dbus_object_remove_interface(dbus, netdev_get_path(station->netdev),
 				IWD_STATION_DIAGNOSTIC_INTERFACE);
+
+	/*
+	 * Perform this step last since calling network_disconnected() might
+	 * result in the removal of the network (for example if provisioning
+	 * a new hidden network fails with an incorrect pasword).
+	 */
+	if (station->state == STATION_STATE_CONNECTED ||
+			station->state == STATION_STATE_CONNECTING ||
+			station->state == STATION_STATE_CONNECTING_AUTO ||
+			station->state == STATION_STATE_ROAMING)
+		network_disconnected(network);
 }
 
 static void station_disassociated(struct station *station)
