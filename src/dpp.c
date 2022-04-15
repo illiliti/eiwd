@@ -55,6 +55,7 @@
 #include "src/nl80211util.h"
 
 #define DPP_FRAME_MAX_RETRIES 5
+#define DPP_FRAME_RETRY_TIMEOUT 1
 
 static uint32_t netdev_watch;
 static struct l_genl_family *nl80211;
@@ -140,6 +141,7 @@ struct dpp_sm {
 	uint8_t frame_retry;
 	void *frame_pending;
 	size_t frame_size;
+	struct l_timeout *retry_timeout;
 
 	struct l_dbus_message *pending;
 
@@ -239,6 +241,11 @@ static void dpp_reset(struct dpp_sm *dpp)
 	if (dpp->frame_pending) {
 		l_free(dpp->frame_pending);
 		dpp->frame_pending = NULL;
+	}
+
+	if (dpp->retry_timeout) {
+		l_timeout_remove(dpp->retry_timeout);
+		dpp->retry_timeout = NULL;
 	}
 
 	dpp->state = DPP_STATE_NOTHING;
@@ -1422,6 +1429,13 @@ static void dpp_roc_started(void *user_data)
 
 	dpp->roc_started = true;
 
+	/*
+	 * The retry timer indicates a frame was not acked in which case we
+	 * should not change any state or send any frames until that expires.
+	 */
+	if (dpp->retry_timeout)
+		return;
+
 	if (dpp->frame_pending) {
 		dpp_frame_retry(dpp);
 		return;
@@ -2082,6 +2096,25 @@ static bool match_wdev(const void *a, const void *b)
 	return *wdev_id == dpp->wdev_id;
 }
 
+static void dpp_frame_timeout(struct l_timeout *timeout, void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+
+	l_timeout_remove(timeout);
+	dpp->retry_timeout = NULL;
+
+	/*
+	 * ROC has not yet started (in between an ROC timeout and starting a
+	 * new session), this will most likely result in the frame failing to
+	 * send. Just bail out now and the roc_started callback will take care
+	 * of sending this out.
+	 */
+	if (!dpp->roc_started)
+		return;
+
+	dpp_frame_retry(dpp);
+}
+
 static void dpp_mlme_notify(struct l_genl_msg *msg, void *user_data)
 {
 	struct dpp_sm *dpp;
@@ -2120,11 +2153,19 @@ static void dpp_mlme_notify(struct l_genl_msg *msg, void *user_data)
 		return;
 	}
 
-	l_debug("No ACK from peer, re-transmitting");
+	/* This should never happen */
+	if (L_WARN_ON(dpp->frame_pending))
+		return;
+
+	l_debug("No ACK from peer, re-transmitting in %us",
+			DPP_FRAME_RETRY_TIMEOUT);
 
 	dpp->frame_retry++;
 
-	dpp_send_frame(dpp, &iov, 1, dpp->current_freq);
+	dpp->frame_pending = l_memdup(iov.iov_base, iov.iov_len);
+	dpp->frame_size = iov.iov_len;
+	dpp->retry_timeout = l_timeout_create(DPP_FRAME_RETRY_TIMEOUT,
+						dpp_frame_timeout, dpp, NULL);
 }
 
 static void dpp_unicast_notify(struct l_genl_msg *msg, void *user_data)
