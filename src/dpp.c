@@ -138,11 +138,38 @@ struct dpp_sm {
 	uint32_t connect_scan_id;
 	uint64_t frame_cookie;
 	uint8_t frame_retry;
+	void *frame_pending;
+	size_t frame_size;
 
 	struct l_dbus_message *pending;
 
 	bool mcast_support : 1;
+	bool roc_started : 1;
 };
+
+static void *dpp_serialize_iovec(struct iovec *iov, size_t iov_len,
+				size_t *out_len)
+{
+	unsigned int i;
+	size_t size = 0;
+	uint8_t *ret;
+
+	for (i = 0; i < iov_len; i++)
+		size += iov[i].iov_len;
+
+	ret = l_malloc(size);
+	size = 0;
+
+	for (i = 0; i < iov_len; i++) {
+		memcpy(ret + size, iov[i].iov_base, iov[i].iov_len);
+		size += iov[i].iov_len;
+	}
+
+	if (out_len)
+		*out_len = size;
+
+	return ret;
+}
 
 static void dpp_free_auth_data(struct dpp_sm *dpp)
 {
@@ -209,6 +236,11 @@ static void dpp_reset(struct dpp_sm *dpp)
 		dpp->peer_asn1 = NULL;
 	}
 
+	if (dpp->frame_pending) {
+		l_free(dpp->frame_pending);
+		dpp->frame_pending = NULL;
+	}
+
 	dpp->state = DPP_STATE_NOTHING;
 	dpp->new_freq = 0;
 	dpp->frame_retry = 0;
@@ -267,6 +299,19 @@ static void dpp_send_frame(struct dpp_sm *dpp,
 {
 	struct l_genl_msg *msg;
 
+	/*
+	 * A received frame could potentially come in after the ROC session has
+	 * ended. In this case the frame needs to be stored until ROC is started
+	 * and sent at that time. The offchannel_id is also checked since
+	 * this is not applicable when DPP is in a responder role waiting
+	 * on the currently connected channel i.e. offchannel is never used.
+	 */
+	if (!dpp->roc_started && dpp->offchannel_id) {
+		dpp->frame_pending = dpp_serialize_iovec(iov, iov_len,
+							&dpp->frame_size);
+		return;
+	}
+
 	msg = l_genl_msg_new_sized(NL80211_CMD_FRAME, 512);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_WDEV, 8, &dpp->wdev_id);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY_FREQ, 4, &freq);
@@ -280,6 +325,20 @@ static void dpp_send_frame(struct dpp_sm *dpp,
 		l_genl_msg_unref(msg);
 	}
 }
+
+static void dpp_frame_retry(struct dpp_sm *dpp)
+{
+	struct iovec iov;
+
+	iov.iov_base = dpp->frame_pending;
+	iov.iov_len = dpp->frame_size;
+
+	dpp_send_frame(dpp, &iov, 1, dpp->current_freq);
+
+	l_free(dpp->frame_pending);
+	dpp->frame_pending = NULL;
+}
+
 
 static size_t dpp_build_header(const uint8_t *src, const uint8_t *dest,
 				enum dpp_frame_type type,
@@ -1360,6 +1419,13 @@ static void dpp_roc_started(void *user_data)
 	 *   the authenticate response now.
 	 */
 
+	dpp->roc_started = true;
+
+	if (dpp->frame_pending) {
+		dpp_frame_retry(dpp);
+		return;
+	}
+
 	switch (dpp->state) {
 	case DPP_STATE_PRESENCE:
 		if (dpp->role == DPP_CAPABILITY_CONFIGURATOR)
@@ -1409,6 +1475,7 @@ static void dpp_presence_timeout(int error, void *user_data)
 	struct dpp_sm *dpp = user_data;
 
 	dpp->offchannel_id = 0;
+	dpp->roc_started = false;
 
 	/*
 	 * If cancelled this is likely due to netdev going down or from Stop().
