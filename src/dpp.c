@@ -282,9 +282,10 @@ static void dpp_free(struct dpp_sm *dpp)
 static void dpp_send_frame_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct dpp_sm *dpp = user_data;
+	int err = l_genl_msg_get_error(msg);
 
-	if (l_genl_msg_get_error(msg) < 0) {
-		l_error("Error sending frame");
+	if (err < 0) {
+		l_error("Error sending frame (%d)", err);
 		return;
 	}
 
