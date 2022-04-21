@@ -1,3 +1,8 @@
+ver 1.27:
+	Fix issue with hidden networks on connection error.
+	Fix issue with directed roams if already trying to roam.
+	Fix issue with checking for connected in FT frame event.
+
 ver 1.26:
 	Fix issue with handling BSS that changed frequency.
 	Fix issue with handling frequencies in neighbor report.
