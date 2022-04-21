@@ -23,8 +23,8 @@
 struct command;
 struct command_family;
 
-#define COLOR_BOLDGRAY	"\x1B[1;30m"
-#define COLOR_GRAY	"\x1b[37m"
+#define COLOR_BOLDGRAY	"\x1B[1;90m"
+#define COLOR_GRAY	"\x1b[90m"
 #define COLOR_GREEN	"\x1b[32m"
 #define COLOR_RED	"\x1B[0;91m"
 #define COLOR_BLUE	"\x1B[94m"

@@ -134,10 +134,7 @@ SIOCGIFADDR = 0x8915
 IFF_UP = 1 << 0
 IFF_RUNNING = 1 << 6
 
-def test_iface_operstate(intf=None):
-    if not intf:
-        intf = iwd.IWD.get_instance().list_devices()[0].name
-
+def _test_operstate(intf):
     sock = socket.socket(socket.PF_PACKET, socket.SOCK_RAW)
 
     try:
@@ -146,9 +143,18 @@ def test_iface_operstate(intf=None):
 
         # IFF_LOWER_UP and IFF_DORMANT not returned by SIOCGIFFLAGS
         if flags & (IFF_UP | IFF_RUNNING) != IFF_UP | IFF_RUNNING:
-            raise Exception(intf + ' operstate wrong')
+            return False
+
+        return True
     finally:
         sock.close()
+
+def test_iface_operstate(intf=None):
+    if not intf:
+        intf = iwd.IWD.get_instance().list_devices()[0].name
+
+    ctx.non_block_wait(_test_operstate, 10, intf,
+                        exception=Exception(intf + ' operstate wrong'))
 
 def test_ip_address_match(intf, ip):
     try:

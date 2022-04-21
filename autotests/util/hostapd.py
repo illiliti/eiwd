@@ -81,27 +81,48 @@ class HostapdCLI(object):
 
         self.ctrl_sock.connect(self.socket_path + '/' + self.ifname)
 
+        self.events = []
+        self.io_watch = GLib.io_add_watch(self.ctrl_sock, GLib.IO_IN, self._handle_data_in)
+
         if 'OK' not in self._ctrl_request('ATTACH'):
             raise Exception('ATTACH failed')
 
         ctrl_count = ctrl_count + 1
 
-    def _poll_event(self, event):
-        if not self._data_available(0.25):
-            return False
+    def _handle_data_in(self, sock, *args):
+        newdata = sock.recv(4096)
 
-        data = self.ctrl_sock.recv(4096).decode('utf-8')
-        if event in data:
-            return data
+        decoded = newdata.decode('utf-8')
+        if len(decoded) >= 3 and decoded[0] == '<' and decoded[2] == '>':
+            decoded = decoded[3:]
+        while len(decoded) and decoded[-1] == '\n':
+            decoded = decoded[:-1]
+
+        self.events.insert(0, decoded)
+
+        return True
+
+    def _poll_event(self, event):
+        # Look through the list (most recent is first) until the even is found.
+        # Once found consume this event and any older ones as to not
+        # accidentally trigger a false positive later on.
+        for idx, e in enumerate(self.events):
+            if event in e:
+                self.events = self.events[:idx]
+                return e
 
         return False
 
     def wait_for_event(self, event, timeout=10):
+        if event == 'AP-ENABLED':
+            if self.enabled:
+                return 'AP-ENABLED'
+
         return ctx.non_block_wait(self._poll_event, timeout, event,
                                     exception=TimeoutError("waiting for event"))
 
-    def _data_available(self, timeout=2):
-        [r, w, e] = select.select([self.ctrl_sock], [], [], timeout)
+    def _data_available(self):
+        [r, w, e] = select.select([self.ctrl_sock], [], [])
         if r:
             return True
         return False
@@ -228,25 +249,28 @@ class HostapdCLI(object):
         ctx.start_process(cmd).wait()
         self.wait_for_event('AP-CSA-FINISHED')
 
-    @property
-    def bssid(self):
+    def _get_status(self):
+        ret = {}
+
         cmd = self.cmdline + ['status']
         proc = ctx.start_process(cmd)
         proc.wait()
-        status = proc.out.split('\n')
+        status = proc.out.strip().split('\n')
 
-        bssid = [x for x in status if x.startswith('bssid')]
-        bssid = bssid[0].split('=')
-        return bssid[1]
+        for kv in status:
+            k, v = kv.split('=')
+            ret[k] = v
+
+        return ret
+
+    @property
+    def bssid(self):
+        return self._get_status()['bssid[0]']
 
     @property
     def frequency(self):
-        cmd = self.cmdline + ['status']
-        proc = ctx.start_process(cmd)
-        proc.wait()
-        status = proc.out.split('\n')
+        return int(self._get_status()['freq'])
 
-        frequency = [x for x in status if x.startswith('freq')][0]
-        frequency = frequency.split('=')[1]
-
-        return int(frequency)
+    @property
+    def enabled(self):
+        return self._get_status()['state'] == 'ENABLED'

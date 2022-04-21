@@ -45,11 +45,13 @@ struct wiphy_radio_work_item {
 	const struct wiphy_radio_work_item_ops *ops;
 };
 
-#define WIPHY_WORK_PRIORITY_FRAME		0
-#define WIPHY_WORK_PRIORITY_OFFCHANNEL		0
-#define WIPHY_WORK_PRIORITY_CONNECT		1
-#define WIPHY_WORK_PRIORITY_SCAN		2
-#define WIPHY_WORK_PRIORITY_PERIODIC_SCAN	3
+enum {
+	WIPHY_WORK_PRIORITY_FRAME = 0,
+	WIPHY_WORK_PRIORITY_OFFCHANNEL = 0,
+	WIPHY_WORK_PRIORITY_CONNECT = 1,
+	WIPHY_WORK_PRIORITY_SCAN = 2,
+	WIPHY_WORK_PRIORITY_PERIODIC_SCAN = 3,
+};
 
 enum wiphy_state_watch_event {
 	WIPHY_STATE_WATCH_EVENT_POWERED,
@@ -70,7 +72,10 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 					bool fils_capable_hint);
 
 struct wiphy *wiphy_find(int wiphy_id);
-#define wiphy_find_by_wdev(w) wiphy_find(w >> 32)
+static inline struct wiphy *wiphy_find_by_wdev(uint64_t w)
+{
+	return wiphy_find(w >> 32);
+}
 
 bool wiphy_is_blacklisted(const struct wiphy *wiphy);
 

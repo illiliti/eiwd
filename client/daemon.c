@@ -57,24 +57,26 @@ static void get_info_callback(struct l_dbus_message *message, void *user_data)
 	if (dbus_message_has_error(message))
 		return;
 
-	if (!l_dbus_message_get_arguments(message, "a{sv}", &iter)) {
-		l_error("Failed to parse GetInfo message");
-		return;
-	}
+	if (!l_dbus_message_get_arguments(message, "a{sv}", &iter))
+		goto parse_failed;
 
 	while (l_dbus_message_iter_next_entry(&iter, &key, &variant)) {
 		if (strcmp(key, "NetworkConfigurationEnabled"))
 			continue;
 
-		l_dbus_message_iter_get_variant(&variant, "b",
-							&netconfig_enabled);
+		if (!l_dbus_message_iter_get_variant(&variant, "b",
+							&netconfig_enabled))
+			goto parse_failed;
+
 		break;
 	}
 
 	if (!command_is_interactive_mode())
 		return;
 
-	l_dbus_message_get_arguments(message, "a{sv}", &iter);
+	if (!l_dbus_message_get_arguments(message, "a{sv}", &iter))
+		goto parse_failed;
+
 	display("NetworkConfigurationEnabled: %s\n",
 				netconfig_enabled ? "enabled" : "disabled");
 
@@ -90,6 +92,12 @@ static void get_info_callback(struct l_dbus_message *message, void *user_data)
 			display("%s: %s\n", key, sval);
 		}
 	}
+
+	return;
+
+parse_failed:
+	l_error("Failed to parse GetInfo message");
+	return;
 }
 
 static bool daemon_get_info(void)

@@ -3,7 +3,10 @@ import os
 import socket
 from gi.repository import GLib
 from config import ctx
+
 import binascii
+
+from utils import Process
 
 ctrl_count = 0
 
@@ -31,7 +34,7 @@ class Wpas:
         self.io_watch = None
 
         cmd = ['wpa_supplicant', '-i', self.interface.name, '-c', self.config_path]
-        if ctx.is_verbose('wpa_supplicant-dbg'):
+        if Process.is_verbose('wpa_supplicant-dbg'):
             cmd += ['-d']
 
         self.wpa_supplicant = ctx.start_process(cmd)

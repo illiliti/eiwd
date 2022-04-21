@@ -16,16 +16,9 @@ class Test(unittest.TestCase):
     def validate_connection(self, wd, ft=True):
         device = wd.list_devices(1)[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
+        # This won't guarantee all BSS's are found, but at least ensures that
+        # at least one will be.
+        device.get_ordered_network('TestFT', full_scan=True)
 
         self.assertFalse(self.bss_hostapd[0].list_sta())
         self.assertFalse(self.bss_hostapd[1].list_sta())
@@ -35,7 +28,8 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
 
-        self.assertTrue(self.bss_hostapd[0].list_sta())
+        self.bss_hostapd[0].wait_for_event('AP-STA-CONNECTED %s' % device.address)
+
         self.assertFalse(self.bss_hostapd[1].list_sta())
 
         testutil.test_iface_operstate(device.name)
@@ -54,7 +48,7 @@ class Test(unittest.TestCase):
         to_condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_change(device, from_condition, to_condition)
 
-        self.assertTrue(self.bss_hostapd[1].list_sta())
+        self.bss_hostapd[1].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         testutil.test_iface_operstate(device.name)
         testutil.test_ifaces_connected(self.bss_hostapd[1].ifname, device.name)
@@ -72,8 +66,10 @@ class Test(unittest.TestCase):
         condition = 'obj.state != DeviceState.roaming'
         wd.wait_for_object_condition(device, condition)
 
-        self.assertEqual(device.state, iwd.DeviceState.connected)
-        self.assertTrue(self.bss_hostapd[2].list_sta())
+        condition = 'obj.state == DeviceState.connected'
+        wd.wait_for_object_condition(device, condition)
+
+        self.bss_hostapd[2].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         testutil.test_iface_operstate(device.name)
         testutil.test_ifaces_connected(self.bss_hostapd[2].ifname, device.name)
@@ -124,13 +120,13 @@ class Test(unittest.TestCase):
                             HostapdCLI(config='ft-sae-2.conf'),
                             HostapdCLI(config='ft-psk-3.conf') ]
 
-        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[0].ifname, 'down'])
+        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[0].ifname, 'down']).wait()
         ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[0].ifname, \
                            'addr', '12:00:00:00:00:01', 'up']).wait()
-        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[1].ifname, 'down'])
+        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[1].ifname, 'down']).wait()
         ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[1].ifname, \
                            'addr', '12:00:00:00:00:02', 'up']).wait()
-        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[2].ifname, 'down'])
+        ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[2].ifname, 'down']).wait()
         ctx.start_process(['ip', 'link', 'set', 'dev', cls.bss_hostapd[2].ifname, \
                            'addr', '12:00:00:00:00:03', 'up']).wait()
 

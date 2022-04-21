@@ -4525,6 +4525,9 @@ static void netdev_ft_response_frame_event(const struct mmpdu_header *hdr,
 	size_t ies_len;
 	struct ft_ds_finder finder;
 
+	if (!netdev->connected)
+		return;
+
 	ret = ft_over_ds_parse_action_response(body, body_len, &spa, &aa,
 						&ies, &ies_len);
 	if (ret < 0)
@@ -4987,8 +4990,7 @@ static void netdev_sa_query_req_frame_event(const struct mmpdu_header *hdr,
 	uint16_t transaction;
 	const uint8_t *oci;
 	struct netdev *netdev = user_data;
-	bool ocvc = netdev->handshake->supplicant_ocvc &&
-					netdev->handshake->authenticator_ocvc;
+	bool ocvc;
 
 	if (body_len < 4) {
 		l_debug("SA Query request too short");
@@ -4997,6 +4999,9 @@ static void netdev_sa_query_req_frame_event(const struct mmpdu_header *hdr,
 
 	if (!netdev->connected)
 		return;
+
+	ocvc = netdev->handshake->supplicant_ocvc &&
+					netdev->handshake->authenticator_ocvc;
 
 	/* only care about SA Queries from our connected AP */
 	if (memcmp(hdr->address_2, netdev->handshake->aa, 6))

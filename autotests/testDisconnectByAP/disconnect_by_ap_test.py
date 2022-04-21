@@ -21,12 +21,7 @@ class Test(unittest.TestCase):
 
         hostapd = HostapdCLI(config='ssidOpen.conf')
 
-        device.scan()
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        ordered_network = device.get_ordered_network('ssidOpen')
+        ordered_network = device.get_ordered_network('ssidOpen', full_scan=True)
 
         ordered_network.network_object.connect()
 

@@ -348,25 +348,6 @@ static int bss_signal_strength_compare(const void *a, const void *b, void *user)
 	return (bss->signal_strength > new_bss->signal_strength) ? 1 : -1;
 }
 
-static int station_parse_bss_security(struct station *station,
-				struct scan_bss *bss,
-				enum security *security_out)
-{
-	struct ie_rsn_info info;
-	int r;
-
-	r = scan_bss_get_rsn_info(bss, &info);
-	if (r < 0) {
-		if (r != -ENOENT)
-			return r;
-
-		*security_out = security_determine(bss->capability, NULL);
-	} else
-		*security_out = security_determine(bss->capability, &info);
-
-	return 0;
-}
-
 /*
  * Returns the network object the BSS was added to or NULL if ignored.
  */
@@ -402,7 +383,7 @@ static struct network *station_add_seen_bss(struct station *station,
 		return NULL;
 	}
 
-	if (station_parse_bss_security(station, bss, &security) < 0)
+	if (scan_bss_get_security(bss, &security) < 0)
 		return NULL;
 
 	/* Hidden OWE transition network */
@@ -1014,8 +995,12 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 	struct ie_rsn_info info;
 	uint8_t *ap_ie;
 	bool disable_ocv;
+	enum band_freq band;
 
 	memset(&info, 0, sizeof(info));
+
+	if (!band_freq_to_channel(bss->frequency, &band))
+		goto not_supported;
 
 	memset(&bss_info, 0, sizeof(bss_info));
 	scan_bss_get_rsn_info(bss, &bss_info);
@@ -1063,12 +1048,31 @@ static int station_build_handshake_rsn(struct handshake_state *hs,
 
 	switch (mfp_setting) {
 	case 0:
-		break;
+		if (band != BAND_FREQ_6_GHZ)
+			break;
+
+		l_error("MFP turned off by [General].ManagementFrameProtection,"
+				" 6GHz frequencies are disabled");
+		goto not_supported;
 	case 1:
 		info.group_management_cipher =
 			wiphy_select_cipher(wiphy,
 				bss_info.group_management_cipher);
 		info.mfpc = info.group_management_cipher != 0;
+
+		if (band != BAND_FREQ_6_GHZ)
+			break;
+
+		if (!info.mfpc)
+			goto not_supported;
+
+		/*
+		 * 802.11ax Section 12.12.2
+		 * The STA shall use management frame protection
+		 * (MFPR=1) when using RSN.
+		 */
+		info.mfpr = true;
+
 		break;
 	case 2:
 		info.group_management_cipher =
@@ -1146,10 +1150,7 @@ build_ie:
 	 * a reference now so it remains valid (in case of expiration) until
 	 * FILS starts.
 	 */
-	if (hs->akm_suite & (IE_RSN_AKM_SUITE_FILS_SHA256 |
-				IE_RSN_AKM_SUITE_FILS_SHA384 |
-				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |
-				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384))
+	if (IE_AKM_IS_FILS(hs->akm_suite))
 		hs->erp_cache = erp_cache;
 	else if (erp_cache)
 		erp_cache_put(erp_cache);
@@ -1627,12 +1628,6 @@ static void station_reset_connection_state(struct station *station)
 	if (!network)
 		return;
 
-	if (station->state == STATION_STATE_CONNECTED ||
-			station->state == STATION_STATE_CONNECTING ||
-			station->state == STATION_STATE_CONNECTING_AUTO ||
-			station->state == STATION_STATE_ROAMING)
-		network_disconnected(network);
-
 	station_roam_state_clear(station);
 
 	/* Refresh the ordered network list */
@@ -1652,6 +1647,17 @@ static void station_reset_connection_state(struct station *station)
 	l_dbus_object_remove_interface(dbus, netdev_get_path(station->netdev),
 				IWD_STATION_DIAGNOSTIC_INTERFACE);
 #endif
+
+	/*
+	 * Perform this step last since calling network_disconnected() might
+	 * result in the removal of the network (for example if provisioning
+	 * a new hidden network fails with an incorrect pasword).
+	 */
+	if (station->state == STATION_STATE_CONNECTED ||
+			station->state == STATION_STATE_CONNECTING ||
+			station->state == STATION_STATE_CONNECTING_AUTO ||
+			station->state == STATION_STATE_ROAMING)
+		network_disconnected(network);
 }
 
 static void station_disassociated(struct station *station)
@@ -1729,6 +1735,8 @@ static void parse_neighbor_report(struct station *station,
 	struct scan_freq_set *freq_set_md, *freq_set_no_md;
 	uint32_t current_freq = 0;
 	struct handshake_state *hs = netdev_get_handshake(station->netdev);
+	const struct scan_freq_set *supported =
+				wiphy_get_supported_freqs(station->wiphy);
 
 	freq_set_md = scan_freq_set_new();
 	freq_set_no_md = scan_freq_set_new();
@@ -1763,6 +1771,10 @@ static void parse_neighbor_report(struct station *station,
 
 		/* Skip if the band is not supported */
 		if (!(band & wiphy_get_supported_bands(station->wiphy)))
+			continue;
+
+		/* Skip if frequency is not supported */
+		if (!scan_freq_set_contains(supported, freq))
 			continue;
 
 		if (!memcmp(info.addr,
@@ -2329,7 +2341,7 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 				memcmp(bss->ssid, hs->ssid, hs->ssid_len))
 			goto next;
 
-		if (station_parse_bss_security(station, bss, &security) < 0)
+		if (scan_bss_get_security(bss, &security) < 0)
 			goto next;
 
 		if (security != orig_security)
@@ -2375,8 +2387,12 @@ next:
 
 	bss = network_bss_find_by_addr(network, best_bss->addr);
 	if (bss) {
-		scan_bss_free(best_bss);
-		best_bss = bss;
+		network_bss_update(network, best_bss);
+		l_queue_remove(station->bss_list, bss);
+		scan_bss_free(bss);
+
+		l_queue_insert(station->bss_list, best_bss,
+				scan_bss_rank_compare, NULL);
 	} else {
 		network_bss_add(network, best_bss);
 		l_queue_push_tail(station->bss_list, best_bss);
@@ -2618,9 +2634,12 @@ static void station_ap_directed_roam(struct station *station,
 	valid_interval = l_get_u8(body + pos);
 	pos++;
 
-	l_debug("roam: BSS transition received from AP: "
+	l_debug("roam: BSS transition received from AP: " MAC", "
 			"Disassociation Time: %u, "
-			"Validity interval: %u", dtimer, valid_interval);
+			"Validity interval: %u, Address3: " MAC,
+			MAC_STR(hdr->address_2),
+			dtimer, valid_interval,
+			MAC_STR(hdr->address_3));
 
 	/* check req_mode for optional values */
 	if (req_mode & WNM_REQUEST_MODE_TERMINATION_IMMINENT) {
@@ -2643,6 +2662,36 @@ static void station_ap_directed_roam(struct station *station,
 			goto format_error;
 
 		pos += url_len;
+	}
+
+	if (station->state != STATION_STATE_CONNECTED) {
+		l_debug("roam: unexpected AP directed roam -- ignore");
+		return;
+	}
+
+	/*
+	 * Sanitize the frame to check that it is from our current AP.
+	 *
+	 * 802.11-2020 Section 9.3.3.1 about Address2:
+	 * "If the STA is an AP with dot11MultiBSSDImplemented set to false,
+	 * then this address is the BSSID."
+	 *
+	 * Address3:
+	 * "If the STA is an AP or PCP, the Address 3 field is the same as the
+	 * Address 2 field."
+	 *
+	 * For now check that Address2 & Address3 is the same as the connected
+	 * BSS address.
+	 */
+	if (memcmp(hdr->address_2, station->connected_bss, ETH_ALEN) ||
+			memcmp(hdr->address_2, hdr->address_3, ETH_ALEN)) {
+		l_debug("roam: AP directed roam not from our AP -- ignore");
+		return;
+	}
+
+	if (station->preparing_roam) {
+		l_debug("roam: roam attempt already in progress -- ignore");
+		return;
 	}
 
 	station->ap_directed_roaming = true;
@@ -3213,6 +3262,8 @@ next:
 	}
 
 	if (network_psk && network_open) {
+		station_hide_network(station, network_psk);
+		station_hide_network(station, network_open);
 		dbus_pending_reply(&msg, dbus_error_service_set_overlap(msg));
 		return true;
 	}
@@ -3485,7 +3536,7 @@ static struct l_dbus_message *station_dbus_get_hidden_access_points(
 		int16_t signal_strength = bss->signal_strength;
 		enum security security;
 
-		if (station_parse_bss_security(station, bss, &security) < 0)
+		if (scan_bss_get_security(bss, &security) < 0)
 			continue;
 
 		l_dbus_message_builder_enter_struct(builder, "sns");
@@ -4258,7 +4309,7 @@ static struct network *station_find_network_from_bss(struct station *station,
 	memcpy(ssid, bss->ssid, bss->ssid_len);
 	ssid[bss->ssid_len] = '\0';
 
-	if (station_parse_bss_security(station, bss, &security) < 0)
+	if (scan_bss_get_security(bss, &security) < 0)
 		return NULL;
 
 	return station_network_find(station, ssid, security);

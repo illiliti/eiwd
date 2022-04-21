@@ -46,9 +46,9 @@
 #include "linux/nl80211.h"
 
 /* Limit requests per second */
-#define MAX_REQUESTS_PER_SEC		2
+#define MAX_REQUESTS_PER_SEC		2ULL
 /* Microseconds between requests */
-#define MIN_MICROS_BETWEEN_REQUESTS	(1000000 / MAX_REQUESTS_PER_SEC)
+#define MIN_MICROS_BETWEEN_REQUESTS	(1000000ULL / MAX_REQUESTS_PER_SEC)
 
 /* 802.11-2016 Table 9-90 */
 #define REPORT_DETAIL_NO_FIELDS_OR_ELEMS		0

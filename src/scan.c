@@ -362,7 +362,8 @@ static struct l_genl_msg *scan_build_cmd(struct scan_context *sc,
 	if (params->freqs)
 		scan_build_attr_scan_frequencies(msg, params->freqs);
 
-	if (params->flush && !ignore_flush_flag)
+	if (params->flush && !ignore_flush_flag && wiphy_has_feature(sc->wiphy,
+						NL80211_FEATURE_SCAN_FLUSH))
 		flags |= NL80211_SCAN_FLAG_FLUSH;
 
 	if (!is_passive && params->randomize_mac_addr_hint &&
@@ -389,6 +390,9 @@ static struct l_genl_msg *scan_build_cmd(struct scan_context *sc,
 	if (!is_passive && wiphy_has_ext_feature(sc->wiphy,
 					NL80211_EXT_FEATURE_SCAN_RANDOM_SN))
 		flags |= NL80211_SCAN_FLAG_RANDOM_SN;
+
+	if (params->ap_scan)
+		flags |= NL80211_SCAN_FLAG_AP;
 
 	if (flags)
 		l_genl_msg_append_attr(msg, NL80211_ATTR_SCAN_FLAGS, 4, &flags);
@@ -1676,6 +1680,23 @@ int scan_bss_get_rsn_info(const struct scan_bss *bss, struct ie_rsn_info *info)
 		}
 	} else
 		return -ENOENT;
+
+	return 0;
+}
+
+int scan_bss_get_security(const struct scan_bss *bss, enum security *security)
+{
+	int ret;
+	struct ie_rsn_info info;
+
+	ret = scan_bss_get_rsn_info(bss, &info);
+	if (ret < 0) {
+		if (ret != -ENOENT)
+			return ret;
+
+		*security = security_determine(bss->capability, NULL);
+	} else
+		*security = security_determine(bss->capability, &info);
 
 	return 0;
 }

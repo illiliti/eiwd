@@ -308,6 +308,7 @@ static inline enum wsc_rf_band freq_to_rf_band(uint32_t freq)
 	case BAND_FREQ_2_4_GHZ:
 		return WSC_RF_BAND_2_4_GHZ;
 	case BAND_FREQ_5_GHZ:
+	case BAND_FREQ_6_GHZ:
 		return WSC_RF_BAND_5_0_GHZ;
 	}
 

@@ -32,8 +32,8 @@ class Test(unittest.TestCase):
 
         # Since both BSS's have low signal, the roam should fail and trigger
         # another roam scan.
-        device.wait_for_event('no-roam-candidates', timeout=30)
         device.wait_for_event('roam-scan-triggered', timeout=30)
+        device.wait_for_event('no-roam-candidates', timeout=30)
 
         # Hostapd sends disconnect
         self.bss_hostapd[0].disable()

@@ -1707,6 +1707,7 @@ static struct l_dbus_message *radio_manager_create(struct l_dbus *dbus,
 	bool p2p = false;
 	const char *disabled_iftypes = NULL;
 	const char *disabled_ciphers = NULL;
+	bool no_vif = false;
 	struct radio_info_rec *radio;
 
 	if (!l_dbus_message_get_arguments(message, "a{sv}", &dict))
@@ -1727,6 +1728,10 @@ static struct l_dbus_message *radio_manager_create(struct l_dbus *dbus,
 		else if (!strcmp(key, "CipherTypeDisable"))
 			ret = l_dbus_message_iter_get_variant(&variant, "s",
 							&disabled_ciphers);
+		else if (!strcmp(key, "NoVirtualInterface"))
+			ret = l_dbus_message_iter_get_variant(&variant, "b",
+							&no_vif);
+
 		if (!ret)
 			goto invalid;
 	}
@@ -1764,6 +1769,9 @@ static struct l_dbus_message *radio_manager_create(struct l_dbus *dbus,
 					hwsim_ciphers);
 
 	}
+
+	if (no_vif)
+		l_genl_msg_append_attr(new_msg, HWSIM_ATTR_NO_VIF, 0, NULL);
 
 	radio = l_new(struct radio_info_rec, 1);
 	radio->pending = l_dbus_message_ref(message);

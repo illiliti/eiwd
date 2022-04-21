@@ -44,6 +44,7 @@
 #include <ell/ell.h>
 #include "ell/useful.h"
 
+#include "src/missing.h"
 #include "src/common.h"
 #include "src/storage.h"
 #include "src/crypto.h"

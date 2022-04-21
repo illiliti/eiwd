@@ -47,16 +47,8 @@ class Test(unittest.TestCase):
         dev1.start_ap('TestAP2', 'Password2')
 
         try:
-            condition = 'not obj.scanning'
-            wd.wait_for_object_condition(dev2, condition)
-            dev2.scan()
-            condition = 'obj.scanning'
-            wd.wait_for_object_condition(dev2, condition)
-            condition = 'not obj.scanning'
-            wd.wait_for_object_condition(dev2, condition)
-
             networks = {}
-            networks['TestAP1'] = dev2.get_ordered_network('TestAP1')
+            networks['TestAP1'] = dev2.get_ordered_network('TestAP1', full_scan=True)
             networks['TestAP2'] = dev2.get_ordered_network('TestAP2', full_scan=True)
 
             self.assertEqual(networks['TestAP1'].type, NetworkType.psk)

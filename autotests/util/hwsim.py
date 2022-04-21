@@ -314,6 +314,7 @@ class RadioList(collections.Mapping):
         args = dbus.Dictionary({
             'Name': name,
             'P2P': p2p_device,
+            'NoVirtualInterface': True,
         }, signature='sv')
 
         if iftype_disable:

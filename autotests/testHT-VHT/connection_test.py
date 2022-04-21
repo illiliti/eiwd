@@ -14,22 +14,11 @@ from hostapd import HostapdCLI
 
 class Test(unittest.TestCase):
     def do_connect(self, wd, device, hostapd):
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        device.scan()
-
-        condition = 'obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
         #
         # Scanning must be explicitly done to get updated RSSI values. Therefore
-        # scan_if_needed is set false because of the previous scan.
+        # full_scan is set.
         #
-        ordered_network = device.get_ordered_network('testSSID', scan_if_needed=False)
+        ordered_network = device.get_ordered_network('testSSID', full_scan=True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 

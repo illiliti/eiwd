@@ -133,7 +133,10 @@ struct l_settings *network_lookup_security(const char *network)
 	l_debug("Loading %s", path);
 
 	conf = l_settings_new();
-	l_settings_load_from_file(conf, path);
+	if (!l_settings_load_from_file(conf, path)) {
+		l_settings_free(conf);
+		conf = NULL;
+	}
 
 	l_free(path);
 

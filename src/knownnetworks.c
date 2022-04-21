@@ -45,6 +45,7 @@
 #include "src/scan.h"
 #include "src/util.h"
 #include "src/watchlist.h"
+#include "src/band.h"
 
 static struct l_queue *known_networks;
 static size_t num_known_hidden_networks;
@@ -866,7 +867,8 @@ static struct l_queue *known_frequencies_from_string(char *freq_set_str)
 
 		t = strtoul(freq_set_str, &freq_set_str, 10);
 
-		if (unlikely(errno == ERANGE || !t || t > 6000))
+		if (unlikely(errno == ERANGE || !t ||
+					!band_freq_to_channel(t, NULL)))
 			goto error;
 
 		known_freq = l_new(struct known_frequency, 1);

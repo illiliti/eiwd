@@ -13,21 +13,10 @@ class Test(unittest.TestCase):
     def validate_connection(self, wd):
         device = wd.list_devices(1)[0]
 
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
         # Scanning is unavoidable in this case since both FILS-SHA256 and
         # FILS-SHA384 are tested. Without a new scan the cached scan results
         # would cause IWD to choose an incorrect AKM for the second test.
-        device.scan()
-
-        condition = 'obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        condition = 'not obj.scanning'
-        wd.wait_for_object_condition(device, condition)
-
-        ordered_network = device.get_ordered_network('TestFT')
+        ordered_network = device.get_ordered_network('TestFT', full_scan=True)
 
         self.assertEqual(ordered_network.type, NetworkType.eap)
 
@@ -39,7 +28,8 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
 
-        self.assertTrue(self.bss_hostapd[0].list_sta())
+        self.bss_hostapd[0].wait_for_event('AP-STA-CONNECTED %s' % device.address)
+
         self.assertFalse(self.bss_hostapd[1].list_sta())
 
         testutil.test_iface_operstate(device.name)
@@ -62,7 +52,8 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
 
-        self.assertTrue(self.bss_hostapd[0].list_sta())
+        self.bss_hostapd[0].wait_for_event('AP-STA-CONNECTED %s' % device.address)
+
         self.assertFalse(self.bss_hostapd[1].list_sta())
 
         testutil.test_iface_operstate(device.name)
@@ -88,7 +79,7 @@ class Test(unittest.TestCase):
         to_condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_change(device, from_condition, to_condition)
 
-        self.assertTrue(self.bss_hostapd[1].list_sta())
+        self.bss_hostapd[1].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         testutil.test_iface_operstate(device.name)
         testutil.test_ifaces_connected(self.bss_hostapd[1].ifname, device.name)

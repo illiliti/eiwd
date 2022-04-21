@@ -49,7 +49,7 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
 
-        self.assertTrue(bss_hostapd[0].list_sta())
+        bss_hostapd[0].wait_for_event('AP-STA-CONNECTED %s' % device.address)
         self.assertFalse(bss_hostapd[1].list_sta())
 
         testutil.test_iface_operstate(device.name)
@@ -70,7 +70,7 @@ class Test(unittest.TestCase):
         to_condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_change(device, from_condition, to_condition)
 
-        self.assertTrue(bss_hostapd[1].list_sta())
+        bss_hostapd[1].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         testutil.test_iface_operstate(device.name)
         testutil.test_ifaces_connected(bss_hostapd[1].ifname, device.name)

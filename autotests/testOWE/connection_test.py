@@ -60,7 +60,7 @@ class Test(unittest.TestCase):
         to_condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_change(device, from_condition, to_condition)
 
-        self.assertTrue(hapd1.list_sta())
+        hapd1.wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         testutil.test_iface_operstate(device.name)
         testutil.test_ifaces_connected(hapd1.ifname, device.name)

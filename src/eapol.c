@@ -706,7 +706,7 @@ static struct eapol_key *eapol_create_common(
 	struct eapol_key *out_frame = l_malloc(to_alloc + extra_len +
 						extra_key_len);
 
-	memset(out_frame, 0, to_alloc + extra_len);
+	memset(out_frame, 0, to_alloc + extra_len + extra_key_len);
 
 	out_frame->header.protocol_version = protocol;
 	out_frame->header.packet_type = 0x3;

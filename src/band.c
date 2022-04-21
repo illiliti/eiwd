@@ -325,8 +325,7 @@ static bool find_best_mcs_vht(uint8_t max_index, enum ofdm_channel_width width,
 	 */
 
 	for (i = max_index; i >= 0; i--)
-		if (band_ofdm_rate(i, width, rssi,
-						nss, sgi, out_data_rate))
+		if (band_ofdm_rate(i, width, rssi, nss, sgi, out_data_rate))
 			return true;
 
 	return false;
@@ -489,8 +488,8 @@ static int band_channel_info_get_bandwidth(const struct band_chandef *info)
 struct operating_class_info {
 	uint32_t starting_frequency;
 	uint32_t flags;
-	uint8_t channel_set[20];
-	uint8_t center_frequencies[8];
+	uint8_t channel_set[60];
+	uint8_t center_frequencies[30];
 	uint16_t channel_spacing;
 	uint8_t operating_class;
 };
@@ -598,20 +597,20 @@ static const struct operating_class_info e4_operating_classes[] = {
 	{
 		.operating_class = 125,
 		.starting_frequency = 5000,
-		.channel_set = { 149, 153, 157, 161, 165, 169, 173},
+		.channel_set = { 149, 153, 157, 161, 165, 169, 173, 177 },
 		.channel_spacing = 20,
 	},
 	{
 		.operating_class = 126,
 		.starting_frequency = 5000,
-		.channel_set = { 149, 157, 165},
+		.channel_set = { 149, 157, 165, 173 },
 		.channel_spacing = 40,
 		.flags = PRIMARY_CHANNEL_LOWER,
 	},
 	{
 		.operating_class = 127,
 		.starting_frequency = 5000,
-		.channel_set = { 153, 161, 169 },
+		.channel_set = { 153, 161, 169, 177 },
 		.channel_spacing = 40,
 		.flags = PRIMARY_CHANNEL_UPPER,
 	},
@@ -619,21 +618,68 @@ static const struct operating_class_info e4_operating_classes[] = {
 		.operating_class = 128,
 		.starting_frequency = 5000,
 		.channel_spacing = 80,
-		.center_frequencies = { 42, 58, 106, 122, 138, 155 },
+		.center_frequencies = { 42, 58, 106, 122, 138, 155, 171 },
 	},
 	{
 		.operating_class = 129,
 		.starting_frequency = 5000,
 		.channel_spacing = 160,
-		.center_frequencies = { 50, 114 },
+		.center_frequencies = { 50, 114, 163 },
 	},
 	{
 		.operating_class = 130,
 		.starting_frequency = 5000,
 		.channel_spacing = 80,
-		.center_frequencies = { 42, 58, 106, 122, 138, 155 },
+		.center_frequencies = { 42, 58, 106, 122, 138, 155, 171 },
 		.flags = PLUS80,
 	},
+	{
+		.operating_class = 131,
+		.starting_frequency = 5950,
+		.channel_spacing = 20,
+		.channel_set = { 1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45,
+				49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93,
+				97, 101, 105, 109, 113, 117, 121, 125, 129, 133,
+				137, 141, 145, 149, 153, 157, 161, 165, 169,
+				173, 177, 181, 185, 189, 193, 197, 201, 205,
+				209, 213, 217, 221, 225, 229, 233 },
+	},
+	{
+		.operating_class = 132,
+		.starting_frequency = 5950,
+		.channel_spacing = 40,
+		.center_frequencies = { 3, 11, 19, 27, 35, 43, 51, 59, 67, 75,
+					83, 91, 99, 107, 115, 123, 131, 139,
+					147, 155, 163, 171, 179, 187, 195, 203,
+					211, 219, 227 },
+	},
+	{
+		.operating_class = 133,
+		.starting_frequency = 5950,
+		.channel_spacing = 80,
+		.center_frequencies = { 7, 23, 39, 55, 71, 87, 103, 119, 135,
+					151, 167, 183, 199, 215 },
+	},
+	{
+		.operating_class = 134,
+		.starting_frequency = 5950,
+		.channel_spacing = 160,
+		.center_frequencies = { 15, 47, 79, 111, 143, 175, 207 },
+	},
+	{
+		.operating_class = 135,
+		.starting_frequency = 5950,
+		.channel_spacing = 80,
+		.center_frequencies = { 7, 23, 39, 55, 71, 87, 102, 119, 135,
+					151, 167, 183, 199, 215 },
+		.flags = PLUS80,
+	},
+	{
+		.operating_class = 136,
+		.starting_frequency = 5950,
+		.channel_spacing = 20,
+		.center_frequencies = { 2 },
+	}
 };
 
 static const struct operating_class_info *e4_find_opclass(uint32_t opclass)
@@ -856,8 +902,12 @@ int oci_verify(const uint8_t oci[static 3], const struct band_chandef *own)
 	 * on 40 Mhz channels.  If the STA is operating on 40 Mhz while the
 	 * peer is operating on 80 or 160 Mhz wide channels, then only the
 	 * primary channel validation is performed
+	 *
+	 * With 6GHz operating classes there is no concept of upper/lower 40mhz
+	 * channels, therefore this special handling list not needed.
 	 */
-	if (own_bandwidth == 40 && oci_bandwidth == 40) {
+	if (own_bandwidth == 40 && oci_bandwidth == 40 &&
+						info->operating_class < 131) {
 		uint32_t behavior;
 
 		/*
@@ -970,6 +1020,25 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 		return channel;
 	}
 
+	if (freq > 5950 && freq <= 7115) {
+		if (freq % 5)
+			return 0;
+
+		channel = (freq - 5950) / 5;
+
+		if (out_band)
+			*out_band = BAND_FREQ_6_GHZ;
+
+		return channel;
+	}
+
+	if (freq == 5935) {
+		if (out_band)
+			*out_band = BAND_FREQ_6_GHZ;
+
+		return 2;
+	}
+
 	return 0;
 }
 
@@ -989,6 +1058,22 @@ uint32_t band_channel_to_freq(uint8_t channel, enum band_freq band)
 
 		if (channel >= 181 && channel <= 199)
 			return 4000 + 5 * channel;
+	}
+
+	if (band == BAND_FREQ_6_GHZ) {
+		/* operating class 136 */
+		if (channel == 2)
+			return 5935;
+
+		/* Channels increment by 4, starting with 1 */
+		if (channel % 4 != 1)
+			return 0;
+
+		if (channel < 1 || channel > 233)
+			return 0;
+
+		/* operating classes 131, 132, 133, 134, 135 */
+		return 5950 + 5 * channel;
 	}
 
 	return 0;
@@ -1046,10 +1131,11 @@ static const uint8_t oper_class_jp_to_global[] = {
 	/* 128 - 130 is a 1 to 1 mapping */
 };
 
-/* Annex E, table E-4 (only 2.4GHz and 4.9 / 5GHz bands) */
+/* Annex E, table E-4 (only 2.4GHz, 4.9 / 5GHz, and 6GHz bands) */
 static const enum band_freq oper_class_to_band_global[] = {
 	[81 ... 84]   = BAND_FREQ_2_4_GHZ,
 	[104 ... 130] = BAND_FREQ_5_GHZ,
+	[131 ... 136] = BAND_FREQ_6_GHZ,
 };
 
 /* Annex E, table E-5 */

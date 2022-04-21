@@ -37,6 +37,24 @@ Methods		void Start(string ssid, string psk)
 						net.connman.iwd.AlreadyExists
 						net.connman.iwd.NotFound
 
+		void Scan()
+
+			Schedule a network scan.
+
+			Possible errors:	net.connman.iwd.NotAvailable
+						net.connman.iwd.NotSupported
+						net.connman.iwd.Busy
+						net.connman.iwd.Failed
+
+		array(dict) GetOrderedNetworks()
+
+			Gets the list of networks found after scanning sorted
+			based on signal strength. Each item in the array is a
+			dictionary containing the network Name, SignalStrength,
+			and Security.
+
+			Possible errors:	net.connman.iwd.NotAvailable
+
 Properties	boolean Started [readonly]
 
 			Reflects whether an access point has been started.
@@ -45,3 +63,7 @@ Properties	boolean Started [readonly]
 
 			The SSID being broadcast for a started AP (omitted if
 			AP has not been started)
+
+		boolean Scanning [readonly]
+
+			Reflects whether the access point is scanning.

@@ -63,7 +63,7 @@ class Test(unittest.TestCase):
         devices = wd.list_devices(1)
         device = devices[0]
 
-        ordered_network = device.get_ordered_network('TestRoamRetry')
+        ordered_network = device.get_ordered_network('TestRoamRetry', full_scan=True)
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
@@ -75,18 +75,18 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
 
-        self.assertTrue(bss_hostapd[0].list_sta())
-        self.assertFalse(bss_hostapd[1].list_sta())
+        bss_hostapd[0].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         wd.wait(5)
 
         # Now push the signal LOW, wait for iwd to attempt a roam, fail, and
-        # schedule another attempt for 60 seconds later
+        # schedule another attempt
         rule0.signal = -8000
 
         device.wait_for_event('no-roam-candidates')
 
         self.assertEqual(device.state, iwd.DeviceState.connected)
+
         self.assertTrue(bss_hostapd[0].list_sta())
         self.assertFalse(bss_hostapd[1].list_sta())
 
@@ -101,12 +101,11 @@ class Test(unittest.TestCase):
         wd.wait(1)
 
         # Assert low signal for BSS 0, check that iwd starts transition to BSS 1
-        # in less than 10 seconds.
         rule0.signal = -8000
         rule1.signal = -2000
 
         condition = 'obj.state == DeviceState.roaming'
-        wd.wait_for_object_condition(device, condition, max_wait=15)
+        wd.wait_for_object_condition(device, condition)
 
         # Check that iwd is on BSS 1 once out of roaming state and doesn't
         # go through 'disconnected', 'autoconnect', 'connecting' in between
@@ -114,7 +113,7 @@ class Test(unittest.TestCase):
         to_condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_change(device, from_condition, to_condition)
 
-        self.assertTrue(bss_hostapd[1].list_sta())
+        bss_hostapd[1].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
         device.disconnect()
 

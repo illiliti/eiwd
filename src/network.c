@@ -55,6 +55,7 @@
 #include "src/util.h"
 #include "src/erp.h"
 #include "src/handshake.h"
+#include "src/band.h"
 
 #define SAE_PT_SETTING "SAE-PT-Group%u"
 
@@ -84,6 +85,7 @@ struct network {
 	bool is_hs20:1;
 	bool anqp_pending:1;	/* Set if there is a pending ANQP request */
 	bool owe_hidden_pending:1;
+	bool provisioning_hidden:1;
 	uint8_t transition_disable; /* Temporary cache until info is set */
 	bool have_transition_disable:1;
 	int rank;
@@ -187,6 +189,8 @@ void network_connected(struct network *network)
 				network_secret_check_cacheable, network);
 
 	l_queue_clear(network->blacklist, NULL);
+
+	network->provisioning_hidden = false;
 }
 
 void network_disconnected(struct network *network)
@@ -194,6 +198,9 @@ void network_disconnected(struct network *network)
 	network_settings_close(network);
 
 	l_queue_clear(network->blacklist, NULL);
+
+	if (network->provisioning_hidden)
+		station_hide_network(network->station, network);
 }
 
 /* First 64 entries calculated by 1 / pow(n, 0.3) for n >= 1 */
@@ -776,6 +783,7 @@ int network_can_connect_bss(struct network *network, const struct scan_bss *bss)
 	struct network_config *config = info ? &info->config : NULL;
 	bool can_transition_disable = wiphy_can_transition_disable(wiphy);
 	struct ie_rsn_info rsn;
+	enum band_freq band;
 	int ret;
 
 	switch (security) {
@@ -786,6 +794,9 @@ int network_can_connect_bss(struct network *network, const struct scan_bss *bss)
 	default:
 		return -ENOSYS;
 	}
+
+	if (!band_freq_to_channel(bss->frequency, &band))
+		return -ENOTSUP;
 
 	memset(&rsn, 0, sizeof(rsn));
 	ret = scan_bss_get_rsn_info(bss, &rsn);
@@ -799,6 +810,13 @@ int network_can_connect_bss(struct network *network, const struct scan_bss *bss)
 		 * We assume the spec means us to check bit 3 here
 		 */
 		if (ret == -ENOENT && security == SECURITY_NONE) {
+			/*
+			 * 802.11ax 12.12.2 - STA shall not use Open System
+			 * authentication without encryption
+			 */
+			if (band == BAND_FREQ_6_GHZ)
+				return -EPERM;
+
 			if (!config)
 				return 0;
 
@@ -816,25 +834,20 @@ int network_can_connect_bss(struct network *network, const struct scan_bss *bss)
 		return ret;
 	}
 
-	if (!config || !config->have_transition_disable)
-		goto no_transition_disable;
+	if (!config || !config->have_transition_disable) {
+		if (band == BAND_FREQ_6_GHZ)
+			goto mfp_no_tkip;
 
-	if (!can_transition_disable) {
-		l_debug("HW not capable of Transition Disable, skip");
 		goto no_transition_disable;
 	}
 
-	/*
-	 * WPA3 Specification, v3, Section 8:
-	 * - Disable use of WEP and TKIP
-	 * - Disallow association without negotiation of PMF
-	 */
-	rsn.pairwise_ciphers &= ~IE_RSN_CIPHER_SUITE_TKIP;
+	if (!can_transition_disable) {
+		if (band == BAND_FREQ_6_GHZ)
+			return -EPERM;
 
-	if (!rsn.group_management_cipher)
-		return -EPERM;
-
-	rsn.mfpr = true;
+		l_debug("HW not capable of Transition Disable, skip");
+		goto no_transition_disable;
+	}
 
 	/* WPA3-Personal */
 	if (test_bit(&config->transition_disable, 0)) {
@@ -850,6 +863,31 @@ int network_can_connect_bss(struct network *network, const struct scan_bss *bss)
 	/* Enhanced Open */
 	if (test_bit(&config->transition_disable, 3)) {
 		if (!(rsn.akm_suites & IE_RSN_AKM_SUITE_OWE))
+			return -EPERM;
+	}
+
+mfp_no_tkip:
+	/*
+	 * WPA3 Specification, v3, Section 8:
+	 * - Disable use of WEP and TKIP
+	 * - Disallow association without negotiation of PMF
+	 */
+	rsn.pairwise_ciphers &= ~IE_RSN_CIPHER_SUITE_TKIP;
+
+	if (!rsn.group_management_cipher)
+		return -EPERM;
+
+	rsn.mfpr = true;
+
+	/* 802.11ax Section 12.12.2 */
+	if (band == BAND_FREQ_6_GHZ) {
+		/* STA shall not use the following cipher suite selectors */
+		rsn.pairwise_ciphers &= ~IE_RSN_CIPHER_SUITE_USE_GROUP_CIPHER;
+
+		/* Basically the STA must use OWE, SAE, or 8021x */
+		if (!IE_AKM_IS_SAE(rsn.akm_suites) &&
+				!IE_AKM_IS_8021X(rsn.akm_suites) &&
+				(!(rsn.akm_suites & IE_RSN_AKM_SUITE_OWE)))
 			return -EPERM;
 	}
 
@@ -1213,6 +1251,9 @@ static void passphrase_callback(enum agent_result result,
 
 err:
 	network_settings_close(network);
+
+	if (network->provisioning_hidden)
+		station_hide_network(station, network);
 }
 
 static struct l_dbus_message *network_connect_psk(struct network *network,
@@ -1637,8 +1678,10 @@ struct l_dbus_message *network_connect_new_hidden_network(
 
 	switch (network_get_security(network)) {
 	case SECURITY_PSK:
+		network->provisioning_hidden = true;
 		return network_connect_psk(network, bss, message);
 	case SECURITY_NONE:
+		network->provisioning_hidden = true;
 		station_connect_network(station, network, bss, message);
 		return NULL;
 	default:

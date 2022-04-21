@@ -408,14 +408,14 @@ size_t dpp_append_wrapped_data(const void *ad0, size_t ad0_len,
 		va_arg(va, void*);
 	}
 
+	va_end(va);
+
 	if (to_len < attrs_len + 4 + 16)
 		return false;
 
 	plaintext = l_malloc(attrs_len);
 
 	ptr = plaintext;
-
-	va_end(va);
 
 	va_start(va, num_attrs);
 

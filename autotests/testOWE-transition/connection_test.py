@@ -20,18 +20,7 @@ class Test(unittest.TestCase):
 
         if not autoconnect:
             if not connect_hidden:
-                condition = 'not obj.scanning'
-                wd.wait_for_object_condition(device, condition)
-
-                device.scan()
-
-                condition = 'obj.scanning'
-                wd.wait_for_object_condition(device, condition)
-
-                condition = 'not obj.scanning'
-                wd.wait_for_object_condition(device, condition)
-
-                network = device.get_ordered_network('transition', scan_if_needed=False)
+                network = device.get_ordered_network('transition', full_scan=True)
 
                 network.network_object.connect()
             else:
@@ -240,16 +229,6 @@ class Test(unittest.TestCase):
         self.rule0.source = self.hwsim.get_radio('rad0').addresses[0]
         self.rule0.signal = -4000
         self.rule0.enabled = True
-
-        devices = self.wd.list_devices(1)
-        device = devices[0]
-
-        device.scan()
-        condition = 'obj.scanning'
-        self.wd.wait_for_object_condition(device, condition)
-        condition = 'not obj.scanning'
-        self.wd.wait_for_object_condition(device, condition)
-
 
         self.validate(self.wd, self.hapd_owe)
 
