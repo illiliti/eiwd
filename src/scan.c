@@ -611,6 +611,17 @@ static struct scan_request *scan_request_new(struct scan_context *sc,
 	return sr;
 }
 
+static int insert_by_priority(const void *a, const void *b, void *user_data)
+{
+	const struct scan_request *cur = b;
+	int priority = L_PTR_TO_INT(user_data);
+
+	if (cur->work.priority <= priority)
+		return 1;
+
+	return -1;
+}
+
 static uint32_t scan_common(uint64_t wdev_id, bool passive,
 				const struct scan_parameters *params,
 				int priority,
@@ -630,7 +641,12 @@ static uint32_t scan_common(uint64_t wdev_id, bool passive,
 
 	scan_cmds_add(sr->cmds, sc, passive, params);
 
-	l_queue_push_tail(sc->requests, sr);
+	/*
+	 * sr->work isn't initialized yet, it will be done by
+	 * wiphy_radio_work_insert().  Pass the priority as user_data instead
+	 */
+	l_queue_insert(sc->requests, sr, insert_by_priority,
+						L_INT_TO_PTR(priority));
 
 	return wiphy_radio_work_insert(sc->wiphy, &sr->work,
 					priority, &work_ops);
@@ -801,7 +817,8 @@ uint32_t scan_owe_hidden(uint64_t wdev_id, struct l_queue *list,
 	}
 
 done:
-	l_queue_push_tail(sc->requests, sr);
+	l_queue_insert(sc->requests, sr, insert_by_priority,
+				L_INT_TO_PTR(WIPHY_WORK_PRIORITY_SCAN));
 
 	return wiphy_radio_work_insert(sc->wiphy, &sr->work,
 					WIPHY_WORK_PRIORITY_SCAN, &work_ops);
