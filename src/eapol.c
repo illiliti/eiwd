@@ -2620,6 +2620,11 @@ static void eapol_rx_packet(uint16_t proto, const uint8_t *from,
 
 	switch (frame->header.packet_type) {
 	case 0: /* EAPOL-EAP */
+		if (sm->handshake->ptk_complete && unencrypted) {
+			l_debug("Dropping unexpected unencrypted EAP frame");
+			return;
+		}
+
 		l_timeout_remove(sm->eapol_start_timeout);
 		sm->eapol_start_timeout = 0;
 
