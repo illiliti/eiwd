@@ -1154,6 +1154,11 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 	if (!eapol_verify_ptk_1_of_4(ek, sm->mic_len))
 		return;
 
+	if (sm->handshake->ptk_complete && unencrypted) {
+		l_debug("Dropping unexpectedly unencrypted PTK 1/4 frame");
+		return;
+	}
+
 	pmkid = handshake_util_find_pmkid_kde(EAPOL_KEY_DATA(ek, sm->mic_len),
 					EAPOL_KEY_DATA_LEN(ek, sm->mic_len));
 
