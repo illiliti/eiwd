@@ -2547,6 +2547,11 @@ static void eapol_rx_auth_packet(uint16_t proto, const uint8_t *from,
 	if (proto != ETH_P_PAE || memcmp(from, sm->handshake->spa, 6))
 		return;
 
+	if (sm->handshake->ptk_complete && noencrypt) {
+		l_debug("Dropping unexpected unencrypted EAPoL frame");
+		return;
+	}
+
 	switch (frame->header.packet_type) {
 	case 0:	/* EAPOL-EAP */
 		if (!sm->eap) {
