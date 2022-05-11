@@ -410,7 +410,7 @@ class Hwsim(iwd.AsyncOpAbstract):
         '''
             Send a spoofed disassociate frame to a station
         '''
-        dest = self._convert_address(radio.addresses[0].replace(':', ''))
+        dest = radio.addresses[0].replace(':', '')
 
         frame = 'a0 00 3a 01'
         frame += station.replace(':', '')
