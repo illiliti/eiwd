@@ -6,6 +6,8 @@ import collections
 from weakref import WeakValueDictionary
 from abc import ABCMeta, abstractmethod
 from enum import Enum
+from scapy.all import *
+from scapy.contrib.wpa_eapol import WPA_key
 
 import iwd
 from config import ctx
@@ -396,28 +398,59 @@ class Hwsim(iwd.AsyncOpAbstract):
     def object_manager(self):
         return self._object_manager_if
 
-    @staticmethod
-    def _convert_address(address):
-        first = int(address[0:2], base=16)
-        first |= 0x40
-        first = format(first, 'x')
-
-        address = first + address[2:]
-
-        return address
-
     def spoof_disassociate(self, radio, freq, station):
         '''
             Send a spoofed disassociate frame to a station
         '''
-        dest = radio.addresses[0].replace(':', '')
+        frame = Dot11()/Dot11Disas(reason=7)
+        frame[Dot11].addr1 = station
+        frame[Dot11].addr2 = radio.addresses[0]
+        frame[Dot11].addr3 = radio.addresses[0]
 
-        frame = 'a0 00 3a 01'
-        frame += station.replace(':', '')
-        frame += dest
-        frame += dest
-        frame += '30 01 07 00'
-        self.spoof_frame(radio, freq, station, frame)
+        self.spoof_frame(radio, freq, station, raw(frame))
+
+    def spoof_deauthenticate(self, radio, freq, station):
+        '''
+            Send a spoofed deauthenticate frame to a station
+        '''
+        frame = Dot11()/Dot11Deauth(reason=6)
+        frame[Dot11].addr1 = station
+        frame[Dot11].addr2 = radio.addresses[0]
+        frame[Dot11].addr3 = radio.addresses[0]
+
+        self.spoof_frame(radio, freq, station, raw(frame))
+
+    def spoof_eap_fail(self, radio, freq, station):
+        '''
+            Send a spoofed EAP-Failure frame to a station
+        '''
+        frame = Dot11(type="Data", subtype=0)
+        frame[Dot11].addr1 = station
+        frame[Dot11].addr2 = radio.addresses[0]
+        frame[Dot11].addr3 = radio.addresses[0]
+        frame /= LLC()/SNAP()/EAPOL( version="802.1X-2001" )
+        frame /= EAP( code="Failure" )
+
+        self.spoof_frame(radio, freq, station, raw(frame))
+
+    def spoof_invalid_ptk_1_of_4(self, radio, freq, station):
+        '''
+            Send a spoofed PTK 1/4 frame to a station
+        '''
+        frame = Dot11(type="Data", subtype=0)
+        frame[Dot11].addr1 = station
+        frame[Dot11].addr2 = radio.addresses[0]
+        frame[Dot11].addr3 = radio.addresses[0]
+
+        # NOTE: Expected key_info is 0x008a, with the install flag
+        # this becomes 0x00ca.
+        eapol = WPA_key( descriptor_type = 2,
+                        key_info = 0x00ca, # Includes an invalid install flag!
+                        replay_counter = struct.pack(">Q", 100))
+        frame /= LLC()/SNAP()/EAPOL(version="802.1X-2004", type="EAPOL-Key")
+        frame /= eapol
+
+        self.spoof_frame(radio, freq, station, raw(frame))
 
     def spoof_frame(self, radio, freq, station, frame):
         '''
@@ -442,7 +475,7 @@ class Hwsim(iwd.AsyncOpAbstract):
                 HWSIM_INTERFACE_INTERFACE)
 
         iface.SendFrame(dbus.ByteArray.fromhex(station.replace(':', '')),
-                        freq, -30, dbus.ByteArray.fromhex(frame))
+                        freq, -30, frame)
 
     def get_radio(self, name):
         for path in self.radios:
