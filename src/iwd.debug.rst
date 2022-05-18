@@ -40,6 +40,10 @@ ENVIRONMENT
 
 *$IWD_WSC_DEBUG_KEYS* set to ``1`` enables printing received WSC keys.
 
+The granularity of the DHCP logging can also be tailored by setting
+*$IWD_DHCP_DEBUG* to the maximum verbosity level, "debug", "info", "warn", or
+"error".
+
 SEE ALSO
 ========
 
