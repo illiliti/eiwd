@@ -1621,6 +1621,8 @@ struct netconfig *netconfig_new(uint32_t ifindex)
 	struct netdev *netdev = netdev_find(ifindex);
 	struct netconfig *netconfig;
 	struct l_icmp6_client *icmp6;
+	const char *debug_level = NULL;
+	int dhcp_priority = L_LOG_INFO;
 
 	if (!netconfig_list)
 		return NULL;
@@ -1640,9 +1642,22 @@ struct netconfig *netconfig_new(uint32_t ifindex)
 					netconfig_ipv4_dhcp_event_handler,
 					netconfig, NULL);
 
-	if (getenv("IWD_DHCP_DEBUG"))
-		l_dhcp_client_set_debug(netconfig->dhcp_client, do_debug,
-							"[DHCPv4] ", NULL);
+	debug_level = getenv("IWD_DHCP_DEBUG");
+	if (debug_level != NULL) {
+		if (!strcmp("debug", debug_level))
+			dhcp_priority = L_LOG_DEBUG;
+		else if (!strcmp("info", debug_level))
+			dhcp_priority = L_LOG_INFO;
+		else if (!strcmp("warn", debug_level))
+			dhcp_priority = L_LOG_WARNING;
+		else if (!strcmp("error", debug_level))
+			dhcp_priority = L_LOG_ERR;
+		else	/* Default for backwards compatibility */
+			dhcp_priority = L_LOG_DEBUG;
+	}
+
+	l_dhcp_client_set_debug(netconfig->dhcp_client, do_debug,
+					"[DHCPv4] ", NULL, dhcp_priority);
 
 	netconfig->dhcp6_client = l_dhcp6_client_new(ifindex);
 	l_dhcp6_client_set_event_handler(netconfig->dhcp6_client,
