@@ -182,16 +182,17 @@ Methods		void Release(object device) [noreply]
 		void Changed(object device, uint8 level) [noreply]
 
 			This method gets called when the signal strength
-			measurement for the device's connected network
-			changes enough to go from one level to another out
-			of the N ranges defined by the array of (N-1)
-			threshold values passed to RegisterSignalLevelAgent().
-			The level parameter is in the range from 0 to N,
-			0 being the strongest signal or above the first
-			threshold value in the array, and N being the
-			weakest and below the last threshold value.  For
-			example if RegisterSignalLevelAgent was called with
-			the array [-40, -50, -60], the 'level' parameter of
-			0 would mean signal is received at -40 or more dBm
-			and 3 would mean below -60 dBm and might correspond
-			to 1 out of 4 bars on a UI signal meter.
+			measurement for the device's connected network changes
+			enough to go from one level to another out of the N
+			ranges defined by the array of (N-1) threshold values
+			passed to RegisterSignalLevelAgent().  It also gets
+			called immediately after the signal level agent is
+			registered.  The level parameter is in the range from 0
+			to N, 0 being the strongest signal or above the first
+			threshold value in the array, and N being the weakest
+			and below the last threshold value.  For example if
+			RegisterSignalLevelAgent was called with the array [-40,
+			-50, -60], the 'level' parameter of 0 would mean signal
+			is received at -40 or more dBm and 3 would mean below
+			-60 dBm and might correspond to 1 out of 4 bars on a UI
+			signal meter.
