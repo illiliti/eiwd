@@ -450,6 +450,11 @@ const char *netdev_get_path(struct netdev *netdev)
 	return path;
 }
 
+uint8_t netdev_get_rssi_level_idx(struct netdev *netdev)
+{
+	return netdev->cur_rssi_level_idx;
+}
+
 static void netdev_set_powered_result(int error, uint16_t type,
 					const void *data,
 					uint32_t len, void *user_data)

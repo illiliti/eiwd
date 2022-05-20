@@ -3716,6 +3716,7 @@ static struct l_dbus_message *station_dbus_signal_agent_register(
 {
 	struct station *station = user_data;
 	const char *path, *sender;
+	struct l_dbus_message *reply;
 	struct l_dbus_message_iter level_iter;
 	int8_t levels[16];
 	int err;
@@ -3758,12 +3759,19 @@ static struct l_dbus_message *station_dbus_signal_agent_register(
 
 	l_debug("agent %s path %s", sender, path);
 
-	/*
-	 * TODO: send an initial notification in a oneshot idle callback,
-	 * if state is connected.
-	 */
+	reply = l_dbus_message_new_method_return(message);
+	l_dbus_send(dbus, reply);
 
-	return l_dbus_message_new_method_return(message);
+	if (station->connected_network) {
+		struct netdev *netdev = station->netdev;
+		uint8_t level = netdev_get_rssi_level_idx(netdev);
+
+		station_signal_agent_notify(station->signal_agent,
+						netdev_get_path(netdev),
+						level);
+	}
+
+	return NULL;
 }
 
 static struct l_dbus_message *station_dbus_signal_agent_unregister(
