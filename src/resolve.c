@@ -558,6 +558,38 @@ static const struct resolve_method_ops resolve_method_resolvconf_ops = {
 	.alloc = resolve_resolvconf_alloc,
 };
 
+static void resolve_none_destroy(struct resolve *resolve)
+{
+	l_free(resolve);
+}
+
+static struct resolve_ops none_ops = {
+	.destroy = resolve_none_destroy,
+};
+
+static int resolve_none_init(void)
+{
+	return 0;
+}
+
+static void resolve_none_exit(void)
+{
+}
+
+static struct resolve *resolve_none_alloc(uint32_t ifindex)
+{
+	struct resolve *r = l_new(struct resolve, 1);
+
+	_resolve_init(r, ifindex, &none_ops);
+	return r;
+}
+
+static const struct resolve_method_ops resolve_method_none_ops = {
+	.init = resolve_none_init,
+	.exit = resolve_none_exit,
+	.alloc = resolve_none_alloc,
+};
+
 static const struct resolve_method_ops *configured_method;
 
 struct resolve *resolve_new(uint32_t ifindex)
@@ -574,6 +606,7 @@ static const struct {
 } resolve_method_ops_list[] = {
 	{ "systemd", &resolve_method_systemd_ops },
 	{ "resolvconf", &resolve_method_resolvconf_ops },
+	{ "none", &resolve_method_none_ops },
 	{ }
 };
 
