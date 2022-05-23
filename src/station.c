@@ -1487,6 +1487,9 @@ static void station_enter_state(struct station *station,
 				network_get_path(station->connected_network),
 				IWD_NETWORK_INTERFACE, "Connected");
 
+		if (station->signal_agent)
+			station_signal_agent_notify(station);
+
 		periodic_scan_stop(station);
 		break;
 	case STATION_STATE_CONNECTED:
