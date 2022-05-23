@@ -1025,12 +1025,6 @@ static void netdev_cqm_event_rssi_threshold(struct netdev *netdev,
 	netdev->event_filter(netdev, event, NULL, netdev->user_data);
 }
 
-static void netdev_rssi_level_init(struct netdev *netdev)
-{
-	if (netdev->connected && netdev->rssi_levels_num)
-		netdev_set_rssi_level_idx(netdev);
-}
-
 static void netdev_cqm_event_rssi_value(struct netdev *netdev, int rssi_val)
 {
 	bool new_rssi_low;
@@ -4043,7 +4037,10 @@ build_cmd_connect:
 	netdev->handshake = hs;
 	netdev->sm = sm;
 	netdev->cur_rssi = bss->signal_strength / 100;
-	netdev_rssi_level_init(netdev);
+
+	if (netdev->rssi_levels_num)
+		netdev_set_rssi_level_idx(netdev);
+
 	netdev_cqm_rssi_update(netdev);
 
 	if (!wiphy_has_ext_feature(netdev->wiphy,
@@ -5651,11 +5648,14 @@ int netdev_set_rssi_report_levels(struct netdev *netdev, const int8_t *levels,
 	}
 
 done:
-	if (levels_num)
+	netdev->rssi_levels_num = levels_num;
+
+	if (levels_num) {
 		memcpy(netdev->rssi_levels, levels, levels_num);
 
-	netdev->rssi_levels_num = levels_num;
-	netdev_rssi_level_init(netdev);
+		if (netdev->connected)
+			netdev_set_rssi_level_idx(netdev);
+	}
 
 	netdev_rssi_polling_update(netdev);
 
