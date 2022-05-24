@@ -11,6 +11,8 @@ from iwd import PSKAgent
 from hlrauc import AuthCenter
 from ofono import Ofono
 from config import ctx
+from hostapd import HostapdCLI
+
 import testutil
 import traceback
 
@@ -49,6 +51,8 @@ class Test(unittest.TestCase):
 
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected()
+
+        self.hostapd.eapol_reauth(device.address)
 
         if secrets:
             wd.unregister_psk_agent(psk_agent)
@@ -251,6 +255,7 @@ class Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.wd = IWD()
+        cls.hostapd = HostapdCLI()
 
     @classmethod
     def tearDownClass(cls):
