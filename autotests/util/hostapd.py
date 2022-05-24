@@ -163,8 +163,11 @@ class HostapdCLI(object):
         ctx.start_process(cmd).wait()
 
     def eapol_reauth(self, client_address):
-        cmd = 'IFNAME=' + self.ifname + ' EAPOL_REAUTH ' + client_address
+        self.events = []
+        cmd = 'EAPOL_REAUTH ' + client_address
         self.ctrl_sock.sendall(cmd.encode('utf-8'))
+        self.wait_for_event('CTRL-EVENT-EAP-STARTED')
+        self.wait_for_event('CTRL-EVENT-EAP-SUCCESS')
 
     def reload(self):
         # Seemingly all three commands needed for the instance to notice
