@@ -451,6 +451,9 @@ class QemuRunner(RunnerAbstract):
 	def prepare_environment(self):
 		mounts = [ MountInfo('debugfs', 'debugfs', '/sys/kernel/debug', '', 0) ]
 
+		mounts.append(MountInfo('hostfs', 'hostfs', self.args.testhome,
+					self.args.testhome, 0))
+
 		if self.args.log:
 			mounts.append(MountInfo('9p', 'logdir', self.args.log,
 					'trans=virtio,version=9p2000.L,msize=10240', 0))
@@ -512,6 +515,9 @@ class UmlRunner(RunnerAbstract):
 		if self.args.result:
 			mounts.append(MountInfo('hostfs', 'hostfs', self.args.result_parent,
 						self.args.result_parent, 0))
+
+		mounts.append(MountInfo('hostfs', 'hostfs', self.args.testhome,
+					self.args.testhome, 0))
 
 		self._prepare_mounts(extra=mounts)
 
