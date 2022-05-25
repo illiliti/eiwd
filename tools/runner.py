@@ -289,7 +289,13 @@ class RunnerAbstract:
 
 	# For QEMU/UML runners
 	def _prepare_mounts(self, extra=[]):
+		mounted = []
+
 		for entry in mounts_common + extra:
+			if entry.target in mounted:
+				print("%s already mounted, skipping" % entry.target)
+				continue
+
 			try:
 				os.lstat(entry.target)
 			except:
@@ -297,6 +303,8 @@ class RunnerAbstract:
 
 			mount(entry.source, entry.target, entry.fstype, entry.flags,
 				entry.options)
+
+			mounted.append(entry.target)
 
 		for entry in dev_table:
 			os.symlink(entry.target, entry.linkpath)
