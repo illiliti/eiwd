@@ -56,7 +56,6 @@ class Test(unittest.TestCase):
             # at least) uses a moving-window average value over the last RSSI
             # measurements received from the driver and it changes gradually.
             # Normally 1 second is enough.
-            self.assertEqual(agent.calls, 0)
             for centre, level in rssi_pairs:
                 rule.signal = centre
                 agent.level = -1
