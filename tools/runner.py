@@ -305,18 +305,12 @@ class RunnerAbstract:
 
 	# For QEMU/UML --log, --monitor, --result
 	def _prepare_outfiles(self):
-		gid = None
 		append_gid_uid = False
 
-		if os.environ.get('SUDO_GID', None):
-			uid = int(os.environ['SUDO_UID'])
-			gid = int(os.environ['SUDO_GID'])
+		uid = int(os.environ.get('SUDO_UID', os.getuid()))
+		gid = int(os.environ.get('SUDO_GID', os.getgid()))
 
 		if self.args.log:
-			if os.getuid() != 0:
-				print("--log can only be used as root user")
-				quit()
-
 			append_gid_uid = True
 
 			if not os.path.exists(self.args.log):
@@ -326,20 +320,12 @@ class RunnerAbstract:
 				os.chown(self.args.log, uid, gid)
 
 		if self.args.monitor:
-			if os.getuid() != 0:
-				print("--monitor can only be used as root user")
-				quit()
-
 			append_gid_uid = True
 
 			self.args.monitor_parent = os.path.abspath(
 						os.path.join(self.args.monitor, os.pardir))
 
 		if self.args.result:
-			if os.getuid() != 0:
-				print("--result can only be used as root user")
-				quit()
-
 			append_gid_uid = True
 
 			self.args.result_parent = os.path.abspath(
