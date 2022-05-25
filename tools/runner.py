@@ -311,6 +311,9 @@ class RunnerAbstract:
 		gid = int(os.environ.get('SUDO_GID', os.getgid()))
 
 		if self.args.log:
+			if self.args.log == '/tmp':
+				raise Exception('Log directly cannot be /tmp')
+
 			append_gid_uid = True
 
 			if not os.path.exists(self.args.log):
@@ -324,12 +327,16 @@ class RunnerAbstract:
 
 			self.args.monitor_parent = os.path.abspath(
 						os.path.join(self.args.monitor, os.pardir))
+			if self.args.monitor_parent == '/tmp':
+				raise Exception('--monitor cannot be directly under /tmp')
 
 		if self.args.result:
 			append_gid_uid = True
 
 			self.args.result_parent = os.path.abspath(
 						os.path.join(self.args.result, os.pardir))
+			if self.args.result_parent == '/tmp':
+				raise Exception('--result cannot be directly under /tmp')
 
 		if append_gid_uid:
 			self.args.SUDO_UID = uid
