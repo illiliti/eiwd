@@ -131,10 +131,13 @@ static void __eap_tls_common_state_reset(struct eap_tls_state *eap_tls)
 	eap_tls->expecting_frag_ack = false;
 	eap_tls->tunnel_ready = false;
 
-	if (eap_tls->tunnel) {
-		l_tls_free(eap_tls->tunnel);
-		eap_tls->tunnel = NULL;
-	}
+	/*
+	 * Keep the tunnel instance to avoid losing the authentication
+	 * settings that we may have loaded with l_tls_set_auth_data()
+	 * since .reset_state is not supposed to clear settings.
+	 */
+	if (eap_tls->tunnel)
+		l_tls_reset(eap_tls->tunnel);
 
 	eap_tls->tx_frag_offset = 0;
 	eap_tls->tx_frag_last_len = 0;
@@ -167,6 +170,10 @@ static void __eap_tls_common_state_free(struct eap_tls_state *eap_tls)
 		l_key_free(eap_tls->client_key);
 
 	l_strv_free(eap_tls->domain_mask);
+
+	if (eap_tls->tunnel)
+		l_tls_free(eap_tls->tunnel);
+
 	l_free(eap_tls);
 }
 
@@ -569,7 +576,7 @@ static bool eap_tls_tunnel_init(struct eap_state *eap)
 	struct eap_tls_state *eap_tls = eap_get_data(eap);
 
 	if (eap_tls->tunnel)
-		return false;
+		goto start;
 
 	eap_tls->tunnel = l_tls_new(false, eap_tls_tunnel_data_received,
 					eap_tls_tunnel_data_send,
@@ -626,6 +633,7 @@ static bool eap_tls_tunnel_init(struct eap_state *eap)
 	if (eap_tls->domain_mask)
 		l_tls_set_domain_mask(eap_tls->tunnel, eap_tls->domain_mask);
 
+start:
 	if (!l_tls_start(eap_tls->tunnel)) {
 		l_error("%s: Failed to start the TLS client",
 						eap_get_method_name(eap));
