@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 import dbus
 import sys
-import collections
 
+from collections.abc import Mapping
 from weakref import WeakValueDictionary
 from abc import ABCMeta, abstractmethod
 from enum import Enum
@@ -210,7 +210,7 @@ class Rule(HwsimDBusAbstract):
                prefix + '\tDelay:\t' + str(self.delay) + '\n' + \
                prefix + '\tEnabled:\t' + str(self.enabled) + '\n'
 
-class RuleSet(collections.Mapping):
+class RuleSet(Mapping):
     def __init__(self, hwsim, objects):
         self._dict = {}
         self._rule_manager = hwsim.rule_manager
@@ -275,7 +275,7 @@ class Radio(HwsimDBusAbstract):
                prefix + '\tName:\t\t' + self.name + '\n' + \
                prefix + '\tAddresses:\t' + repr(self.destination) + '\n'
 
-class RadioList(collections.Mapping):
+class RadioList(Mapping):
     def __init__(self, hwsim, objects):
         self._dict = {}
         self._radio_manager = hwsim.radio_manager
