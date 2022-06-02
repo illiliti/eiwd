@@ -99,9 +99,9 @@ class Test(unittest.TestCase):
         self.wpas.wait_for_event('DPP-CONF-RECEIVED', timeout=30)
 
     def setUp(self):
+        self.wpas = Wpas('wpas.conf')
         self.wd = IWD(True)
         self.device = self.wd.list_devices(1)[0]
-        self.wpas = Wpas('wpas.conf')
         self.hapd = HostapdCLI('hostapd.conf')
         self.hapd.disable()
         self.hwsim = Hwsim()
@@ -114,7 +114,6 @@ class Test(unittest.TestCase):
         self.rule0.drop = True
 
     def tearDown(self):
-        print("calling Disconnect()")
         self.device.disconnect()
         self.device.dpp_stop()
         self.wpas.dpp_configurator_remove()
