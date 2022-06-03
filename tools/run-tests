@@ -863,7 +863,7 @@ def post_test(ctx, to_copy):
 		for f in to_copy:
 			if os.path.isdir('/tmp/' + f):
 				shutil.rmtree('/tmp/' + f)
-			else:
+			elif os.path.exists('/tmp/' + f):
 				os.remove('/tmp/' + f)
 
 		Process(['ip', 'link', 'set', 'lo', 'down']).wait()
