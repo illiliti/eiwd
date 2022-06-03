@@ -571,7 +571,8 @@ bool dpp_derive_r_auth(const void *i_nonce, const void *r_nonce,
 	 * R-auth = H(I-nonce | R-nonce | PI.x | PR.x | [ BI.x | ] BR.x | 0)
 	 */
 	return dpp_hash(type, r_auth, 6, i_nonce, nonce_len, r_nonce, nonce_len,
-			pix, keys_len, prx, keys_len, brx, keys_len, &zero, 1);
+			pix, keys_len, prx, keys_len, brx, keys_len,
+			&zero, (size_t) 1);
 }
 
 bool dpp_derive_i_auth(const void *r_nonce, const void *i_nonce,
@@ -596,7 +597,8 @@ bool dpp_derive_i_auth(const void *r_nonce, const void *i_nonce,
 	 * I-auth = H(R-nonce | I-nonce | PR.x | PI.x | BR.x | [ BI.x | ] 1)
 	 */
 	return dpp_hash(type, i_auth, 6, r_nonce, nonce_len, i_nonce, nonce_len,
-			prx, keys_len, pix, keys_len, brx, keys_len, &one, 1);
+			prx, keys_len, pix, keys_len, brx, keys_len,
+			&one, (size_t) 1);
 }
 
 /*
