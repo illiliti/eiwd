@@ -437,6 +437,11 @@ class QemuRunner(RunnerAbstract):
 			for addr in pci_adapters:
 				qemu_cmdline.extend(['-device', 'vfio-pci,host=%s' % addr])
 
+		qemu_cmdline.extend([
+			'-virtfs',
+			'local,path=%s,%s' % (args.testhome, mount_options('homedir'))
+		])
+
 		if args.log:
 			#
 			# Creates a virtfs device that can be mounted. This mount
@@ -469,8 +474,8 @@ class QemuRunner(RunnerAbstract):
 	def prepare_environment(self):
 		mounts = [ MountInfo('debugfs', 'debugfs', '/sys/kernel/debug', '', 0) ]
 
-		mounts.append(MountInfo('hostfs', 'hostfs', self.args.testhome,
-					self.args.testhome, 0))
+		mounts.append(MountInfo('9p', 'homedir', self.args.testhome,
+					'trans=virtio,version=9p2000.L,msize=10240', 0))
 
 		if self.args.log:
 			mounts.append(MountInfo('9p', 'logdir', self.args.log,
