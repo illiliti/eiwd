@@ -485,10 +485,12 @@ int network_handshake_setup(struct network *network, struct scan_bss *bss,
 	struct station *station = network->station;
 	struct wiphy *wiphy = station_get_wiphy(station);
 	struct l_settings *settings = network->settings;
+	const struct l_settings *config = iwd_get_config();
 	struct network_info *info = network->info;
 	uint32_t eapol_proto_version;
 	uint8_t new_addr[ETH_ALEN];
 	int r;
+	const char *str;
 
 	switch (network->security) {
 	case SECURITY_PSK:
@@ -522,6 +524,15 @@ int network_handshake_setup(struct network *network, struct scan_bss *bss,
 
 		handshake_state_set_protocol_version(hs, eapol_proto_version);
 	}
+
+	/*
+	 * The randomization options in the provisioning file are dependent on
+	 * main.conf: [General].AddressRandomization=network. Any other value
+	 * should disqualify the three network-specific settings below.
+	 */
+	str = l_settings_get_value(config, "General", "AddressRandomization");
+	if (!(str && !strcmp(str, "network")))
+		return 0;
 
 	/*
 	 * We have three possible options here:
