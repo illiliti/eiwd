@@ -72,7 +72,10 @@ class RunnerNamespace(Namespace):
 			if v in [None, False, [], '']:
 				continue
 
-			ret += '%s=%s ' % (k, str(v))
+			if type(v) is list:
+				ret += '%s=%s ' % (k, ','.join(v))
+			else:
+				ret += '%s=%s ' % (k, str(v))
 
 		return ret.strip()
 
@@ -89,7 +92,7 @@ class RunnerCoreArgParse(ArgumentParser):
 				default=None,
 				type=os.path.abspath)
 		self.add_argument('--verbose', '-v', metavar='<list>',
-				type=str,
+				type=lambda x: x.split(','),
 				help='Comma separated list of applications',
 				dest='verbose',
 				default=[])

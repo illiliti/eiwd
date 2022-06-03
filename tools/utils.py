@@ -8,7 +8,7 @@ import dbus
 
 from gi.repository import GLib
 from weakref import WeakValueDictionary
-from glob import glob
+from re import match
 
 from runner import RunnerCoreArgParse
 
@@ -95,10 +95,13 @@ class Process(subprocess.Popen):
 		if process == 'valgrind' and 'iwd' in Process.testargs.verbose:
 			return True
 
-		# Handle any glob matches
+		# Handle any regex matches
 		for item in Process.testargs.verbose:
-			if process in glob(item):
-				return True
+			try:
+				if match(item, process):
+					return True
+			except Exception as e:
+				print("%s is not a valid regex" % item)
 
 		return False
 
