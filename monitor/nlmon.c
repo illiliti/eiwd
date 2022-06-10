@@ -7944,7 +7944,7 @@ static bool nlmon_receive(struct l_io *io, void *user_data)
 	unsigned char buf[8192];
 	unsigned char control[32];
 	ssize_t bytes_read;
-	int nlmsg_len;
+	uint32_t nlmsg_len;
 	int fd;
 
 	fd = l_io_get_fd(io);
