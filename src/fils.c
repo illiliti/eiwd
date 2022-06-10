@@ -572,6 +572,8 @@ static int fils_rx_associate(struct auth_proto *driver, const uint8_t *frame,
 	handshake_state_set_pmk(fils->hs, fils->pmk, fils->pmk_len);
 	handshake_state_set_pmkid(fils->hs, fils->pmkid);
 
+_Pragma("GCC diagnostic push")
+_Pragma("GCC diagnostic ignored \"-Wmaybe-uninitialized\"")
 	if (gtk)
 		handshake_state_install_gtk(fils->hs, gtk_key_index, gtk,
 						gtk_len, key_rsc, 6);
@@ -579,6 +581,7 @@ static int fils_rx_associate(struct auth_proto *driver, const uint8_t *frame,
 	if (igtk)
 		handshake_state_install_igtk(fils->hs, igtk_key_index,
 						igtk + 6, igtk_len - 6, igtk);
+_Pragma("GCC diagnostic pop")
 
 	handshake_state_set_ptk(fils->hs, fils->kek_and_tk, fils->kek_len + 16);
 	handshake_state_install_ptk(fils->hs);
