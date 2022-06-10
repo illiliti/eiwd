@@ -903,7 +903,7 @@ static void p2p_group_event(enum ap_event_type type, const void *event_data,
 	{
 		const struct ap_event_station_added_data *data = event_data;
 		L_AUTO_FREE_VAR(uint8_t *, wfd_data) = NULL;
-		ssize_t wfd_data_len;
+		ssize_t wfd_data_len = 0;
 		struct p2p_association_req req_info;
 		int r;
 
