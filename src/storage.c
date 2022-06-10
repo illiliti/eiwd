@@ -456,11 +456,9 @@ char *__storage_encrypt(const struct l_settings *settings, const char *name,
 int __storage_decrypt(struct l_settings *settings, const char *ssid,
 				bool *encrypt)
 {
-	_auto_(l_settings_free) struct l_settings *security = NULL;
 	_auto_(l_free) uint8_t *encrypted = NULL;
 	_auto_(l_free) uint8_t *decrypted = NULL;
 	_auto_(l_free) uint8_t *salt = NULL;
-	_auto_(l_strv_free) char **embedded = NULL;
 	_auto_(l_strv_free) char **groups = NULL;
 	char **i;
 	size_t elen, slen;
