@@ -321,8 +321,12 @@ const char *storage_network_ssid_from_path(const char *path,
 			if (!isalnum(*c) && !strchr("-_ ", *c))
 				break;
 
-		if (c < end)
+		if (c < end) {
+			l_warn("Provisioning file %s contains non-alphanumeric "
+				"characters in the name. Please hex-encode. "
+				"See man iwd.network", path);
 			return NULL;
+		}
 
 		memcpy(buf, filename, end - filename);
 		buf[end - filename] = '\0';
