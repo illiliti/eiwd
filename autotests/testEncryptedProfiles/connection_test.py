@@ -115,6 +115,12 @@ EncryptedSecurity=aabbccddeeff00112233445566778899
 
         self.assertEqual(wd.list_known_networks(), [])
 
+        # This test starts and stops IWD so quickly the DBus utilities don't
+        # even have a chance to set up the Device interface object which causes
+        # exceptions on the next test as the InterfaceAdded signals arrive. This
+        # allows the device interface to get set up before ending the test.
+        wd.list_devices(1)
+
     def test_runtime_profile(self):
         wd = IWD(True)
 
