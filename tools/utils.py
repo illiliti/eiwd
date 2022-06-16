@@ -405,6 +405,9 @@ class Namespace:
 		if Process.is_verbose('iwd-acd'):
 			env['IWD_ACD_DEBUG'] = '1'
 
+		if Process.is_verbose('iwd-rtnl'):
+			env['IWD_RTNL_DEBUG'] = '1'
+
 		return self.start_process(args, env=env)
 
 	@staticmethod
