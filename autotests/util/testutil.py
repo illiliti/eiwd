@@ -5,6 +5,7 @@ import fcntl
 import struct
 import select
 import codecs
+import collections
 
 import iwd
 from config import ctx
@@ -230,3 +231,59 @@ def test_ip_connected(tup0, tup1):
         ns1.start_process(['ping', '-c', '5', '-i', '0.2', ip0], check=True)
     except:
         raise Exception('Could not ping between %s and %s' % (ip0, ip1))
+
+RouteInfo = collections.namedtuple('RouteInfo', 'dst plen gw flags ifname',
+        defaults=(None, None, None, 0, ''))
+
+def get_routes4(ifname=None):
+    f = open('/proc/net/route', 'r')
+    lines = f.readlines()
+    f.close()
+    for line in lines[1:]: # Skip header line
+        route_ifname, dst_str, gw_str, flags, ref_cnt, use_cnt, metric, mask_str, \
+                mtu = line.strip().split(maxsplit=8)
+        if ifname is not None and route_ifname != ifname:
+            continue
+
+        dst = codecs.decode(dst_str, 'hex')[::-1]
+        mask = int(mask_str, 16)
+        plen = sum([(mask >> bit) & 1 for bit in range(0, 32)]) # count bits
+        gw = codecs.decode(gw_str, 'hex')[::-1]
+
+        if dst == b'\0\0\0\0':
+            dst = None
+            plen = None
+        if gw == b'\0\0\0\0':
+            gw = None
+        yield RouteInfo(dst, plen, gw, int(flags, 16), route_ifname)
+
+def get_routes6(ifname=None):
+    f = open('/proc/net/ipv6_route', 'r')
+    lines = f.readlines()
+    f.close()
+    for line in lines:
+        dst_str, dst_plen_str, src_str, src_plen_str, gw_str, metric, ref_cnt, \
+                use_cnt, flags, route_ifname = line.strip().split(maxsplit=9)
+        if ifname is not None and route_ifname != ifname:
+            continue
+
+        dst = codecs.decode(dst_str, 'hex')
+        plen = int(dst_plen_str, 16)
+        gw = codecs.decode(gw_str, 'hex')
+
+        if dst[0] == 0xff or dst[:2] == b'\xfe\x80': # Skip link-local and multicast
+            continue
+
+        # Skip RTN_LOCAL-type routes, we don't need to validate them since they're added by
+        # the kernel and we can't simply add them to the expected list (the list that we
+        # validate against) because they're added a short time after an address (due to DAD?)
+        # and would create race conditions
+        if int(flags, 16) & (1 << 31):
+            continue
+
+        if dst == b'\0' * 16:
+            dst = None
+            plen = None
+        if gw == b'\0' * 16:
+            gw = None
+        yield RouteInfo(dst, plen, gw, int(flags, 16) & 0xf, route_ifname)

@@ -12,6 +12,7 @@ from hostapd import HostapdCLI
 import testutil
 from config import ctx
 import os
+import socket
 
 class Test(unittest.TestCase):
 
@@ -48,6 +49,28 @@ class Test(unittest.TestCase):
 
         testutil.test_ip_address_match(dev1.name, '192.168.1.10', 25)
         testutil.test_ip_address_match(dev1.name, '3ffe:501:ffff:200::10', 80)
+
+        ifname = str(dev1.name)
+        # Since we're in an isolated VM with freshly created interfaces we know any routes
+        # will have been created by IWD and don't have to allow for pre-existing routes
+        # in the table.
+        # Flags: 1=RTF_UP, 2=RTF_GATEWAY
+        expected_routes4 = {
+                testutil.RouteInfo(gw=socket.inet_pton(socket.AF_INET, '192.168.1.3'),
+                    flags=3, ifname=ifname),
+                testutil.RouteInfo(dst=socket.inet_pton(socket.AF_INET, '192.168.1.0'), plen=25,
+                    flags=1, ifname=ifname)
+            }
+        expected_routes6 = {
+                testutil.RouteInfo(gw=socket.inet_pton(socket.AF_INET6, '3ffe:501:ffff:200::3'),
+                    flags=3, ifname=ifname),
+                testutil.RouteInfo(dst=socket.inet_pton(socket.AF_INET6, '3ffe:501:ffff:200::'), plen=80,
+                    flags=1, ifname=ifname),
+            }
+
+        self.maxDiff = None
+        self.assertEqual(expected_routes4, set(testutil.get_routes4(ifname)))
+        self.assertEqual(expected_routes6, set(testutil.get_routes6(ifname)))
 
         ordered_network = dev2.get_ordered_network('ssidTKIP')
 

@@ -12,7 +12,7 @@ from hostapd import HostapdCLI
 import testutil
 from config import ctx
 import os
-import subprocess
+import socket
 
 class Test(unittest.TestCase):
 
@@ -54,6 +54,29 @@ class Test(unittest.TestCase):
         ctx.non_block_wait(check_addr, 10, device,
                             exception=Exception("IPv6 address was not set"))
 
+        ifname = str(device.name)
+        router_ll_addr = [addr for addr, _, _ in testutil.get_addrs6(self.hapd.ifname) if addr[0:2] == b'\xfe\x80'][0]
+        # Since we're in an isolated VM with freshly created interfaces we know any routes
+        # will have been created by IWD and don't have to allow for pre-existing routes
+        # in the table.
+        # Flags: 1=RTF_UP, 2=RTF_GATEWAY
+        expected_routes4 = {
+                testutil.RouteInfo(gw=socket.inet_pton(socket.AF_INET, '192.168.1.1'),
+                    flags=3, ifname=ifname),
+                testutil.RouteInfo(dst=socket.inet_pton(socket.AF_INET, '192.168.0.0'), plen=17,
+                    flags=1, ifname=ifname)
+            }
+        expected_routes6 = {
+                # Default router
+                testutil.RouteInfo(gw=router_ll_addr, flags=3, ifname=ifname),
+                # On-link prefix
+                testutil.RouteInfo(dst=socket.inet_pton(socket.AF_INET6, '3ffe:501:ffff:100::'), plen=72,
+                    flags=1, ifname=ifname),
+            }
+        self.maxDiff = None
+        self.assertEqual(expected_routes4, set(testutil.get_routes4(ifname)))
+        self.assertEqual(expected_routes6, set(testutil.get_routes6(ifname)))
+
         device.disconnect()
 
         condition = 'not obj.connected'
@@ -77,6 +100,7 @@ class Test(unittest.TestCase):
                 pass
 
         hapd = HostapdCLI()
+        cls.hapd = hapd
         # TODO: This could be moved into test-runner itself if other tests ever
         #       require this functionality (p2p, FILS, etc.). Since its simple
         #       enough it can stay here for now.
@@ -94,9 +118,18 @@ class Test(unittest.TestCase):
                                             '-lf', '/tmp/dhcpd6.leases',
                                             hapd.ifname], cleanup=remove_lease6)
         ctx.start_process(['sysctl', 'net.ipv6.conf.' + hapd.ifname + '.forwarding=1']).wait()
-        # Tell clients to use DHCPv6
+        # Send out Router Advertisements telling clients to use DHCPv6.
+        # Note trying to send the RAs from the router's global IPv6 address by adding a
+        # "AdvRASrcAddress { 3ffe:501:ffff:100::1; };" line will fail because the client
+        # and the router interfaces are in the same namespace and Linux won't allow routes
+        # with a non-link-local gateway address that is present on another interface in the
+        # same namespace.
         config = open('/tmp/radvd.conf', 'w')
-        config.write('interface ' + hapd.ifname + ' { AdvSendAdvert on; AdvManagedFlag on; };')
+        config.write('interface ' + hapd.ifname + ''' {
+            AdvSendAdvert on;
+            AdvManagedFlag on;
+            prefix 3ffe:501:ffff:100::/72 { AdvAutonomous off; };
+            };''')
         config.close()
         cls.radvd_pid = ctx.start_process(['radvd', '-n', '-d5', '-p', '/tmp/radvd.pid', '-C', '/tmp/radvd.conf'])
 
