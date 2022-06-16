@@ -597,8 +597,10 @@ struct l_settings *storage_network_open(enum security type, const char *ssid)
 
 	settings = l_settings_new();
 
-	if (!l_settings_load_from_file(settings, path))
+	if (!l_settings_load_from_file(settings, path)) {
+		l_error("Error loading %s", path);
 		goto error;
+	}
 
 	if (type != SECURITY_NONE && !storage_decrypt(settings, path, ssid))
 		goto error;
