@@ -108,7 +108,7 @@ class RunnerCoreArgParse(ArgumentParser):
 				help='Enables iwmon output to file')
 		self.add_argument('--sub-tests', '-S',
 				metavar='<subtests>',
-				type=str, nargs=1, help='List of subtests to run',
+				type=str, help='List of subtests to run',
 				default=None, dest='sub_tests')
 		self.add_argument('--result', '-e',
 				type=os.path.abspath,
@@ -131,8 +131,6 @@ class RunnerCoreArgParse(ArgumentParser):
 		auto_unit_group.add_argument('--unit-tests', '-U',
 				metavar='<tests>',
 				type=str,
-				nargs='?',
-				const='*',
 				help='List of unit tests to run',
 				dest='unit_tests')
 
@@ -141,7 +139,6 @@ class RunnerCoreArgParse(ArgumentParser):
 		valgrind_gdb_group.add_argument('--gdb', '-g',
 				metavar='<exec>',
 				type=str,
-				nargs=1,
 				help='Run gdb on specified executable',
 				dest='gdb')
 		valgrind_gdb_group.add_argument('--valgrind', '-V',
@@ -156,7 +153,7 @@ class RunnerCoreArgParse(ArgumentParser):
 
 		options = []
 		for k, v in os.environ.items():
-			options.append('--' + k)
+			options.append('--' + k.replace('_', '-'))
 			options.append(v)
 
 		return self.parse_known_args(args=options, namespace=RunnerNamespace())[0]
