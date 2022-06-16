@@ -72,6 +72,15 @@ class Test(unittest.TestCase):
                 # On-link prefix
                 testutil.RouteInfo(dst=socket.inet_pton(socket.AF_INET6, '3ffe:501:ffff:100::'), plen=72,
                     flags=1, ifname=ifname),
+                # Router for an off-link prefix, medium preference
+                testutil.RouteInfo(dst=socket.inet_pton(socket.AF_INET6, '3ffe:501:ffff:300::'), plen=64,
+                    gw=router_ll_addr, flags=3, ifname=ifname),
+                # Router for an off-link prefix, high preference
+                testutil.RouteInfo(dst=socket.inet_pton(socket.AF_INET6, '3ffe:501:ffff:400::'), plen=65,
+                    gw=router_ll_addr, flags=3, ifname=ifname),
+                # Router for an off-link prefix, low preference
+                testutil.RouteInfo(dst=socket.inet_pton(socket.AF_INET6, '3ffe:501:ffff:500::'), plen=66,
+                    gw=router_ll_addr, flags=3, ifname=ifname)
             }
         self.maxDiff = None
         self.assertEqual(expected_routes4, set(testutil.get_routes4(ifname)))
@@ -137,6 +146,9 @@ class Test(unittest.TestCase):
             AdvSendAdvert on;
             AdvManagedFlag on;
             prefix 3ffe:501:ffff:100::/72 { AdvAutonomous off; };
+            route 3ffe:501:ffff:300::/64 {};
+            route 3ffe:501:ffff:400::/65 { AdvRoutePreference low; };
+            route 3ffe:501:ffff:500::/66 { AdvRoutePreference high; };
             };''')
         config.close()
         cls.radvd_pid = ctx.start_process(['radvd', '-n', '-d5', '-p', '/tmp/radvd.pid', '-C', '/tmp/radvd.conf'])
