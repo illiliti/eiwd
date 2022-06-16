@@ -1086,7 +1086,7 @@ class IWD(AsyncOpAbstract):
     psk_agent = None
 
     def __init__(self, start_iwd_daemon = False, iwd_config_dir = '/tmp',
-                            iwd_storage_dir = '/tmp/iwd', namespace=ctx):
+                            iwd_storage_dir = IWD_STORAGE_DIR, namespace=ctx):
         self.namespace = namespace
         self._bus = namespace.get_bus()
 
@@ -1197,11 +1197,16 @@ class IWD(AsyncOpAbstract):
         os.system('rm -rf ' + storage_dir + '/ap/*')
 
     @staticmethod
-    def create_in_storage(file_name, file_content):
-        fo = open(IWD_STORAGE_DIR + '/' + file_name, 'w')
+    def create_in_storage(file_name, file_content, storage_dir=IWD_STORAGE_DIR):
+        fo = open(storage_dir + '/' + file_name, 'w')
 
         fo.write(file_content)
         fo.close()
+
+    @staticmethod
+    def _ensure_storage_dir_exists(storage_dir):
+        if not os.path.exists(storage_dir):
+            os.mkdir(storage_dir)
 
     @staticmethod
     def copy_to_storage(source, storage_dir=IWD_STORAGE_DIR, name=None):
@@ -1209,28 +1214,32 @@ class IWD(AsyncOpAbstract):
 
         assert not os.path.isabs(source)
 
+        target = storage_dir
         if name:
-            storage_dir += '/%s' % name
+            target += '/%s' % name
 
-        shutil.copy(source, storage_dir)
-
-    @staticmethod
-    def copy_to_hotspot(source):
-        if not os.path.exists(IWD_STORAGE_DIR + "/hotspot"):
-            os.mkdir(IWD_STORAGE_DIR + "/hotspot")
-
-        IWD.copy_to_storage(source, IWD_STORAGE_DIR + "/hotspot")
+        IWD._ensure_storage_dir_exists(storage_dir)
+        shutil.copy(source, target)
 
     @staticmethod
-    def copy_to_ap(source):
-        if not os.path.exists(IWD_STORAGE_DIR + "/ap"):
-            os.mkdir(IWD_STORAGE_DIR + "/ap")
+    def copy_to_hotspot(source, storage_dir=IWD_STORAGE_DIR):
+        IWD._ensure_storage_dir_exists(storage_dir)
 
-        IWD.copy_to_storage(source, IWD_STORAGE_DIR + '/ap/')
+        if not os.path.exists(storage_dir + "/hotspot"):
+            os.mkdir(storage_dir + "/hotspot")
+
+        IWD.copy_to_storage(source, storage_dir + "/hotspot")
 
     @staticmethod
-    def remove_from_storage(file_name):
-        os.system('rm -rf ' + IWD_STORAGE_DIR + '/\'' + file_name + '\'')
+    def copy_to_ap(source, storage_dir=IWD_STORAGE_DIR):
+        if not os.path.exists(storage_dir + "/ap"):
+            os.mkdir(storage_dir + "/ap")
+
+        IWD.copy_to_storage(source, storage_dir + '/ap/')
+
+    @staticmethod
+    def remove_from_storage(file_name, storage_dir=IWD_STORAGE_DIR):
+        os.system('rm -rf ' + storage_dir + '/\'' + file_name + '\'')
 
     def list_devices(self, wait_to_appear = 0, max_wait = 50, p2p = False):
         if not wait_to_appear:

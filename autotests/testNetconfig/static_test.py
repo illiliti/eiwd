@@ -91,7 +91,7 @@ class Test(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        IWD.clear_storage()
+        IWD.clear_storage(storage_dir='/tmp/storage')
         cls.dhcpd_pid.kill()
 
 if __name__ == '__main__':
