@@ -45,7 +45,7 @@ class Test(unittest.TestCase):
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected()
 
-        testutil.test_ip_address_match(dev1.name, '192.168.1.10')
+        testutil.test_ip_address_match(dev1.name, '192.168.1.10', 25)
 
         ordered_network = dev2.get_ordered_network('ssidTKIP')
 
@@ -79,9 +79,9 @@ class Test(unittest.TestCase):
 
         hapd = HostapdCLI()
         # TODO: This could be moved into test-runner itself if other tests ever
-        #       require this functionality (p2p, FILS, etc.). Since its simple
+        #       require this functionality (p2p, FILS, etc.). Since it's simple
         #       enough it can stay here for now.
-        ctx.start_process(['ip', 'addr','add', '192.168.1.1/255.255.255.0',
+        ctx.start_process(['ip', 'addr','add', '192.168.1.1/255.255.128.0',
                             'dev', hapd.ifname]).wait()
         ctx.start_process(['touch', '/tmp/dhcpd.leases']).wait()
         cls.dhcpd_pid = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf',
