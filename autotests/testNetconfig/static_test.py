@@ -72,6 +72,14 @@ class Test(unittest.TestCase):
         self.assertEqual(expected_routes4, set(testutil.get_routes4(ifname)))
         self.assertEqual(expected_routes6, set(testutil.get_routes6(ifname)))
 
+        rclog = open('/tmp/resolvconf.log', 'r')
+        entries = rclog.readlines()
+        rclog.close()
+        expected_rclog = ['-a wlan1.dns\n', 'nameserver 192.168.1.4\n', 'nameserver 3ffe:501:ffff:200::4\n']
+        # Every resolvconf -a run overwrites the previous settings.  Check the last three lines
+        # of the log since we care about the end result here.
+        self.assertEqual(expected_rclog, entries[-3:])
+
         ordered_network = dev2.get_ordered_network('ssidTKIP')
 
         condition = 'not obj.connected'
@@ -121,10 +129,15 @@ class Test(unittest.TestCase):
                                             hapd.ifname], cleanup=remove_lease)
         IWD.copy_to_storage('ssidTKIP.psk', '/tmp/storage')
 
+        cls.orig_path = os.environ['PATH']
+        os.environ['PATH'] = '/tmp/test-bin:' + os.environ['PATH']
+        IWD.copy_to_storage('resolvconf', '/tmp/test-bin')
+
     @classmethod
     def tearDownClass(cls):
-        IWD.clear_storage(storage_dir='/tmp/storage')
         cls.dhcpd_pid.kill()
+        os.system('rm -rf /tmp/resolvconf.log /tmp/test-bin /tmp/storage')
+        os.environ['PATH'] = cls.orig_path
 
 if __name__ == '__main__':
     unittest.main(exit=True)

@@ -1,0 +1,2 @@
+#! /bin/sh
+(echo "$*" ; [ "$1" = -a ] && cat) >> /tmp/resolvconf.log 2> /dev/null

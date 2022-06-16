@@ -77,6 +77,14 @@ class Test(unittest.TestCase):
         self.assertEqual(expected_routes4, set(testutil.get_routes4(ifname)))
         self.assertEqual(expected_routes6, set(testutil.get_routes6(ifname)))
 
+        rclog = open('/tmp/resolvconf.log', 'r')
+        entries = rclog.readlines()
+        rclog.close()
+        expected_rclog = ['-a wlan1.dns\n', 'nameserver 192.168.1.2\n', 'nameserver 3ffe:501:ffff:100::2\n']
+        # Every real resolvconf -a run overwrites the previous settings.  Check the last three lines
+        # of our log since we care about the end result here.
+        self.assertEqual(expected_rclog, entries[-3:])
+
         device.disconnect()
 
         condition = 'not obj.connected'
@@ -133,6 +141,10 @@ class Test(unittest.TestCase):
         config.close()
         cls.radvd_pid = ctx.start_process(['radvd', '-n', '-d5', '-p', '/tmp/radvd.pid', '-C', '/tmp/radvd.conf'])
 
+        cls.orig_path = os.environ['PATH']
+        os.environ['PATH'] = '/tmp/test-bin:' + os.environ['PATH']
+        IWD.copy_to_storage('resolvconf', '/tmp/test-bin')
+
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
@@ -142,7 +154,8 @@ class Test(unittest.TestCase):
         cls.dhcpd6_pid = None
         ctx.stop_process(cls.radvd_pid)
         cls.radvd_pid = None
-        os.remove('/tmp/radvd.conf')
+        os.system('rm -rf /tmp/radvd.conf /tmp/resolvconf.log /tmp/test-bin')
+        os.environ['PATH'] = cls.orig_path
 
 if __name__ == '__main__':
     unittest.main(exit=True)

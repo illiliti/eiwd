@@ -4,11 +4,13 @@
 Address=192.168.1.10
 Netmask=255.255.255.128
 Gateway=192.168.1.3
+DNS=192.168.1.4
 
 [IPv6]
 # Use a different subnet than DHCP on purpose
 Address=3ffe:501:ffff:200::10/80
 Gateway=3ffe:501:ffff:200::3
+DNS=3ffe:501:ffff:200::4
 
 [Settings]
 AutoConnect=false
