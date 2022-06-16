@@ -16,6 +16,7 @@ import os
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
+        # Use a non-default storage_dir for one of the instances, the default for the other one
         wd = IWD(True, iwd_storage_dir='/tmp/storage')
 
         ns0 = ctx.get_namespace('ns0')
@@ -46,19 +47,27 @@ class Test(unittest.TestCase):
         testutil.test_ifaces_connected()
 
         testutil.test_ip_address_match(dev1.name, '192.168.1.10', 25)
+        testutil.test_ip_address_match(dev1.name, '3ffe:501:ffff:200::10', 80)
 
         ordered_network = dev2.get_ordered_network('ssidTKIP')
 
         condition = 'not obj.connected'
         wd_ns0.wait_for_object_condition(ordered_network.network_object, condition)
 
+        # Connect to the same network from a dynamically configured client.  The
+        # DHCP server doesn't know (even though dev1 announced itself) that
+        # 192.168.1.10 is already in use and if it assigns dev2 the lowest
+        # available address, that's going to be 192.168.1.10.  dev1's ACD
+        # implementation should then stop using this address.
         ordered_network.network_object.connect()
 
         condition = 'obj.state == DeviceState.connected'
         wd_ns0.wait_for_object_condition(dev2, condition)
 
         wd.wait(1)
-        testutil.test_ip_address_match(dev1.name, None)
+        # Check dev1 is now disconnected or without its IPv4 address
+        if dev1.state == iwd.DeviceState.connected:
+            testutil.test_ip_address_match(dev1.name, None)
 
         dev1.disconnect()
         dev2.disconnect()

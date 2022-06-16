@@ -1,7 +1,14 @@
 [IPv4]
+# Use a different netmask than DHCP on purpose, but use the same address
+# as DHCP would assign us to produce a conflict and test ACD
 Address=192.168.1.10
 Netmask=255.255.255.128
 Gateway=192.168.1.1
+
+[IPv6]
+# Use a different subnet than DHCP on purpose
+Address=3ffe:501:ffff:200::10/80
+Gateway=3ffe:501:ffff:200::1
 
 [Settings]
 AutoConnect=false
