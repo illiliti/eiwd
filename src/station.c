@@ -1623,6 +1623,9 @@ static void station_reset_connection_state(struct station *station)
 
 	station_roam_state_clear(station);
 
+	if (station->netconfig)
+		netconfig_reset(station->netconfig);
+
 	/* Refresh the ordered network list */
 	network_rank_update(station->connected_network, false);
 	l_queue_remove(station->networks_sorted, station->connected_network);
@@ -1654,9 +1657,6 @@ static void station_reset_connection_state(struct station *station)
 static void station_disassociated(struct station *station)
 {
 	l_debug("%u", netdev_get_ifindex(station->netdev));
-
-	if (station->netconfig)
-		netconfig_reset(station->netconfig);
 
 	station_reset_connection_state(station);
 
@@ -3096,9 +3096,6 @@ static void station_disconnect_onconnect(struct station *station,
 		return;
 	}
 
-	if (station->netconfig)
-		netconfig_reset(station->netconfig);
-
 	station_reset_connection_state(station);
 
 	station_enter_state(station, STATION_STATE_DISCONNECTING);
@@ -3401,9 +3398,6 @@ int station_disconnect(struct station *station)
 
 	if (!station->connected_bss)
 		return -ENOTCONN;
-
-	if (station->netconfig)
-		netconfig_reset(station->netconfig);
 
 	/*
 	 * If the disconnect somehow fails we won't know if we're still
