@@ -1440,6 +1440,8 @@ static void station_set_drop_unicast_l2_multicast(struct station *station,
 				"drop_unicast_in_l2_multicast", v);
 }
 
+static void station_signal_agent_notify(struct station *station);
+
 static void station_enter_state(struct station *station,
 						enum station_state state)
 {
@@ -1492,6 +1494,9 @@ static void station_enter_state(struct station *station,
 				network_get_path(station->connected_network),
 				IWD_NETWORK_INTERFACE, "Connected");
 #endif
+
+		if (station->signal_agent)
+			station_signal_agent_notify(station);
 
 		periodic_scan_stop(station);
 		break;
@@ -2768,9 +2773,6 @@ static void station_event_channel_switched(struct station *station,
 	network_bss_update(network, station->connected_bss);
 }
 
-static void station_rssi_level_changed(struct station *station,
-					uint8_t level_idx);
-
 static bool station_try_next_bss(struct station *station)
 {
 	struct scan_bss *next;
@@ -3025,7 +3027,8 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 		station_ok_rssi(station);
 		break;
 	case NETDEV_EVENT_RSSI_LEVEL_NOTIFY:
-		station_rssi_level_changed(station, l_get_u8(event_data));
+		if (station->signal_agent)
+			station_signal_agent_notify(station);
 		break;
 	case NETDEV_EVENT_ROAMING:
 		station_enter_state(station, STATION_STATE_ROAMING);
@@ -3673,9 +3676,13 @@ struct signal_agent {
 	unsigned int disconnect_watch;
 };
 
-static void station_signal_agent_notify(struct signal_agent *agent,
-					const char *device_path, uint8_t level)
+static void station_signal_agent_notify(struct station *station)
 {
+	struct signal_agent *agent = station->signal_agent;
+	struct netdev *netdev = station->netdev;
+	const char *device_path = netdev_get_path(netdev);
+	uint8_t level = netdev_get_rssi_level_idx(netdev);
+
 	struct l_dbus_message *msg;
 
 	msg = l_dbus_message_new_method_call(dbus_get_bus(),
@@ -3686,18 +3693,6 @@ static void station_signal_agent_notify(struct signal_agent *agent,
 	l_dbus_message_set_no_reply(msg, true);
 
 	l_dbus_send(dbus_get_bus(), msg);
-}
-
-static void station_rssi_level_changed(struct station *station,
-					uint8_t level_idx)
-{
-	struct netdev *netdev = station->netdev;
-
-	if (!station->signal_agent)
-		return;
-
-	station_signal_agent_notify(station->signal_agent,
-					netdev_get_path(netdev), level_idx);
 }
 
 static void station_signal_agent_release(struct signal_agent *agent,
@@ -3744,6 +3739,7 @@ static struct l_dbus_message *station_dbus_signal_agent_register(
 {
 	struct station *station = user_data;
 	const char *path, *sender;
+	struct l_dbus_message *reply;
 	struct l_dbus_message_iter level_iter;
 	int8_t levels[16];
 	int err;
@@ -3786,12 +3782,13 @@ static struct l_dbus_message *station_dbus_signal_agent_register(
 
 	l_debug("agent %s path %s", sender, path);
 
-	/*
-	 * TODO: send an initial notification in a oneshot idle callback,
-	 * if state is connected.
-	 */
+	reply = l_dbus_message_new_method_return(message);
+	l_dbus_send(dbus, reply);
 
-	return l_dbus_message_new_method_return(message);
+	if (station->connected_network)
+		station_signal_agent_notify(station);
+
+	return NULL;
 }
 
 static struct l_dbus_message *station_dbus_signal_agent_unregister(

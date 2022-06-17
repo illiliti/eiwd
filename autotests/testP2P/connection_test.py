@@ -29,8 +29,8 @@ class Test(unittest.TestCase):
         self.p2p_connect_test(preauthorize=True, go=True)
 
     def p2p_connect_test(self, preauthorize, go):
-        wd = IWD()
         wpas = self.wpas = Wpas(p2p=True)
+        wd = IWD()
         wpas_go_intent = 10 if not go else 1
 
         # Not strictly necessary but prevents the station interface from queuing its scans

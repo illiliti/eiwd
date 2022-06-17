@@ -1,3 +1,11 @@
+ver 1.28:
+	Fix issue with handling invalid EAPoL frames.
+	Fix issue with handling unexpectedly unencrypted EAP frames.
+	Fix issue with handling AlwaysRandomizeAddress/AddressOverride.
+	Fix issue with handling initial signal level notification.
+	Fix issue with handling sorting of scan requests.
+	Fix issue with handling frame type check in FT.
+
 ver 1.27:
 	Fix issue with hidden networks on connection error.
 	Fix issue with directed roams if already trying to roam.

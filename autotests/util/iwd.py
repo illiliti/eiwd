@@ -8,10 +8,11 @@ import sys
 import os
 import threading
 import time
-import collections
+import collections.abc
 import datetime
 import weakref
 
+from collections.abc import Mapping
 from abc import ABCMeta, abstractmethod
 from enum import Enum
 
@@ -1018,7 +1019,7 @@ class P2PPeer(IWDDBusAbstract):
         self._iface.Disconnect()
 
 
-class DeviceList(collections.Mapping):
+class DeviceList(Mapping):
     def __init__(self, iwd):
         self._dict = {}
         self._p2p_dict = {}

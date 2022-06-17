@@ -511,7 +511,7 @@ static void send_config_result(struct dpp_sm *dpp, const uint8_t *to)
 
 	ptr += dpp_append_wrapped_data(hdr + 26, 6, attrs, 0, ptr,
 			sizeof(attrs), dpp->ke, dpp->key_len, 2,
-			DPP_ATTR_STATUS, 1, &zero,
+			DPP_ATTR_STATUS, (size_t) 1, &zero,
 			DPP_ATTR_ENROLLEE_NONCE, dpp->nonce_len, dpp->e_nonce);
 
 	iov[1].iov_base = attrs;
@@ -1146,7 +1146,7 @@ static void send_authenticate_response(struct dpp_sm *dpp)
 			ptr, sizeof(attrs), dpp->k2, dpp->key_len, 4,
 			DPP_ATTR_RESPONDER_NONCE, dpp->nonce_len, dpp->r_nonce,
 			DPP_ATTR_INITIATOR_NONCE, dpp->nonce_len, dpp->i_nonce,
-			DPP_ATTR_RESPONDER_CAPABILITIES, 1, &dpp->role,
+			DPP_ATTR_RESPONDER_CAPABILITIES, (size_t) 1, &dpp->role,
 			DPP_ATTR_WRAPPED_DATA, wrapped2_len, wrapped2);
 
 	iov[1].iov_base = attrs;
@@ -1313,7 +1313,8 @@ static void dpp_auth_request_failed(struct dpp_sm *dpp,
 	ptr += dpp_append_wrapped_data(hdr + 26, 6, attrs, ptr - attrs,
 			ptr, sizeof(attrs) - (ptr - attrs), k1, dpp->key_len, 2,
 			DPP_ATTR_INITIATOR_NONCE, dpp->nonce_len, dpp->i_nonce,
-			DPP_ATTR_RESPONDER_CAPABILITIES, 1, &dpp->role);
+			DPP_ATTR_RESPONDER_CAPABILITIES,
+			(size_t) 1, &dpp->role);
 
 	iov[1].iov_base = attrs;
 	iov[1].iov_len = ptr - attrs;
@@ -1404,7 +1405,8 @@ static bool dpp_send_authenticate_request(struct dpp_sm *dpp)
 	ptr += dpp_append_wrapped_data(hdr + 26, 6, attrs, ptr - attrs,
 			ptr, sizeof(attrs), dpp->k1, dpp->key_len, 2,
 			DPP_ATTR_INITIATOR_NONCE, dpp->nonce_len, dpp->i_nonce,
-			DPP_ATTR_INITIATOR_CAPABILITIES, 1, &dpp->role);
+			DPP_ATTR_INITIATOR_CAPABILITIES,
+			(size_t) 1, &dpp->role);
 
 	iov[1].iov_base = attrs;
 	iov[1].iov_len = ptr - attrs;

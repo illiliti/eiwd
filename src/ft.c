@@ -122,14 +122,9 @@ static bool ft_parse_authentication_resp_frame(const uint8_t *data, size_t len,
 				uint16_t *out_status, const uint8_t **out_ies,
 				size_t *out_ies_len)
 {
-	const uint16_t frame_type = 0x00b0;
 	uint16_t status = 0;
 
 	if (len < 30)
-		return false;
-
-	/* Check FC == Management Frame -> Authentication */
-	if (l_get_le16(data + 0) != frame_type)
 		return false;
 
 	if (memcmp(data + 4, addr1, 6))

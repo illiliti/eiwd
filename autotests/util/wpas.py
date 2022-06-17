@@ -1,8 +1,10 @@
 #!/usr/bin/python3
 import os
 import socket
+import shutil
 from gi.repository import GLib
 from config import ctx
+from unittest import SkipTest
 
 import binascii
 
@@ -11,7 +13,16 @@ from utils import Process
 ctrl_count = 0
 
 class Wpas:
+    io_watch = None
+    sockets = {}
+    wpa_supplicant = None
+    cleanup_paths = []
+
     def _start_wpas(self, config_name=None, p2p=False):
+        if not shutil.which('wpa_supplicant'):
+            print('wpa_supplicant not found, skipping test')
+            raise SkipTest
+
         main_interface = None
         for interface in ctx.wpas_interfaces:
             if config_name is None or interface.config == config_name:
@@ -31,7 +42,6 @@ class Wpas:
         self.config_path = '/tmp/' + self.interface.config
         self.config = self._get_config()
         self.socket_path = self.config['ctrl_interface']
-        self.io_watch = None
 
         cmd = ['wpa_supplicant', '-i', self.interface.name, '-c', self.config_path]
         if Process.is_verbose('wpa_supplicant-dbg'):
@@ -40,7 +50,6 @@ class Wpas:
         self.wpa_supplicant = ctx.start_process(cmd)
 
         self.sockets = {}
-        self.cleanup_paths = []
         self.io_watch = GLib.io_add_watch(self._get_socket(), GLib.IO_IN, self._handle_data_in)
 
         self.p2p_peers = {}

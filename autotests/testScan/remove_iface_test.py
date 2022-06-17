@@ -18,7 +18,7 @@ class Test(unittest.TestCase):
         device.autoconnect = True
         device.scan(wait=False)
 
-        os.system('ifconfig %s down' % device.name)
+        os.system('ip link set dev %s down' % device.name)
 
     @classmethod
     def setUpClass(cls):

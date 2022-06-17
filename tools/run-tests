@@ -425,8 +425,11 @@ class TestContext(Namespace):
 		return frequencies
 
 	def start_wpas_interfaces(self):
-
 		if 'WPA_SUPPLICANT' not in self.hw_config:
+			return
+
+		if not shutil.which('wpa_supplicant'):
+			print('wpa_supplicant not found, dependent tests will be skipped')
 			return
 
 		settings = self.hw_config['WPA_SUPPLICANT']
@@ -860,7 +863,7 @@ def post_test(ctx, to_copy):
 		for f in to_copy:
 			if os.path.isdir('/tmp/' + f):
 				shutil.rmtree('/tmp/' + f)
-			else:
+			elif os.path.exists('/tmp/' + f):
 				os.remove('/tmp/' + f)
 
 		Process(['ip', 'link', 'set', 'lo', 'down']).wait()

@@ -3,9 +3,9 @@
 from gi.repository import GLib
 import dbus
 import time
-import collections
 
 import iwd
+from collections.abc import Mapping
 from config import ctx
 
 EAD_SERVICE =                   'net.connman.ead'
@@ -38,7 +38,7 @@ class Adapter(iwd.IWDDBusAbstract):
         return self._properties['Authenticated']
 
 
-class AdapterList(collections.Mapping):
+class AdapterList(Mapping):
     def __init__(self, ead):
         self._dict = {}
 

@@ -1152,7 +1152,12 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 	l_debug("ifindex=%u", sm->handshake->ifindex);
 
 	if (!eapol_verify_ptk_1_of_4(ek, sm->mic_len))
-		goto error_unspecified;
+		return;
+
+	if (sm->handshake->ptk_complete && unencrypted) {
+		l_debug("Dropping unexpectedly unencrypted PTK 1/4 frame");
+		return;
+	}
 
 	pmkid = handshake_util_find_pmkid_kde(EAPOL_KEY_DATA(ek, sm->mic_len),
 					EAPOL_KEY_DATA_LEN(ek, sm->mic_len));
@@ -1676,10 +1681,8 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 
 	l_debug("ifindex=%u", hs->ifindex);
 
-	if (!eapol_verify_ptk_3_of_4(ek, hs->wpa_ie, sm->mic_len)) {
-		handshake_failed(sm, MMPDU_REASON_CODE_UNSPECIFIED);
+	if (!eapol_verify_ptk_3_of_4(ek, hs->wpa_ie, sm->mic_len))
 		return;
-	}
 
 	/*
 	 * 802.11-2016, Section 12.7.6.4:
@@ -2086,10 +2089,8 @@ static void eapol_handle_gtk_1_of_2(struct eapol_sm *sm,
 
 	l_debug("ifindex=%u", hs->ifindex);
 
-	if (!eapol_verify_gtk_1_of_2(ek, hs->wpa_ie, sm->mic_len)) {
-		handshake_failed(sm, MMPDU_REASON_CODE_UNSPECIFIED);
+	if (!eapol_verify_gtk_1_of_2(ek, hs->wpa_ie, sm->mic_len))
 		return;
-	}
 
 	oci = handshake_util_find_kde(HANDSHAKE_KDE_OCI, decrypted_key_data,
 					decrypted_key_data_size, &oci_len);
@@ -2546,6 +2547,11 @@ static void eapol_rx_auth_packet(uint16_t proto, const uint8_t *from,
 	if (proto != ETH_P_PAE || memcmp(from, sm->handshake->spa, 6))
 		return;
 
+	if (sm->handshake->ptk_complete && noencrypt) {
+		l_debug("Dropping unexpected unencrypted EAPoL frame");
+		return;
+	}
+
 	switch (frame->header.packet_type) {
 	case 0:	/* EAPOL-EAP */
 		if (!sm->eap) {
@@ -2619,6 +2625,11 @@ static void eapol_rx_packet(uint16_t proto, const uint8_t *from,
 
 	switch (frame->header.packet_type) {
 	case 0: /* EAPOL-EAP */
+		if (sm->handshake->ptk_complete && unencrypted) {
+			l_debug("Dropping unexpected unencrypted EAP frame");
+			return;
+		}
+
 		l_timeout_remove(sm->eapol_start_timeout);
 		sm->eapol_start_timeout = 0;
 

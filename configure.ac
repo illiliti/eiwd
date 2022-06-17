@@ -1,5 +1,5 @@
-AC_PREREQ(2.60)
-AC_INIT(iwd, 1.27)
+AC_PREREQ([2.69])
+AC_INIT([iwd],[1.28])
 
 AC_CONFIG_HEADERS(config.h)
 AC_CONFIG_AUX_DIR(build-aux)
@@ -18,7 +18,7 @@ PKG_PROG_PKG_CONFIG
 
 COMPILER_FLAGS
 
-AC_LANG_C
+AC_LANG([C])
 
 AC_PROG_CC
 AC_PROG_CC_PIE
@@ -34,14 +34,14 @@ AC_SYS_LARGEFILE
 LT_PREREQ(2.2)
 LT_INIT([disable-static])
 
-AC_ARG_ENABLE(optimization, AC_HELP_STRING([--disable-optimization],
+AC_ARG_ENABLE(optimization, AS_HELP_STRING([--disable-optimization],
 			[disable code optimization through compiler]), [
 	if (test "${enableval}" = "no"); then
 		CFLAGS="$CFLAGS -U_FORTIFY_SOURCE -O0"
 	fi
 ])
 
-AC_ARG_ENABLE(debug, AC_HELP_STRING([--enable-debug],
+AC_ARG_ENABLE(debug, AS_HELP_STRING([--enable-debug],
 			[enable compiling with debugging information]), [
 	if (test "${enableval}" = "yes" &&
 				test "${ac_cv_prog_cc_g}" = "yes"); then
@@ -49,7 +49,7 @@ AC_ARG_ENABLE(debug, AC_HELP_STRING([--enable-debug],
 	fi
 ])
 
-AC_ARG_ENABLE(pie, AC_HELP_STRING([--enable-pie],
+AC_ARG_ENABLE(pie, AS_HELP_STRING([--enable-pie],
 			[enable position independent executables flag]), [
 	if (test "${enableval}" = "yes" &&
 				test "${ac_cv_prog_cc_pie}" = "yes"); then
@@ -62,7 +62,7 @@ save_LIBS=$LIBS
 AC_CHECK_LIB(asan, _init)
 LIBS=$save_LIBS
 
-AC_ARG_ENABLE(asan, AC_HELP_STRING([--enable-asan],
+AC_ARG_ENABLE(asan, AS_HELP_STRING([--enable-asan],
 			[enable linking with address sanitizer]), [
 	if (test "${enableval}" = "yes" &&
 				test "${ac_cv_lib_asan__init}" = "yes" &&
@@ -76,7 +76,7 @@ save_LIBS=$LIBS
 AC_CHECK_LIB(lsan, _init)
 LIBS=$save_LIBS
 
-AC_ARG_ENABLE(lsan, AC_HELP_STRING([--enable-lsan],
+AC_ARG_ENABLE(lsan, AS_HELP_STRING([--enable-lsan],
 			[enable linking with leak sanitizer]), [
 	if (test "${enableval}" = "yes" &&
 				test "${ac_cv_lib_lsan__init}" = "yes" &&
@@ -90,7 +90,7 @@ save_LIBS=$LIBS
 AC_CHECK_LIB(ubsan, _init)
 LIBS=$save_LIBS
 
-AC_ARG_ENABLE(ubsan, AC_HELP_STRING([--enable-ubsan],
+AC_ARG_ENABLE(ubsan, AS_HELP_STRING([--enable-ubsan],
 			[enable linking with undefined behavior sanitizer]), [
 	if (test "${enableval}" = "yes" &&
 				test "${ac_cv_lib_ubsan__init}" = "yes" &&
@@ -144,17 +144,17 @@ if (test "${USE_MAINTAINER_MODE}" = yes); then
 		])
 fi
 
-AC_ARG_ENABLE([dbus], AC_HELP_STRING([--disable-dbus],
+AC_ARG_ENABLE([dbus], AS_HELP_STRING([--disable-dbus],
               [don't provide dbus support]),
 					[disable_dbus=${enableval}])
 AM_CONDITIONAL(DBUS, test "${disable_dbus}" != "no")
 
-AC_ARG_ENABLE([daemon], AC_HELP_STRING([--disable-daemon],
+AC_ARG_ENABLE([daemon], AS_HELP_STRING([--disable-daemon],
 				[don't install iwd system daemon]),
 					[enable_daemon=${enableval}])
 AM_CONDITIONAL(DAEMON, test "${enable_daemon}" != "no")
 
-AC_ARG_ENABLE([client], AC_HELP_STRING([--disable-client],
+AC_ARG_ENABLE([client], AS_HELP_STRING([--disable-client],
 				[don't install iwctl client utility]),
 					[enable_client=${enableval}])
 if (test "${disable_dbus}" != "no" && test "${enable_client}" != "no"); then
@@ -166,17 +166,17 @@ if (test "${disable_dbus}" != "no" && test "${enable_client}" != "no"); then
 fi
 AM_CONDITIONAL(CLIENT, test "${enable_client}" != "no" && test "${disable_dbus}" != "no")
 
-AC_ARG_ENABLE([monitor], AC_HELP_STRING([--disable-monitor],
+AC_ARG_ENABLE([monitor], AS_HELP_STRING([--disable-monitor],
 				[don't install iwmon monitor utility]),
 					[enable_monitor=${enableval}])
 AM_CONDITIONAL(MONITOR, test "${enable_monitor}" != "no")
 
-AC_ARG_ENABLE([dbus-policy], AC_HELP_STRING([--disable-dbus-policy],
+AC_ARG_ENABLE([dbus-policy], AS_HELP_STRING([--disable-dbus-policy],
 				[don't install D-Bus system policy files]),
 					[enable_dbus_policy=${enableval}])
 AM_CONDITIONAL(DBUS_POLICY, test "${enable_dbus_policy}" != "no" && test "${disable_dbus}" != "no")
 
-AC_ARG_WITH([dbus-datadir], AC_HELP_STRING([--with-dbus-datadir=DIR],
+AC_ARG_WITH([dbus-datadir], AS_HELP_STRING([--with-dbus-datadir=DIR],
 				[path to D-Bus data directory]),
 					[path_dbus_datadir=${withval}])
 if (test "${disable_dbus}" != "no" && test "${enable_dbus_policy}" != "no" && test -z "${path_dbus_datadir}"); then
@@ -192,12 +192,12 @@ if (test "${disable_dbus}" != "no" && test "${enable_dbus_policy}" != "no" && te
 fi
 AC_SUBST(DBUS_DATADIR, [${path_dbus_datadir}])
 
-AC_ARG_ENABLE([systemd-service], AC_HELP_STRING([--disable-systemd-service],
+AC_ARG_ENABLE([systemd-service], AS_HELP_STRING([--disable-systemd-service],
 				[don't install systemd service files]),
 					[enable_systemd_service=${enableval}])
 AM_CONDITIONAL(SYSTEMD_SERVICE, test "${enable_systemd_service}" != "no" && test "${disable_dbus}" != "no")
 
-AC_ARG_ENABLE([manual-pages], AC_HELP_STRING([--disable-manual-pages],
+AC_ARG_ENABLE([manual-pages], AS_HELP_STRING([--disable-manual-pages],
 				[don't install manual pages]),
 					[enable_manual_pages=${enableval}])
 if (test "${enable_manual_pages}" != "no"); then
@@ -206,7 +206,7 @@ fi
 AM_CONDITIONAL(MANUAL_PAGES, test "${enable_manual_pages}" != "no")
 AM_CONDITIONAL(RUN_RST2MAN, test "${enable_manual_pages}" != "no" && test "${RST2MAN}" != "no")
 
-AC_ARG_WITH([dbus-busdir], AC_HELP_STRING([--with-dbus-busdir=DIR],
+AC_ARG_WITH([dbus-busdir], AS_HELP_STRING([--with-dbus-busdir=DIR],
 				[path to D-Bus bus services directory]),
 					[path_dbus_busdir=${withval}])
 if (test "${disable_dbus}" != "no" && test "${enable_dbus_policy}" != "no" && test -z "${path_dbus_busdir}"); then
@@ -219,7 +219,7 @@ if (test "${disable_dbus}" != "no" && test "${enable_dbus_policy}" != "no" && te
 fi
 AC_SUBST(DBUS_BUSDIR, [${path_dbus_busdir}])
 
-AC_ARG_WITH([systemd-unitdir], AC_HELP_STRING([--with-systemd-unitdir=DIR],
+AC_ARG_WITH([systemd-unitdir], AS_HELP_STRING([--with-systemd-unitdir=DIR],
 				[path to systemd unit directory]),
 					[path_systemd_unitdir=${withval}])
 if (test "${disable_dbus}" != "no" && test "${enable_systemd_service}" != "no" && test -z "${path_systemd_unitdir}"); then
@@ -232,7 +232,7 @@ if (test "${disable_dbus}" != "no" && test "${enable_systemd_service}" != "no" &
 fi
 AC_SUBST(SYSTEMD_UNITDIR, [${path_systemd_unitdir}])
 
-AC_ARG_WITH([systemd-networkdir], AC_HELP_STRING([--with-systemd-networkdir=DIR],
+AC_ARG_WITH([systemd-networkdir], AS_HELP_STRING([--with-systemd-networkdir=DIR],
 				[path to systemd network directory]),
 					[path_systemd_networkdir=${withval}])
 if (test "${disable_dbus}" != "no" && test "${enable_systemd_service}" != "no" && test -z "${path_systemd_networkdir}"); then
@@ -246,7 +246,7 @@ if (test "${disable_dbus}" != "no" && test "${enable_systemd_service}" != "no" &
 fi
 AC_SUBST(SYSTEMD_NETWORKDIR, [${path_systemd_networkdir}])
 
-AC_ARG_WITH([systemd-modloaddir], AC_HELP_STRING([--with-systemd-modloaddir=DIR],
+AC_ARG_WITH([systemd-modloaddir], AS_HELP_STRING([--with-systemd-modloaddir=DIR],
 				[path to systemd modules load directory]),
 					[path_systemd_modloaddir=${withval}])
 if (test "${disable_dbus}" != "no" && test "${enable_systemd_service}" != "no" && test -z "${path_systemd_modloaddir}"); then
@@ -259,7 +259,7 @@ if (test "${disable_dbus}" != "no" && test "${enable_systemd_service}" != "no" &
 fi
 AC_SUBST(SYSTEMD_MODLOADDIR, [${path_systemd_modloaddir}])
 
-AC_ARG_ENABLE([external_ell], AC_HELP_STRING([--enable-external-ell],
+AC_ARG_ENABLE([external_ell], AS_HELP_STRING([--enable-external-ell],
 				[enable external Embedded Linux library]),
 					[enable_external_ell=${enableval}])
 if (test "${enable_external_ell}" = "yes"); then
@@ -268,7 +268,7 @@ if (test "${enable_external_ell}" = "yes"); then
 			test "${enable_monitor}" != "no" ||
 			test "${enable_wired}" = "yes" ||
 			test "${enable_hwsim}" = "yes"); then
-		ell_min_version="0.50"
+		ell_min_version="0.51"
 	else
 		ell_min_version="0.5"
 	fi
@@ -280,22 +280,22 @@ fi
 AM_CONDITIONAL(EXTERNAL_ELL, test "${enable_external_ell}" = "yes")
 
 
-AC_ARG_ENABLE([wired], AC_HELP_STRING([--enable-wired],
+AC_ARG_ENABLE([wired], AS_HELP_STRING([--enable-wired],
 				[enable Ethernet authentication support]),
 					[enable_wired=${enableval}])
 AM_CONDITIONAL(WIRED, test "${enable_wired}" = "yes" && test "${disable_dbus}" != "no")
 
-AC_ARG_ENABLE([hwsim], AC_HELP_STRING([--enable-hwsim],
+AC_ARG_ENABLE([hwsim], AS_HELP_STRING([--enable-hwsim],
 				[enable Wireless simulation utility]),
 					[enable_hwsim=${enableval}])
 AM_CONDITIONAL(HWSIM, test "${enable_hwsim}" = "yes" && test "${disable_dbus}" != "no")
 
-AC_ARG_ENABLE([tools], AC_HELP_STRING([--enable-tools],
+AC_ARG_ENABLE([tools], AS_HELP_STRING([--enable-tools],
 				[enable internal testing utilities]),
 					[enable_tools=${enableval}])
 AM_CONDITIONAL(TOOLS, test "${enable_tools}" = "yes" && test "${disable_dbus}" != "no")
 
-AC_ARG_ENABLE([ofono], AC_HELP_STRING([--enable-ofono],
+AC_ARG_ENABLE([ofono], AS_HELP_STRING([--enable-ofono],
 				[enable oFono SIM authentication support]),
 					[enable_ofono=${enableval}])
 AM_CONDITIONAL(OFONO, test "${enable_ofono}" = "yes" && test "${disable_dbus}" != "no")

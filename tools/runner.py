@@ -72,7 +72,10 @@ class RunnerNamespace(Namespace):
 			if v in [None, False, [], '']:
 				continue
 
-			ret += '%s=%s ' % (k, str(v))
+			if type(v) is list:
+				ret += '%s=%s ' % (k, ','.join(v))
+			else:
+				ret += '%s=%s ' % (k, str(v))
 
 		return ret.strip()
 
@@ -89,7 +92,7 @@ class RunnerCoreArgParse(ArgumentParser):
 				default=None,
 				type=os.path.abspath)
 		self.add_argument('--verbose', '-v', metavar='<list>',
-				type=str,
+				type=lambda x: x.split(','),
 				help='Comma separated list of applications',
 				dest='verbose',
 				default=[])
@@ -289,7 +292,13 @@ class RunnerAbstract:
 
 	# For QEMU/UML runners
 	def _prepare_mounts(self, extra=[]):
+		mounted = []
+
 		for entry in mounts_common + extra:
+			if entry.target in mounted:
+				print("%s already mounted, skipping" % entry.target)
+				continue
+
 			try:
 				os.lstat(entry.target)
 			except:
@@ -298,6 +307,8 @@ class RunnerAbstract:
 			mount(entry.source, entry.target, entry.fstype, entry.flags,
 				entry.options)
 
+			mounted.append(entry.target)
+
 		for entry in dev_table:
 			os.symlink(entry.target, entry.linkpath)
 
@@ -305,17 +316,14 @@ class RunnerAbstract:
 
 	# For QEMU/UML --log, --monitor, --result
 	def _prepare_outfiles(self):
-		gid = None
 		append_gid_uid = False
 
-		if os.environ.get('SUDO_GID', None):
-			uid = int(os.environ['SUDO_UID'])
-			gid = int(os.environ['SUDO_GID'])
+		uid = int(os.environ.get('SUDO_UID', os.getuid()))
+		gid = int(os.environ.get('SUDO_GID', os.getgid()))
 
 		if self.args.log:
-			if os.getuid() != 0:
-				print("--log can only be used as root user")
-				quit()
+			if self.args.log == '/tmp':
+				raise Exception('Log directly cannot be /tmp')
 
 			append_gid_uid = True
 
@@ -326,24 +334,20 @@ class RunnerAbstract:
 				os.chown(self.args.log, uid, gid)
 
 		if self.args.monitor:
-			if os.getuid() != 0:
-				print("--monitor can only be used as root user")
-				quit()
-
 			append_gid_uid = True
 
 			self.args.monitor_parent = os.path.abspath(
 						os.path.join(self.args.monitor, os.pardir))
+			if self.args.monitor_parent == '/tmp':
+				raise Exception('--monitor cannot be directly under /tmp')
 
 		if self.args.result:
-			if os.getuid() != 0:
-				print("--result can only be used as root user")
-				quit()
-
 			append_gid_uid = True
 
 			self.args.result_parent = os.path.abspath(
 						os.path.join(self.args.result, os.pardir))
+			if self.args.result_parent == '/tmp':
+				raise Exception('--result cannot be directly under /tmp')
 
 		if append_gid_uid:
 			self.args.SUDO_UID = uid
@@ -433,6 +437,11 @@ class QemuRunner(RunnerAbstract):
 			for addr in pci_adapters:
 				qemu_cmdline.extend(['-device', 'vfio-pci,host=%s' % addr])
 
+		qemu_cmdline.extend([
+			'-virtfs',
+			'local,path=%s,%s' % (args.testhome, mount_options('homedir'))
+		])
+
 		if args.log:
 			#
 			# Creates a virtfs device that can be mounted. This mount
@@ -464,6 +473,9 @@ class QemuRunner(RunnerAbstract):
 
 	def prepare_environment(self):
 		mounts = [ MountInfo('debugfs', 'debugfs', '/sys/kernel/debug', '', 0) ]
+
+		mounts.append(MountInfo('9p', 'homedir', self.args.testhome,
+					'trans=virtio,version=9p2000.L,msize=10240', 0))
 
 		if self.args.log:
 			mounts.append(MountInfo('9p', 'logdir', self.args.log,
@@ -526,6 +538,9 @@ class UmlRunner(RunnerAbstract):
 		if self.args.result:
 			mounts.append(MountInfo('hostfs', 'hostfs', self.args.result_parent,
 						self.args.result_parent, 0))
+
+		mounts.append(MountInfo('hostfs', 'hostfs', self.args.testhome,
+					self.args.testhome, 0))
 
 		self._prepare_mounts(extra=mounts)
 
