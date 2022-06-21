@@ -8,7 +8,7 @@ import dbus
 
 from gi.repository import GLib
 from weakref import WeakValueDictionary
-from re import match
+from re import fullmatch
 
 from runner import RunnerCoreArgParse
 
@@ -99,7 +99,7 @@ class Process(subprocess.Popen):
 		# Handle any regex matches
 		for item in Process.testargs.verbose:
 			try:
-				if match(item, process):
+				if fullmatch(item, process):
 					return True
 			except Exception as e:
 				print("%s is not a valid regex" % item)
