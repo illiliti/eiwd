@@ -80,7 +80,7 @@ class Test(unittest.TestCase):
         rclog = open('/tmp/resolvconf.log', 'r')
         entries = rclog.readlines()
         rclog.close()
-        expected_rclog = ['-a wlan1.dns\n', 'nameserver 192.168.1.2\n', 'nameserver 3ffe:501:ffff:100::2\n']
+        expected_rclog = ['-a %s.dns\n' % ifname, 'nameserver 192.168.1.2\n', 'nameserver 3ffe:501:ffff:100::2\n']
         # Every real resolvconf -a run overwrites the previous settings.  Check the last three lines
         # of our log since we care about the end result here.
         self.assertEqual(expected_rclog, entries[-3:])
