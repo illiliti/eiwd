@@ -117,8 +117,8 @@ class RunnerCoreArgParse(ArgumentParser):
 				type=str,
 				help='Use physical adapters for tests (passthrough)')
 		self.add_argument('--testhome', help=SUPPRESS)
-		self.add_argument('--monitor_parent', help=SUPPRESS)
-		self.add_argument('--result_parent', help=SUPPRESS)
+		self.add_argument('--monitor-parent', help=SUPPRESS)
+		self.add_argument('--result-parent', help=SUPPRESS)
 
 		# Prevent --autotest/--unittest from being used together
 		auto_unit_group = self.add_mutually_exclusive_group()
