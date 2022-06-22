@@ -79,13 +79,14 @@ class Process(subprocess.Popen):
 
 	@staticmethod
 	def is_verbose(process, log=True):
+		exclude = ['iwd-rtnl']
 		process = os.path.basename(process)
 
 		if Process.testargs is None:
 			return False
 
 		# every process is verbose when logging is enabled
-		if log and Process.testargs.log:
+		if log and Process.testargs.log and process not in exclude:
 			return True
 
 		if process in Process.testargs.verbose:
