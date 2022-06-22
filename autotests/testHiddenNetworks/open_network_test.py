@@ -6,7 +6,7 @@ import sys
 sys.path.append('../util')
 import iwd
 import validation
-from validation import TestConnectAutoConnect
+from validation import TestHiddenNetworks
 from iwd import IWD
 
 class TestOpenNetwork(unittest.TestCase):
@@ -20,7 +20,7 @@ class TestOpenNetwork(unittest.TestCase):
     True                              True          Connection succeeds
     '''
     def test_open(self):
-        tca = TestConnectAutoConnect()
+        tca = TestHiddenNetworks()
         tca.validate('ssidHiddenOpen', False)
         tca.validate('ssidHiddenOpen', True)
 
