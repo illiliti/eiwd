@@ -588,8 +588,11 @@ void eap_rx_packet(struct eap_state *eap, const uint8_t *pkt, size_t len)
 		 * the Success and Failure packets. In order to support
 		 * interoperability with these products we validate id against
 		 * eap->last_id and its incremented value.
+		 *
+		 * Note: Since last_id is stored as an int and id value is a
+		 * byte, we need to support overflow properly.
 		 */
-		if (id != eap->last_id && id != eap->last_id + 1)
+		if (id != eap->last_id && id != (eap->last_id + 1) % 256)
 			return;
 
 		if (eap_len != 4)
