@@ -259,7 +259,7 @@ class Process(subprocess.Popen):
 		try:
 			self.wait(timeout=15)
 		except:
-			print("Process %s did not complete in 15 seconds!" % self.name)
+			print("Process %s did not complete in 15 seconds!" % self.args[0])
 			super().kill()
 
 		self._cleanup()
