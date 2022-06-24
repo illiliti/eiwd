@@ -342,10 +342,24 @@ class Namespace:
 	def stop_process(self, p, force=False):
 		p.kill(force)
 
+	def _is_running(self, pid):
+		try:
+			os.kill(pid, 0)
+		except OSError:
+			return False
+
+		return True
+
 	def is_process_running(self, process):
 		for p in Process.get_all():
-			if p.namespace == self.name and p.args[0] == process:
-				return True
+			# Namespace processes are actually started by 'ip' where
+			# the actual process name is at index 4 of the arguments.
+			idx = 0 if not p.namespace else 4
+
+			if p.namespace == self.name and p.args[idx] == process:
+				# The process object exists, but make sure its
+				# actually running.
+				return self._is_running(p.pid)
 		return False
 
 	def _cleanup_dbus(self):
