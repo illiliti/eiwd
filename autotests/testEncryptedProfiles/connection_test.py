@@ -6,6 +6,7 @@ import sys
 sys.path.append('../util')
 import iwd
 import os
+from time import sleep
 from iwd import IWD
 from iwd import NetworkType
 from iwd import PSKAgent
@@ -47,6 +48,8 @@ class Test(unittest.TestCase):
 
         mtime = os.path.getmtime('/tmp/iwd/' + 'ssidCCMP.psk')
         self.assertFalse(self.profile_is_encrypted('ssidCCMP.psk'))
+
+        sleep(1)
 
         wd = IWD(True)
 
