@@ -9,6 +9,7 @@ import dbus
 from gi.repository import GLib
 from weakref import WeakValueDictionary
 from re import fullmatch
+from time import sleep
 
 from runner import RunnerCoreArgParse
 
@@ -213,7 +214,24 @@ class Process(subprocess.Popen):
 		self.write_fds.append(f)
 
 	def wait_for_socket(self, socket, wait):
-		Namespace.non_block_wait(os.path.exists, wait, socket)
+		def _wait(socket):
+			if not os.path.exists(socket):
+				sleep(0.1)
+				return False
+			return True
+
+		Namespace.non_block_wait(_wait, wait, socket,
+				exception=Exception("Timed out waiting for %s" % socket))
+
+	def wait_for_service(self, ns, service, wait):
+		def _wait(ns, service):
+			if not ns._bus.name_has_owner(service):
+				sleep(0.1)
+				return False
+			return True
+
+		Namespace.non_block_wait(_wait, wait, ns, service,
+				exception=Exception("Timed out waiting for %s" % service))
 
 	# Wait for both process termination and HUP signal
 	def __wait(self, timeout):
@@ -423,7 +441,11 @@ class Namespace:
 		if Process.is_verbose('iwd-rtnl'):
 			env['IWD_RTNL_DEBUG'] = '1'
 
-		return self.start_process(args, env=env)
+		proc = self.start_process(args, env=env)
+
+		proc.wait_for_service(self, 'net.connman.iwd', 20)
+
+		return proc
 
 	@staticmethod
 	def non_block_wait(func, timeout, *args, exception=True):

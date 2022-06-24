@@ -326,9 +326,8 @@ class TestContext(Namespace):
 			# register hwsim as medium
 			args.extend(['--no-register'])
 
-		self.start_process(args)
-		self.non_block_wait(self._bus.name_has_owner, 20, 'net.connman.hwsim',
-					exception=TimeoutError('net.connman.hwsim did not appear'))
+		proc = self.start_process(args)
+		proc.wait_for_service(self, 'net.connman.hwsim', 20)
 
 		for i in range(nradios):
 			name = 'rad%u' % i

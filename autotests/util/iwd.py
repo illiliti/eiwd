@@ -1097,9 +1097,6 @@ class IWD(AsyncOpAbstract):
             self._iwd_proc = self.namespace.start_iwd(iwd_config_dir,
                                                         iwd_storage_dir)
 
-        ctx.non_block_wait(self._bus.name_has_owner, 20, IWD_SERVICE,
-                                exception=TimeoutError('IWD has failed to start'))
-
         self._devices = DeviceList(self)
 
         # Weak to make sure the test's reference to @self is the only counted
