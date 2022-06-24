@@ -50,8 +50,6 @@ class Test(unittest.TestCase):
             testutil.test_iface_operstate()
             testutil.test_ifaces_connected()
 
-            wd.wait(0.5)
-
         device.disconnect()
 
         condition = 'not obj.connected'
