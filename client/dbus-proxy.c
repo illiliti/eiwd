@@ -107,6 +107,9 @@ static void proxy_interface_property_update(struct proxy_interface *proxy,
 	const struct proxy_interface_property *property_table =
 							proxy->type->properties;
 
+	if (!property_table)
+		return;
+
 	for (i = 0; property_table[i].name; i++) {
 		if (strcmp(property_table[i].name, name))
 			continue;
