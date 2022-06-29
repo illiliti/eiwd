@@ -858,10 +858,11 @@ class PSKAgent(dbus.service.Object):
             users = [users]
         self.users = users
         self._path = '/test/agent/%s' % agent_count
+        self._bus = dbus.bus.BusConnection(address_or_type=namespace.dbus_address)
 
         agent_count += 1
 
-        dbus.service.Object.__init__(self, namespace.get_bus(), self._path)
+        dbus.service.Object.__init__(self, self._bus, self._path)
 
     @property
     def path(self):
@@ -1079,11 +1080,10 @@ class IWD(AsyncOpAbstract):
         start_iwd_daemon=True)
     '''
     _object_manager_if = None
-    _agent_manager_if = None
     _iwd_proc = None
     _devices = None
     _default_instance = None
-    psk_agent = None
+    psk_agents = []
 
     def __init__(self, start_iwd_daemon = False, iwd_config_dir = '/tmp',
                             iwd_storage_dir = IWD_STORAGE_DIR, namespace=ctx):
@@ -1107,11 +1107,12 @@ class IWD(AsyncOpAbstract):
             IWD._default_instance = weakref.ref(self)
 
     def __del__(self):
-        if self.psk_agent:
-            self.unregister_psk_agent(self.psk_agent)
+        for agent in self.psk_agents:
+            self.unregister_psk_agent(agent)
+
+        self.psk_agents = []
 
         self._object_manager_if = None
-        self._agent_manager_if = None
         self._known_networks = None
         self._devices = None
 
@@ -1129,15 +1130,6 @@ class IWD(AsyncOpAbstract):
                                                            IWD_TOP_LEVEL_PATH),
                                       DBUS_OBJECT_MANAGER)
         return self._object_manager_if
-
-    @property
-    def _agent_manager(self):
-        if self._agent_manager_if is None:
-            self._agent_manager_if =\
-                dbus.Interface(self._bus.get_object(IWD_SERVICE,
-                                                    IWD_AGENT_MANAGER_PATH),
-                               IWD_AGENT_MANAGER_INTERFACE)
-        return self._agent_manager_if
 
     @staticmethod
     def _wait_for_object_condition(obj, condition_str, max_wait = 50):
@@ -1264,22 +1256,27 @@ class IWD(AsyncOpAbstract):
         return known_network_list
 
     def register_psk_agent(self, psk_agent):
-        self._agent_manager.RegisterAgent(
-                                     psk_agent.path,
-                                     dbus_interface=IWD_AGENT_MANAGER_INTERFACE,
-                                     reply_handler=self._success,
-                                     error_handler=self._failure)
+        iface = dbus.Interface(psk_agent._bus.get_object(IWD_SERVICE,
+                                                IWD_AGENT_MANAGER_PATH),
+                                                IWD_AGENT_MANAGER_INTERFACE)
+        iface.RegisterAgent(psk_agent.path,
+                            dbus_interface=IWD_AGENT_MANAGER_INTERFACE,
+                            reply_handler=self._success,
+                            error_handler=self._failure)
+
         self._wait_for_async_op()
-        self.psk_agent = psk_agent
+        self.psk_agents.append(psk_agent)
 
     def unregister_psk_agent(self, psk_agent):
-        self._agent_manager.UnregisterAgent(
-                                     psk_agent.path,
-                                     dbus_interface=IWD_AGENT_MANAGER_INTERFACE,
-                                     reply_handler=self._success,
-                                     error_handler=self._failure)
+        iface = dbus.Interface(psk_agent._bus.get_object(IWD_SERVICE,
+                                                IWD_AGENT_MANAGER_PATH),
+                                                IWD_AGENT_MANAGER_INTERFACE)
+        iface.UnregisterAgent(psk_agent.path,
+                                dbus_interface=IWD_AGENT_MANAGER_INTERFACE,
+                                reply_handler=self._success,
+                                error_handler=self._failure)
         self._wait_for_async_op()
-        self.psk_agent = None
+        self.psk_agents.remove(psk_agent)
 
     @staticmethod
     def get_instance():
