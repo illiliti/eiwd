@@ -56,50 +56,18 @@ class Test(unittest.TestCase):
 
         IWD.clear_storage()
 
-    def test_connection_with_other_agent(self):
-        def wait_for_service_pid(pid):
-            dbus_object = ctx._bus.get_object('org.freedesktop.DBus',
-                                 '/org/freedesktop/DBus')
-            dbus_iface = dbus.Interface(dbus_object, 'org.freedesktop.DBus')
-
-            services = dbus_iface.ListNames()
-
-            for service in services:
-                bus_iface = dbus.Interface(dbus_object, "org.freedesktop.DBus")
-                if pid == int(bus_iface.GetConnectionUnixProcessID(service)):
-                    return True
-
-            return False
-
+    def test_connection_use_first_from_multiple_registered(self):
         wd = IWD()
-
-        iwctl = ctx.start_process(['iwctl', '-P', 'secret_ssid2'])
-
-        # Let iwctl to start and register its agent.
-        ctx.non_block_wait(wait_for_service_pid, 10, iwctl.pid)
-
-        self.check_connection(wd, 'ssid2')
-
-        iwctl.kill()
-
-        IWD.clear_storage()
-
-    def test_connection_use_own_agent_from_multiple_registered(self):
-
-        wd = IWD()
-
-        iwctl = ctx.start_process(['iwctl', '-P', 'secret_ssid2'])
-        # Let iwctl to start and register its agent.
-        wd.wait(2)
 
         psk_agent = PSKAgent("secret_ssid1")
+        wd.register_psk_agent(psk_agent)
+
+        psk_agent = PSKAgent("secret_ssid2")
         wd.register_psk_agent(psk_agent)
 
         self.check_connection(wd, 'ssid1')
 
         wd.unregister_psk_agent(psk_agent)
-
-        iwctl.kill()
 
         IWD.clear_storage()
 
