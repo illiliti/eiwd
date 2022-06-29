@@ -49,7 +49,8 @@ static struct l_queue *proxy_interface_types;
 
 void proxy_properties_display(const struct proxy_interface *proxy,
 				const char *caption, const char *margin,
-				int name_column_width, int value_column_width)
+				unsigned int name_column_width,
+				unsigned int value_column_width)
 {
 	const void *data;
 	const struct proxy_interface_property *properties;
@@ -67,14 +68,30 @@ void proxy_properties_display(const struct proxy_interface *proxy,
 	properties = proxy->type->properties;
 
 	for (i = 0; properties[i].name; i++) {
+		const char *str;
+		size_t len;
+		size_t j;
+
 		if (!properties[i].tostr)
 			continue;
+
+		str = properties[i].tostr(data);
+		len = str ? strlen(str) : 0;
 
 		display("%s%*s  %-*s%-.*s\n", margin,
 			8, properties[i].is_read_write ?
 				COLOR_BOLDGRAY "       *" COLOR_OFF : "",
 			name_column_width, properties[i].name,
-			value_column_width, properties[i].tostr(data) ? : "");
+			value_column_width, str ? : "");
+
+		if (len <= value_column_width)
+			continue;
+
+		/* Display remaining data */
+		for (j = value_column_width; j < len; j += value_column_width)
+			display("%s%*s  %-*s%-.*s\n", margin, 8, "",
+				name_column_width, "", value_column_width,
+				str + j);
 	}
 }
 
