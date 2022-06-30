@@ -1,14 +1,10 @@
 #! /usr/bin/python3
 
 import unittest
-import sys, os
 
-import iwd
 from iwd import IWD
-from iwd import PSKAgent
-from iwd import NetworkType
 from config import ctx
-import testutil
+from validation import validate
 
 class Test(unittest.TestCase):
     def test_connection_success(self):
@@ -28,47 +24,8 @@ class Test(unittest.TestCase):
 
         dev1.start_ap('APConfig')
 
-        try:
-            networks = {}
-            networks['APConfig'] = dev2.get_ordered_network('APConfig', full_scan=True)
-
-            self.assertEqual(networks['APConfig'].type, NetworkType.psk)
-
-            psk_agent = PSKAgent('password123')
-            wd.register_psk_agent(psk_agent)
-
-            try:
-                dev2.disconnect()
-
-                condition = 'not obj.connected'
-                wd.wait_for_object_condition(dev2, condition)
-            except:
-                pass
-
-            networks['APConfig'].network_object.connect()
-
-            condition = 'obj.state == DeviceState.connected'
-            wd.wait_for_object_condition(dev2, condition)
-
-            testutil.test_iface_operstate(dev2.name)
-            #
-            # TODO: cannot yet check the AP interface IP since its in a
-            #       different namespace.
-            #
-            testutil.test_ip_address_match(dev2.name, "192.168.1.3")
-
-            testutil.test_ip_connected(('192.168.1.3', ctx), ('192.168.1.1', ns0))
-
-            wd.unregister_psk_agent(psk_agent)
-
-            dev2.disconnect()
-
-            condition = 'not obj.connected'
-            wd.wait_for_object_condition(networks['APConfig'].network_object,
-                                         condition)
-
-        finally:
-            dev1.stop_ap()
+        validate(wd, dev2, dev1, 'APConfig', 'password123',
+                    sta_ip_info=('192.168.1.3', ctx), ap_ip_info=('192.168.1.1', ns0))
 
     @classmethod
     def setUpClass(cls):
