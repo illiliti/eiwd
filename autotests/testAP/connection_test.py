@@ -3,6 +3,7 @@
 import unittest
 
 from iwd import IWD
+from config import ctx
 from validation import validate, client_connect
 
 class Test(unittest.TestCase):
@@ -19,6 +20,24 @@ class Test(unittest.TestCase):
 
         # Finally test dev1 can go to client mode and connect again
         client_connect(wd, dev1, 'TestAP1')
+
+    def test_client_start_ap(self):
+        wd = IWD(True)
+
+        dev1, dev2 = wd.list_devices(2)
+
+        ctx.start_process(['iwctl', 'device', dev1.name, 'set-property', 'Mode', 'ap'], check=True)
+        ctx.start_process(['iwctl', 'ap', dev1.name, 'start', 'TestAP2', 'Password2'], check=True)
+
+        iwctl = ctx.start_process(['iwctl', 'ap', 'list'], check=True)
+
+        self.assertIn(dev1.name, iwctl.out)
+
+        iwctl = ctx.start_process(['iwctl', 'ap', dev1.name, 'show'], check=True)
+
+        self.assertIn('TestAP2', iwctl.out)
+
+        validate(wd, dev2, dev1, 'TestAP2', 'Password2')
 
     @classmethod
     def setUpClass(cls):
