@@ -2,16 +2,16 @@
 
 import unittest
 import sys
-import time
 
 sys.path.append('../util')
-import iwd
 from iwd import IWD
+from iwd import AdHocDevice
+from config import ctx
 import testutil
 
 class Test(unittest.TestCase):
 
-    def validate_connection(self, wd):
+    def validate_connection(self, wd, client=False):
         dev1, dev2 = wd.list_devices(2)
 
         self.assertIsNotNone(dev1)
@@ -22,7 +22,14 @@ class Test(unittest.TestCase):
         condition = 'obj.started == True'
         wd.wait_for_object_condition(adhoc1, condition)
 
-        adhoc2 = dev2.start_adhoc("AdHocNetwork", "secret123")
+        if not client:
+            adhoc2 = dev2.start_adhoc("AdHocNetwork", "secret123")
+        else:
+            ctx.start_process(['iwctl', 'device', dev2.name, 'set-property',
+                                'Mode', 'ad-hoc'], check=True)
+            ctx.start_process(['iwctl', 'ad-hoc', dev2.name, 'start',
+                                'AdHocNetwork', 'secret123'], check=True)
+            adhoc2 = AdHocDevice(dev2.device_path)
 
         condition = 'obj.started == True'
         wd.wait_for_object_condition(adhoc1, condition)
@@ -41,6 +48,10 @@ class Test(unittest.TestCase):
         wd = IWD(True)
 
         self.validate_connection(wd)
+
+    def test_client_adhoc(self):
+        wd = IWD(True)
+        self.validate_connection(wd, client=True)
 
     @classmethod
     def setUpClass(cls):
