@@ -4,20 +4,22 @@ import unittest
 import sys
 
 sys.path.append('../util')
-import iwd
 from iwd import IWD
-from iwd import DeviceState
-
 from hostapd import HostapdCLI
+from config import ctx
+
 class Test(unittest.TestCase):
 
-    def push_button_success(self, wd):
+    def push_button_success(self, wd, client=False):
         self.hostapd.wps_push_button()
 
         devices = wd.list_devices(1)
         device = devices[0]
 
-        device.wps_push_button()
+        if not client:
+            device.wps_push_button()
+        else:
+            ctx.start_process(['iwctl', 'wsc', device.name, 'push-button'], check=True)
 
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
@@ -33,6 +35,11 @@ class Test(unittest.TestCase):
         wd = IWD(True)
 
         self.push_button_success(wd)
+
+    def test_client_push_button(self):
+        wd = IWD(True)
+
+        self.push_button_success(wd, client=True)
 
     @classmethod
     def setUpClass(cls):
