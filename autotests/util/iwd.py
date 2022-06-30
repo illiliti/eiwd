@@ -287,6 +287,18 @@ class DeviceProvisioning(IWDDBusAbstract):
     def stop(self):
         self._iface.Stop()
 
+    @property
+    def uri(self):
+        return self._properties['URI']
+
+    @property
+    def started(self):
+        return self._properties['Started']
+
+    @property
+    def role(self):
+        return self._properties['Role']
+
 class Device(IWDDBusAbstract):
     '''
         Class represents a network device object: net.connman.iwd.Device
