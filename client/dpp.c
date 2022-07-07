@@ -287,6 +287,8 @@ static enum cmd_status cmd_show(const char *device_name,
 	proxy_properties_display(proxy, caption, MARGIN, 20, 47);
 	l_free(caption);
 
+	display_table_footer();
+
 	return CMD_STATUS_DONE;
 }
 
@@ -297,7 +299,7 @@ static const struct command dpp_commands[] = {
 	{ "<wlan>", "start-configurator", NULL, cmd_start_configurator,
 							"Starts a DPP Configurator" },
 	{ "<wlan>", "stop", NULL, cmd_stop, "Aborts DPP operations" },
-	{ "<wlan>", "show", NULL, cmd_show, "Shows the DPP state" },
+	{ "<wlan>", "show", NULL, cmd_show, "Shows the DPP state", true },
 	{ }
 };
 
