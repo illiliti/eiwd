@@ -210,9 +210,9 @@ static void known_network_display_inline(const char *margin, const void *data)
 		l_strdup(format_iso8601(network->last_connected,
 						"%b %e, %l:%M %p"));
 
-	display("%s%-*s%-*s%-*s%-*s\n",
-		margin, 32, network->name, 11, network->type,
-		9, get_hidden_tostr(network), 19, last_connected ? : "-");
+	display_table_row(margin, 4, 32, network->name, 11, network->type,
+			9, get_hidden_tostr(network),
+			19, last_connected ? : "-");
 
 	l_free(last_connected);
 }
@@ -263,7 +263,7 @@ static void check_errors_method_callback(struct l_dbus_message *message,
 
 static enum cmd_status cmd_list(const char *entity, char **args, int argc)
 {
-	display_table_header("Known Networks", MARGIN "%-*s%-*s%-*s%-*s",
+	display_table_header("Known Networks", MARGIN "%-*s  %-*s  %-*s  %-*s",
 					32, "Name", 11, "Security", 9, "Hidden",
 					19, "Last connected");
 
