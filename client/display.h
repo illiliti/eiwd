@@ -22,16 +22,15 @@
 
 struct command;
 struct command_family;
-
-#define COLOR_BOLDGRAY	"\x1B[1;90m"
-#define COLOR_GRAY	"\x1b[90m"
-#define COLOR_GREEN	"\x1b[32m"
-#define COLOR_RED	"\x1B[0;91m"
-#define COLOR_BLUE	"\x1B[94m"
-#define COLOR_YELLOW	"\x1b[33m"
-#define COLOR_OFF	"\x1B[0m"
-#define CLEAR_SCREEN	"\x1b[2J"
-#define MARGIN		"  "
+#define COLOR_OFF		"\x1B[0m"
+#define COLOR_BOLDGRAY(s)	"\x1B[1;90m" s COLOR_OFF
+#define COLOR_GRAY(s)		"\x1b[90m" s COLOR_OFF
+#define COLOR_GREEN(s)		"\x1b[32m" s COLOR_OFF
+#define COLOR_RED(s)		"\x1B[0;91m" s COLOR_OFF
+#define COLOR_BLUE(s)		"\x1B[94m" s COLOR_OFF
+#define COLOR_YELLOW(s)		"\x1b[33m" s COLOR_OFF
+#define CLEAR_SCREEN		"\x1b[2J"
+#define MARGIN			"  "
 
 void display(const char *format, ...)
 		__attribute__((format(printf, 1, 2)));

@@ -318,8 +318,8 @@ static const struct proxy_interface *known_network_proxy_find_by_name(
 		if (!network_args.type) {
 			display("Provided network name is ambiguous. "
 				"Specify network security type as follows:\n");
-			display("<\"network name" COLOR_BOLDGRAY ".security"
-							COLOR_OFF "\">\n");
+			display("<\"network name" COLOR_BOLDGRAY(".security")
+							"\">\n");
 			display("\twhere '.security' is [.psk | .8021x | "
 								".open]\n");
 		}

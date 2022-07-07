@@ -387,12 +387,12 @@ static const char *dbms_tostars(int16_t dbms)
 		return "****";
 
 	if (dbms >= -6700)
-		return "***" COLOR_BOLDGRAY "*" COLOR_OFF;
+		return "***" COLOR_BOLDGRAY("*");
 
 	if (dbms >= -7500)
-		return "**" COLOR_BOLDGRAY "**" COLOR_OFF;
+		return "**" COLOR_BOLDGRAY("**");
 
-	return "*" COLOR_BOLDGRAY "***" COLOR_OFF;
+	return "*" COLOR_BOLDGRAY("***");
 }
 
 #define RSSI_DBMS "rssi-dbms"
@@ -440,7 +440,7 @@ static void ordered_networks_display(struct l_queue *ordered_networks)
 
 		display_table_row(MARGIN, 4, 2,
 				network_is_connected(network_i) ?
-				COLOR_BOLDGRAY "> " COLOR_OFF: "",
+				COLOR_BOLDGRAY("> ") : "",
 				32, network_name, 18, network_type, 6,
 				display_signal_as_dbms ? dbms :
 				dbms_tostars(network->signal_strength));

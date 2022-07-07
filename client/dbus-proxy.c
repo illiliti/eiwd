@@ -76,7 +76,7 @@ void proxy_properties_display(const struct proxy_interface *proxy,
 		str = properties[i].tostr(data);
 
 		display_table_row(MARGIN, 3, 8, properties[i].is_read_write ?
-				COLOR_BOLDGRAY "       *" COLOR_OFF : "",
+				COLOR_BOLDGRAY("       *") : "",
 				name_column_width, properties[i].name,
 				value_column_width, str ? : "");
 	}

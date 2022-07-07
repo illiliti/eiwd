@@ -40,7 +40,7 @@
 #include "client/display.h"
 
 #define IWD_PROMPT \
-	"\001" COLOR_GREEN "\002" "[iwd]" "\001" COLOR_OFF "\002" "# "
+	"\001" COLOR_GREEN("\002" "[iwd]" "\001") "\002" "# "
 #define LINE_LEN 81
 
 static struct l_signal *window_change_signal;
@@ -234,9 +234,9 @@ static void display_refresh_check_feasibility(void)
 	if (ws.ws_col < LINE_LEN - 1) {
 		if (display_refresh.enabled) {
 			display_refresh.recording = false;
-			display(COLOR_YELLOW "Auto-refresh is disabled. "
+			display(COLOR_YELLOW("Auto-refresh is disabled. "
 				"Enlarge window width to at least %u to enable."
-				"\n" COLOR_OFF, LINE_LEN - 1);
+				"\n"), LINE_LEN - 1);
 			display_refresh.recording = true;
 		}
 
@@ -317,7 +317,7 @@ void display(const char *fmt, ...)
 
 void display_error(const char *error)
 {
-	char *text = l_strdup_printf(COLOR_RED "%s" COLOR_OFF "\n", error);
+	char *text = l_strdup_printf(COLOR_RED("%s\n"), error);
 
 	display_text(text);
 
@@ -344,14 +344,14 @@ void display_table_header(const char *caption, const char *fmt, ...)
 	int caption_pos =
 		(int) ((sizeof(dashed_line) - 1) / 2 + strlen(caption) / 2);
 
-	text = l_strdup_printf("%*s" COLOR_BOLDGRAY "%*c" COLOR_OFF "\n",
+	text = l_strdup_printf("%*s" COLOR_BOLDGRAY("%*c") "\n",
 				caption_pos, caption,
 				LINE_LEN - 2 - caption_pos,
 				display_refresh.cmd ? get_flasher() : ' ');
 	display_text(text);
 	l_free(text);
 
-	text = l_strdup_printf("%s%s%s\n", COLOR_GRAY, dashed_line, COLOR_OFF);
+	text = l_strdup_printf(COLOR_GRAY("%s\n"), dashed_line);
 	display_text(text);
 	l_free(text);
 
@@ -359,12 +359,12 @@ void display_table_header(const char *caption, const char *fmt, ...)
 	text = l_strdup_vprintf(fmt, args);
 	va_end(args);
 
-	body = l_strdup_printf("%s%s%s\n", COLOR_BOLDGRAY, text, COLOR_OFF);
+	body = l_strdup_printf(COLOR_BOLDGRAY("%s\n"), text);
 	display_text(body);
 	l_free(body);
 	l_free(text);
 
-	text = l_strdup_printf("%s%s%s\n", COLOR_GRAY, dashed_line, COLOR_OFF);
+	text = l_strdup_printf(COLOR_GRAY("%s\n"), dashed_line);
 	display_text(text);
 	l_free(text);
 }
@@ -774,7 +774,7 @@ void display_agent_prompt(const char *label, bool mask_input)
 	if (mask_input)
 		reset_masked_input();
 
-	prompt = l_strdup_printf(COLOR_BLUE "%s " COLOR_OFF, label);
+	prompt = l_strdup_printf(COLOR_BLUE("%s "), label);
 
 	if (command_is_interactive_mode()) {
 		if (agent_saved_input) {
@@ -820,8 +820,8 @@ void display_agent_prompt_release(const char *label)
 
 	if (display_refresh.cmd) {
 		char *text = rl_copy_text(0, rl_end);
-		char *prompt = l_strdup_printf(COLOR_BLUE "%s " COLOR_OFF
-							"%s\n", label, text);
+		char *prompt = l_strdup_printf(COLOR_BLUE("%s ")
+						"%s\n", label, text);
 		l_free(text);
 
 		l_queue_push_tail(display_refresh.redo_entries, prompt);
