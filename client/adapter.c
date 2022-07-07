@@ -185,9 +185,10 @@ static void display_adapter_inline(const char *margin, const void *data)
 {
 	const struct adapter *adapter = data;
 
-	display("%s%-*s%-*s%-.*s%-.*s\n", margin,
-		19, adapter->name ? : "-", 10, get_powered_tostr(adapter),
-		20, adapter->vendor ? : "-", 20, adapter->model ? : "-");
+	display_table_row(margin, 4, 8, adapter->name ? : "-",
+				8, get_powered_tostr(adapter),
+				20, adapter->vendor ? : "-",
+				20, adapter->model ? : "-");
 }
 
 static void *adapter_create(void)
@@ -268,8 +269,9 @@ static const struct proxy_interface *get_adapter_proxy_by_name(
 static enum cmd_status cmd_list(const char *adapter_name,
 						char **argv, int argc)
 {
-	display_table_header("Adapters", MARGIN "%-*s%-*s%-*s%-*s", 19, "Name",
-				10, "Powered", 20, "Vendor", 20, "Model");
+	display_table_header("Adapters", MARGIN "%-*s  %-*s  %-*s  %-*s",
+				8, "Name", 8, "Powered",
+				20, "Vendor", 20, "Model");
 
 	proxy_interface_display_list(adapter_interface_type.interface);
 
