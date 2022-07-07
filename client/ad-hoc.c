@@ -117,7 +117,7 @@ static enum cmd_status cmd_list(const char *device_name, char **argv, int argc)
 	struct l_queue *match =
 		proxy_interface_find_all(IWD_AD_HOC_INTERFACE, NULL, NULL);
 
-	display_table_header("Devices in Ad-Hoc Mode", MARGIN "%-*s%-*s",
+	display_table_header("Devices in Ad-Hoc Mode", MARGIN "%-*s  %-*s",
 				20, "Name", 8, "Started");
 
 	if (!match) {
