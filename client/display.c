@@ -376,8 +376,183 @@ void display_table_footer(void)
 	display_refresh_check_applicability();
 }
 
-void display_command_line(const char *command_family,
-						const struct command *cmd)
+static unsigned int color_end(char *s)
+{
+	char *start = s;
+
+	while (*s != 'm' && *s != '\0')
+		s++;
+
+	return s - start + 1;
+}
+
+/*
+ * Finds last space in 's' before 'max' characters, terminates at that index,
+ * and returns a new string to be printed on the next line.
+ *
+ * 'max' should be set to the column width, but is also an out parameter since
+ * this width can be updated if colored escapes are detected.
+ *
+ * Any colored escapes found are set to 'color_out' so they can be re-enabled
+ * on the next line.
+ */
+static char* next_line(char *s, unsigned int *max, char **color_out)
+{
+	unsigned int i;
+	int last_space = -1;
+	int last_color = -1;
+
+	/* Find the last space before 'max', as well as any color */
+	for (i = 0; i <= *max && s[i] != '\0'; i++) {
+		if (s[i] == ' ')
+			last_space = i;
+		else if (s[i] == 0x1b) {
+			/* color escape won't count for column width */
+			*max += color_end(s + i);
+			last_color = i;
+		}
+	}
+
+	/* Reached the end of the string within the column bounds */
+	if (i <= *max)
+		return NULL;
+
+	/* Not anywhere nice to split the line */
+	if (last_space == -1)
+		last_space = *max - 1;
+
+	/*
+	 * Only set the color if it occurred prior to the last space. If after,
+	 * it will get picked up on the next line.
+	 */
+	if (last_color != -1 && last_space >= last_color)
+		*color_out = l_strndup(s + last_color,
+					color_end(s + last_color));
+	else
+		*color_out = NULL;
+
+	s[last_space] = '\0';
+
+	return l_strdup(s + last_space + 1);
+}
+
+struct table_entry {
+	unsigned int width;
+	char *next;
+	char *color;
+};
+
+/*
+ * Appends the next line from 'e' to 'line_buf'. 'done' is only set false when
+ * there are more lines needed for the current entry.
+ */
+static int entry_append(struct table_entry *e, char *line_buf)
+{
+	char *value = e->next;
+	unsigned int ret = 0;
+	unsigned int width = e->width;
+
+	/* Empty line */
+	if (!value)
+		return sprintf(line_buf, "%-*s  ", e->width, "");
+
+	/* Color from previous line */
+	if (e->color) {
+		ret = sprintf(line_buf, "%s", e->color);
+		l_free(e->color);
+		e->color = NULL;
+	}
+
+	/* Advance entry to next line, and terminate current */
+	e->next = next_line(value, &width, &e->color);
+
+	/* Append current line */
+	ret += sprintf(line_buf + ret, "%-*s  ", width, value);
+
+	l_free(value);
+
+	/* Un-color output for next column */
+	if (e->color)
+		ret += sprintf(line_buf + ret, "%s", COLOR_OFF);
+
+	return ret;
+}
+
+static bool entries_done(unsigned int num, struct table_entry *e)
+{
+	unsigned int i;
+
+	for (i = 0; i < num; i++)
+		if (e[i].next)
+			return false;
+
+	return true;
+}
+
+/*
+ * Expects an initial margin, number of columns in table, then row data:
+ *
+ * <row width>, <row data>, ...
+ *
+ * The data string can be of any length, and will be split into new lines of
+ * length <row width>.
+ */
+void display_table_row(const char *margin, unsigned int ncolumns, ...)
+{
+	char buf[512];
+	char *str = buf;
+	unsigned int i;
+	struct table_entry entries[ncolumns];
+	va_list va;
+
+	memset(&entries[0], 0, sizeof(entries));
+
+	va_start(va, ncolumns);
+
+	str += sprintf(str, "%s", margin);
+
+	for (i = 0; i < ncolumns; i++) {
+		struct table_entry *e = &entries[i];
+
+		e->width = va_arg(va, unsigned int);
+		e->next = l_strdup(va_arg(va, char*));
+
+		str += entry_append(e, str);
+	}
+
+	va_end(va);
+
+	display("%s\n", buf);
+	str = buf;
+
+	/*
+	 * The first column should now be indented, which effects the entry
+	 * width. Subtract this indentation only from the first column.
+	 */
+	entries[0].width -= strlen(margin) * 2;
+
+	while (!entries_done(ncolumns, &entries[0])) {
+		for (i = 0; i < ncolumns; i++) {
+			struct table_entry *e = &entries[i];
+
+			if (i == 0)
+				str += sprintf(str, "%s%s%s", margin,
+						margin, margin);
+
+			str += entry_append(e, str);
+		}
+
+		display("%s\n", buf);
+		str = buf;
+	}
+
+	for (i = 0; i < ncolumns; i++) {
+		if (entries[i].color)
+			l_free(entries[i].color);
+	}
+}
+
+void display_command_line(const char *command_family, const struct command *cmd)
 {
 	char *cmd_line = l_strdup_printf("%s%s%s%s%s%s%s",
 				command_family ? : "",
@@ -388,7 +563,7 @@ void display_command_line(const char *command_family,
 				cmd->arg ? " " : "",
 				cmd->arg ? : "");
 
-	display(MARGIN "%-*s%s\n", 50, cmd_line, cmd->desc ? : "");
+	display_table_row(MARGIN, 2, 50, cmd_line, 30, cmd->desc);
 
 	l_free(cmd_line);
 }
