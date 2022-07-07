@@ -161,9 +161,7 @@ static void display_ap_inline(const char *margin, const void *data)
 	if (!identity)
 		return;
 
-	display("%s%-*s%-*s\n", margin,
-			20, identity,
-			8, get_started_tostr(ap));
+	display_table_row(margin, 2, 20, identity, 8, get_started_tostr(ap));
 }
 
 static enum cmd_status cmd_list(const char *device_name, char **argv, int argc)
@@ -173,9 +171,8 @@ static enum cmd_status cmd_list(const char *device_name, char **argv, int argc)
 		proxy_interface_find_all(IWD_ACCESS_POINT_INTERFACE,
 						NULL, NULL);
 
-	display_table_header("Devices in Access Point Mode", MARGIN "%-*s%-*s",
-				20, "Name",
-				8, "Started");
+	display_table_header("Devices in Access Point Mode",
+				MARGIN "%-*s  %-*s", 20, "Name", 8, "Started");
 
 	if (!match) {
 		display("No devices in access point mode available.\n");
@@ -265,10 +262,10 @@ static void ap_get_diagnostics_callback(struct l_dbus_message *message,
 	}
 
 	while (l_dbus_message_iter_next_entry(&array, &iter)) {
-		sprintf(client_num, "Client %u", idx++);
-		display_table_header(client_num, "            %-*s%-*s",
+		sprintf(client_num, "STA %u", idx++);
+		display_table_header("", MARGIN "%-*s  %-*s  %-*s", 8, client_num,
 					20, "Property", 20, "Value");
-		diagnostic_display(&iter, "            ", 20, 20);
+		diagnostic_display(&iter, MARGIN, 20, 20);
 		display_table_footer();
 	}
 }
@@ -286,10 +283,11 @@ static enum cmd_status cmd_show(const char *device_name, char **argv, int argc)
 	}
 
 	proxy_properties_display(ap_i, "Access Point Interface", MARGIN, 20, 20);
-	display_table_footer();
 
-	if (!ap_diagnostic)
+	if (!ap_diagnostic) {
+		display_table_footer();
 		return CMD_STATUS_DONE;
+	}
 
 	proxy_interface_method_call(ap_diagnostic, "GetDiagnostics", "",
 					ap_get_diagnostics_callback);
@@ -355,14 +353,18 @@ static void ap_display_network(struct l_dbus_message_iter *iter,
 			if (!l_dbus_message_iter_get_variant(&variant, "s", &s))
 				goto parse_error;
 
-			display("%s%-*s%-*s\n", margin, name_width, key,
+			display_table_row(margin, 2, name_width, key,
 						value_width, s);
 		} else if (!strcmp(key, "SignalStrength")) {
+			char signal[7];
+
 			if (!l_dbus_message_iter_get_variant(&variant, "n", &n))
 				goto parse_error;
 
-			display("%s%-*s%-*i\n", margin, name_width, key,
-						value_width, n);
+			snprintf(signal, sizeof(signal), "%i", n);
+
+			display_table_row(margin, 2, name_width, key,
+						value_width, signal);
 		}
 	}
 
@@ -386,7 +388,7 @@ static void ap_get_networks_callback(struct l_dbus_message *message,
 		return;
 	}
 
-	display_table_header("Networks", "            %-*s%-*s",
+	display_table_header("Networks", "            %-*s  %-*s",
 					20, "Property", 20, "Value");
 	while (l_dbus_message_iter_next_entry(&array, &iter)) {
 		ap_display_network(&iter, "            ", 20, 20);
