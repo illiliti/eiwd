@@ -30,7 +30,7 @@ struct command_family;
 #define COLOR_BLUE	"\x1B[94m"
 #define COLOR_YELLOW	"\x1b[33m"
 #define COLOR_OFF	"\x1B[0m"
-#define CLEAR_SCREEN	"\033[2J"
+#define CLEAR_SCREEN	"\x1b[2J"
 #define MARGIN		"  "
 
 void display(const char *format, ...)
