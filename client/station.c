@@ -186,8 +186,7 @@ static void display_addresses(const char *device_name)
 				continue;
 
 			have_address = true;
-			display("%s%*s  %-*s%-*s\n", MARGIN, 8, "", 20,
-				"IPv4 address", 47, addrstr);
+			display_table_row(MARGIN, 3, 8, "", 20, "IPv4 address", 47, addrstr);
 		}
 	}
 
@@ -200,8 +199,7 @@ static void display_addresses(const char *device_name)
 	if (r < 0 || r == 1)
 		return;
 
-	display("%s%*s  %-*s%-*s\n", MARGIN, 8, "", 20,
-			"No IP addresses", 47, "Is DHCP client configured?");
+	display_table_row(MARGIN, 3, 8, "", 20, "No IP addresses", 47, "Is DHCP client configured?");
 }
 
 
@@ -215,9 +213,9 @@ static void display_station(const char *device_name,
 	l_free(caption);
 
 	if (station->connected_network) {
-		display("%s%*s  %-*s%-*s\n", MARGIN, 8, "", 20,
-				"Connected network", 47,
-				network_get_name(station->connected_network));
+		display_table_row(MARGIN, 3, 8, "", 20, "Connected network",
+			47, network_get_name(station->connected_network));
+
 		display_addresses(device_name);
 
 		/*
@@ -246,10 +244,8 @@ static void display_station_inline(const char *margin, const void *data)
 	if (!identity)
 		return;
 
-	display("%s%-*s%-*s%-*s\n", margin,
-			20, identity,
-			15, station->state ? : "",
-			8, station->scanning ? "scanning" : "");
+	display_table_row(margin, 3, 20, identity, 15, station->state ? : "",
+				8, station->scanning ? "scanning" : "");
 }
 
 static enum cmd_status cmd_list(const char *device_name, char **argv, int argc)
@@ -258,7 +254,8 @@ static enum cmd_status cmd_list(const char *device_name, char **argv, int argc)
 	struct l_queue *match =
 		proxy_interface_find_all(IWD_STATION_INTERFACE, NULL, NULL);
 
-	display_table_header("Devices in Station Mode", MARGIN "%-*s%-*s%-*s",
+	display_table_header("Devices in Station Mode",
+				MARGIN "%-*s  %-*s  %-*s",
 				20, "Name", 15, "State", 8, "Scanning");
 
 	if (!match) {
@@ -416,7 +413,7 @@ static void ordered_networks_display(struct l_queue *ordered_networks)
 	char *dbms = NULL;
 	const struct l_queue_entry *entry;
 
-	display_table_header("Available networks", "%s%-*s%-*s%-*s%*s",
+	display_table_header("Available networks", "%s%-*s  %-*s  %-*s  %*s",
 					MARGIN, 2, "", 32, "Network name",
 					18, "Security", 6, "Signal");
 
@@ -441,11 +438,11 @@ static void ordered_networks_display(struct l_queue *ordered_networks)
 		if (display_signal_as_dbms)
 			dbms = l_strdup_printf("%d", network->signal_strength);
 
-		display("%s%-*s%-*s%-*s%-*s\n", MARGIN, 2,
-			network_is_connected(network_i) ?
-				COLOR_BOLDGRAY "> " COLOR_OFF : "",
-			32, network_name, 18, network_type,
-			6, display_signal_as_dbms ? dbms :
+		display_table_row(MARGIN, 4, 2,
+				network_is_connected(network_i) ?
+				COLOR_BOLDGRAY "> " COLOR_OFF: "",
+				32, network_name, 18, network_type, 6,
+				display_signal_as_dbms ? dbms :
 				dbms_tostars(network->signal_strength));
 
 		if (display_signal_as_dbms) {
@@ -556,7 +553,7 @@ static void hidden_access_points_display(struct l_queue *access_points)
 {
 	const struct l_queue_entry *entry;
 
-	display_table_header("Available hidden APs", MARGIN "%-*s%-*s%*s",
+	display_table_header("Available hidden APs", MARGIN "%-*s  %-*s  %*s",
 				20, "Address", 10, "Security", 6, "Signal");
 
 	if (l_queue_isempty(access_points)) {
@@ -574,9 +571,8 @@ static void hidden_access_points_display(struct l_queue *access_points)
 		if (display_signal_as_dbms)
 			dbms = l_strdup_printf("%d", ap->signal_strength);
 
-		display(MARGIN "%-*s%-*s%-*s\n",
-			20, ap->address, 10, ap->type,
-			6, dbms ? : dbms_tostars(ap->signal_strength));
+		display_table_row(MARGIN, 3, 20, ap->address, 10, ap->type, 6,
+				dbms ? : dbms_tostars(ap->signal_strength));
 	}
 
 	display_table_footer();
@@ -676,7 +672,7 @@ static void get_diagnostics_callback(struct l_dbus_message *message,
 		goto done;
 	}
 
-	diagnostic_display(&iter, "            ", 20, 20);
+	diagnostic_display(&iter, MARGIN, 20, 47);
 
 done:
 	/* Finish the table started by cmd_show */

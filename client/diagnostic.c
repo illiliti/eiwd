@@ -69,12 +69,13 @@ static bool display_bitrate_100kbps(struct l_dbus_message_iter *variant,
 				int name_column_width, int value_column_width)
 {
 	uint32_t rate;
+	char str[50];
 
 	if (!l_dbus_message_iter_get_variant(variant, "u", &rate))
 		return false;
 
-	display("%s%-*s%-*u Kbit/s\n", margin, name_column_width, key,
-			value_column_width, rate * 100);
+	sprintf(str, "%u Kbit/s", rate * 100);
+	display_table_row(margin, 3, 8, "", name_column_width, key, value_column_width, str);
 
 	return true;
 }
@@ -110,6 +111,7 @@ void diagnostic_display(struct l_dbus_message_iter *dict,
 		uint32_t u_value;
 		int16_t n_value;
 		uint8_t y_value;
+		int bytes;
 
 		map = find_mapping(key, diagnostic_mapping);
 		if (!map)
@@ -132,9 +134,7 @@ void diagnostic_display(struct l_dbus_message_iter *dict,
 							&s_value))
 				goto parse_error;
 
-			sprintf(display_text, "%s%-*s%-*s", margin,
-					name_column_width, key,
-					value_column_width, s_value);
+			bytes = sprintf(display_text, "%s", s_value);
 			break;
 
 		case 'u':
@@ -142,9 +142,7 @@ void diagnostic_display(struct l_dbus_message_iter *dict,
 							&u_value))
 				goto parse_error;
 
-			sprintf(display_text, "%s%-*s%-*u", margin,
-						name_column_width, key,
-						value_column_width, u_value);
+			bytes = sprintf(display_text, "%u", u_value);
 			break;
 
 		case 'n':
@@ -152,9 +150,7 @@ void diagnostic_display(struct l_dbus_message_iter *dict,
 							&n_value))
 				goto parse_error;
 
-			sprintf(display_text, "%s%-*s%-*i", margin,
-						name_column_width, key,
-						value_column_width, n_value);
+			bytes = sprintf(display_text, "%i", n_value);
 			break;
 
 		case 'y':
@@ -162,21 +158,19 @@ void diagnostic_display(struct l_dbus_message_iter *dict,
 							&y_value))
 				goto parse_error;
 
-			sprintf(display_text, "%s%-*s%-*u", margin,
-						name_column_width, key,
-						value_column_width, y_value);
+			bytes = sprintf(display_text, "%u", y_value);
 			break;
 
 		default:
-			display("type %c not handled", map->type);
+			display("type %c not handled\n", map->type);
 			continue;
 		}
 
 		if (map->units)
-			display("%s %s\n", display_text,
-					(const char *)map->units);
-		else
-			display("%s\n", display_text);
+			sprintf(display_text + bytes, " %s", map->units);
+
+		display_table_row(margin, 3, 8, "", name_column_width,
+					key, value_column_width, display_text);
 	}
 
 	return;
