@@ -54,9 +54,10 @@ static void display_device(const struct proxy_interface *proxy)
 	l_free(caption);
 
 	if (device->adapter) {
-		display("%s%*s  %-*s%-*s\n", MARGIN, 8, "", 20, "Adapter", 47,
-			proxy_interface_get_identity_str(
+		display_table_row(MARGIN, 3, 8, "", 20, "Adapter", 47,
+				proxy_interface_get_identity_str(
 						device->adapter) ? : "");
+
 	}
 
 	display_table_footer();
@@ -216,12 +217,11 @@ static void display_device_inline(const char *margin, const void *data)
 	else
 		adapter_str = "-";
 
-	display("%s%-*s%-*s%-*s%-*s%-*s\n", margin,
-		20, device->name ? : "",
-		20, device->address ? : "",
-		10, get_powered_tostr(device),
-		10, adapter_str,
-		10, device->mode);
+	display_table_row(margin, 5, 20, device->name ? : "",
+				20, device->address ? : "",
+				10, get_powered_tostr(device),
+				10, adapter_str,
+				10, device->mode);
 }
 
 static const char *device_identity(void *data)
@@ -368,7 +368,7 @@ static void check_errors_method_callback(struct l_dbus_message *message,
 static enum cmd_status cmd_list(const char *device_name,
 						char **argv, int argc)
 {
-	display_table_header("Devices", MARGIN "%-*s%-*s%-*s%-*s%-*s",
+	display_table_header("Devices", MARGIN "%-*s  %-*s  %-*s  %-*s  %-*s",
 				20, "Name", 20, "Address", 10, "Powered",
 				10, "Adapter", 10, "Mode");
 
