@@ -59,7 +59,7 @@ void proxy_properties_display(const struct proxy_interface *proxy,
 	if (!proxy->type->properties)
 		return;
 
-	display_table_header(caption, "%s%-*s  %-*s%-*s", margin,
+	display_table_header(caption, "%s%-*s  %-*s  %-*s", margin,
 				8, "Settable",
 				name_column_width, "Property",
 				value_column_width, "Value");
@@ -69,29 +69,16 @@ void proxy_properties_display(const struct proxy_interface *proxy,
 
 	for (i = 0; properties[i].name; i++) {
 		const char *str;
-		size_t len;
-		size_t j;
 
 		if (!properties[i].tostr)
 			continue;
 
 		str = properties[i].tostr(data);
-		len = str ? strlen(str) : 0;
 
-		display("%s%*s  %-*s%-.*s\n", margin,
-			8, properties[i].is_read_write ?
+		display_table_row(MARGIN, 3, 8, properties[i].is_read_write ?
 				COLOR_BOLDGRAY "       *" COLOR_OFF : "",
-			name_column_width, properties[i].name,
-			value_column_width, str ? : "");
-
-		if (len <= value_column_width)
-			continue;
-
-		/* Display remaining data */
-		for (j = value_column_width; j < len; j += value_column_width)
-			display("%s%*s  %-*s%-.*s\n", margin, 8, "",
-				name_column_width, "", value_column_width,
-				str + j);
+				name_column_width, properties[i].name,
+				value_column_width, str ? : "");
 	}
 }
 
