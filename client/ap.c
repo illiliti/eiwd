@@ -416,12 +416,11 @@ static enum cmd_status cmd_get_networks(const char *device_name, char **argv,
 static const struct command ap_commands[] = {
 	{ NULL, "list", NULL, cmd_list, "List devices in AP mode", true },
 	{ "<wlan>", "start", "<\"network name\"> <passphrase>", cmd_start,
-		"Start an access point\n\t\t\t\t\t\t    called \"network "
-		"name\" with\n\t\t\t\t\t\t    a passphrase" },
+		"Start an access point called \"network "
+		"name\" with a passphrase" },
 	{ "<wlan>", "start-profile", "<\"network name\">", cmd_start_profile,
 		"Start an access point based on a disk profile" },
-	{ "<wlan>", "stop", NULL,   cmd_stop, "Stop a started access\n"
-		"\t\t\t\t\t\t    point" },
+	{ "<wlan>", "stop", NULL,   cmd_stop, "Stop a started access point" },
 	{ "<wlan>", "show", NULL, cmd_show, "Show AP info", false },
 	{ "<wlan>", "scan", NULL, cmd_scan, "Start an AP scan", false },
 	{ "<wlan>", "get-networks", NULL, cmd_get_networks,
