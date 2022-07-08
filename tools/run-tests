@@ -1011,5 +1011,10 @@ runner = Runner()
 
 atexit.register(exit_vm)
 runner.prepare_environment()
-run_tests(runner.args)
+
+if runner.args.start:
+	os.system(runner.args.start)
+else:
+	run_tests(runner.args)
+
 runner.cleanup_environment()

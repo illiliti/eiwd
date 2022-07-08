@@ -197,14 +197,6 @@ class Runner:
 			else:
 				args.testhome = os.getcwd()
 
-		if args.start is None:
-			if os.path.exists('run-tests'):
-				args.start = os.path.abspath('run-tests')
-			elif os.path.exists('tools/run-tests'):
-				args.start = os.path.abspath('tools/run-tests')
-			else:
-				raise Exception("Cannot locate run-tests binary")
-
 		# If no runner is specified but we have a kernel image assume
 		# if the kernel is executable its UML, otherwise qemu
 		if not args.runner:
@@ -230,6 +222,16 @@ class RunnerAbstract:
 
 	def __init__(self, args):
 		self.args = args
+
+		if len(sys.argv) <= 1:
+			return
+
+		if os.path.exists('run-tests'):
+			self.init = os.path.abspath('run-tests')
+		elif os.path.exists('tools/run-tests'):
+			self.init = os.path.abspath('tools/run-tests')
+		else:
+			raise Exception("Cannot locate run-tests binary")
 
 	def start(self):
 		print("Starting %s" % self.name)
@@ -278,6 +280,8 @@ class RunnerAbstract:
 					os.remove(f)
 
 		fcntl.ioctl(STDIN_FILENO, TIOCSTTY, 1)
+
+		os.system('ip link set dev lo up')
 
 	def cleanup_environment(self):
 		rmtree('/tmp/iwd')
@@ -413,7 +417,7 @@ class QemuRunner(RunnerAbstract):
 				rootflags=trans=virtio \
 				acpi=off pci=noacpi %s ro \
 				mac80211_hwsim.radios=0 init=%s %s' %
-						(kern_log, args.start, args.to_cmd()),
+						(kern_log, self.init, args.to_cmd()),
 		]
 
 		# Add two ethernet devices for testing EAD
@@ -516,7 +520,7 @@ class UmlRunner(RunnerAbstract):
 
 		cmd = [args.kernel, 'rootfstype=hostfs', 'ro', 'mem=256M', 'mac80211_hwsim.radios=0',
 				'time-travel=inf-cpu', 'eth0=mcast', 'eth1=mcast',
-				'%s '% kern_log, 'init=%s' % args.start]
+				'%s' % kern_log, 'init=%s' % self.init]
 		cmd.extend(args.to_cmd().split(' '))
 
 		self.cmdline = cmd
