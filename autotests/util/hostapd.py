@@ -33,7 +33,7 @@ class HostapdCLI(object):
     _instances = WeakValueDictionary()
 
     def __new__(cls, config=None, *args, **kwargs):
-        hapd = ctx.hostapd[config]
+        hapd = ctx.get_hapd_instance(config)
 
         if not config:
             config = hapd.config
@@ -58,10 +58,10 @@ class HostapdCLI(object):
         if not ctx.hostapd:
             raise Exception("No hostapd instances are configured")
 
-        if not config and len(ctx.hostapd.instances) > 1:
+        if not config and sum([len(hapd.instances) for hapd in ctx.hostapd]) > 1:
             raise Exception('config must be provided if more than one hostapd instance exists')
 
-        hapd = ctx.hostapd[config]
+        hapd = ctx.get_hapd_instance(config)
 
         self.interface = hapd.intf
         self.config = hapd.config

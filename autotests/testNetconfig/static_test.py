@@ -32,7 +32,7 @@ class Test(unittest.TestCase):
         dev1 = wd.list_devices(1)[0]
         dev2 = wd_ns0.list_devices(1)[0]
 
-        ordered_network = dev1.get_ordered_network('ssidTKIP')
+        ordered_network = dev1.get_ordered_network('ap-main')
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
@@ -80,7 +80,7 @@ class Test(unittest.TestCase):
         # of the log since we care about the end result here.
         self.assertEqual(expected_rclog, entries[-3:])
 
-        ordered_network = dev2.get_ordered_network('ssidTKIP')
+        ordered_network = dev2.get_ordered_network('ap-main')
 
         condition = 'not obj.connected'
         wd_ns0.wait_for_object_condition(ordered_network.network_object, condition)
@@ -117,7 +117,7 @@ class Test(unittest.TestCase):
             except:
                 pass
 
-        hapd = HostapdCLI()
+        hapd = HostapdCLI('ap-main.conf')
         # TODO: This could be moved into test-runner itself if other tests ever
         #       require this functionality (p2p, FILS, etc.). Since it's simple
         #       enough it can stay here for now.
@@ -127,7 +127,7 @@ class Test(unittest.TestCase):
         cls.dhcpd_pid = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf',
                                             '-lf', '/tmp/dhcpd.leases',
                                             hapd.ifname], cleanup=remove_lease)
-        IWD.copy_to_storage('ssidTKIP.psk', '/tmp/storage')
+        IWD.copy_to_storage('static.psk', '/tmp/storage', 'ap-main.psk')
 
         cls.orig_path = os.environ['PATH']
         os.environ['PATH'] = '/tmp/test-bin:' + os.environ['PATH']
