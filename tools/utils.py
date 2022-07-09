@@ -324,7 +324,7 @@ class Namespace:
 
 		Process(['ip', 'netns', 'add', name]).wait()
 		for r in radios:
-			Process(['iw', 'phy', r.name, 'set', 'netns', 'name', name]).wait()
+			r.set_namespace(self)
 
 		self.start_dbus()
 

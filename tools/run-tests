@@ -58,27 +58,33 @@ def exit_vm():
 	runner.stop()
 
 class Interface:
-	def __init__(self, name, config):
+	def __init__(self, name, config, ns):
 		self.name = name
 		self.ctrl_interface = '/var/run/hostapd/' + name
 		self.config = config
+		self.ns = ns
 
 	def __del__(self):
-		Process(['iw', 'dev', self.name, 'del']).wait()
+		Process(['iw', 'dev', self.name, 'del'], namespace=self.ns.name).wait()
 
 	def set_interface_state(self, state):
-		Process(['ip', 'link', 'set', self.name, state]).wait()
+		Process(['ip', 'link', 'set', self.name, state], namespace=self.ns.name).wait()
 
 class Radio:
-	def __init__(self, name):
+	def __init__(self, name, default_ns):
 		self.name = name
 		# hostapd will reset this if this radio is used by it
 		self.use = 'iwd'
 		self.interface = None
+		self.ns = default_ns
 
 	def __del__(self):
 		print("Removing radio %s" % self.name)
 		self.interface = None
+
+	def set_namespace(self, ns):
+		self.ns = ns
+		Process(['iw', 'phy', self.name, 'set', 'netns', 'name', ns.name]).wait()
 
 	def create_interface(self, config, use):
 		global intf_id
@@ -87,19 +93,21 @@ class Radio:
 
 		intf_id += 1
 
-		self.interface = Interface(ifname, config)
+		self.interface = Interface(ifname, config, self.ns)
 		self.use = use
 
 		Process(['iw', 'phy', self.name, 'interface', 'add', ifname,
-				'type', 'managed']).wait()
+				'type', 'managed'], namespace=self.ns.name).wait()
 
 		return self.interface
 
 	def __str__(self):
 		ret = self.name + ':\n'
-		ret += '\tUsed By: %s ' % self.use
+		ret += '\tUsed By: %s' % self.use
 		if self.interface:
-			ret += '(%s)' % self.interface.name
+			ret += ' (%s)' % self.interface.name
+		if self.ns is not None:
+			ret += ' (ns=%s)' % self.ns.name
 
 		ret += '\n'
 
@@ -113,7 +121,7 @@ class VirtualRadio(Radio):
 		than the command line.
 	'''
 
-	def __init__(self, name, cfg=None):
+	def __init__(self, name, default_ns, cfg=None):
 		global config
 
 		self.disable_cipher = None
@@ -129,7 +137,7 @@ class VirtualRadio(Radio):
 					iftype_disable=self.disable_iftype,
 					cipher_disable=self.disable_cipher)
 
-		super().__init__(self._radio.name)
+		super().__init__(self._radio.name, default_ns)
 
 	def __del__(self):
 		super().__del__()
@@ -188,7 +196,7 @@ class Hostapd:
 		A set of running hostapd instances. This is really just a single
 		process since hostapd can be started with multiple config files.
 	'''
-	def __init__(self, radios, configs, radius):
+	def __init__(self, ns, radios, configs, radius):
 		if len(configs) != len(radios):
 			raise Exception("Config (%d) and radio (%d) list length not equal" % \
 						(len(configs), len(radios)))
@@ -198,8 +206,8 @@ class Hostapd:
 		Process(['ip', 'link', 'set', 'eth0', 'up']).wait()
 		Process(['ip', 'link', 'set', 'eth1', 'up']).wait()
 
-		self.global_ctrl_iface = '/var/run/hostapd/ctrl'
-
+		self.ns = ns
+		self.global_ctrl_iface = '/var/run/hostapd/ctrl' + (str(ns.name) if ns.name else 'main')
 		self.instances = [HostapdInstance(c, r) for c, r in zip(configs, radios)]
 
 		ifaces = [rad.interface.name for rad in radios]
@@ -227,7 +235,7 @@ class Hostapd:
 		if Process.is_verbose('hostapd'):
 			args.append('-d')
 
-		self.process = Process(args)
+		self.process = Process(args, namespace=ns.name)
 
 		self.process.wait_for_socket(self.global_ctrl_iface, 30)
 
@@ -340,7 +348,7 @@ class TestContext(Namespace):
 			if self.hw_config.has_section(name):
 				rad_config = self.hw_config[name]
 
-			self.radios.append(VirtualRadio(name, rad_config))
+			self.radios.append(VirtualRadio(name, self, rad_config))
 
 	def discover_radios(self):
 		import pyroute2
@@ -362,7 +370,7 @@ class TestContext(Namespace):
 					break
 
 		print('Discovered radios: %s' % str(phys))
-		self.radios = [Radio(name) for name in phys]
+		self.radios = [Radio(name, self) for name in phys]
 
 	def start_radios(self):
 		reg_domain = self.hw_config['SETUP'].get('reg_domain', None)
@@ -397,31 +405,43 @@ class TestContext(Namespace):
 			#          tests. In this case you would not care what
 			#          was using each radio, just that there was
 			#          enough to run all tests.
-			nradios = 0
-			for k, _ in settings.items():
-				if k == 'radius_server':
-					continue
-				nradios += 1
-
-			hapd_radios = self.radios[:nradios]
-
+			hapd_configs = [conf for rad, conf in settings.items() if rad != 'radius_server']
+			hapd_processes = [(self, self.radios[:len(hapd_configs)], hapd_configs)]
 		else:
-			hapd_radios = [rad for rad in self.radios if rad.name in settings]
-
-		hapd_configs = [conf for rad, conf in settings.items() if rad != 'radius_server']
+			hapd_processes = []
+			for ns in [self] + self.namespaces:
+				ns_radios = [rad for rad in ns.radios if rad.name in settings]
+				if len(ns_radios):
+					ns_configs = [settings[rad.name] for rad in ns_radios]
+					hapd_processes.append((ns, ns_radios, ns_configs))
+			if not hapd_processes:
+				hapd_processes.append((self, [], []))
 
 		radius_config = settings.get('radius_server', None)
 
-		self.hostapd = Hostapd(hapd_radios, hapd_configs, radius_config)
-		self.hostapd.attach_cli()
+		self.hostapd = [Hostapd(ns, radios, configs, radius_config)
+				for ns, radios, configs in hapd_processes]
+
+		for hapd in self.hostapd:
+			hapd.attach_cli()
 
 	def get_frequencies(self):
 		frequencies = []
 
-		for hapd in self.hostapd.instances:
-			frequencies.append(hapd.cli.frequency)
+		for hapd in self.hostapd:
+			frequencies += [instance.cli.frequency for instance in hapd.instances]
 
 		return frequencies
+
+	def get_hapd_instance(self, config=None):
+		instances = [i for hapd in self.hostapd for i in hapd.instances]
+
+		if config is None:
+			return instances[0]
+
+		for hapd in instances:
+			if hapd.config == config:
+				return hapd
 
 	def start_wpas_interfaces(self):
 		if 'WPA_SUPPLICANT' not in self.hw_config:
@@ -543,11 +563,13 @@ class TestContext(Namespace):
 		for arg in vars(self.args):
 			ret += '\t --%s %s\n' % (arg, str(getattr(self.args, arg)))
 
-		ret += 'Hostapd:\n'
 		if self.hostapd:
-			for h in self.hostapd.instances:
-				ret += '\t%s\n' % str(h)
+			for hapd in self.hostapd:
+				ret += 'Hostapd (ns=%s):\n' % (hapd.ns.name,)
+				for h in hapd.instances:
+					ret += '\t%s\n' % (str(h),)
 		else:
+			ret += 'Hostapd:\n'
 			ret += '\tNo Hostapd instances\n'
 
 		info = self.meminfo_to_dict()
