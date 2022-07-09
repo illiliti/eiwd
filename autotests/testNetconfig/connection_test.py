@@ -36,6 +36,8 @@ class Test(unittest.TestCase):
                     return socket.inet_pton(socket.AF_INET6, l.split(None, 1)[1].split('/', 1)[0])
             return None
 
+        os.system("hostname test-sta")
+        IWD.copy_to_storage('auto.psk', name='ap-ns1.psk')
         wd = IWD(True)
 
         psk_agent = PSKAgent("secret123")
@@ -109,6 +111,7 @@ class Test(unittest.TestCase):
         leases_file = self.parse_lease_file('/tmp/dhcpd.leases', socket.AF_INET)
         lease = leases_file['leases'][socket.inet_pton(socket.AF_INET, '192.168.1.10')]
         self.assertEqual(lease['state'], 'active')
+        self.assertEqual(lease['client-hostname'], 'test-sta')
         self.assertTrue(lease['starts'] < connect_time)
         self.assertTrue(lease['ends'] > connect_time)
         # The T1 is 15 seconds per dhcpd.conf.  This is the approximate interval between lease
@@ -123,6 +126,7 @@ class Test(unittest.TestCase):
         leases_file = self.parse_lease_file('/tmp/dhcpd.leases', socket.AF_INET)
         new_lease = leases_file['leases'][socket.inet_pton(socket.AF_INET, '192.168.1.10')]
         self.assertEqual(new_lease['state'], 'active')
+        self.assertEqual(new_lease['client-hostname'], 'test-sta')
         self.assertTrue(new_lease['starts'] > lease['starts'] + 10)
         self.assertTrue(new_lease['starts'] < lease['starts'] + 25)
         self.assertTrue(new_lease['ends'] > lease['ends'] + 10)
@@ -162,6 +166,7 @@ class Test(unittest.TestCase):
         leases_file = self.parse_lease_file('/tmp/dhcpd.leases', socket.AF_INET)
         new_lease = leases_file['leases'][socket.inet_pton(socket.AF_INET, '192.168.1.10')]
         self.assertEqual(new_lease['state'], 'active')
+        self.assertEqual(lease['client-hostname'], 'test-sta')
         self.assertTrue(new_lease['starts'] > lease['starts'] + 70)
         self.assertTrue(new_lease['starts'] < lease['starts'] + 85)
         self.assertTrue(new_lease['ends'] > lease['ends'] + 70)
