@@ -628,8 +628,10 @@ def build_test_list(args):
 	# Run all tests
 	if not args.autotests:
 		# Get list of all autotests (committed in git)
+		Process(['git', 'config', '--system', '--add', 'safe.directory',
+					os.path.normpath(args.testhome)]).wait()
 		tests = os.popen('git -C %s ls-files autotests/ | cut -f2 -d"/" \
-					| grep "test*" | uniq' % args.testhome).read() \
+					| grep "^test" | uniq' % args.testhome).read() \
 					.strip().split('\n')
 		tests = [test_root + '/' + t for t in tests]
 	else:

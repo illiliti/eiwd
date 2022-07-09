@@ -36,6 +36,7 @@ mounts_common = [
 	MountInfo('tmpfs', 'tmpfs', '/run', 'mode=0755',
 					MS_NOSUID|MS_NODEV|MS_STRICTATIME),
 	MountInfo('tmpfs', 'tmpfs', '/tmp', '', 0),
+	MountInfo('tmpfs', 'tmpfs', '/etc', '', 0),
 	MountInfo('tmpfs', 'tmpfs', '/usr/share/dbus-1', 'mode=0755',
 					MS_NOSUID|MS_NOEXEC|MS_NODEV|MS_STRICTATIME),
 ]
