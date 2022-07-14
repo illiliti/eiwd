@@ -32,7 +32,6 @@ scripts/config --enable CONFIG_CRYPTO_CBC
 scripts/config --enable CONFIG_CRYPTO_CMAC
 scripts/config --enable CONFIG_CRYPTO_DES
 scripts/config --enable CONFIG_CRYPTO_DES3_EDE_X86_64
-scripts/config --enable CONFIG_CRYPTO_ARC4
 scripts/config --enable CONFIG_CRYPTO_HMAC
 scripts/config --enable CONFIG_KEYS
 scripts/config --enable CONFIG_KEY_DH_OPERATIONS
