@@ -41,6 +41,7 @@ scripts/config --enable CONFIG_ASYMMETRIC_PUBLIC_KEY_SUBTYPE
 scripts/config --enable CONFIG_X509_CERTIFICATE_PARSER
 scripts/config --enable CONFIG_PKCS7_MESSAGE_PARSER
 scripts/config --enable CONFIG_PKCS8_PRIVATE_KEY_PARSER
+scripts/config --enable CONFIG_CRYPTO_ECDSA
 
 scripts/config --enable CONFIG_HW_RANDOM_VIRTIO
 scripts/config --enable CONFIG_HW_RANDOM_INTEL
