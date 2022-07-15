@@ -2198,3 +2198,4 @@ static void scan_exit(void)
 }
 
 IWD_MODULE(scan, scan_init, scan_exit)
+IWD_MODULE_DEPENDS(scan, wiphy)
