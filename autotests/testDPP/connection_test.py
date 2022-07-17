@@ -5,9 +5,11 @@ import sys
 
 sys.path.append('../util')
 from iwd import IWD
+from iwd import DeviceProvisioning
 from wpas import Wpas
 from hostapd import HostapdCLI
 from hwsim import Hwsim
+from config import ctx
 
 class Test(unittest.TestCase):
     def test_iwd_as_enrollee(self):
@@ -97,6 +99,38 @@ class Test(unittest.TestCase):
         self.device.dpp_start_configurator(uri)
 
         self.wpas.wait_for_event('DPP-CONF-RECEIVED', timeout=30)
+
+    def test_client_as_configurator(self):
+        self.hapd.reload()
+        self.hapd.wait_for_event('AP-ENABLED')
+
+        IWD.copy_to_storage('ssidCCMP.psk')
+        self.device.autoconnect = True
+
+        condition = 'obj.state == DeviceState.connected'
+        self.wd.wait_for_object_condition(self.device, condition)
+
+        ctx.start_process(['iwctl', 'dpp', self.device.name, 'start-configurator'], check=True)
+
+        dpp = DeviceProvisioning(self.device.device_path)
+
+        self.wpas.dpp_enrollee_start(dpp.uri)
+
+        self.wpas.wait_for_event('DPP-CONF-RECEIVED', timeout=30)
+
+    def test_client_as_enrollee(self):
+        self.device.autoconnect = True
+        self.hapd.reload()
+
+        ctx.start_process(['iwctl', 'dpp', self.device.name, 'start-enrollee'], check=True)
+
+        dpp = DeviceProvisioning(self.device.device_path)
+
+        self.wpas.dpp_configurator_create(dpp.uri)
+        self.wpas.dpp_configurator_start('ssidCCMP', 'secret123')
+
+        condition = 'obj.state == DeviceState.connected'
+        self.wd.wait_for_object_condition(self.device, condition)
 
     def setUp(self):
         self.wpas = Wpas('wpas.conf')

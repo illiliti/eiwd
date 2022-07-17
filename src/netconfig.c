@@ -515,6 +515,7 @@ static struct l_rtnl_address *netconfig_get_static6_address(
 {
 	L_AUTO_FREE_VAR(char *, ip);
 	char *p;
+	char *endp;
 	struct l_rtnl_address *ret;
 	uint32_t prefix_len = 128;
 
@@ -530,8 +531,9 @@ static struct l_rtnl_address *netconfig_get_static6_address(
 	if (*++p == '\0')
 		goto no_prefix_len;
 
-	prefix_len = strtoul(p, NULL, 10);
-	if (!unlikely(errno == EINVAL || errno == ERANGE ||
+	errno = 0;
+	prefix_len = strtoul(p, &endp, 10);
+	if (unlikely(*endp != '\0' || errno ||
 			!prefix_len || prefix_len > 128)) {
 		l_error("netconfig: Invalid prefix '%s' provided in network"
 				" configuration file", p);

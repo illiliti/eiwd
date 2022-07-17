@@ -6,6 +6,7 @@ import sys
 sys.path.append('../util')
 import iwd
 import os
+from time import sleep
 from iwd import IWD
 from iwd import NetworkType
 from iwd import PSKAgent
@@ -47,6 +48,8 @@ class Test(unittest.TestCase):
 
         mtime = os.path.getmtime('/tmp/iwd/' + 'ssidCCMP.psk')
         self.assertFalse(self.profile_is_encrypted('ssidCCMP.psk'))
+
+        sleep(1)
 
         wd = IWD(True)
 
@@ -114,6 +117,12 @@ EncryptedSecurity=aabbccddeeff00112233445566778899
         wd = IWD(True)
 
         self.assertEqual(wd.list_known_networks(), [])
+
+        # This test starts and stops IWD so quickly the DBus utilities don't
+        # even have a chance to set up the Device interface object which causes
+        # exceptions on the next test as the InterfaceAdded signals arrive. This
+        # allows the device interface to get set up before ending the test.
+        wd.list_devices(1)
 
     def test_runtime_profile(self):
         wd = IWD(True)

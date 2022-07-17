@@ -321,8 +321,12 @@ const char *storage_network_ssid_from_path(const char *path,
 			if (!isalnum(*c) && !strchr("-_ ", *c))
 				break;
 
-		if (c < end)
+		if (c < end) {
+			l_warn("Provisioning file %s contains non-alphanumeric "
+				"characters in the name. Please hex-encode. "
+				"See man iwd.network", path);
 			return NULL;
+		}
 
 		memcpy(buf, filename, end - filename);
 		buf[end - filename] = '\0';
@@ -456,11 +460,9 @@ char *__storage_encrypt(const struct l_settings *settings, const char *name,
 int __storage_decrypt(struct l_settings *settings, const char *ssid,
 				bool *encrypt)
 {
-	_auto_(l_settings_free) struct l_settings *security = NULL;
 	_auto_(l_free) uint8_t *encrypted = NULL;
 	_auto_(l_free) uint8_t *decrypted = NULL;
 	_auto_(l_free) uint8_t *salt = NULL;
-	_auto_(l_strv_free) char **embedded = NULL;
 	_auto_(l_strv_free) char **groups = NULL;
 	char **i;
 	size_t elen, slen;
@@ -599,8 +601,10 @@ struct l_settings *storage_network_open(enum security type, const char *ssid)
 
 	settings = l_settings_new();
 
-	if (!l_settings_load_from_file(settings, path))
+	if (!l_settings_load_from_file(settings, path)) {
+		l_error("Error loading %s", path);
 		goto error;
+	}
 
 	if (type != SECURITY_NONE && !storage_decrypt(settings, path, ssid))
 		goto error;

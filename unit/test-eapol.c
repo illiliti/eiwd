@@ -1768,13 +1768,13 @@ static void eapol_4way_test(const void *data)
 	step1 = eapol_key_validate(eapol_key_data_3,
 					sizeof(eapol_key_data_3), 16);
 	assert(step1);
-	assert(eapol_verify_ptk_1_of_4(step1, 16));
+	assert(eapol_verify_ptk_1_of_4(step1, 16, false));
 	memcpy(anonce, step1->key_nonce, sizeof(step1->key_nonce));
 
 	step2 = eapol_key_validate(eapol_key_data_4,
 					sizeof(eapol_key_data_4), 16);
 	assert(step2);
-	assert(eapol_verify_ptk_2_of_4(step2));
+	assert(eapol_verify_ptk_2_of_4(step2, false));
 	memcpy(snonce, step2->key_nonce, sizeof(step2->key_nonce));
 
 	assert(!crypto_psk_from_passphrase(passphrase, (uint8_t *) ssid,
@@ -1853,13 +1853,13 @@ static void eapol_wpa2_handshake_test(const void *data)
 	ptk_step1 = eapol_key_validate(eapol_key_data_7,
 					sizeof(eapol_key_data_7), 16);
 	assert(ptk_step1);
-	assert(eapol_verify_ptk_1_of_4(ptk_step1, 16));
+	assert(eapol_verify_ptk_1_of_4(ptk_step1, 16, false));
 	memcpy(anonce, ptk_step1->key_nonce, sizeof(ptk_step1->key_nonce));
 
 	ptk_step2 = eapol_key_validate(eapol_key_data_8,
 					sizeof(eapol_key_data_8), 16);
 	assert(ptk_step2);
-	assert(eapol_verify_ptk_2_of_4(ptk_step2));
+	assert(eapol_verify_ptk_2_of_4(ptk_step2, false));
 	memcpy(snonce, ptk_step2->key_nonce, sizeof(ptk_step2->key_nonce));
 
 	assert(!crypto_psk_from_passphrase(passphrase, (uint8_t *) ssid,
@@ -1983,13 +1983,13 @@ static void eapol_wpa_handshake_test(const void *data)
 	ptk_step1 = eapol_key_validate(eapol_key_data_13,
 					sizeof(eapol_key_data_13), 16);
 	assert(ptk_step1);
-	assert(eapol_verify_ptk_1_of_4(ptk_step1, 16));
+	assert(eapol_verify_ptk_1_of_4(ptk_step1, 16, false));
 	memcpy(anonce, ptk_step1->key_nonce, sizeof(ptk_step1->key_nonce));
 
 	ptk_step2 = eapol_key_validate(eapol_key_data_14,
 					sizeof(eapol_key_data_14), 16);
 	assert(ptk_step2);
-	assert(eapol_verify_ptk_2_of_4(ptk_step2));
+	assert(eapol_verify_ptk_2_of_4(ptk_step2, false));
 	memcpy(snonce, ptk_step2->key_nonce, sizeof(ptk_step2->key_nonce));
 
 	assert(!crypto_psk_from_passphrase(passphrase, (uint8_t *) ssid,

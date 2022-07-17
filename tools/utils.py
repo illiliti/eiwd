@@ -8,7 +8,8 @@ import dbus
 
 from gi.repository import GLib
 from weakref import WeakValueDictionary
-from re import match
+from re import fullmatch
+from time import sleep
 
 from runner import RunnerCoreArgParse
 
@@ -79,13 +80,14 @@ class Process(subprocess.Popen):
 
 	@staticmethod
 	def is_verbose(process, log=True):
+		exclude = ['iwd-rtnl']
 		process = os.path.basename(process)
 
 		if Process.testargs is None:
 			return False
 
 		# every process is verbose when logging is enabled
-		if log and Process.testargs.log:
+		if log and Process.testargs.log and process not in exclude:
 			return True
 
 		if process in Process.testargs.verbose:
@@ -98,7 +100,7 @@ class Process(subprocess.Popen):
 		# Handle any regex matches
 		for item in Process.testargs.verbose:
 			try:
-				if match(item, process):
+				if fullmatch(item, process):
 					return True
 			except Exception as e:
 				print("%s is not a valid regex" % item)
@@ -212,7 +214,24 @@ class Process(subprocess.Popen):
 		self.write_fds.append(f)
 
 	def wait_for_socket(self, socket, wait):
-		Namespace.non_block_wait(os.path.exists, wait, socket)
+		def _wait(socket):
+			if not os.path.exists(socket):
+				sleep(0.1)
+				return False
+			return True
+
+		Namespace.non_block_wait(_wait, wait, socket,
+				exception=Exception("Timed out waiting for %s" % socket))
+
+	def wait_for_service(self, ns, service, wait):
+		def _wait(ns, service):
+			if not ns._bus.name_has_owner(service):
+				sleep(0.1)
+				return False
+			return True
+
+		Namespace.non_block_wait(_wait, wait, ns, service,
+				exception=Exception("Timed out waiting for %s" % service))
 
 	# Wait for both process termination and HUP signal
 	def __wait(self, timeout):
@@ -258,7 +277,7 @@ class Process(subprocess.Popen):
 		try:
 			self.wait(timeout=15)
 		except:
-			print("Process %s did not complete in 15 seconds!" % self.name)
+			print("Process %s did not complete in 15 seconds!" % self.args[0])
 			super().kill()
 
 		self._cleanup()
@@ -305,7 +324,7 @@ class Namespace:
 
 		Process(['ip', 'netns', 'add', name]).wait()
 		for r in radios:
-			Process(['iw', 'phy', r.name, 'set', 'netns', 'name', name]).wait()
+			r.set_namespace(self)
 
 		self.start_dbus()
 
@@ -341,10 +360,24 @@ class Namespace:
 	def stop_process(self, p, force=False):
 		p.kill(force)
 
+	def _is_running(self, pid):
+		try:
+			os.kill(pid, 0)
+		except OSError:
+			return False
+
+		return True
+
 	def is_process_running(self, process):
 		for p in Process.get_all():
-			if p.namespace == self.name and p.args[0] == process:
-				return True
+			# Namespace processes are actually started by 'ip' where
+			# the actual process name is at index 4 of the arguments.
+			idx = 0 if not p.namespace else 4
+
+			if p.namespace == self.name and p.args[idx] == process:
+				# The process object exists, but make sure its
+				# actually running.
+				return self._is_running(p.pid)
 		return False
 
 	def _cleanup_dbus(self):
@@ -405,7 +438,14 @@ class Namespace:
 		if Process.is_verbose('iwd-acd'):
 			env['IWD_ACD_DEBUG'] = '1'
 
-		return self.start_process(args, env=env)
+		if Process.is_verbose('iwd-rtnl'):
+			env['IWD_RTNL_DEBUG'] = '1'
+
+		proc = self.start_process(args, env=env)
+
+		proc.wait_for_service(self, 'net.connman.iwd', 20)
+
+		return proc
 
 	@staticmethod
 	def non_block_wait(func, timeout, *args, exception=True):

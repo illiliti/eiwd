@@ -36,6 +36,7 @@ mounts_common = [
 	MountInfo('tmpfs', 'tmpfs', '/run', 'mode=0755',
 					MS_NOSUID|MS_NODEV|MS_STRICTATIME),
 	MountInfo('tmpfs', 'tmpfs', '/tmp', '', 0),
+	MountInfo('tmpfs', 'tmpfs', '/etc', '', 0),
 	MountInfo('tmpfs', 'tmpfs', '/usr/share/dbus-1', 'mode=0755',
 					MS_NOSUID|MS_NOEXEC|MS_NODEV|MS_STRICTATIME),
 ]
@@ -108,7 +109,7 @@ class RunnerCoreArgParse(ArgumentParser):
 				help='Enables iwmon output to file')
 		self.add_argument('--sub-tests', '-S',
 				metavar='<subtests>',
-				type=str, nargs=1, help='List of subtests to run',
+				type=str, help='List of subtests to run',
 				default=None, dest='sub_tests')
 		self.add_argument('--result', '-e',
 				type=os.path.abspath,
@@ -117,8 +118,8 @@ class RunnerCoreArgParse(ArgumentParser):
 				type=str,
 				help='Use physical adapters for tests (passthrough)')
 		self.add_argument('--testhome', help=SUPPRESS)
-		self.add_argument('--monitor_parent', help=SUPPRESS)
-		self.add_argument('--result_parent', help=SUPPRESS)
+		self.add_argument('--monitor-parent', help=SUPPRESS)
+		self.add_argument('--result-parent', help=SUPPRESS)
 
 		# Prevent --autotest/--unittest from being used together
 		auto_unit_group = self.add_mutually_exclusive_group()
@@ -131,8 +132,6 @@ class RunnerCoreArgParse(ArgumentParser):
 		auto_unit_group.add_argument('--unit-tests', '-U',
 				metavar='<tests>',
 				type=str,
-				nargs='?',
-				const='*',
 				help='List of unit tests to run',
 				dest='unit_tests')
 
@@ -141,7 +140,6 @@ class RunnerCoreArgParse(ArgumentParser):
 		valgrind_gdb_group.add_argument('--gdb', '-g',
 				metavar='<exec>',
 				type=str,
-				nargs=1,
 				help='Run gdb on specified executable',
 				dest='gdb')
 		valgrind_gdb_group.add_argument('--valgrind', '-V',
@@ -156,7 +154,7 @@ class RunnerCoreArgParse(ArgumentParser):
 
 		options = []
 		for k, v in os.environ.items():
-			options.append('--' + k)
+			options.append('--' + k.replace('_', '-'))
 			options.append(v)
 
 		return self.parse_known_args(args=options, namespace=RunnerNamespace())[0]
@@ -200,14 +198,6 @@ class Runner:
 			else:
 				args.testhome = os.getcwd()
 
-		if args.start is None:
-			if os.path.exists('run-tests'):
-				args.start = os.path.abspath('run-tests')
-			elif os.path.exists('tools/run-tests'):
-				args.start = os.path.abspath('tools/run-tests')
-			else:
-				raise Exception("Cannot locate run-tests binary")
-
 		# If no runner is specified but we have a kernel image assume
 		# if the kernel is executable its UML, otherwise qemu
 		if not args.runner:
@@ -233,6 +223,16 @@ class RunnerAbstract:
 
 	def __init__(self, args):
 		self.args = args
+
+		if len(sys.argv) <= 1:
+			return
+
+		if os.path.exists('run-tests'):
+			self.init = os.path.abspath('run-tests')
+		elif os.path.exists('tools/run-tests'):
+			self.init = os.path.abspath('tools/run-tests')
+		else:
+			raise Exception("Cannot locate run-tests binary")
 
 	def start(self):
 		print("Starting %s" % self.name)
@@ -281,6 +281,8 @@ class RunnerAbstract:
 					os.remove(f)
 
 		fcntl.ioctl(STDIN_FILENO, TIOCSTTY, 1)
+
+		os.system('ip link set dev lo up')
 
 	def cleanup_environment(self):
 		rmtree('/tmp/iwd')
@@ -416,7 +418,7 @@ class QemuRunner(RunnerAbstract):
 				rootflags=trans=virtio \
 				acpi=off pci=noacpi %s ro \
 				mac80211_hwsim.radios=0 init=%s %s' %
-						(kern_log, args.start, args.to_cmd()),
+						(kern_log, self.init, args.to_cmd()),
 		]
 
 		# Add two ethernet devices for testing EAD
@@ -519,7 +521,7 @@ class UmlRunner(RunnerAbstract):
 
 		cmd = [args.kernel, 'rootfstype=hostfs', 'ro', 'mem=256M', 'mac80211_hwsim.radios=0',
 				'time-travel=inf-cpu', 'eth0=mcast', 'eth1=mcast',
-				'%s '% kern_log, 'init=%s' % args.start]
+				'%s' % kern_log, 'init=%s' % self.init]
 		cmd.extend(args.to_cmd().split(' '))
 
 		self.cmdline = cmd

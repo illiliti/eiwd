@@ -64,4 +64,9 @@ AC_DEFUN([COMPILER_FLAGS], [
 			CFLAGS+=" -Wcast-align"
 		fi
 	fi
+
+	if (test "$CC" = "clang"); then
+		CFLAGS+=" -Wno-unknown-warning-option"
+		CFLAGS+=" -Wno-unknown-pragmas"
+	fi
 ])

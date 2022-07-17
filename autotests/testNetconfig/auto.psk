@@ -1,0 +1,5 @@
+[IPv4]
+SendHostname=true
+
+[Settings]
+AutoConnect=false

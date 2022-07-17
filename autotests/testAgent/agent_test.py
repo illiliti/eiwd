@@ -2,6 +2,7 @@
 
 import unittest
 import sys
+import dbus
 
 sys.path.append('../util')
 import iwd
@@ -55,35 +56,18 @@ class Test(unittest.TestCase):
 
         IWD.clear_storage()
 
-    def test_connection_with_other_agent(self):
+    def test_connection_use_first_from_multiple_registered(self):
         wd = IWD()
-
-        iwctl = ctx.start_process(['iwctl', '-P', 'secret_ssid2'])
-        # Let iwctl to start and register its agent.
-        wd.wait(2)
-
-        self.check_connection(wd, 'ssid2')
-
-        iwctl.kill()
-
-        IWD.clear_storage()
-
-    def test_connection_use_own_agent_from_multiple_registered(self):
-
-        wd = IWD()
-
-        iwctl = ctx.start_process(['iwctl', '-P', 'secret_ssid2'])
-        # Let iwctl to start and register its agent.
-        wd.wait(2)
 
         psk_agent = PSKAgent("secret_ssid1")
+        wd.register_psk_agent(psk_agent)
+
+        psk_agent = PSKAgent("secret_ssid2")
         wd.register_psk_agent(psk_agent)
 
         self.check_connection(wd, 'ssid1')
 
         wd.unregister_psk_agent(psk_agent)
-
-        iwctl.kill()
 
         IWD.clear_storage()
 

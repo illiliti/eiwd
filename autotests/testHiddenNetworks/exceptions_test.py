@@ -6,7 +6,7 @@ import sys
 sys.path.append('../util')
 import iwd
 import validation
-from validation import TestConnectAutoConnect
+from validation import TestHiddenNetworks
 from iwd import IWD
 
 class TestWpaNetwork(unittest.TestCase):
@@ -23,7 +23,7 @@ class TestWpaNetwork(unittest.TestCase):
     '''
 
     def test_wpa(self):
-        tca = TestConnectAutoConnect()
+        tca = TestHiddenNetworks()
 
         tca.validate('UnExistingNetwork', False, iwd.NotFoundEx)
         tca.validate('ssidOverlap', False, iwd.ServiceSetOverlapEx)

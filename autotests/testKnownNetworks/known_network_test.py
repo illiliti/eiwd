@@ -2,10 +2,11 @@
 
 import unittest
 import sys
+import subprocess
 
 sys.path.append('../util')
-import iwd
 from iwd import IWD
+from config import ctx
 
 class Test(unittest.TestCase):
 
@@ -70,8 +71,26 @@ class Test(unittest.TestCase):
 
         self.list_removal_and_addition(wd)
 
+    def test_client_known_networks(self):
+        networks = ['Hotspot Network', 'ssidOpen', 'ssidTKIP', 'ssidEAP-TLS']
+        wd = IWD(True)
+
+        iwctl = ctx.start_process(['iwctl', 'known-networks', 'list'], check=True)
+
+        for n in networks:
+            self.assertIn(n, iwctl.out)
+
+        for n in networks:
+            ctx.start_process(['iwctl', 'known-networks', n, 'show'], check=True)
+
+        networks.remove('ssidOpen')
+        ctx.start_process(['iwctl', 'known-networks', 'ssidOpen', 'forget'], check=True)
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            ctx.start_process(['iwctl', 'known-networks', 'ssidOpen', 'show'], check=True)
+
     @classmethod
-    def setUpClass(cls):
+    def setUp(self):
         IWD.copy_to_storage('known_networks/ssidOpen.open')
         IWD.copy_to_storage('known_networks/ssidTKIP.psk')
         IWD.copy_to_storage('known_networks/ssidEAP-TLS.8021x')

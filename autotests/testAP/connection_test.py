@@ -1,90 +1,43 @@
 #! /usr/bin/python3
 
 import unittest
-import sys, os
 
-import iwd
 from iwd import IWD
-from iwd import PSKAgent
-from iwd import NetworkType
-from hostapd import HostapdCLI
-import testutil
+from config import ctx
+from validation import validate, client_connect
 
 class Test(unittest.TestCase):
-
-    def client_connect(self, wd, dev):
-        hostapd = HostapdCLI(config='psk-ccmp.conf')
-
-        ordered_network = dev.get_ordered_network('TestAP1')
-
-        self.assertEqual(ordered_network.type, NetworkType.psk)
-
-        psk_agent = PSKAgent('Password1')
-        wd.register_psk_agent(psk_agent)
-
-        ordered_network.network_object.connect()
-
-        condition = 'obj.state == DeviceState.connected'
-        wd.wait_for_object_condition(dev, condition)
-
-        wd.unregister_psk_agent(psk_agent)
-
-        testutil.test_iface_operstate(dev.name)
-        testutil.test_ifaces_connected(hostapd.ifname, dev.name)
-
-        dev.disconnect()
-
-        condition = 'not obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
-
     def test_connection_success(self):
         wd = IWD(True)
 
         dev1, dev2 = wd.list_devices(2)
 
-        self.client_connect(wd, dev1)
+        client_connect(wd, dev1, 'TestAP1')
 
         dev1.start_ap('TestAP2', 'Password2')
 
-        try:
-            networks = {}
-            networks['TestAP1'] = dev2.get_ordered_network('TestAP1', full_scan=True)
-            networks['TestAP2'] = dev2.get_ordered_network('TestAP2', full_scan=True)
-
-            self.assertEqual(networks['TestAP1'].type, NetworkType.psk)
-            self.assertEqual(networks['TestAP2'].type, NetworkType.psk)
-
-            psk_agent = PSKAgent('Password2')
-            wd.register_psk_agent(psk_agent)
-
-            try:
-                dev2.disconnect()
-
-                condition = 'not obj.connected'
-                wd.wait_for_object_condition(dev2, condition)
-            except:
-                pass
-
-            networks['TestAP2'].network_object.connect()
-
-            condition = 'obj.state == DeviceState.connected'
-            wd.wait_for_object_condition(dev2, condition)
-
-            testutil.test_iface_operstate(dev2.name)
-            testutil.test_ifaces_connected(dev1.name, dev2.name, group=False)
-
-            wd.unregister_psk_agent(psk_agent)
-
-            dev2.disconnect()
-
-            condition = 'not obj.connected'
-            wd.wait_for_object_condition(networks['TestAP2'].network_object,
-                                         condition)
-        finally:
-            dev1.stop_ap()
+        validate(wd, dev2, dev1, 'TestAP2', 'Password2')
 
         # Finally test dev1 can go to client mode and connect again
-        self.client_connect(wd, dev1)
+        client_connect(wd, dev1, 'TestAP1')
+
+    def test_client_start_ap(self):
+        wd = IWD(True)
+
+        dev1, dev2 = wd.list_devices(2)
+
+        ctx.start_process(['iwctl', 'device', dev1.name, 'set-property', 'Mode', 'ap'], check=True)
+        ctx.start_process(['iwctl', 'ap', dev1.name, 'start', 'TestAP2', 'Password2'], check=True)
+
+        iwctl = ctx.start_process(['iwctl', 'ap', 'list'], check=True)
+
+        self.assertIn(dev1.name, iwctl.out)
+
+        iwctl = ctx.start_process(['iwctl', 'ap', dev1.name, 'show'], check=True)
+
+        self.assertIn('TestAP2', iwctl.out)
+
+        validate(wd, dev2, dev1, 'TestAP2', 'Password2')
 
     @classmethod
     def setUpClass(cls):

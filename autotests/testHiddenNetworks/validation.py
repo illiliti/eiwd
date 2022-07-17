@@ -9,7 +9,7 @@ from iwd import IWD
 from iwd import PSKAgent
 from iwd import NetworkType
 
-class TestConnectAutoConnect(unittest.TestCase):
+class TestHiddenNetworks(unittest.TestCase):
 
     def check_connect_hidden_network(self, wd, device, ssid, throws):
         if not throws is None:

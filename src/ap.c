@@ -4084,6 +4084,8 @@ static void ap_remove_interface(struct netdev *netdev)
 {
 	l_dbus_object_remove_interface(dbus_get_bus(),
 			netdev_get_path(netdev), IWD_AP_INTERFACE);
+	l_dbus_object_remove_interface(dbus_get_bus(),
+			netdev_get_path(netdev), IWD_AP_DIAGNOSTIC_INTERFACE);
 }
 
 static void ap_netdev_watch(struct netdev *netdev,

@@ -4,6 +4,8 @@ import socket
 import fcntl
 import struct
 import select
+import codecs
+import collections
 
 import iwd
 from config import ctx
@@ -131,6 +133,7 @@ def test_ifaces_connected(if0=None, if1=None, group=True, expect_fail=False):
 
 SIOCGIFFLAGS = 0x8913
 SIOCGIFADDR = 0x8915
+SIOCGIFNETMASK = 0x891b
 IFF_UP = 1 << 0
 IFF_RUNNING = 1 << 6
 
@@ -156,19 +159,68 @@ def test_iface_operstate(intf=None):
     ctx.non_block_wait(_test_operstate, 10, intf,
                         exception=Exception(intf + ' operstate wrong'))
 
-def test_ip_address_match(intf, ip):
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        addr = fcntl.ioctl(s.fileno(), SIOCGIFADDR, struct.pack('256s', intf.encode('utf-8')))
-        addr = socket.inet_ntoa(addr[20:24])
-    except OSError as e:
-        if e.errno != 99 or ip != None:
-            raise Exception('SIOCGIFADDR failed with %d' % e.errno)
+def get_addrs6(ifname):
+    f = open('/proc/net/if_inet6', 'r')
+    lines = f.readlines()
+    f.close()
+    for line in lines:
+        addr_str, _, plen, _, _, addr_ifname = line.split()
+        if ifname is not None and addr_ifname != ifname:
+            continue
 
-        return
+        yield (codecs.decode(addr_str, 'hex'), int(plen, 16), addr_ifname)
 
-    if ip != addr:
-        raise Exception('IP for %s did not match %s (was %s)' % (intf, ip, addr))
+def test_ip_address_match(intf, expected_addr_str, expected_plen=None, match_plen=None):
+    def mask_addr(addr, plen):
+        if plen is None or len(addr) * 8 <= plen:
+            return addr
+        bytelen = int(plen / 8)
+        return addr[0:bytelen] + bytes([addr[bytelen] & (0xff00 >> (plen & 7))]) + b'\0' * (len(addr) - bytelen - 1)
+    if expected_addr_str is not None:
+        try:
+            expected_addr = socket.inet_pton(socket.AF_INET, expected_addr_str)
+            family = socket.AF_INET
+        except OSError as e:
+            try:
+                expected_addr = socket.inet_pton(socket.AF_INET6, expected_addr_str)
+                family = socket.AF_INET6
+            except OSError as e2:
+                raise e2 from None
+        expected_addr = mask_addr(expected_addr, match_plen)
+    else:
+        expected_addr = None
+        family = socket.AF_INET
+
+    if family == socket.AF_INET:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            out = fcntl.ioctl(s.fileno(), SIOCGIFADDR, struct.pack('256s', intf.encode('utf-8')))
+            actual_addr = mask_addr(out[20:24], match_plen)
+            out = fcntl.ioctl(s.fileno(), SIOCGIFNETMASK, struct.pack('256s', intf.encode('utf-8')))
+            actual_plen = sum([sum([(byte >> bit) & 1 for bit in range(0, 8)]) for byte in out[20:24]]) # count bits
+        except OSError as e:
+            if e.errno == 99 and expected_addr is None:
+                return
+
+            raise Exception('SIOCGIFADDR/SIOCGIFNETMASK failed with %d' % e.errno)
+    else:
+        # The "get" ioctls don't work for IPv6, netdevice(7) recommends reading /proc/net instead,
+        # which on the other hand works *only* for IPv6
+        actual_addr = None
+        actual_plen = None
+        for addr, plen, _ in get_addrs6(intf):
+            actual_addr = mask_addr(addr, match_plen)
+            actual_plen = plen
+            if actual_addr == expected_addr:
+                break
+
+    if expected_addr != actual_addr:
+        raise Exception('IP for %s did not match %s (was %s)' %
+                        (intf, expected_addr_str, socket.inet_ntop(family, actual_addr)))
+
+    if expected_plen is not None and expected_plen != actual_plen:
+        raise Exception('Prefix Length for %s did not match %i (was %i)' %
+                        (intf, expected_plen, actual_plen))
 
 def test_ip_connected(tup0, tup1):
     ip0, ns0 = tup0
@@ -179,3 +231,59 @@ def test_ip_connected(tup0, tup1):
         ns1.start_process(['ping', '-c', '5', '-i', '0.2', ip0], check=True)
     except:
         raise Exception('Could not ping between %s and %s' % (ip0, ip1))
+
+RouteInfo = collections.namedtuple('RouteInfo', 'dst plen gw flags ifname',
+        defaults=(None, None, None, 0, ''))
+
+def get_routes4(ifname=None):
+    f = open('/proc/net/route', 'r')
+    lines = f.readlines()
+    f.close()
+    for line in lines[1:]: # Skip header line
+        route_ifname, dst_str, gw_str, flags, ref_cnt, use_cnt, metric, mask_str, \
+                mtu = line.strip().split(maxsplit=8)
+        if ifname is not None and route_ifname != ifname:
+            continue
+
+        dst = codecs.decode(dst_str, 'hex')[::-1]
+        mask = int(mask_str, 16)
+        plen = sum([(mask >> bit) & 1 for bit in range(0, 32)]) # count bits
+        gw = codecs.decode(gw_str, 'hex')[::-1]
+
+        if dst == b'\0\0\0\0':
+            dst = None
+            plen = None
+        if gw == b'\0\0\0\0':
+            gw = None
+        yield RouteInfo(dst, plen, gw, int(flags, 16), route_ifname)
+
+def get_routes6(ifname=None):
+    f = open('/proc/net/ipv6_route', 'r')
+    lines = f.readlines()
+    f.close()
+    for line in lines:
+        dst_str, dst_plen_str, src_str, src_plen_str, gw_str, metric, ref_cnt, \
+                use_cnt, flags, route_ifname = line.strip().split(maxsplit=9)
+        if ifname is not None and route_ifname != ifname:
+            continue
+
+        dst = codecs.decode(dst_str, 'hex')
+        plen = int(dst_plen_str, 16)
+        gw = codecs.decode(gw_str, 'hex')
+
+        if dst[0] == 0xff or dst[:2] == b'\xfe\x80': # Skip link-local and multicast
+            continue
+
+        # Skip RTN_LOCAL-type routes, we don't need to validate them since they're added by
+        # the kernel and we can't simply add them to the expected list (the list that we
+        # validate against) because they're added a short time after an address (due to DAD?)
+        # and would create race conditions
+        if int(flags, 16) & (1 << 31):
+            continue
+
+        if dst == b'\0' * 16:
+            dst = None
+            plen = None
+        if gw == b'\0' * 16:
+            gw = None
+        yield RouteInfo(dst, plen, gw, int(flags, 16) & 0xf, route_ifname)

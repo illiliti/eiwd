@@ -149,6 +149,71 @@ struct dpp_sm {
 	bool roc_started : 1;
 };
 
+static bool dpp_get_started(struct l_dbus *dbus,
+				struct l_dbus_message *message,
+				struct l_dbus_message_builder *builder,
+				void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+	bool started = (dpp->state != DPP_STATE_NOTHING);
+
+	l_dbus_message_builder_append_basic(builder, 'b', &started);
+
+	return true;
+}
+
+static bool dpp_get_role(struct l_dbus *dbus,
+				struct l_dbus_message *message,
+				struct l_dbus_message_builder *builder,
+				void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+	const char *role;
+
+	if (dpp->state == DPP_STATE_NOTHING)
+		return false;
+
+	switch (dpp->role) {
+	case DPP_CAPABILITY_ENROLLEE:
+		role = "enrollee";
+		break;
+	case DPP_CAPABILITY_CONFIGURATOR:
+		role = "configurator";
+		break;
+	default:
+		return false;
+	}
+
+	l_dbus_message_builder_append_basic(builder, 's', role);
+	return true;
+}
+
+static bool dpp_get_uri(struct l_dbus *dbus,
+				struct l_dbus_message *message,
+				struct l_dbus_message_builder *builder,
+				void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+
+	if (dpp->state == DPP_STATE_NOTHING)
+		return false;
+
+	l_dbus_message_builder_append_basic(builder, 's', dpp->uri);
+	return true;
+}
+
+static void dpp_property_changed_notify(struct dpp_sm *dpp)
+{
+	const char *path = netdev_get_path(dpp->netdev);
+
+	l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
+				"Started");
+	l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
+				"Role");
+	l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
+				"URI");
+}
+
 static void *dpp_serialize_iovec(struct iovec *iov, size_t iov_len,
 				size_t *out_len)
 {
@@ -262,6 +327,8 @@ static void dpp_reset(struct dpp_sm *dpp)
 	explicit_bzero(dpp->auth_tag, dpp->key_len);
 
 	dpp_free_auth_data(dpp);
+
+	dpp_property_changed_notify(dpp);
 }
 
 static void dpp_free(struct dpp_sm *dpp)
@@ -2432,6 +2499,8 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 
 	scan_periodic_stop(dpp->wdev_id);
 
+	dpp_property_changed_notify(dpp);
+
 	return NULL;
 }
 
@@ -2562,6 +2631,8 @@ static struct l_dbus_message *dpp_start_configurator_common(
 
 	scan_periodic_stop(dpp->wdev_id);
 
+	dpp_property_changed_notify(dpp);
+
 	l_debug("DPP Start Configurator: %s", dpp->uri);
 
 	reply = l_dbus_message_new_method_return(message);
@@ -2606,6 +2677,12 @@ static void dpp_setup_interface(struct l_dbus_interface *interface)
 				dpp_dbus_configure_enrollee, "", "s", "uri");
 	l_dbus_interface_method(interface, "Stop", 0,
 				dpp_dbus_stop, "", "");
+
+	l_dbus_interface_property(interface, "Started", 0, "b", dpp_get_started,
+					NULL);
+	l_dbus_interface_property(interface, "Role", 0, "s", dpp_get_role,
+					NULL);
+	l_dbus_interface_property(interface, "URI", 0, "s", dpp_get_uri, NULL);
 }
 
 static void dpp_destroy_interface(void *user_data)

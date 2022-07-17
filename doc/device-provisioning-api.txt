@@ -56,3 +56,18 @@ Methods		string StartEnrollee()
 						net.connman.iwd.NotConfigured
 						net.connman.iwd.NotSupported
 						net.connman.iwd.Busy
+
+Properties	boolean Started [readonly]
+
+			True if DPP is currently active.
+
+		string Role [readonly, optional]
+
+			Indicates the DPP role. Possible values are "enrollee"
+			or "configurator". This property is only available when
+			Started is true.
+
+		string URI [readonly, optional]
+
+			Indicates the DPP URI. This property is only available
+			when Started is true.

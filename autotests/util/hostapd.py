@@ -33,7 +33,7 @@ class HostapdCLI(object):
     _instances = WeakValueDictionary()
 
     def __new__(cls, config=None, *args, **kwargs):
-        hapd = ctx.hostapd[config]
+        hapd = ctx.get_hapd_instance(config)
 
         if not config:
             config = hapd.config
@@ -58,10 +58,10 @@ class HostapdCLI(object):
         if not ctx.hostapd:
             raise Exception("No hostapd instances are configured")
 
-        if not config and len(ctx.hostapd.instances) > 1:
+        if not config and sum([len(hapd.instances) for hapd in ctx.hostapd]) > 1:
             raise Exception('config must be provided if more than one hostapd instance exists')
 
-        hapd = ctx.hostapd[config]
+        hapd = ctx.get_hapd_instance(config)
 
         self.interface = hapd.intf
         self.config = hapd.config
@@ -102,23 +102,26 @@ class HostapdCLI(object):
 
         return True
 
-    def _poll_event(self, event):
+    def _poll_event(self, event, disallow):
         # Look through the list (most recent is first) until the even is found.
         # Once found consume this event and any older ones as to not
         # accidentally trigger a false positive later on.
         for idx, e in enumerate(self.events):
+            for d in disallow:
+                if d in e:
+                    raise Exception('Event %s found while waiting for %s' % (d, event))
             if event in e:
                 self.events = self.events[:idx]
                 return e
 
         return False
 
-    def wait_for_event(self, event, timeout=10):
+    def wait_for_event(self, event, timeout=10, disallow=[]):
         if event == 'AP-ENABLED':
             if self.enabled:
                 return 'AP-ENABLED'
 
-        return ctx.non_block_wait(self._poll_event, timeout, event,
+        return ctx.non_block_wait(self._poll_event, timeout, event, disallow,
                                     exception=TimeoutError("waiting for event"))
 
     def _data_available(self):
@@ -166,8 +169,8 @@ class HostapdCLI(object):
         self.events = []
         cmd = 'EAPOL_REAUTH ' + client_address
         self.ctrl_sock.sendall(cmd.encode('utf-8'))
-        self.wait_for_event('CTRL-EVENT-EAP-STARTED')
-        self.wait_for_event('CTRL-EVENT-EAP-SUCCESS')
+        self.wait_for_event('CTRL-EVENT-EAP-STARTED', disallow=['AP-STA-DISCONNECTED'])
+        self.wait_for_event('CTRL-EVENT-EAP-SUCCESS', disallow=['AP-STA-DISCONNECTED'])
 
     def reload(self):
         # Seemingly all three commands needed for the instance to notice
@@ -234,7 +237,8 @@ class HostapdCLI(object):
         if address:
             cmd = 'REKEY_PTK %s' % address
             self.ctrl_sock.sendall(cmd.encode('utf-8'))
-            self.wait_for_event('EAPOL-4WAY-HS-COMPLETED')
+            self.events = []
+            self.wait_for_event('EAPOL-4WAY-HS-COMPLETED', disallow=['AP-STA-DISCONNECTED'])
             return
 
         cmd = 'REKEY_GTK'

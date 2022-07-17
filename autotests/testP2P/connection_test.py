@@ -87,7 +87,12 @@ class Test(unittest.TestCase):
             # For some reason wpa_supplicant's newly created P2P-client interface doesn't inherit
             # the settings from the main interface which were loaded from the config file
             # (P2P-device and P2P-GO interfaces do), we need to set config_methods again.
+            #
+            # Additionally since hostap commit 922fa099721903b106a7bc1ccd1ffe8c4a7bce69,
+            # just setting config_methods to the same value we used last time is detected as
+            # a NOOP so we need to set it to a different value first for it to take effect.
             peer_ifname = 'p2p-' + wpas.interface.name + '-0'
+            wpas.set('config_methods', '', ifname=peer_ifname)
             wpas.set('config_methods', wpas.config['config_methods'], ifname=peer_ifname)
             wpas.set('device_name', wpas.config['device_name'], ifname=peer_ifname)
             wpas.set('device_type', wpas.config['device_type'], ifname=peer_ifname)

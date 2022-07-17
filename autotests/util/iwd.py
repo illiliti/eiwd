@@ -287,6 +287,18 @@ class DeviceProvisioning(IWDDBusAbstract):
     def stop(self):
         self._iface.Stop()
 
+    @property
+    def uri(self):
+        return self._properties['URI']
+
+    @property
+    def started(self):
+        return self._properties['Started']
+
+    @property
+    def role(self):
+        return self._properties['Role']
+
 class Device(IWDDBusAbstract):
     '''
         Class represents a network device object: net.connman.iwd.Device
@@ -858,10 +870,11 @@ class PSKAgent(dbus.service.Object):
             users = [users]
         self.users = users
         self._path = '/test/agent/%s' % agent_count
+        self._bus = dbus.bus.BusConnection(address_or_type=namespace.dbus_address)
 
         agent_count += 1
 
-        dbus.service.Object.__init__(self, namespace.get_bus(), self._path)
+        dbus.service.Object.__init__(self, self._bus, self._path)
 
     @property
     def path(self):
@@ -1079,14 +1092,13 @@ class IWD(AsyncOpAbstract):
         start_iwd_daemon=True)
     '''
     _object_manager_if = None
-    _agent_manager_if = None
     _iwd_proc = None
     _devices = None
     _default_instance = None
-    psk_agent = None
+    psk_agents = []
 
     def __init__(self, start_iwd_daemon = False, iwd_config_dir = '/tmp',
-                            iwd_storage_dir = '/tmp/iwd', namespace=ctx):
+                            iwd_storage_dir = IWD_STORAGE_DIR, namespace=ctx):
         self.namespace = namespace
         self._bus = namespace.get_bus()
 
@@ -1096,9 +1108,6 @@ class IWD(AsyncOpAbstract):
 
             self._iwd_proc = self.namespace.start_iwd(iwd_config_dir,
                                                         iwd_storage_dir)
-
-        ctx.non_block_wait(self._bus.name_has_owner, 20, IWD_SERVICE,
-                                exception=TimeoutError('IWD has failed to start'))
 
         self._devices = DeviceList(self)
 
@@ -1110,11 +1119,12 @@ class IWD(AsyncOpAbstract):
             IWD._default_instance = weakref.ref(self)
 
     def __del__(self):
-        if self.psk_agent:
-            self.unregister_psk_agent(self.psk_agent)
+        for agent in self.psk_agents:
+            self.unregister_psk_agent(agent)
+
+        self.psk_agents = []
 
         self._object_manager_if = None
-        self._agent_manager_if = None
         self._known_networks = None
         self._devices = None
 
@@ -1132,15 +1142,6 @@ class IWD(AsyncOpAbstract):
                                                            IWD_TOP_LEVEL_PATH),
                                       DBUS_OBJECT_MANAGER)
         return self._object_manager_if
-
-    @property
-    def _agent_manager(self):
-        if self._agent_manager_if is None:
-            self._agent_manager_if =\
-                dbus.Interface(self._bus.get_object(IWD_SERVICE,
-                                                    IWD_AGENT_MANAGER_PATH),
-                               IWD_AGENT_MANAGER_INTERFACE)
-        return self._agent_manager_if
 
     @staticmethod
     def _wait_for_object_condition(obj, condition_str, max_wait = 50):
@@ -1197,11 +1198,16 @@ class IWD(AsyncOpAbstract):
         os.system('rm -rf ' + storage_dir + '/ap/*')
 
     @staticmethod
-    def create_in_storage(file_name, file_content):
-        fo = open(IWD_STORAGE_DIR + '/' + file_name, 'w')
+    def create_in_storage(file_name, file_content, storage_dir=IWD_STORAGE_DIR):
+        fo = open(storage_dir + '/' + file_name, 'w')
 
         fo.write(file_content)
         fo.close()
+
+    @staticmethod
+    def _ensure_storage_dir_exists(storage_dir):
+        if not os.path.exists(storage_dir):
+            os.mkdir(storage_dir)
 
     @staticmethod
     def copy_to_storage(source, storage_dir=IWD_STORAGE_DIR, name=None):
@@ -1209,28 +1215,32 @@ class IWD(AsyncOpAbstract):
 
         assert not os.path.isabs(source)
 
+        target = storage_dir
         if name:
-            storage_dir += '/%s' % name
+            target += '/%s' % name
 
-        shutil.copy(source, storage_dir)
-
-    @staticmethod
-    def copy_to_hotspot(source):
-        if not os.path.exists(IWD_STORAGE_DIR + "/hotspot"):
-            os.mkdir(IWD_STORAGE_DIR + "/hotspot")
-
-        IWD.copy_to_storage(source, IWD_STORAGE_DIR + "/hotspot")
+        IWD._ensure_storage_dir_exists(storage_dir)
+        shutil.copy(source, target)
 
     @staticmethod
-    def copy_to_ap(source):
-        if not os.path.exists(IWD_STORAGE_DIR + "/ap"):
-            os.mkdir(IWD_STORAGE_DIR + "/ap")
+    def copy_to_hotspot(source, storage_dir=IWD_STORAGE_DIR):
+        IWD._ensure_storage_dir_exists(storage_dir)
 
-        IWD.copy_to_storage(source, IWD_STORAGE_DIR + '/ap/')
+        if not os.path.exists(storage_dir + "/hotspot"):
+            os.mkdir(storage_dir + "/hotspot")
+
+        IWD.copy_to_storage(source, storage_dir + "/hotspot")
 
     @staticmethod
-    def remove_from_storage(file_name):
-        os.system('rm -rf ' + IWD_STORAGE_DIR + '/\'' + file_name + '\'')
+    def copy_to_ap(source, storage_dir=IWD_STORAGE_DIR):
+        if not os.path.exists(storage_dir + "/ap"):
+            os.mkdir(storage_dir + "/ap")
+
+        IWD.copy_to_storage(source, storage_dir + '/ap/')
+
+    @staticmethod
+    def remove_from_storage(file_name, storage_dir=IWD_STORAGE_DIR):
+        os.system('rm -rf ' + storage_dir + '/\'' + file_name + '\'')
 
     def list_devices(self, wait_to_appear = 0, max_wait = 50, p2p = False):
         if not wait_to_appear:
@@ -1258,22 +1268,27 @@ class IWD(AsyncOpAbstract):
         return known_network_list
 
     def register_psk_agent(self, psk_agent):
-        self._agent_manager.RegisterAgent(
-                                     psk_agent.path,
-                                     dbus_interface=IWD_AGENT_MANAGER_INTERFACE,
-                                     reply_handler=self._success,
-                                     error_handler=self._failure)
+        iface = dbus.Interface(psk_agent._bus.get_object(IWD_SERVICE,
+                                                IWD_AGENT_MANAGER_PATH),
+                                                IWD_AGENT_MANAGER_INTERFACE)
+        iface.RegisterAgent(psk_agent.path,
+                            dbus_interface=IWD_AGENT_MANAGER_INTERFACE,
+                            reply_handler=self._success,
+                            error_handler=self._failure)
+
         self._wait_for_async_op()
-        self.psk_agent = psk_agent
+        self.psk_agents.append(psk_agent)
 
     def unregister_psk_agent(self, psk_agent):
-        self._agent_manager.UnregisterAgent(
-                                     psk_agent.path,
-                                     dbus_interface=IWD_AGENT_MANAGER_INTERFACE,
-                                     reply_handler=self._success,
-                                     error_handler=self._failure)
+        iface = dbus.Interface(psk_agent._bus.get_object(IWD_SERVICE,
+                                                IWD_AGENT_MANAGER_PATH),
+                                                IWD_AGENT_MANAGER_INTERFACE)
+        iface.UnregisterAgent(psk_agent.path,
+                                dbus_interface=IWD_AGENT_MANAGER_INTERFACE,
+                                reply_handler=self._success,
+                                error_handler=self._failure)
         self._wait_for_async_op()
-        self.psk_agent = None
+        self.psk_agents.remove(psk_agent)
 
     @staticmethod
     def get_instance():

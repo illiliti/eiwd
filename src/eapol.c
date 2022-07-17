@@ -443,7 +443,8 @@ static void eapol_key_data_append(struct eapol_key *ek,
 	if (ek->error)		\
 		return false	\
 
-bool eapol_verify_ptk_1_of_4(const struct eapol_key *ek, size_t mic_len)
+bool eapol_verify_ptk_1_of_4(const struct eapol_key *ek, size_t mic_len,
+				bool ptk_complete)
 {
 	/* Verify according to 802.11, Section 11.6.6.2 */
 	VERIFY_PTK_COMMON(ek);
@@ -457,7 +458,7 @@ bool eapol_verify_ptk_1_of_4(const struct eapol_key *ek, size_t mic_len)
 	if (ek->key_mic)
 		return false;
 
-	if (ek->secure)
+	if (ek->secure != ptk_complete)
 		return false;
 
 	if (ek->encrypted_key_data)
@@ -475,7 +476,7 @@ bool eapol_verify_ptk_1_of_4(const struct eapol_key *ek, size_t mic_len)
 	return true;
 }
 
-bool eapol_verify_ptk_2_of_4(const struct eapol_key *ek)
+bool eapol_verify_ptk_2_of_4(const struct eapol_key *ek, bool ptk_complete)
 {
 	uint16_t key_len;
 
@@ -491,7 +492,7 @@ bool eapol_verify_ptk_2_of_4(const struct eapol_key *ek)
 	if (!ek->key_mic)
 		return false;
 
-	if (ek->secure)
+	if (ek->secure != ptk_complete)
 		return false;
 
 	if (ek->encrypted_key_data)
@@ -1151,7 +1152,8 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 
 	l_debug("ifindex=%u", sm->handshake->ifindex);
 
-	if (!eapol_verify_ptk_1_of_4(ek, sm->mic_len))
+	if (!eapol_verify_ptk_1_of_4(ek, sm->mic_len,
+					sm->handshake->ptk_complete))
 		return;
 
 	if (sm->handshake->ptk_complete && unencrypted) {
@@ -1523,7 +1525,7 @@ static void eapol_handle_ptk_2_of_4(struct eapol_sm *sm,
 
 	l_debug("ifindex=%u", sm->handshake->ifindex);
 
-	if (!eapol_verify_ptk_2_of_4(ek))
+	if (!eapol_verify_ptk_2_of_4(ek, sm->handshake->ptk_complete))
 		return;
 
 	if (L_BE64_TO_CPU(ek->key_replay_counter) != sm->replay_counter)

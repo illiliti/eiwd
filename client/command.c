@@ -509,16 +509,16 @@ static void list_commands(const char *command_family,
 
 static void list_cmd_options(void)
 {
-	display(MARGIN "--%-*s%s\n", 48, COMMAND_OPTION_USERNAME,
+	display(MARGIN "--%-*s  %s\n", 48, COMMAND_OPTION_USERNAME,
 					"Provide username");
-	display(MARGIN "--%-*s%s\n", 48, COMMAND_OPTION_PASSWORD,
+	display(MARGIN "--%-*s  %s\n", 48, COMMAND_OPTION_PASSWORD,
 					"Provide password");
-	display(MARGIN "--%-*s%s\n", 48, COMMAND_OPTION_PASSPHRASE,
+	display(MARGIN "--%-*s  %s\n", 48, COMMAND_OPTION_PASSPHRASE,
 					"Provide passphrase");
-	display(MARGIN "--%-*s%s\n", 48, COMMAND_OPTION_DONTASK,
+	display(MARGIN "--%-*s  %s\n", 48, COMMAND_OPTION_DONTASK,
 					"Don't ask for missing\n"
-					"\t\t\t\t\t\t    credentials");
-	display(MARGIN "--%-*s%s\n", 48, "help", "Display help");
+					"\t\t\t\t\t\t      credentials");
+	display(MARGIN "--%-*s  %s\n", 48, "help", "Display help");
 }
 
 static void list_cmd_families(void)
@@ -542,12 +542,12 @@ static void command_display_help(void)
 	display(MARGIN "iwctl [--options] [commands]\n");
 	display_table_footer();
 
-	display_table_header("Available options", MARGIN "%-*s%-*s",
+	display_table_header("Available options", MARGIN "%-*s  %-*s",
 					50, "Options", 28, "Description");
 	list_cmd_options();
 	display_table_footer();
 
-	display_table_header("Available commands", MARGIN "%-*s%-*s",
+	display_table_header("Available commands", MARGIN "%-*s  %-*s",
 					50, "Commands", 28, "Description");
 	list_cmd_families();
 	display_table_footer();

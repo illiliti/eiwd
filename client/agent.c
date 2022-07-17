@@ -301,8 +301,8 @@ static struct l_dbus_message *request_user_password_method_call(
 	display("Type the network password for %s.\n",
 				proxy_interface_get_identity_str(proxy));
 
-	username_prompt = l_strdup_printf(COLOR_BLUE PROMPT_USERNAME " "
-						COLOR_OFF "%s\n", username);
+	username_prompt = l_strdup_printf(COLOR_BLUE(PROMPT_USERNAME " ")
+						"%s\n", username);
 	display("%s", username_prompt);
 	l_free(username_prompt);
 

@@ -65,8 +65,9 @@ uint8_t *eapol_decrypt_key_data(enum ie_rsn_akm_suite akm, const uint8_t *kek,
 				const struct eapol_key *frame,
 				size_t *decrypted_size, size_t mic_len);
 
-bool eapol_verify_ptk_1_of_4(const struct eapol_key *ek, size_t mic_len);
-bool eapol_verify_ptk_2_of_4(const struct eapol_key *ek);
+bool eapol_verify_ptk_1_of_4(const struct eapol_key *ek, size_t mic_len,
+				bool ptk_complete);
+bool eapol_verify_ptk_2_of_4(const struct eapol_key *ek, bool ptk_complete);
 bool eapol_verify_ptk_3_of_4(const struct eapol_key *ek, bool is_wpa,
 				size_t mic_len);
 bool eapol_verify_ptk_4_of_4(const struct eapol_key *ek, bool is_wpa);

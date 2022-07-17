@@ -49,7 +49,8 @@ static struct l_queue *proxy_interface_types;
 
 void proxy_properties_display(const struct proxy_interface *proxy,
 				const char *caption, const char *margin,
-				int name_column_width, int value_column_width)
+				unsigned int name_column_width,
+				unsigned int value_column_width)
 {
 	const void *data;
 	const struct proxy_interface_property *properties;
@@ -58,7 +59,7 @@ void proxy_properties_display(const struct proxy_interface *proxy,
 	if (!proxy->type->properties)
 		return;
 
-	display_table_header(caption, "%s%-*s  %-*s%-*s", margin,
+	display_table_header(caption, "%s%-*s  %-*s  %-*s", margin,
 				8, "Settable",
 				name_column_width, "Property",
 				value_column_width, "Value");
@@ -67,14 +68,17 @@ void proxy_properties_display(const struct proxy_interface *proxy,
 	properties = proxy->type->properties;
 
 	for (i = 0; properties[i].name; i++) {
+		const char *str;
+
 		if (!properties[i].tostr)
 			continue;
 
-		display("%s%*s  %-*s%-.*s\n", margin,
-			8, properties[i].is_read_write ?
-				COLOR_BOLDGRAY "       *" COLOR_OFF : "",
-			name_column_width, properties[i].name,
-			value_column_width, properties[i].tostr(data) ? : "");
+		str = properties[i].tostr(data);
+
+		display_table_row(MARGIN, 3, 8, properties[i].is_read_write ?
+				COLOR_BOLDGRAY("       *") : "",
+				name_column_width, properties[i].name,
+				value_column_width, str ? : "");
 	}
 }
 
@@ -106,6 +110,9 @@ static void proxy_interface_property_update(struct proxy_interface *proxy,
 	size_t i;
 	const struct proxy_interface_property *property_table =
 							proxy->type->properties;
+
+	if (!property_table)
+		return;
 
 	for (i = 0; property_table[i].name; i++) {
 		if (strcmp(property_table[i].name, name))

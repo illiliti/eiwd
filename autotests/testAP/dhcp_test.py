@@ -10,6 +10,8 @@ from iwd import NetworkType
 from config import ctx
 import testutil
 
+from validation import validate
+
 class Test(unittest.TestCase):
     def test_connection_success(self):
         wd = IWD(True, '/tmp/dhcp')
@@ -25,59 +27,36 @@ class Test(unittest.TestCase):
         with self.assertRaises(iwd.AlreadyExistsEx):
             dev4.start_ap('TestAP4', 'Password4')
 
+        validate(wd, dev2, dev1, 'TestAP2', 'Password2', ip_checks=False)
+
+        network = dev2.get_ordered_network('TestAP2', full_scan=True)
+
         try:
-            networks = {}
-            networks['TestAP2'] = dev2.get_ordered_network('TestAP2', full_scan=True)
+            testutil.test_ip_address_match(dev1.name, "192.168.80.1")
+            testutil.test_ip_address_match(dev2.name, "192.168.80.2")
+            ip = "192.168.80.1"
+        except:
+            testutil.test_ip_address_match(dev1.name, "192.168.80.17")
+            testutil.test_ip_address_match(dev2.name, "192.168.80.18")
+            ip = "192.168.80.17"
 
-            self.assertEqual(networks['TestAP2'].type, NetworkType.psk)
+        dev2.disconnect()
 
-            psk_agent = PSKAgent('Password2')
-            wd.register_psk_agent(psk_agent)
+        condition = 'not obj.connected'
+        wd.wait_for_object_condition(network.network_object, condition)
 
-            try:
-                dev2.disconnect()
+        # This should release the IP */
+        dev1.stop_ap()
 
-                condition = 'not obj.connected'
-                wd.wait_for_object_condition(dev2, condition)
-            except:
-                pass
+        # This should now succeed and the IP should match the old IP dev1
+        # got initially.
+        dev4.start_ap('TestAP4', 'Password4')
 
-            networks['TestAP2'].network_object.connect()
+        testutil.test_ip_address_match(dev4.name, ip)
 
-            condition = 'obj.state == DeviceState.connected'
-            wd.wait_for_object_condition(dev2, condition)
-
-            testutil.test_iface_operstate(dev2.name)
-            testutil.test_ifaces_connected(dev1.name, dev2.name, group=False)
-
-            try:
-                testutil.test_ip_address_match(dev1.name, "192.168.80.1")
-                testutil.test_ip_address_match(dev2.name, "192.168.80.2")
-                ip = "192.168.80.1"
-            except:
-                testutil.test_ip_address_match(dev1.name, "192.168.80.17")
-                testutil.test_ip_address_match(dev2.name, "192.168.80.18")
-                ip = "192.168.80.17"
-
-            wd.unregister_psk_agent(psk_agent)
-
-            dev2.disconnect()
-
-            condition = 'not obj.connected'
-            wd.wait_for_object_condition(networks['TestAP2'].network_object,
-                                         condition)
-
-            # This should release the IP */
-            dev1.stop_ap()
-
-            # This should now succeed and the IP should match the old IP dev1
-            # got initially.
-            dev4.start_ap('TestAP4', 'Password4')
-
-            testutil.test_ip_address_match(dev4.name, ip)
-
-        finally:
-            dev1.stop_ap()
+        dev1.stop_ap()
+        dev3.stop_ap()
+        dev4.stop_ap()
 
     @classmethod
     def setUpClass(cls):
