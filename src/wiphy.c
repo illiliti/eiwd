@@ -811,7 +811,7 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 	ie_tlv_iter_init(&iter, ies, ies_len);
 
 	while (ie_tlv_iter_next(&iter)) {
-		uint8_t tag = ie_tlv_iter_get_tag(&iter);
+		uint16_t tag = ie_tlv_iter_get_tag(&iter);
 
 		switch (tag) {
 		case IE_TYPE_SUPPORTED_RATES:
