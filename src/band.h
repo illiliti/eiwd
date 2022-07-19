@@ -49,8 +49,16 @@ struct band_chandef {
 	uint32_t center2_frequency;
 };
 
+struct band_he_capabilities {
+	uint32_t iftypes;
+	uint8_t he_phy_capa[11];
+	uint8_t he_mcs_set[12];
+};
+
 struct band {
 	enum band_freq freq;
+	/* Each entry is type struct band_he_capabilities */
+	struct l_queue *he_capabilities;
 	uint8_t vht_mcs_set[8];
 	uint8_t vht_capabilities[4];
 	bool vht_supported : 1;

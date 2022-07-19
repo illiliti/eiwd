@@ -32,6 +32,9 @@
 
 void band_free(struct band *band)
 {
+	if (band->he_capabilities)
+		l_queue_destroy(band->he_capabilities, l_free);
+
 	l_free(band);
 }
 
