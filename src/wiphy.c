@@ -936,6 +936,74 @@ static void wiphy_print_mcs_info(const uint8_t *mcs_map,
 	}
 }
 
+static void wiphy_print_he_capabilities(struct band *band,
+				const struct band_he_capabilities *he_cap)
+{
+	int i;
+	char type_buf[128];
+	char *s = type_buf;
+	uint8_t width_set = bit_field(he_cap->he_phy_capa[0], 1, 7);
+
+	for (i = 0; i < 32; i++) {
+		if (!(he_cap->iftypes & (1 << i)))
+			continue;
+
+		if (L_WARN_ON(s >= type_buf + sizeof(type_buf)))
+			return;
+
+		switch (i) {
+		case NETDEV_IFTYPE_ADHOC:
+			s += sprintf(s, "%s ", "Ad-Hoc");
+			break;
+		case NETDEV_IFTYPE_STATION:
+			s += sprintf(s, "%s ", "Station");
+			break;
+		case NETDEV_IFTYPE_AP:
+			s += sprintf(s, "%s ", "AP");
+			break;
+		case NETDEV_IFTYPE_P2P_CLIENT:
+			s += sprintf(s, "%s ", "P2P Client");
+			break;
+		case NETDEV_IFTYPE_P2P_GO:
+			s += sprintf(s, "%s ", "P2P GO");
+			break;
+		}
+	}
+
+	l_info("\t\t\tInterface Types: %s", type_buf);
+
+	switch (band->freq) {
+	case BAND_FREQ_2_4_GHZ:
+		wiphy_print_mcs_info(he_cap->he_mcs_set,
+					"HE RX <= 80MHz", 7, 9, 11);
+		wiphy_print_mcs_info(he_cap->he_mcs_set + 2,
+					"HE TX <= 80MHz", 7, 9, 11);
+		break;
+	case BAND_FREQ_5_GHZ:
+	case BAND_FREQ_6_GHZ:
+		wiphy_print_mcs_info(he_cap->he_mcs_set,
+					"HE RX <= 80MHz", 7, 9, 11);
+		wiphy_print_mcs_info(he_cap->he_mcs_set + 2,
+					"HE TX <= 80MHz", 7, 9, 11);
+
+		if (test_bit(&width_set, 2)) {
+			wiphy_print_mcs_info(he_cap->he_mcs_set + 4,
+					"HE RX <= 160MHz", 7, 9, 11);
+			wiphy_print_mcs_info(he_cap->he_mcs_set + 6,
+					"HE TX <= 160MHz", 7, 9, 11);
+		}
+
+		if (test_bit(&width_set, 3)) {
+			wiphy_print_mcs_info(he_cap->he_mcs_set + 8,
+					"HE RX <= 80+80MHz", 7, 9, 11);
+			wiphy_print_mcs_info(he_cap->he_mcs_set + 10,
+					"HE TX <= 80+80MHz", 7, 9, 11);
+		}
+
+		break;
+	}
+}
+
 static void wiphy_print_band_info(struct band *band, const char *name)
 {
 	int i;
@@ -994,6 +1062,20 @@ static void wiphy_print_band_info(struct band *band, const char *name)
 
 		wiphy_print_mcs_info(band->vht_mcs_set, "RX", 7, 8, 9);
 		wiphy_print_mcs_info(band->vht_mcs_set + 4, "TX", 7, 8, 9);
+	}
+
+	if (band->he_capabilities) {
+		const struct l_queue_entry *entry;
+
+		l_info("\t\tHE Capabilities");
+
+		for (entry = l_queue_get_entries(band->he_capabilities);
+						entry; entry = entry->next) {
+			const struct band_he_capabilities *he_cap = entry->data;
+
+			wiphy_print_he_capabilities(band, he_cap);
+		}
+
 	}
 }
 
@@ -1208,6 +1290,90 @@ static struct band *band_new_from_message(struct l_genl_attr *band)
 	return ret;
 }
 
+static uint32_t get_iftypes(struct l_genl_attr *iftypes)
+{
+	uint16_t type;
+	uint16_t len;
+	uint32_t types = 0;
+
+	while (l_genl_attr_next(iftypes, &type, &len, NULL)) {
+		if (len != 0)
+			continue;
+
+		types |= (1 << type);
+	}
+
+	return types;
+}
+
+static void parse_iftype_attrs(struct band *band, struct l_genl_attr *types)
+{
+	uint16_t type;
+	uint16_t len;
+	const void *data;
+	unsigned int count = 0;
+	struct band_he_capabilities *he_cap =
+					l_new(struct band_he_capabilities, 1);
+
+	while (l_genl_attr_next(types, &type, &len, &data)) {
+		struct l_genl_attr iftypes;
+
+		switch (type) {
+		case NL80211_BAND_IFTYPE_ATTR_IFTYPES:
+			if (!l_genl_attr_recurse(types, &iftypes))
+				goto parse_error;
+
+			he_cap->iftypes = get_iftypes(&iftypes);
+			break;
+		case NL80211_BAND_IFTYPE_ATTR_HE_CAP_PHY:
+			if (len > sizeof(he_cap->he_phy_capa))
+				continue;
+
+			memcpy(he_cap->he_phy_capa, data, len);
+			count++;
+			break;
+		case NL80211_BAND_IFTYPE_ATTR_HE_CAP_MCS_SET:
+			if (len > sizeof(he_cap->he_mcs_set))
+				continue;
+
+			memcpy(he_cap->he_mcs_set, data, len);
+			count++;
+			break;
+		default:
+			break;
+		}
+	}
+
+	/*
+	 * Since the capabilities element indicates what values are present in
+	 * the MCS set ensure both values are parsed
+	 */
+	if (count != 2 || !he_cap->iftypes)
+		goto parse_error;
+
+	if (!band->he_capabilities)
+		band->he_capabilities = l_queue_new();
+
+	l_queue_push_head(band->he_capabilities, he_cap);
+
+	return;
+
+parse_error:
+	l_free(he_cap);
+}
+
+static void parse_band_iftype_data(struct band *band, struct l_genl_attr *ifdata)
+{
+	while (l_genl_attr_next(ifdata, NULL, NULL, NULL)) {
+		struct l_genl_attr types;
+
+		if (!l_genl_attr_recurse(ifdata, &types))
+			continue;
+
+		parse_iftype_attrs(band, &types);
+	}
+}
+
 static void parse_supported_bands(struct wiphy *wiphy,
 						struct l_genl_attr *bands)
 {
@@ -1256,15 +1422,17 @@ static void parse_supported_bands(struct wiphy *wiphy,
 		} else
 			band = *bandp;
 
+
+
 		while (l_genl_attr_next(&attr, &type, &len, &data)) {
-			struct l_genl_attr freqs;
+			struct l_genl_attr nested;
 
 			switch (type) {
 			case NL80211_BAND_ATTR_FREQS:
-				if (!l_genl_attr_recurse(&attr, &freqs))
+				if (!l_genl_attr_recurse(&attr, &nested))
 					continue;
 
-				parse_supported_frequencies(wiphy, &freqs);
+				parse_supported_frequencies(wiphy, &nested);
 				break;
 
 			case NL80211_BAND_ATTR_RATES:
@@ -1303,6 +1471,12 @@ static void parse_supported_bands(struct wiphy *wiphy,
 
 				memcpy(band->ht_capabilities, data, len);
 				band->ht_supported = true;
+				break;
+			case NL80211_BAND_ATTR_IFTYPE_DATA:
+				if (!l_genl_attr_recurse(&attr, &nested))
+					continue;
+
+				parse_band_iftype_data(band, &nested);
 				break;
 			}
 		}
