@@ -52,6 +52,8 @@ static struct band *new_band()
 	/* band + 8 basic rates */
 	struct band *band = l_malloc(sizeof(struct band) + 8);
 
+	memset(band, 0, sizeof(struct band) + 8);
+
 	band->supported_rates_len = 8;
 	band->supported_rates[0] = 12;
 	band->supported_rates[1] = 18;
