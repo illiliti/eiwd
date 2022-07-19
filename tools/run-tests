@@ -1037,7 +1037,12 @@ atexit.register(exit_vm)
 runner.prepare_environment()
 
 if runner.args.start:
-	os.system(runner.args.start)
+	ctx = TestContext(runner.args)
+	ctx.start_dbus()
+	os.chdir(runner.args.testhome)
+	os.environ['DBUS_SYSTEM_BUS_ADDRESS'] = ctx.dbus_address
+
+	subprocess.run([runner.args.start])
 else:
 	run_tests(runner.args)
 
