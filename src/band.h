@@ -50,6 +50,7 @@ struct band_chandef {
 };
 
 struct band {
+	enum band_freq freq;
 	uint8_t vht_mcs_set[8];
 	uint8_t vht_capabilities[4];
 	bool vht_supported : 1;
