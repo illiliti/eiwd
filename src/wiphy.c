@@ -903,19 +903,35 @@ static void wiphy_print_mcs_indexes(const uint8_t *mcs)
 	}
 }
 
-static void wiphy_print_vht_mcs_info(const uint8_t *mcs_map,
-						const char *prefix)
+static void wiphy_print_mcs_info(const uint8_t *mcs_map,
+						const char *prefix,
+						uint8_t value0,
+						uint8_t value1,
+						uint8_t value2)
 {
 	int i;
 
 	for (i = 14; i >= 0; i -= 2) {
+		uint8_t value;
 		int mcs = bit_field(mcs_map[i / 8], i % 8, 2);
 
 		if (mcs == 0x3)
 			continue;
 
+		switch (mcs) {
+		case 0:
+			value = value0;
+			break;
+		case 1:
+			value = value1;
+			break;
+		case 2:
+			value = value2;
+			break;
+		}
+
 		l_info("\t\t\tMax %s MCS: 0-%d for NSS: %d", prefix,
-			mcs + 7, i / 2 + 1);
+			value, i / 2 + 1);
 		return;
 	}
 }
@@ -976,8 +992,8 @@ static void wiphy_print_band_info(struct band *band, const char *name)
 		if (test_bit(band->vht_capabilities, 6))
 			l_info("\t\t\tShort GI for 160 and 80 + 80 Mhz");
 
-		wiphy_print_vht_mcs_info(band->vht_mcs_set, "RX");
-		wiphy_print_vht_mcs_info(band->vht_mcs_set + 4, "TX");
+		wiphy_print_mcs_info(band->vht_mcs_set, "RX", 7, 8, 9);
+		wiphy_print_mcs_info(band->vht_mcs_set + 4, "TX", 7, 8, 9);
 	}
 }
 
