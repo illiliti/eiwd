@@ -1285,7 +1285,15 @@ static struct band *band_new_from_message(struct l_genl_attr *band)
 	toalloc = sizeof(struct band) + count * sizeof(uint8_t);
 	ret = l_malloc(toalloc);
 	memset(ret, 0, toalloc);
+
+#if __GNUC__ == 11 && __GNUC_MINOR__ == 2
+_Pragma("GCC diagnostic push")
+_Pragma("GCC diagnostic ignored \"-Warray-bounds\"")
+#endif
 	memset(ret->vht_mcs_set, 0xff, sizeof(ret->vht_mcs_set));
+#if __GNUC__ == 11 && __GNUC_MINOR__ == 2
+_Pragma("GCC diagnostic pop")
+#endif
 
 	return ret;
 }
