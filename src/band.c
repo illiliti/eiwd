@@ -334,6 +334,56 @@ static bool find_best_mcs_vht(uint8_t max_index, enum ofdm_channel_width width,
 	return false;
 }
 
+static bool find_best_mcs_nss(const uint8_t *rx_map, const uint8_t *tx_map,
+				uint8_t value0, uint8_t value1, uint8_t value2,
+				uint32_t *mcs_out, uint32_t *nss_out)
+{
+	uint32_t nss = 0;
+	uint32_t max_mcs = 0;
+	int bitoffset;
+
+	for (bitoffset = 14; bitoffset >= 0; bitoffset -= 2) {
+		uint8_t rx_val = bit_field(rx_map[bitoffset / 8],
+							bitoffset % 8, 2);
+		uint8_t tx_val = bit_field(tx_map[bitoffset / 8],
+							bitoffset % 8, 2);
+
+		/*
+		 * 0 indicates support for MCS 0 - value0
+		 * 1 indicates support for MCS 0 - value1
+		 * 2 indicates support for MCS 0 - value2
+		 * 3 indicates no support
+		 */
+
+		if (rx_val == 3 || tx_val == 3)
+			continue;
+
+		/* rx_val/tx_val tells us which value# to use */
+		max_mcs = minsize(rx_val, tx_val);
+		switch (max_mcs) {
+		case 0:
+			max_mcs = value0;
+			break;
+		case 1:
+			max_mcs = value1;
+			break;
+		case 2:
+			max_mcs = value2;
+			break;
+		}
+
+		nss = bitoffset / 2 + 1;
+		break;
+	}
+
+	if (!nss)
+		return false;
+
+	*nss_out = nss;
+	*mcs_out = max_mcs;
+
+	return true;
+}
 /*
  * IEEE 802.11 - Table 9-250
  *
@@ -355,7 +405,6 @@ int band_estimate_vht_rx_rate(const struct band *band,
 	uint32_t max_mcs = 7; /* MCS 0-7 for NSS:1 is always supported */
 	const uint8_t *rx_mcs_map;
 	const uint8_t *tx_mcs_map;
-	int bitoffset;
 	uint8_t chan_width;
 	uint8_t channel_offset;
 	bool sgi;
@@ -378,29 +427,7 @@ int band_estimate_vht_rx_rate(const struct band *band,
 	rx_mcs_map = band->vht_mcs_set;
 	tx_mcs_map = vhtc + 2 + 8;
 
-	for (bitoffset = 14; bitoffset >= 0; bitoffset -= 2) {
-		uint8_t rx_val = bit_field(rx_mcs_map[bitoffset / 8],
-							bitoffset % 8, 2);
-		uint8_t tx_val = bit_field(tx_mcs_map[bitoffset / 8],
-							bitoffset % 8, 2);
-
-		/*
-		 * 0 indicates support for MCS 0-7
-		 * 1 indicates support for MCS 0-8
-		 * 2 indicates support for MCS 0-9
-		 * 3 indicates no support
-		 */
-
-		if (rx_val == 3 || tx_val == 3)
-			continue;
-
-		/* 7 + rx_val/tx_val gives us the maximum mcs index */
-		max_mcs = minsize(rx_val, tx_val) + 7;
-		nss = bitoffset / 2 + 1;
-		break;
-	}
-
-	if (!nss)
+	if (!find_best_mcs_nss(rx_mcs_map, tx_mcs_map, 7, 8, 9, &max_mcs, &nss))
 		return -EBADMSG;
 
 	/*
