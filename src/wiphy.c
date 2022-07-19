@@ -1203,16 +1203,20 @@ static void parse_supported_bands(struct wiphy *wiphy,
 	while (l_genl_attr_next(bands, &type, NULL, NULL)) {
 		struct band **bandp;
 		struct band *band;
+		enum band_freq freq;
 
 		switch (type) {
 		case NL80211_BAND_2GHZ:
 			bandp = &wiphy->band_2g;
+			freq = BAND_FREQ_2_4_GHZ;
 			break;
 		case NL80211_BAND_5GHZ:
 			bandp = &wiphy->band_5g;
+			freq = BAND_FREQ_5_GHZ;
 			break;
 		case NL80211_BAND_6GHZ:
 			bandp = &wiphy->band_6g;
+			freq = BAND_FREQ_6_GHZ;
 			break;
 		default:
 			continue;
@@ -1225,6 +1229,8 @@ static void parse_supported_bands(struct wiphy *wiphy,
 			band = band_new_from_message(&attr);
 			if (!band)
 				continue;
+
+			band->freq = freq;
 
 			/* Reset iter to beginning */
 			if (!l_genl_attr_recurse(bands, &attr)) {
