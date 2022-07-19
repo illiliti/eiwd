@@ -246,6 +246,10 @@ class Process(subprocess.Popen):
 
 	# Override wait() so it can do so non-blocking
 	def wait(self, timeout=10):
+		if timeout == None:
+			super().wait()
+			return
+
 		Namespace.non_block_wait(self.__wait, timeout, 1)
 		self._cleanup()
 
