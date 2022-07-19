@@ -1580,17 +1580,17 @@ static void scan_bss_compute_rank(struct scan_bss *bss)
 	double rank;
 	uint32_t irank;
 	/*
-	 * Maximum rate is 2340Mbps (VHT)
+	 * Maximum rate is 9607.8Mbps (HE)
 	 */
-	double max_rate = 2340000000;
+	double max_rate = 9607800000;
 
 	rank = (double)bss->data_rate / max_rate * USHRT_MAX;
 
-	/* Prefer 5G networks over 2.4G */
+	/* Prefer 5G/6G networks over 2.4G */
 	if (bss->frequency > 4000)
 		rank *= RANK_5G_FACTOR;
 
-	/* Rank loaded APs lower and lighly loaded APs higher */
+	/* Rank loaded APs lower and lightly loaded APs higher */
 	if (bss->utilization >= 192)
 		rank *= RANK_HIGH_UTILIZATION_FACTOR;
 	else if (bss->utilization <= 63)
