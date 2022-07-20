@@ -682,3 +682,5 @@ int ie_parse_owe_transition(const void *data, size_t len,
 				struct ie_owe_transition_info *info);
 
 int ie_parse_oci(const void *data, size_t len, const uint8_t **oci);
+
+bool ie_validate_he_capabilities(const void *data, size_t len);

@@ -2577,3 +2577,51 @@ int ie_parse_oci(const void *data, size_t len, const uint8_t **oci)
 
 	return 0;
 }
+
+/*
+ * Checks the supported width set (Table 9-322b) meets the following
+ * requirements:
+ *  - B0 and bits B1/B2/B3 are mutually exclusive.
+ *  - B2 is only set if B1 is set
+ *  - B3 is only set if B2 is set (and in turn, B1 is set)
+ *  - The IE length supports B2 and B3 MCS sets
+ */
+bool ie_validate_he_capabilities(const void *data, size_t len)
+{
+	uint8_t width_set;
+	const uint8_t *ptr = data;
+	bool freq_2_4;
+	bool width_40_80;
+	bool width_160;
+	bool width_80p80;
+
+	if (len < 22)
+		return false;
+
+	width_set = bit_field((ptr + 7)[0], 1, 7);
+
+	/* B0 indicates support for 40MHz, but only in 2.4GHz band */
+	freq_2_4 = test_bit(&width_set, 0);
+
+	/* B1 indicates support for 40/80MHz */
+	width_40_80 = test_bit(&width_set, 1);
+
+	if (width_40_80 && freq_2_4)
+		return false;
+
+	/* B2 indicates support for 160MHz MCS table */
+	width_160 = test_bit(&width_set, 2);
+
+	/* Ensure B1 is set, not B0, and the length includes this MCS table */
+	if (width_160 && (!width_40_80 || freq_2_4 || len < 26))
+		return false;
+
+	/* B3 indicates support for 80+80Mhz MCS table */
+	width_80p80 = test_bit(&width_set, 3);
+
+	/* Ensure B2 is set, not B0, and the length includes this MCS table */
+	if (width_80p80 && (!width_160 || freq_2_4 || len < 30))
+		return false;
+
+	return true;
+}
