@@ -466,7 +466,8 @@ unit_test_kdf_sha256_LDADD = $(ell_ldadd)
 unit_test_ie_SOURCES = unit/test-ie.c src/ie.h src/ie.c
 unit_test_ie_LDADD = $(ell_ldadd)
 
-unit_test_band_SOURCES = unit/test-band.c src/band.h src/band.c
+unit_test_band_SOURCES = unit/test-band.c src/band.h src/band.c src/netdev.h \
+					src/ie.h src/ie.c
 unit_test_band_LDADD = $(ell_ldadd)
 
 unit_test_crypto_SOURCES = unit/test-crypto.c \
