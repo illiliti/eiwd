@@ -28,7 +28,8 @@
 
 #include "ell/useful.h"
 
-#include "band.h"
+#include "src/band.h"
+#include "src/netdev.h"
 
 void band_free(struct band *band)
 {
@@ -125,14 +126,21 @@ int band_estimate_nonht_rate(const struct band *band,
 }
 
 /*
- * Base RSSI values for 20MHz (both HT and VHT) channel. These values can be
+ * Base RSSI values for 20MHz (HT, VHT and HE) channel. These values can be
  * used to calculate the minimum RSSI values for all other channel widths. HT
- * MCS indexes are grouped into ranges of 8 (per spatial stream) where VHT are
- * grouped in chunks of 10. This just means HT will not use the last two
- * index's of this array.
+ * MCS indexes are grouped into ranges of 8 (per spatial stream), VHT in groups
+ * of 10 and HE in groups of 12. This just means HT will not use the last four
+ * index's of this array, and VHT won't use the last two.
+ *
+ * Note: The values here are not based on anything from 802.11 but data
+ *       found elsewhere online (presumably from testing, we hope). The two
+ *       indexes for HE (MCS 11/12) are not based on any data, but just
+ *       increased by 3dB compared to the previous value. We consider this good
+ *       enough for its purpose to estimate the date rate for network/BSS
+ *       preference.
  */
-static const int32_t ht_vht_base_rssi[] = {
-	-82, -79, -77, -74, -70, -66, -65, -64, -59, -57
+static const int32_t ht_vht_he_base_rssi[] = {
+	-82, -79, -77, -74, -70, -66, -65, -64, -59, -57, -54, -51
 };
 
 /*
@@ -194,7 +202,7 @@ bool band_ofdm_rate(uint8_t index, enum ofdm_channel_width width,
 	uint64_t rate;
 	int32_t width_adjust = width * 3;
 
-	if (rssi < ht_vht_base_rssi[index] + width_adjust)
+	if (rssi < ht_vht_he_base_rssi[index] + width_adjust)
 		return false;
 
 	rate = ht_vht_rates[width][index];
@@ -493,6 +501,186 @@ try_vht80:
 		return 0;
 
 	return -ENETUNREACH;
+}
+
+/*
+ * Data Rate for HE is much the same as HT/VHT but some additional MCS indexes
+ * were added. This mean rfactors, and nbpscs will contain two additional
+ * values:
+ *
+ * rfactors.extend([3/4, 5/6])
+ * nbpscs.extend([10, 10])
+ *
+ * The guard interval also differs:
+ *
+ * Tdft = 12.8us
+ * Tgi = 0.8, 1.6 or 2.3us
+ *
+ * The Nsd values for HE are:
+ *
+ * Nsd = [234, 468, 980, 1960]
+ *
+ * The formula is identical to HT/VHT:
+ *
+ * Nsd * Nbpscs * R * Nss / (Tdft + Tgi)
+ *
+ * Note: The table below assumes a 0.8us GI. There isn't any way to know what
+ *       GI will be used for an actual connection, so assume the best.
+ */
+static uint64_t he_rates[4][12] = {
+	[OFDM_CHANNEL_WIDTH_20MHZ] = {
+		8600000ULL, 17200000ULL, 25800000ULL, 34400000ULL,
+		51600000ULL, 68800000ULL, 77400000ULL, 86000000ULL,
+		103200000ULL, 114700000ULL, 129000000ULL, 143300000ULL,
+	},
+	[OFDM_CHANNEL_WIDTH_40MHZ] = {
+		17200000ULL, 34400000ULL, 51600000ULL, 68800000ULL,
+		103200000ULL, 137600000ULL, 154900000ULL, 172000000ULL,
+		206500000ULL, 229400000ULL, 258000000ULL, 286800000ULL,
+	},
+	[OFDM_CHANNEL_WIDTH_80MHZ] = {
+		36000000ULL, 72000000ULL, 108000000ULL, 144100000ULL,
+		216200000ULL, 288200000ULL, 324300000ULL, 360300000ULL,
+		432400000ULL, 480400000ULL, 540400000ULL, 600500000ULL,
+	},
+	[OFDM_CHANNEL_WIDTH_160MHZ] = {
+		72000000ULL, 144100000ULL, 216200000ULL, 288200000ULL,
+		432400000ULL, 576500000ULL, 648500000ULL, 720600000ULL,
+		864700000ULL, 960800000ULL, 1080900000ULL, 1201000000ULL,
+	},
+};
+
+static bool band_he_rate(uint8_t index, enum ofdm_channel_width width,
+			int32_t rssi, uint8_t nss, uint64_t *data_rate)
+{
+	uint64_t rate;
+	int32_t width_adjust;
+
+	width_adjust = width * 3;
+
+	if (rssi < ht_vht_he_base_rssi[index] + width_adjust)
+		return false;
+
+	rate = he_rates[width][index];
+
+	rate *= nss;
+
+	*data_rate = rate;
+	return true;
+}
+
+static bool find_rate_he(const uint8_t *rx_map, const uint8_t *tx_map,
+				enum ofdm_channel_width width, int32_t rssi,
+				uint64_t *out_data_rate)
+{
+	uint32_t nss;
+	uint32_t max_mcs;
+	int i;
+
+	if (!find_best_mcs_nss(rx_map, tx_map, 7, 9, 11,
+				&max_mcs, &nss))
+		return false;
+
+	for (i = max_mcs; i >= 0; i--)
+		if (band_he_rate(i, width, rssi, nss, out_data_rate))
+			return true;
+
+	return false;
+}
+
+/*
+ * HE data rate is calculated based on 802.11ax - Section 27.5
+ */
+int band_estimate_he_rx_rate(const struct band *band, const uint8_t *hec,
+				int32_t rssi, uint64_t *out_data_rate)
+{
+	enum ofdm_channel_width width = OFDM_CHANNEL_WIDTH_20MHZ;
+	int i;
+	const struct band_he_capabilities *he_cap = NULL;
+	const struct l_queue_entry *entry;
+	const uint8_t *rx_map;
+	const uint8_t *tx_map;
+	uint64_t rate = 0;
+	uint64_t new_rate = 0;
+	uint8_t width_set;
+
+	if (!hec || !band->he_capabilities)
+		return -EBADMSG;
+
+	for (entry = l_queue_get_entries(band->he_capabilities);
+						entry; entry = entry->next) {
+		const struct band_he_capabilities *cap = entry->data;
+
+		/*
+		 * TODO: Station type is assumed here since it is the only
+		 *       consumer of these data rate estimation APIs. If this
+		 *       changes the iftype would need to be passed in.
+		 */
+		if (cap->iftypes & (1 << NETDEV_IFTYPE_STATION)) {
+			he_cap = cap;
+			break;
+		}
+	}
+
+	if (!he_cap)
+		return -ENOTSUP;
+
+	/* AND the width sets, giving the widths supported by both */
+	width_set = bit_field(he_cap->he_phy_capa[0], 1, 7) &
+				bit_field((hec + 6)[0], 1, 7);
+
+	/*
+	 * The HE-MCS maps are 17 bytes into the HE Capabilities IE, and
+	 * alternate RX/TX every 2 bytes. Start the TX map 17 + 2 bytes
+	 * into the MCS set. For each MCS set find the best data rate.
+	 */
+	rx_map = he_cap->he_mcs_set;
+	tx_map = hec + 19;
+
+	/*
+	 * 802.11ax Table 9-322b
+	 *
+	 * B3 indicates support for 80+80MHz MCS set
+	 */
+	if (test_bit(&width_set, 3)) {
+		if (find_rate_he(rx_map + 8, tx_map + 8,
+					OFDM_CHANNEL_WIDTH_160MHZ,
+					rssi, &new_rate))
+			rate = new_rate;
+	}
+
+	/* B2 indicates support for 160MHz MCS set */
+	if (test_bit(&width_set, 2)) {
+		if (find_rate_he(rx_map + 4, tx_map + 4,
+					OFDM_CHANNEL_WIDTH_160MHZ,
+					rssi, &new_rate) && new_rate > rate)
+			rate = new_rate;
+	}
+
+	/* B1 indicates support for 80MHz */
+	if (test_bit(&width_set, 1))
+		width = OFDM_CHANNEL_WIDTH_80MHZ;
+
+	/* B0 indicates support for 40MHz */
+	if (test_bit(&width_set, 0))
+		width = OFDM_CHANNEL_WIDTH_40MHZ;
+
+	/* <= 80MHz MCS set */
+	for (i = width; i >= OFDM_CHANNEL_WIDTH_20MHZ; i--) {
+		if (find_rate_he(rx_map, tx_map, i, rssi, &new_rate)) {
+			if (new_rate > rate)
+				rate = new_rate;
+
+			break;
+		}
+	}
+
+	if (!rate)
+		return -EBADMSG;
+
+	*out_data_rate = rate;
+
+	return 0;
 }
 
 static int band_channel_info_get_bandwidth(const struct band_chandef *info)
