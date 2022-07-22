@@ -68,3 +68,4 @@ unit/*.log
 unit/*.trs
 test-suite.log
 src/builtin.h
+autotests/*/__pycache__
