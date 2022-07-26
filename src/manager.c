@@ -49,6 +49,7 @@ static char **whitelist_filter;
 static char **blacklist_filter;
 static bool randomize;
 static bool use_default;
+static unsigned int config_watch;
 
 struct wiphy_setup_state {
 	uint32_t id;
@@ -820,8 +821,10 @@ static int manager_init(void)
 
 	pending_wiphys = l_queue_new();
 
-	if (!l_genl_family_register(nl80211, "config", manager_config_notify,
-					NULL, NULL)) {
+	config_watch = l_genl_family_register(nl80211, "config",
+						manager_config_notify,
+						NULL, NULL);
+	if (!config_watch) {
 		l_error("Registering for config notifications failed");
 		goto error;
 	}
@@ -879,6 +882,8 @@ static void manager_exit(void)
 {
 	l_strfreev(whitelist_filter);
 	l_strfreev(blacklist_filter);
+
+	l_genl_family_unregister(nl80211, config_watch);
 
 	l_queue_destroy(pending_wiphys, wiphy_setup_state_free);
 	pending_wiphys = NULL;
