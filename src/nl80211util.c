@@ -128,6 +128,16 @@ static bool extract_iovec(const void *data, uint16_t len, void *o)
 	return true;
 }
 
+static bool extract_nested(const void *data, uint16_t len, void *o)
+{
+	const struct l_genl_attr *outer = data;
+	struct l_genl_attr *nested = o;
+
+	l_genl_attr_recurse(outer, nested);
+
+	return true;
+}
+
 static attr_handler handler_for_type(enum nl80211_attrs type)
 {
 	switch (type) {
@@ -157,6 +167,8 @@ static attr_handler handler_for_type(enum nl80211_attrs type)
 		return extract_uint32;
 	case NL80211_ATTR_FRAME:
 		return extract_iovec;
+	case NL80211_ATTR_WIPHY_BANDS:
+		return extract_nested;
 	default:
 		break;
 	}
@@ -221,6 +233,10 @@ int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
 			ret = -EALREADY;
 			goto done;
 		}
+
+		/* For nested attributes use the outer attribute as data */
+		if (entry->handler == extract_nested)
+			data = &attr;
 
 		if (!entry->handler(data, len, entry->data)) {
 			ret = -EINVAL;
