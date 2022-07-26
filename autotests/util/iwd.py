@@ -1098,7 +1098,8 @@ class IWD(AsyncOpAbstract):
     psk_agents = []
 
     def __init__(self, start_iwd_daemon = False, iwd_config_dir = '/tmp',
-                            iwd_storage_dir = IWD_STORAGE_DIR, namespace=ctx):
+                            iwd_storage_dir = IWD_STORAGE_DIR, namespace=ctx,
+                            developer_mode = True):
         self.namespace = namespace
         self._bus = namespace.get_bus()
 
@@ -1107,7 +1108,8 @@ class IWD(AsyncOpAbstract):
                 raise Exception("IWD requested to start but is already running")
 
             self._iwd_proc = self.namespace.start_iwd(iwd_config_dir,
-                                                        iwd_storage_dir)
+                                                        iwd_storage_dir,
+                                                        developer_mode)
 
         self._devices = DeviceList(self)
 
