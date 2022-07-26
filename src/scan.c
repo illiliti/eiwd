@@ -279,7 +279,7 @@ static void scan_freq_append(uint32_t freq, void *user_data)
 }
 
 static void scan_build_attr_scan_frequencies(struct l_genl_msg *msg,
-						struct scan_freq_set *freqs)
+					const struct scan_freq_set *freqs)
 {
 	struct scan_freq_append_data append_data = { msg, 0 };
 
@@ -654,7 +654,7 @@ static uint32_t scan_common(uint64_t wdev_id, bool passive,
 					priority, &work_ops);
 }
 
-uint32_t scan_passive(uint64_t wdev_id, struct scan_freq_set *freqs,
+uint32_t scan_passive(uint64_t wdev_id, const struct scan_freq_set *freqs,
 			scan_trigger_func_t trigger, scan_notify_func_t notify,
 			void *userdata, scan_destroy_func_t destroy)
 {
