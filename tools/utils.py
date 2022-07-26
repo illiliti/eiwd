@@ -411,7 +411,8 @@ class Namespace:
 
 		self._bus = dbus.bus.BusConnection(address_or_type=self.dbus_address)
 
-	def start_iwd(self, config_dir = '/tmp', storage_dir = '/tmp/iwd'):
+	def start_iwd(self, config_dir = '/tmp', storage_dir = '/tmp/iwd',
+				developer_mode = True):
 		args = []
 		iwd_radios = ','.join([r.name for r in self.radios if r.use == 'iwd'])
 
@@ -420,7 +421,10 @@ class Namespace:
 					'--show-leak-kinds=all',
 					'--log-file=/tmp/valgrind.log.%p'])
 
-		args.extend(['iwd', '-E'])
+		args.append('iwd')
+
+		if developer_mode:
+			args.append('-E')
 
 		if iwd_radios != '':
 			args.extend(['-p', iwd_radios])
