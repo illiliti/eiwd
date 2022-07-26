@@ -378,7 +378,7 @@ bool scan_freq_set_contains(const struct scan_freq_set *freqs, uint32_t freq)
 	return false;
 }
 
-uint32_t scan_freq_set_get_bands(struct scan_freq_set *freqs)
+uint32_t scan_freq_set_get_bands(const struct scan_freq_set *freqs)
 {
 	uint32_t bands = 0;
 	uint32_t max;
