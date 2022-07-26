@@ -104,6 +104,7 @@ struct wiphy {
 	uint16_t supported_iftypes;
 	uint16_t supported_ciphers;
 	struct scan_freq_set *supported_freqs;
+	struct scan_freq_set *disabled_freqs;
 	struct band *band_2g;
 	struct band *band_5g;
 	struct band *band_6g;
@@ -316,6 +317,7 @@ static struct wiphy *wiphy_new(uint32_t id)
 
 	wiphy->id = id;
 	wiphy->supported_freqs = scan_freq_set_new();
+	wiphy->disabled_freqs = scan_freq_set_new();
 	watchlist_init(&wiphy->state_watches, NULL);
 	wiphy->extended_capabilities[0] = IE_TYPE_EXTENDED_CAPABILITIES;
 	wiphy->extended_capabilities[1] = EXT_CAP_LEN;
@@ -357,6 +359,7 @@ static void wiphy_free(void *data)
 	}
 
 	scan_freq_set_free(wiphy->supported_freqs);
+	scan_freq_set_free(wiphy->disabled_freqs);
 	watchlist_destroy(&wiphy->state_watches);
 	l_free(wiphy->model_str);
 	l_free(wiphy->vendor_str);
@@ -452,6 +455,11 @@ const struct scan_freq_set *wiphy_get_supported_freqs(
 						const struct wiphy *wiphy)
 {
 	return wiphy->supported_freqs;
+}
+
+const struct scan_freq_set *wiphy_get_disabled_freqs(const struct wiphy *wiphy)
+{
+	return wiphy->disabled_freqs;
 }
 
 bool wiphy_can_transition_disable(struct wiphy *wiphy)
@@ -1208,19 +1216,31 @@ static void parse_supported_frequencies(struct wiphy *wiphy,
 	struct l_genl_attr attr;
 
 	while (l_genl_attr_next(freqs, NULL, NULL, NULL)) {
+		uint32_t freq = 0;
+		bool disabled = false;
+
 		if (!l_genl_attr_recurse(freqs, &attr))
 			continue;
 
 		while (l_genl_attr_next(&attr, &type, &len, &data)) {
-			uint32_t u32;
 
 			switch (type) {
 			case NL80211_FREQUENCY_ATTR_FREQ:
-				u32 = *((uint32_t *) data);
-				scan_freq_set_add(wiphy->supported_freqs, u32);
+				freq = *((uint32_t *) data);
+				break;
+			case NL80211_FREQUENCY_ATTR_DISABLED:
+				disabled = true;
 				break;
 			}
 		}
+
+		if (!freq)
+			continue;
+
+		scan_freq_set_add(wiphy->supported_freqs, freq);
+
+		if (disabled)
+			scan_freq_set_add(wiphy->disabled_freqs, freq);
 	}
 }
 
