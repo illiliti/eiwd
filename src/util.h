@@ -118,6 +118,8 @@ void scan_freq_set_merge(struct scan_freq_set *to,
 					const struct scan_freq_set *from);
 void scan_freq_set_constrain(struct scan_freq_set *set,
 					const struct scan_freq_set *constraint);
+void scan_freq_set_subtract(struct scan_freq_set *set,
+					const struct scan_freq_set *subtract);
 bool scan_freq_set_isempty(const struct scan_freq_set *set);
 uint32_t *scan_freq_set_to_fixed_array(const struct scan_freq_set *set,
 					size_t *len_out);
