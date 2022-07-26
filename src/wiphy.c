@@ -707,6 +707,7 @@ bool wiphy_constrain_freq_set(const struct wiphy *wiphy,
 						struct scan_freq_set *set)
 {
 	scan_freq_set_constrain(set, wiphy->supported_freqs);
+	scan_freq_set_subtract(set, wiphy->disabled_freqs);
 
 	if (!scan_freq_set_get_bands(set))
 		/* The set is empty. */
