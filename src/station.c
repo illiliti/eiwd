@@ -2286,6 +2286,7 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 	struct station *station = userdata;
 	struct network *network = station->connected_network;
 	struct handshake_state *hs = netdev_get_handshake(station->netdev);
+	struct scan_bss *current_bss = station->connected_bss;
 	struct scan_bss *bss;
 	struct scan_bss *best_bss = NULL;
 	double best_bss_rank = 0.0;
@@ -2317,9 +2318,20 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 	 * for BSSes that are within the FT Mobility Domain so as to favor
 	 * Fast Roaming, if it is supported.
 	 */
+	l_debug("Current BSS '%s' with SSID: %s",
+		util_address_to_string(current_bss->addr),
+		util_ssid_to_utf8(current_bss->ssid_len, current_bss->ssid));
 
 	while ((bss = l_queue_pop_head(bss_list))) {
 		double rank;
+		uint32_t kbps100 = DIV_ROUND_CLOSEST(bss->data_rate, 100000);
+
+		l_debug("Processing BSS '%s' with SSID: %s, freq: %u, rank: %u,"
+				" strength: %i, data_rate: %u.%u",
+				util_address_to_string(bss->addr),
+				util_ssid_to_utf8(bss->ssid_len, bss->ssid),
+				bss->frequency, bss->rank, bss->signal_strength,
+				kbps100 / 10, kbps100 % 10);
 
 		/* Skip the BSS we are connected to if doing an AP roam */
 		if (station->ap_directed_roaming && !memcmp(bss->addr,
@@ -2327,7 +2339,6 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 			goto next;
 
 		/* Skip result if it is not part of the ESS */
-
 		if (bss->ssid_len != hs->ssid_len ||
 				memcmp(bss->ssid, hs->ssid, hs->ssid_len))
 			goto next;
