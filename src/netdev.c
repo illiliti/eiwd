@@ -1092,12 +1092,26 @@ static void netdev_cqm_event(struct l_genl_msg *msg, struct netdev *netdev)
 					rssi_event = (uint32_t *) data;
 					break;
 
+				case NL80211_ATTR_CQM_PKT_LOSS_EVENT:
+					if (len != 4)
+						continue;
+
+					l_debug("Packets lost event: %d",
+							*(uint32_t *) data);
+					break;
+
+				case NL80211_ATTR_CQM_BEACON_LOSS_EVENT:
+					l_debug("Beacon lost event");
+					break;
+
 				case NL80211_ATTR_CQM_RSSI_LEVEL:
 					if (len != 4)
 						continue;
 
 					rssi_val = (int32_t *) data;
 					break;
+				default:
+					l_debug("Unknown CQM event: %d", type);
 				}
 			}
 
@@ -1106,10 +1120,14 @@ static void netdev_cqm_event(struct l_genl_msg *msg, struct netdev *netdev)
 	}
 
 	if (rssi_event) {
-		if (rssi_val)
+		if (rssi_val) {
+			l_debug("Signal change event (above=%d signal=%d)",
+							*rssi_event, *rssi_val);
 			netdev_cqm_event_rssi_value(netdev, *rssi_val);
-		else
+		} else {
+			l_debug("Signal change event (above=%d)", *rssi_event);
 			netdev_cqm_event_rssi_threshold(netdev, *rssi_event);
+		}
 	}
 }
 
