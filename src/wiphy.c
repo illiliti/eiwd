@@ -716,17 +716,16 @@ bool wiphy_constrain_freq_set(const struct wiphy *wiphy,
 	return true;
 }
 
-static char **wiphy_get_supported_iftypes(struct wiphy *wiphy, uint16_t mask)
+static char **wiphy_iftype_mask_to_str(uint16_t mask)
 {
-	uint16_t supported_mask = wiphy->supported_iftypes & mask;
-	char **ret = l_new(char *, __builtin_popcount(supported_mask) + 1);
+	char **ret = l_new(char *, __builtin_popcount(mask) + 1);
 	unsigned int i;
 	unsigned int j;
 
-	for (j = 0, i = 0; i < sizeof(supported_mask) * 8; i++) {
+	for (j = 0, i = 0; i < sizeof(mask) * 8; i++) {
 		const char *str;
 
-		if (!(supported_mask & (1 << i)))
+		if (!(mask & (1 << i)))
 			continue;
 
 		str = netdev_iftype_to_string(i + 1);
@@ -735,6 +734,11 @@ static char **wiphy_get_supported_iftypes(struct wiphy *wiphy, uint16_t mask)
 	}
 
 	return ret;
+}
+
+static char **wiphy_get_supported_iftypes(struct wiphy *wiphy, uint16_t mask)
+{
+	return wiphy_iftype_mask_to_str(wiphy->supported_iftypes & mask);
 }
 
 bool wiphy_supports_iftype(struct wiphy *wiphy, uint32_t iftype)
@@ -960,38 +964,14 @@ static void wiphy_print_mcs_info(const uint8_t *mcs_map,
 static void wiphy_print_he_capabilities(struct band *band,
 				const struct band_he_capabilities *he_cap)
 {
-	int i;
-	char type_buf[128];
-	char *s = type_buf;
+	_auto_(l_strv_free) char **iftypes = NULL;
+	_auto_(l_free) char *joined = NULL;
 	uint8_t width_set = bit_field(he_cap->he_phy_capa[0], 1, 7);
 
-	for (i = 0; i < 32; i++) {
-		if (!(he_cap->iftypes & (1 << i)))
-			continue;
+	iftypes = wiphy_iftype_mask_to_str(he_cap->iftypes);
+	joined = l_strjoinv(iftypes, ' ');
 
-		if (L_WARN_ON(s >= type_buf + sizeof(type_buf)))
-			return;
-
-		switch (i) {
-		case NETDEV_IFTYPE_ADHOC:
-			s += sprintf(s, "%s ", "Ad-Hoc");
-			break;
-		case NETDEV_IFTYPE_STATION:
-			s += sprintf(s, "%s ", "Station");
-			break;
-		case NETDEV_IFTYPE_AP:
-			s += sprintf(s, "%s ", "AP");
-			break;
-		case NETDEV_IFTYPE_P2P_CLIENT:
-			s += sprintf(s, "%s ", "P2P Client");
-			break;
-		case NETDEV_IFTYPE_P2P_GO:
-			s += sprintf(s, "%s ", "P2P GO");
-			break;
-		}
-	}
-
-	l_info("\t\t\tInterface Types: %s", type_buf);
+	l_info("\t\t\tInterface Types: %s", joined);
 
 	switch (band->freq) {
 	case BAND_FREQ_2_4_GHZ:
@@ -1341,7 +1321,7 @@ static uint32_t get_iftypes(struct l_genl_attr *iftypes)
 		if (len != 0)
 			continue;
 
-		types |= (1 << type);
+		types |= (1 << (type - 1));
 	}
 
 	return types;
