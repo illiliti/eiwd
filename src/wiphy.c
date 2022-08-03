@@ -790,6 +790,22 @@ void wiphy_get_reg_domain_country(struct wiphy *wiphy, char *out)
 	out[1] = country[1];
 }
 
+bool wiphy_country_is_unknown(struct wiphy *wiphy)
+{
+	char cc[2];
+
+	wiphy_get_reg_domain_country(wiphy, cc);
+
+	/*
+	 * Treat OO and XX as an unknown country. Additional codes could be
+	 * added here if needed. The purpose of this is to know if we can
+	 * expect the disabled frequency list to be updated once a country is
+	 * known.
+	 */
+	return ((cc[0] == 'O' && cc[1] == 'O') ||
+			(cc[0] == 'X' && cc[1] == 'X'));
+}
+
 int wiphy_estimate_data_rate(struct wiphy *wiphy,
 				const void *ies, uint16_t ies_len,
 				const struct scan_bss *bss,

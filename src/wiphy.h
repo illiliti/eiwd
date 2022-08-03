@@ -124,6 +124,7 @@ const uint8_t *wiphy_get_extended_capabilities(struct wiphy *wiphy,
 const uint8_t *wiphy_get_rm_enabled_capabilities(struct wiphy *wiphy);
 bool wiphy_get_rsnxe(const struct wiphy *wiphy, uint8_t *buf, size_t len);
 void wiphy_get_reg_domain_country(struct wiphy *wiphy, char *out);
+bool wiphy_country_is_unknown(struct wiphy *wiphy);
 
 void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6]);
 void wiphy_generate_address_from_ssid(struct wiphy *wiphy, const char *ssid,
