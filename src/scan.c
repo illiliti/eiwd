@@ -98,6 +98,12 @@ struct scan_request {
 	/* The time the current scan was started. Reported in TRIGGER_SCAN */
 	uint64_t start_time_tsf;
 	struct wiphy_radio_work_item work;
+	/*
+	 * List of frequencies scanned so far. Since the NEW_SCAN_RESULTS event
+	 * contains frequencies of only the last CMD_TRIGGER we need to parse
+	 * and save these since there may be additional scan commands to run.
+	 */
+	struct scan_freq_set *freqs_scanned;
 };
 
 struct scan_context {
@@ -125,7 +131,6 @@ struct scan_context {
 struct scan_results {
 	struct scan_context *sc;
 	struct l_queue *bss_list;
-	struct scan_freq_set *freqs;
 	uint64_t time_stamp;
 	struct scan_request *sr;
 };
@@ -158,6 +163,8 @@ static void scan_request_free(struct wiphy_radio_work_item *item)
 		sr->destroy(sr->userdata);
 
 	l_queue_destroy(sr->cmds, (l_queue_destroy_func_t) l_genl_msg_unref);
+
+	scan_freq_set_free(sr->freqs_scanned);
 
 	l_free(sr);
 }
@@ -609,6 +616,7 @@ static struct scan_request *scan_request_new(struct scan_context *sc,
 	sr->destroy = destroy;
 	sr->passive = passive;
 	sr->cmds = l_queue_new();
+	sr->freqs_scanned = scan_freq_set_new();
 
 	return sr;
 }
@@ -1525,14 +1533,11 @@ fail:
 	return NULL;
 }
 
-static struct scan_freq_set *scan_parse_attr_scan_frequencies(
-						struct l_genl_attr *attr)
+static void scan_parse_attr_scan_frequencies(struct l_genl_attr *attr,
+						struct scan_freq_set *set)
 {
 	uint16_t type, len;
 	const void *data;
-	struct scan_freq_set *set;
-
-	set = scan_freq_set_new();
 
 	while (l_genl_attr_next(attr, &type, &len, &data)) {
 		uint32_t freq;
@@ -1543,8 +1548,6 @@ static struct scan_freq_set *scan_parse_attr_scan_frequencies(
 		freq = *((uint32_t *) data);
 		scan_freq_set_add(set, freq);
 	}
-
-	return set;
 }
 
 static struct scan_bss *scan_parse_result(struct l_genl_msg *msg,
@@ -1825,13 +1828,11 @@ static void get_scan_done(void *user)
 
 	if (!results->sr || !results->sr->canceled)
 		scan_finished(sc, 0, results->bss_list,
-						results->freqs, results->sr);
+						results->sr->freqs_scanned,
+						results->sr);
 	else
 		l_queue_destroy(results->bss_list,
 				(l_queue_destroy_func_t) scan_bss_free);
-
-	if (results->freqs)
-		scan_freq_set_free(results->freqs);
 
 	l_free(results);
 }
@@ -1852,8 +1853,8 @@ static bool scan_parse_flush_flag_from_msg(struct l_genl_msg *msg)
 	return false;
 }
 
-static void scan_parse_new_scan_results(struct l_genl_msg *msg,
-					struct scan_results *results)
+static void scan_parse_result_frequencies(struct l_genl_msg *msg,
+					struct scan_freq_set *freqs)
 {
 	struct l_genl_attr attr, nested;
 	uint16_t type, len;
@@ -1870,8 +1871,7 @@ static void scan_parse_new_scan_results(struct l_genl_msg *msg,
 				break;
 			}
 
-			results->freqs =
-				scan_parse_attr_scan_frequencies(&nested);
+			scan_parse_attr_scan_frequencies(&nested, freqs);
 			break;
 		}
 	}
@@ -1950,8 +1950,11 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			 */
 			if (l_queue_isempty(sr->cmds))
 				get_results = true;
-			else
+			else {
+				scan_parse_result_frequencies(msg,
+							sr->freqs_scanned);
 				send_next = true;
+			}
 		} else {
 			if (sc->get_scan_cmd_id)
 				break;
@@ -1996,7 +1999,7 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		results->sr = sr;
 		results->bss_list = l_queue_new();
 
-		scan_parse_new_scan_results(msg, results);
+		scan_parse_result_frequencies(msg, sr->freqs_scanned);
 
 		scan_msg = l_genl_msg_new_sized(NL80211_CMD_GET_SCAN, 8);
 		l_genl_msg_append_attr(scan_msg, NL80211_ATTR_WDEV, 8,
