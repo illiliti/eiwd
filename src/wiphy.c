@@ -1190,42 +1190,6 @@ static void parse_supported_ciphers(struct wiphy *wiphy, const void *data,
 	}
 }
 
-static void parse_supported_frequencies(struct wiphy *wiphy,
-						struct l_genl_attr *freqs)
-{
-	uint16_t type, len;
-	const void *data;
-	struct l_genl_attr attr;
-
-	while (l_genl_attr_next(freqs, NULL, NULL, NULL)) {
-		uint32_t freq = 0;
-		bool disabled = false;
-
-		if (!l_genl_attr_recurse(freqs, &attr))
-			continue;
-
-		while (l_genl_attr_next(&attr, &type, &len, &data)) {
-
-			switch (type) {
-			case NL80211_FREQUENCY_ATTR_FREQ:
-				freq = *((uint32_t *) data);
-				break;
-			case NL80211_FREQUENCY_ATTR_DISABLED:
-				disabled = true;
-				break;
-			}
-		}
-
-		if (!freq)
-			continue;
-
-		scan_freq_set_add(wiphy->supported_freqs, freq);
-
-		if (disabled)
-			scan_freq_set_add(wiphy->disabled_freqs, freq);
-	}
-}
-
 static int parse_supported_rates(struct l_genl_attr *attr, struct band *band)
 {
 	uint16_t type;
@@ -1445,16 +1409,14 @@ static void parse_supported_bands(struct wiphy *wiphy,
 			band = *bandp;
 
 
-
 		while (l_genl_attr_next(&attr, &type, &len, &data)) {
 			struct l_genl_attr nested;
 
 			switch (type) {
 			case NL80211_BAND_ATTR_FREQS:
-				if (!l_genl_attr_recurse(&attr, &nested))
-					continue;
-
-				parse_supported_frequencies(wiphy, &nested);
+				nl80211_parse_supported_frequencies(&attr,
+							wiphy->supported_freqs,
+							wiphy->disabled_freqs);
 				break;
 
 			case NL80211_BAND_ATTR_RATES:
