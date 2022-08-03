@@ -133,6 +133,7 @@ struct wiphy {
 	bool offchannel_tx_ok : 1;
 	bool blacklisted : 1;
 	bool registered : 1;
+	bool self_managed : 1;
 };
 
 static struct l_queue *wiphy_list = NULL;
@@ -1646,6 +1647,9 @@ static void wiphy_parse_attributes(struct wiphy *wiphy,
 			break;
 		case NL80211_ATTR_ROAM_SUPPORT:
 			wiphy->support_fw_roam = true;
+			break;
+		case NL80211_ATTR_WIPHY_SELF_MANAGED_REG:
+			wiphy->self_managed = true;
 			break;
 		}
 	}
