@@ -56,6 +56,8 @@ enum {
 enum wiphy_state_watch_event {
 	WIPHY_STATE_WATCH_EVENT_POWERED,
 	WIPHY_STATE_WATCH_EVENT_RFKILLED,
+	WIPHY_STATE_WATCH_EVENT_REGDOM_STARTED,
+	WIPHY_STATE_WATCH_EVENT_REGDOM_DONE,
 };
 
 typedef void (*wiphy_state_watch_func_t)(struct wiphy *wiphy,
