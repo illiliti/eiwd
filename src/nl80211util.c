@@ -32,6 +32,7 @@
 
 #include "src/nl80211util.h"
 #include "src/band.h"
+#include "src/util.h"
 
 typedef bool (*attr_handler)(const void *data, uint16_t len, void *o);
 
@@ -482,5 +483,48 @@ int nl80211_parse_chandef(struct l_genl_msg *msg, struct band_chandef *out)
 		return -ENOENT;
 
 	memcpy(out, &t, sizeof(t));
+	return 0;
+}
+
+int nl80211_parse_supported_frequencies(struct l_genl_attr *band_freqs,
+					struct scan_freq_set *supported_list,
+					struct scan_freq_set *disabled_list)
+{
+	uint16_t type, len;
+	const void *data;
+	struct l_genl_attr attr;
+	struct l_genl_attr nested;
+
+	if (!l_genl_attr_recurse(band_freqs, &nested))
+		return -EBADMSG;
+
+	while (l_genl_attr_next(&nested, NULL, NULL, NULL)) {
+		uint32_t freq = 0;
+		bool disabled = false;
+
+		if (!l_genl_attr_recurse(&nested, &attr))
+			continue;
+
+		while (l_genl_attr_next(&attr, &type, &len, &data)) {
+			switch (type) {
+			case NL80211_FREQUENCY_ATTR_FREQ:
+				freq = *((uint32_t *) data);
+				break;
+			case NL80211_FREQUENCY_ATTR_DISABLED:
+				disabled = true;
+				break;
+			}
+		}
+
+		if (!freq)
+			continue;
+
+		if (supported_list)
+			scan_freq_set_add(supported_list, freq);
+
+		if (disabled && disabled_list)
+			scan_freq_set_add(disabled_list, freq);
+	}
+
 	return 0;
 }
