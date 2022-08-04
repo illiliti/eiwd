@@ -66,6 +66,7 @@ static char **blacklist_filter;
 static int mac_randomize_bytes = 6;
 static char regdom_country[2];
 static uint32_t work_ids;
+static unsigned int wiphy_dump_id;
 
 enum driver_flag {
 	DEFAULT_IF = 0x1,
@@ -105,6 +106,7 @@ struct wiphy {
 	uint16_t supported_ciphers;
 	struct scan_freq_set *supported_freqs;
 	struct scan_freq_set *disabled_freqs;
+	struct scan_freq_set *pending_freqs;
 	struct band *band_2g;
 	struct band *band_5g;
 	struct band *band_6g;
@@ -122,6 +124,7 @@ struct wiphy {
 	struct l_queue *work;
 	bool work_in_callback;
 	unsigned int get_reg_id;
+	unsigned int dump_id;
 
 	bool support_scheduled_scan:1;
 	bool support_rekey_offload:1;
@@ -341,6 +344,9 @@ static void wiphy_free(void *data)
 	uint32_t i;
 
 	l_debug("Freeing wiphy %s[%u]", wiphy->name, wiphy->id);
+
+	if (wiphy->dump_id)
+		l_genl_family_cancel(nl80211, wiphy->dump_id);
 
 	if (wiphy->get_reg_id)
 		l_genl_family_cancel(nl80211, wiphy->get_reg_id);
@@ -1839,6 +1845,182 @@ static void wiphy_setup_rm_enabled_capabilities(struct wiphy *wiphy)
 	 */
 }
 
+static void wiphy_dump_done(void *user_data)
+{
+	struct wiphy *wiphy = user_data;
+	const struct l_queue_entry *e;
+
+	/* This dump was canceled due to another dump */
+	if ((wiphy && !wiphy->dump_id) || (!wiphy && !wiphy_dump_id))
+		return;
+
+	if (wiphy) {
+		wiphy->dump_id = 0;
+		scan_freq_set_free(wiphy->disabled_freqs);
+		wiphy->disabled_freqs = wiphy->pending_freqs;
+		wiphy->pending_freqs = NULL;
+
+		WATCHLIST_NOTIFY(&wiphy->state_watches,
+				wiphy_state_watch_func_t, wiphy,
+				WIPHY_STATE_WATCH_EVENT_REGDOM_DONE);
+
+		return;
+	}
+
+	wiphy_dump_id = 0;
+
+	for (e = l_queue_get_entries(wiphy_list); e; e = e->next) {
+		wiphy = e->data;
+
+		if (!wiphy->pending_freqs || wiphy->self_managed)
+			continue;
+
+		scan_freq_set_free(wiphy->disabled_freqs);
+		wiphy->disabled_freqs = wiphy->pending_freqs;
+		wiphy->pending_freqs = NULL;
+
+		WATCHLIST_NOTIFY(&wiphy->state_watches,
+				wiphy_state_watch_func_t, wiphy,
+				WIPHY_STATE_WATCH_EVENT_REGDOM_DONE);
+	}
+}
+
+/* We are dumping wiphy(s) due to a regulatory change */
+static void wiphy_dump_callback(struct l_genl_msg *msg,
+						void *user_data)
+{
+	struct wiphy *wiphy;
+	uint32_t id;
+	struct l_genl_attr bands;
+	struct l_genl_attr attr;
+	uint16_t type;
+
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_WIPHY, &id,
+					NL80211_ATTR_WIPHY_BANDS, &bands,
+					NL80211_ATTR_UNSPEC) < 0)
+		return;
+
+	wiphy = wiphy_find(id);
+	if (L_WARN_ON(!wiphy))
+		return;
+
+	while (l_genl_attr_next(&bands, NULL, NULL, NULL)) {
+		if (!l_genl_attr_recurse(&bands, &attr))
+			return;
+
+		while (l_genl_attr_next(&attr, &type, NULL, NULL)) {
+			if (type != NL80211_BAND_ATTR_FREQS)
+				continue;
+
+			nl80211_parse_supported_frequencies(&attr, NULL,
+							wiphy->pending_freqs);
+		}
+	}
+}
+
+static bool wiphy_cancel_last_dump(struct wiphy *wiphy)
+{
+	const struct l_queue_entry *e;
+	unsigned int id = 0;
+
+	/*
+	 * Zero command ID to signal that wiphy_dump_done doesn't need to do
+	 * anything. For a self-managed wiphy just free/NULL pending_freqs. For
+	 * a global dump each wiphy needs to be checked and dealt with.
+	 */
+	if (wiphy && wiphy->dump_id) {
+		id = wiphy->dump_id;
+		wiphy->dump_id = 0;
+
+		scan_freq_set_free(wiphy->pending_freqs);
+		wiphy->pending_freqs = NULL;
+	} else if (!wiphy && wiphy_dump_id) {
+		id = wiphy_dump_id;
+		wiphy_dump_id = 0;
+
+		for (e = l_queue_get_entries(wiphy_list); e; e = e->next) {
+			struct wiphy *w = e->data;
+
+			if (!w->pending_freqs || w->self_managed)
+				continue;
+
+			scan_freq_set_free(w->pending_freqs);
+			w->pending_freqs = NULL;
+		}
+	}
+
+	if (id) {
+		l_debug("Canceling pending regdom wiphy dump (%s)",
+					wiphy ? wiphy->name : "global");
+
+		l_genl_family_cancel(nl80211, id);
+	}
+
+	return id != 0;
+}
+
+static void wiphy_dump_after_regdom(struct wiphy *wiphy)
+{
+	const struct l_queue_entry *e;
+	struct l_genl_msg *msg;
+	unsigned int id;
+	bool no_start_event;
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_GET_WIPHY, 128);
+
+	if (wiphy)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY, 4, &wiphy->id);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_SPLIT_WIPHY_DUMP, 0, NULL);
+	id = l_genl_family_dump(nl80211, msg, wiphy_dump_callback,
+						wiphy, wiphy_dump_done);
+	if (!id) {
+		l_error("Wiphy information dump failed");
+		l_genl_msg_unref(msg);
+		return;
+	}
+
+	/*
+	 * Another update while dumping wiphy. This next dump should supercede
+	 * the first and not result in a DONE event until this new dump is
+	 * finished. This is because the disabled frequencies are in an unknown
+	 * state and could cause incorrect behavior by any watchers.
+	 */
+	no_start_event = wiphy_cancel_last_dump(wiphy);
+
+	/* Limited dump so just emit the event for this wiphy */
+	if (wiphy) {
+		wiphy->dump_id = id;
+		wiphy->pending_freqs = scan_freq_set_new();
+
+		if (no_start_event)
+			return;
+
+		WATCHLIST_NOTIFY(&wiphy->state_watches,
+				wiphy_state_watch_func_t, wiphy,
+				WIPHY_STATE_WATCH_EVENT_REGDOM_STARTED);
+		return;
+	}
+
+	wiphy_dump_id = id;
+
+	/* Otherwise for a global regdom change notify for all wiphy's */
+	for (e = l_queue_get_entries(wiphy_list); e; e = e->next) {
+		struct wiphy *w = e->data;
+
+		if (w->self_managed)
+			continue;
+
+		w->pending_freqs = scan_freq_set_new();
+
+		if (no_start_event)
+			continue;
+
+		WATCHLIST_NOTIFY(&w->state_watches, wiphy_state_watch_func_t,
+				w, WIPHY_STATE_WATCH_EVENT_REGDOM_STARTED);
+	}
+}
+
 static void wiphy_update_reg_domain(struct wiphy *wiphy, bool global,
 					struct l_genl_msg *msg)
 {
@@ -2110,6 +2292,8 @@ static void setup_wiphy_interface(struct l_dbus_interface *interface)
 static void wiphy_reg_notify(struct l_genl_msg *msg, void *user_data)
 {
 	uint8_t cmd = l_genl_msg_get_command(msg);
+	struct wiphy *wiphy = NULL;
+	uint32_t wiphy_id;
 
 	l_debug("Notification of command %s(%u)",
 		nl80211cmd_to_string(cmd), cmd);
@@ -2119,22 +2303,21 @@ static void wiphy_reg_notify(struct l_genl_msg *msg, void *user_data)
 		wiphy_update_reg_domain(NULL, true, msg);
 		break;
 	case NL80211_CMD_WIPHY_REG_CHANGE:
-	{
-		uint32_t wiphy_id;
-		struct wiphy *wiphy;
-
 		if (nl80211_parse_attrs(msg, NL80211_ATTR_WIPHY, &wiphy_id,
 					NL80211_ATTR_UNSPEC) < 0)
-			break;
+			return;
 
 		wiphy = wiphy_find(wiphy_id);
 		if (!wiphy)
-			break;
+			return;
 
 		wiphy_update_reg_domain(wiphy, false, msg);
 		break;
+	default:
+		return;
 	}
-	}
+
+	wiphy_dump_after_regdom(wiphy);
 }
 
 static void wiphy_radio_work_next(struct wiphy *wiphy)
@@ -2312,6 +2495,11 @@ static void wiphy_exit(void)
 {
 	l_strfreev(whitelist_filter);
 	l_strfreev(blacklist_filter);
+
+	if (wiphy_dump_id) {
+		l_genl_family_cancel(nl80211, wiphy_dump_id);
+		wiphy_dump_id = 0;
+	}
 
 	l_queue_destroy(wiphy_list, wiphy_free);
 	wiphy_list = NULL;
