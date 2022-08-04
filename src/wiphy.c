@@ -121,6 +121,7 @@ struct wiphy {
 	/* Work queue for this radio */
 	struct l_queue *work;
 	bool work_in_callback;
+	unsigned int get_reg_id;
 
 	bool support_scheduled_scan:1;
 	bool support_rekey_offload:1;
@@ -340,6 +341,9 @@ static void wiphy_free(void *data)
 	uint32_t i;
 
 	l_debug("Freeing wiphy %s[%u]", wiphy->name, wiphy->id);
+
+	if (wiphy->get_reg_id)
+		l_genl_family_cancel(nl80211, wiphy->get_reg_id);
 
 	for (i = 0; i < NUM_NL80211_IFTYPES; i++)
 		l_free(wiphy->iftype_extended_capabilities[i]);
@@ -1875,6 +1879,8 @@ static void wiphy_get_reg_cb(struct l_genl_msg *msg, void *user_data)
 	uint32_t tmp;
 	bool global;
 
+	wiphy->get_reg_id = 0;
+
 	/*
 	 * NL80211_CMD_GET_REG contains an NL80211_ATTR_WIPHY iff the wiphy
 	 * uses a self-managed regulatory domain.
@@ -1892,8 +1898,9 @@ static void wiphy_get_reg_domain(struct wiphy *wiphy)
 	msg = l_genl_msg_new(NL80211_CMD_GET_REG);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY, 4, &wiphy->id);
 
-	if (!l_genl_family_send(wiphy->nl80211, msg, wiphy_get_reg_cb, wiphy,
-				NULL)) {
+	wiphy->get_reg_id = l_genl_family_send(wiphy->nl80211, msg,
+						wiphy_get_reg_cb, wiphy, NULL);
+	if (!wiphy->get_reg_id) {
 		l_error("Error sending NL80211_CMD_GET_REG for %s", wiphy->name);
 		l_genl_msg_unref(msg);
 	}
