@@ -554,3 +554,24 @@ uint32_t *scan_freq_set_to_fixed_array(const struct scan_freq_set *set,
 
 	return freqs;
 }
+
+struct scan_freq_set *scan_freq_set_clone(const struct scan_freq_set *set,
+							uint32_t band_mask)
+{
+	struct scan_freq_set *new = l_new(struct scan_freq_set, 1);
+
+	if (band_mask & BAND_FREQ_2_4_GHZ)
+		new->channels_2ghz = set->channels_2ghz;
+
+	if (band_mask & BAND_FREQ_5_GHZ)
+		new->channels_5ghz = l_uintset_clone(set->channels_5ghz);
+	else
+		new->channels_5ghz = l_uintset_new_from_range(1, 200);
+
+	if (band_mask & BAND_FREQ_6_GHZ)
+		new->channels_6ghz = l_uintset_clone(set->channels_6ghz);
+	else
+		new->channels_6ghz = l_uintset_new_from_range(1, 233);
+
+	return new;
+}
