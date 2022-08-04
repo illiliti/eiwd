@@ -2026,10 +2026,19 @@ static void wiphy_dump_after_regdom(struct wiphy *wiphy)
 	}
 }
 
-static void wiphy_update_reg_domain(struct wiphy *wiphy, bool global,
+static bool wiphy_update_reg_domain(struct wiphy *wiphy, bool global,
 					struct l_genl_msg *msg)
 {
-	char *out_country;
+	char out_country[2];
+	char *orig;
+
+	/*
+	 * Write the new country code or XX if the reg domain is not a
+	 * country domain.
+	 */
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_REG_ALPHA2, out_country,
+				NL80211_ATTR_UNSPEC) < 0)
+		out_country[0] = out_country[1] = 'X';
 
 	if (global)
 		/*
@@ -2043,21 +2052,26 @@ static void wiphy_update_reg_domain(struct wiphy *wiphy, bool global,
 		 * wiphy created (that is not self-managed anyway) and we
 		 * haven't received any REG_CHANGE events yet.
 		 */
-		out_country = regdom_country;
+		orig = regdom_country;
+
 	else
-		out_country = wiphy->regdom_country;
+		orig = wiphy->regdom_country;
 
 	/*
-	 * Write the new country code or XX if the reg domain is not a
-	 * country domain.
+	 * The kernel seems to send regdom updates even if the country didn't
+	 * change. Skip these as there is no reason to re-dump.
 	 */
-	if (nl80211_parse_attrs(msg, NL80211_ATTR_REG_ALPHA2, out_country,
-				NL80211_ATTR_UNSPEC) < 0)
-		out_country[0] = out_country[1] = 'X';
+	if (orig[0] == out_country[0] && orig[1] == out_country[1])
+		return false;
 
 	l_debug("New reg domain country code for %s is %c%c",
 		global ? "(global)" : wiphy->name,
 		out_country[0], out_country[1]);
+
+	orig[0] = out_country[0];
+	orig[1] = out_country[1];
+
+	return true;
 }
 
 static void wiphy_get_reg_cb(struct l_genl_msg *msg, void *user_data)
@@ -2305,7 +2319,8 @@ static void wiphy_reg_notify(struct l_genl_msg *msg, void *user_data)
 
 	switch (cmd) {
 	case NL80211_CMD_REG_CHANGE:
-		wiphy_update_reg_domain(NULL, true, msg);
+		if (!wiphy_update_reg_domain(NULL, true, msg))
+			return;
 		break;
 	case NL80211_CMD_WIPHY_REG_CHANGE:
 		if (nl80211_parse_attrs(msg, NL80211_ATTR_WIPHY, &wiphy_id,
@@ -2316,7 +2331,9 @@ static void wiphy_reg_notify(struct l_genl_msg *msg, void *user_data)
 		if (!wiphy)
 			return;
 
-		wiphy_update_reg_domain(wiphy, false, msg);
+		if (!wiphy_update_reg_domain(wiphy, false, msg))
+			return;
+
 		break;
 	default:
 		return;
