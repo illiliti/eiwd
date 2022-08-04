@@ -112,6 +112,8 @@ struct station {
 	struct scan_freq_set *scan_freqs_order[3];
 	unsigned int dbus_scan_subset_idx;
 
+	uint32_t wiphy_watch;
+
 	bool preparing_roam : 1;
 	bool roam_scan_full : 1;
 	bool signal_low : 1;
@@ -1353,10 +1355,34 @@ static void station_quick_scan_destroy(void *userdata)
 static int station_quick_scan_trigger(struct station *station)
 {
 	struct scan_freq_set *known_freq_set;
+	bool known_6ghz;
+	const struct scan_freq_set *disabled = wiphy_get_disabled_freqs(
+								station->wiphy);
+
+	if (wiphy_regdom_is_updating(station->wiphy)) {
+		l_debug("regdom is updating, delaying quick scan");
+		return -EAGAIN;
+	}
 
 	known_freq_set = known_networks_get_recent_frequencies(5);
 	if (!known_freq_set)
 		return -ENODATA;
+
+	known_6ghz = scan_freq_set_get_bands(known_freq_set) & BAND_FREQ_6_GHZ;
+
+	/*
+	 * This means IWD has previously connected to a 6GHz AP before, but now
+	 * the regulatory domain disallows 6GHz likely caused by a reboot, the
+	 * firmware going down, or a regulatory update. The only way to
+	 * re-enable 6GHz is to get enough beacons via scanning for the firmware
+	 * to set the regulatory domain. A quick scan is very unlikely to do
+	 * this since its so limited, so return an error which will fall back to
+	 * full autoconnect.
+	 */
+	if ((scan_freq_set_get_bands(disabled) & BAND_FREQ_6_GHZ) &&
+				wiphy_country_is_unknown(station->wiphy) &&
+				known_6ghz)
+		return -ENOTSUP;
 
 	if (!wiphy_constrain_freq_set(station->wiphy, known_freq_set)) {
 		scan_freq_set_free(known_freq_set);
@@ -1446,6 +1472,7 @@ static void station_enter_state(struct station *station,
 	uint64_t id = netdev_get_wdev_id(station->netdev);
 	struct l_dbus *dbus = dbus_get_bus();
 	bool disconnected;
+	int ret;
 
 	l_debug("Old State: %s, new state: %s",
 			station_state_to_string(station->state),
@@ -1462,7 +1489,8 @@ static void station_enter_state(struct station *station,
 
 	switch (state) {
 	case STATION_STATE_AUTOCONNECT_QUICK:
-		if (!station_quick_scan_trigger(station))
+		ret = station_quick_scan_trigger(station);
+		if (ret == 0 || ret == -EAGAIN)
 			break;
 
 		station->state = STATION_STATE_AUTOCONNECT_FULL;
@@ -3988,6 +4016,35 @@ static void station_fill_scan_freq_subsets(struct station *station)
 	}
 }
 
+static void station_wiphy_watch(struct wiphy *wiphy,
+				enum wiphy_state_watch_event event,
+				void *user_data)
+{
+	struct station *station = user_data;
+	int ret;
+
+	if (event != WIPHY_STATE_WATCH_EVENT_REGDOM_DONE)
+		return;
+
+	/*
+	 * The only state that requires special handling is for
+	 * quick scans since the previous quick scan was delayed until
+	 * the regulatory domain updated. Try again in case 6Ghz is now
+	 * unlocked (unlikely), or advance to full autoconnect. Just in
+	 * case this update came during a quick scan, ignore it.
+	 */
+	if (station->state != STATION_STATE_AUTOCONNECT_QUICK ||
+			station->quick_scan_id)
+		return;
+
+	ret = station_quick_scan_trigger(station);
+	if (!ret)
+		return;
+
+	L_WARN_ON(ret == -EAGAIN);
+	station_enter_state(station, STATION_STATE_AUTOCONNECT_FULL);
+}
+
 static struct station *station_create(struct netdev *netdev)
 {
 	struct station *station;
@@ -4007,6 +4064,10 @@ static struct station *station_create(struct netdev *netdev)
 
 	station->wiphy = netdev_get_wiphy(netdev);
 	station->netdev = netdev;
+
+	station->wiphy_watch = wiphy_state_watch_add(station->wiphy,
+							station_wiphy_watch,
+							station, NULL);
 
 	l_queue_push_head(station_list, station);
 
@@ -4116,6 +4177,8 @@ static void station_free(struct station *station)
 
 	if (station->scan_freqs_order[2])
 		scan_freq_set_free(station->scan_freqs_order[2]);
+
+	wiphy_state_watch_remove(station->wiphy, station->wiphy_watch);
 
 	l_free(station);
 }
