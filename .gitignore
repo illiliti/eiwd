@@ -38,6 +38,7 @@ tools/hwsim
 tools/hwsim.1
 tools/probe-req
 tools/iwd-decrypt-profile
+tools/iwd-psk
 unit/test-cmac-aes
 unit/test-arc4
 unit/test-hmac-md5
