@@ -134,6 +134,7 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 				const void *ies, uint16_t ies_len,
 				const struct scan_bss *bss,
 				uint64_t *out_data_rate);
+bool wiphy_regdom_is_updating(struct wiphy *wiphy);
 
 uint32_t wiphy_state_watch_add(struct wiphy *wiphy,
 				wiphy_state_watch_func_t func, void *user_data,
