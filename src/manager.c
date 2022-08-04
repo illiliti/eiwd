@@ -755,7 +755,7 @@ static void manager_config_notify(struct l_genl_msg *msg, void *user_data)
 
 		if (!wiphy_find(wiphy_id)) {
 			l_warn("Received a NEW_INTERFACE for a wiphy id"
-				" that isn't tracked.  This is most ikely a"
+				" that isn't tracked.  This is most likely a"
 				" kernel bug where NEW_WIPHY events that are"
 				" too large are dropped on the floor."
 				"  Attempting a workaround...");
