@@ -330,6 +330,9 @@ struct scan_freq_set *scan_freq_set_new(void)
 
 void scan_freq_set_free(struct scan_freq_set *freqs)
 {
+	if (!freqs)
+		return;
+
 	l_uintset_free(freqs->channels_5ghz);
 	l_uintset_free(freqs->channels_6ghz);
 	l_free(freqs);
