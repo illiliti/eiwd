@@ -133,6 +133,7 @@ struct scan_results {
 	struct l_queue *bss_list;
 	uint64_t time_stamp;
 	struct scan_request *sr;
+	struct scan_freq_set *freqs;
 };
 
 static bool start_next_scan_request(struct wiphy_radio_work_item *item);
@@ -1828,11 +1829,13 @@ static void get_scan_done(void *user)
 
 	if (!results->sr || !results->sr->canceled)
 		scan_finished(sc, 0, results->bss_list,
-						results->sr->freqs_scanned,
-						results->sr);
+						results->freqs, results->sr);
 	else
 		l_queue_destroy(results->bss_list,
 				(l_queue_destroy_func_t) scan_bss_free);
+
+	if (!results->sr)
+		scan_freq_set_free(results->freqs);
 
 	l_free(results);
 }
@@ -1999,7 +2002,16 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		results->sr = sr;
 		results->bss_list = l_queue_new();
 
-		scan_parse_result_frequencies(msg, sr->freqs_scanned);
+		/*
+		 * In case this was an external scan, setup a new, temporary
+		 * frequency set to report the results to the periodic callback
+		 */
+		if (!results->sr)
+			results->freqs = scan_freq_set_new();
+		else
+			results->freqs = sr->freqs_scanned;
+
+		scan_parse_result_frequencies(msg, results->freqs);
 
 		scan_msg = l_genl_msg_new_sized(NL80211_CMD_GET_SCAN, 8);
 		l_genl_msg_append_attr(scan_msg, NL80211_ATTR_WDEV, 8,
