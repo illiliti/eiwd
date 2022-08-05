@@ -25,6 +25,7 @@
 
 #include <stdint.h>
 #include <unistd.h>
+#include <ell/cleanup.h>
 
 #define ___PASTE(a, b) a ## b
 #define __PASTE(a, b) ___PASTE(a, b)
@@ -123,5 +124,7 @@ void scan_freq_set_subtract(struct scan_freq_set *set,
 bool scan_freq_set_isempty(const struct scan_freq_set *set);
 uint32_t *scan_freq_set_to_fixed_array(const struct scan_freq_set *set,
 					size_t *len_out);
+
+DEFINE_CLEANUP_FUNC(scan_freq_set_free);
 
 #endif /* __UTIL_H */
