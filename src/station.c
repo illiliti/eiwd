@@ -1354,7 +1354,7 @@ static void station_quick_scan_destroy(void *userdata)
 
 static int station_quick_scan_trigger(struct station *station)
 {
-	struct scan_freq_set *known_freq_set;
+	_auto_(scan_freq_set_free) struct scan_freq_set *known_freq_set = NULL;
 	bool known_6ghz;
 	const struct scan_freq_set *disabled = wiphy_get_disabled_freqs(
 								station->wiphy);
@@ -1385,7 +1385,6 @@ static int station_quick_scan_trigger(struct station *station)
 		return -ENOTSUP;
 
 	if (!wiphy_constrain_freq_set(station->wiphy, known_freq_set)) {
-		scan_freq_set_free(known_freq_set);
 		return -ENOTSUP;
 	}
 
@@ -1394,8 +1393,6 @@ static int station_quick_scan_trigger(struct station *station)
 						station_quick_scan_triggered,
 						station_quick_scan_results,
 						station_quick_scan_destroy);
-	scan_freq_set_free(known_freq_set);
-
 	if (!station->quick_scan_id)
 		return -EIO;
 
