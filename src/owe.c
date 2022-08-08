@@ -45,6 +45,20 @@ struct owe_sm {
 
 static bool owe_reset(struct owe_sm *owe)
 {
+	if (owe->hs->force_default_owe_group) {
+		if (owe->retry != 0) {
+			l_warn("Forced default OWE group but was rejected!");
+			return false;
+		}
+
+		l_debug("Forcing default OWE group 19");
+
+		owe->retry++;
+		owe->group = 19;
+
+		goto get_curve;
+	}
+
 	/*
 	 * Reset OWE with a different curve group and generate a new key pair
 	 */
@@ -52,6 +66,8 @@ static bool owe_reset(struct owe_sm *owe)
 		return false;
 
 	owe->group = owe->ecc_groups[owe->retry];
+
+get_curve:
 	owe->curve = l_ecc_curve_from_ike_group(owe->group);
 
 	if (owe->private)
