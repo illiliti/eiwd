@@ -88,6 +88,7 @@ struct network {
 	bool provisioning_hidden:1;
 	uint8_t transition_disable; /* Temporary cache until info is set */
 	bool have_transition_disable:1;
+	bool force_default_owe_group:1;
 	int rank;
 	/* Holds DBus Connect() message if it comes in before ANQP finishes */
 	struct l_dbus_message *connect_after_anqp;
@@ -525,6 +526,9 @@ int network_handshake_setup(struct network *network, struct scan_bss *bss,
 		handshake_state_set_protocol_version(hs, eapol_proto_version);
 	}
 
+	if (hs->akm_suite == IE_RSN_AKM_SUITE_OWE)
+		hs->force_default_owe_group = network->force_default_owe_group;
+
 	/*
 	 * The randomization options in the provisioning file are dependent on
 	 * main.conf: [General].AddressRandomization=network. Any other value
@@ -762,6 +766,16 @@ void network_set_info(struct network *network, struct network_info *info)
 
 	l_dbus_property_changed(dbus_get_bus(), network_get_path(network),
 					IWD_NETWORK_INTERFACE, "KnownNetwork");
+}
+
+void network_set_force_default_owe_group(struct network *network)
+{
+	network->force_default_owe_group = true;
+}
+
+bool network_get_force_default_owe_group(struct network *network)
+{
+	return network->force_default_owe_group;
 }
 
 static inline bool __bss_is_sae(const struct scan_bss *bss,

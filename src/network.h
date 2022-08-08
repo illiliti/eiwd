@@ -58,6 +58,8 @@ void network_sync_settings(struct network *network);
 
 const struct network_info *network_get_info(const struct network *network);
 void network_set_info(struct network *network, struct network_info *info);
+void network_set_force_default_owe_group(struct network *network);
+bool network_get_force_default_owe_group(struct network *network);
 
 int network_can_connect_bss(struct network *network,
 						const struct scan_bss *bss);
