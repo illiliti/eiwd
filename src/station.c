@@ -2815,6 +2815,29 @@ static bool station_try_next_bss(struct station *station)
 	return true;
 }
 
+static bool station_retry_owe_default_group(struct station *station)
+{
+	/*
+	 * Shouldn't ever get here with classic open networks so its safe to
+	 * assume if the security is none this is an OWE network.
+	 */
+	if (network_get_security(station->connected_network) != SECURITY_NONE)
+		return false;
+
+	/* If we already forced group 19, allow the BSS to be blacklisted */
+	if (network_get_force_default_owe_group(station->connected_network))
+		return false;
+
+	l_warn("Failed to connect to OWE BSS "MAC" possibly because the AP is "
+		"incorrectly deriving the PTK, this AP should be fixed. "
+		"Retrying with group 19 as a workaround",
+		MAC_STR(station->connected_bss->addr));
+
+	network_set_force_default_owe_group(station->connected_network);
+
+	return true;
+}
+
 static bool station_retry_with_reason(struct station *station,
 					uint16_t reason_code)
 {
@@ -2825,12 +2848,20 @@ static bool station_retry_with_reason(struct station *station,
 	 * Other reason codes can be added here if its decided we want to
 	 * fail in those cases.
 	 */
-	if (reason_code == MMPDU_REASON_CODE_PREV_AUTH_NOT_VALID ||
-			reason_code == MMPDU_REASON_CODE_IEEE8021X_FAILED)
+	switch (reason_code) {
+	case MMPDU_REASON_CODE_PREV_AUTH_NOT_VALID:
+		if (station_retry_owe_default_group(station))
+			goto try_next;
+		/* fall through */
+	case MMPDU_REASON_CODE_IEEE8021X_FAILED:
 		return false;
+	default:
+		break;
+	}
 
 	blacklist_add_bss(station->connected_bss->addr);
 
+try_next:
 	return station_try_next_bss(station);
 }
 
