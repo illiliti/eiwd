@@ -53,6 +53,13 @@ def tx(fromsock, tosock, src, dst):
 
     return (frame, fromsock, tosock, src, dst)
 
+def tx_packets(if0, if1, num):
+    sock0, addr0 = raw_if_socket(if0)
+    sock1, addr1 = raw_if_socket(if1)
+
+    for i in range(num):
+        tx(sock0, sock1, addr0, addr1)
+
 def test_connected(if0=None, if1=None, group=True, expect_fail=False):
     if expect_fail:
         timeout = 0
