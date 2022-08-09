@@ -2278,6 +2278,121 @@ static void print_rsnx(unsigned int level, const char *label,
 		print_attr(level + 1, "SAE Hash-to-Element");
 }
 
+static void print_bss_parameters(unsigned int level, uint8_t parameters)
+{
+	print_attr(level, "BSS Parameters");
+
+	if (test_bit(&parameters, 0))
+		print_attr(level + 1, "OCT Recommended");
+
+	if (test_bit(&parameters, 1))
+		print_attr(level + 1, "Same SSID");
+
+	if (test_bit(&parameters, 2))
+		print_attr(level + 1, "Multiple BSSID");
+
+	if (test_bit(&parameters, 3))
+		print_attr(level + 1, "Transmitted BSSID");
+
+	if (test_bit(&parameters, 4))
+		print_attr(level + 1, "2.4/5GHz Co-Located ESS member");
+
+	if (test_bit(&parameters, 5))
+		print_attr(level + 1, "Unsolicited Probe Responses Active");
+
+	if (test_bit(&parameters, 6))
+		print_attr(level + 1, "Co-Located AP");
+}
+
+static void print_reduced_neighbor_report(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	const uint8_t *ptr = data;
+	unsigned int field_count = 0;
+
+	print_attr(level, "%s", label);
+
+	if (size < 5) {
+		print_attr(level + 1, "error parsing");
+		return;
+	}
+
+	level++;
+
+	while (ptr < (uint8_t *)data + size) {
+		uint16_t hdr = l_get_le16(ptr);
+		uint8_t oper = l_get_u8(ptr + 2);
+		uint8_t chan = l_get_u8(ptr + 3);
+		uint8_t count = bit_field((uint8_t)(hdr & 0xff), 4, 4);
+		uint8_t type = bit_field((uint8_t)(hdr & 0xff), 0, 2);
+		uint8_t filtered = test_bit(&hdr, 2);
+		uint8_t info_size = (hdr & 0xff00) >> 8;
+		uint8_t i;
+
+		ptr += 4;
+
+		print_attr(level, "Field #%u", field_count);
+
+		/* TBTT Information Header */
+		print_attr(level + 1, "Info Field Type: %u", type);
+		print_attr(level + 1, "Filtered Neighbor AP: %u", filtered);
+		print_attr(level + 1, "Information Count: %u", count);
+		print_attr(level + 1, "Information Length: %u", info_size);
+
+		print_attr(level + 1, "Operating Class: %u", oper);
+		print_attr(level + 1, "Channel: %u", chan);
+
+		level++;
+
+		/* Information Set(s) */
+		for (i = 0; i <= count; i++) {
+			const uint8_t *info = ptr;
+
+			if (info + info_size > (uint8_t *)data + size ||
+					info_size == 0 || info_size == 3 ||
+					info_size == 4 || info_size == 10) {
+				print_attr(level + 1, "error parsing");
+				return;
+			}
+
+			print_attr(level, "Information Set #%u", i);
+
+			if (info_size >= 1)
+				print_attr(level + 1,
+						"Neighbor TBTT Offset: %u TU's",
+						l_get_u8(info++));
+
+			if (info_size >= 7) {
+				print_attr(level + 1, "BSSID: "MAC,
+						MAC_STR(info));
+				info += 6;
+			}
+
+			if (info_size == 5 || info_size == 6 ||
+					info_size >= 11) {
+				print_attr(level + 1, "Short SSID: %08x",
+						l_get_u32(info));
+				info += 4;
+			}
+
+			if (info_size == 2 || info_size == 6 ||
+					info_size == 8 || info_size == 9 ||
+					info_size >= 12)
+				print_bss_parameters(level + 1, *info++);
+
+			if (info_size == 9 || info_size >= 13)
+				print_attr(level + 1, "20 MHz PSD: %d",
+						(int8_t)*info++);
+
+			ptr += info_size;
+		}
+
+		level--;
+
+		field_count++;
+	}
+}
+
 static struct attr_entry ie_entry[] = {
 	{ IE_TYPE_SSID,				"SSID",
 		ATTR_CUSTOM,	{ .function = print_ie_ssid } },
@@ -2340,6 +2455,8 @@ static struct attr_entry ie_entry[] = {
 		ATTR_CUSTOM,	{ .function = print_fast_bss_transition } },
 	{ IE_TYPE_MOBILITY_DOMAIN,		"Mobility Domain",
 		ATTR_CUSTOM,	{ .function = print_mobility_domain } },
+	{ IE_TYPE_REDUCED_NEIGHBOR_REPORT,	"Reduced Neighbor Report",
+		ATTR_CUSTOM,	{ .function = print_reduced_neighbor_report } },
 	{ IE_TYPE_RSNX,				"RSNX",
 		ATTR_CUSTOM,	{ .function = print_rsnx } },
 	{ },
