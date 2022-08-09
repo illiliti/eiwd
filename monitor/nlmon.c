@@ -5539,6 +5539,24 @@ static void print_band_rates(unsigned int level, const char *label,
 	}
 }
 
+static const struct attr_entry iftype_data_table[] = {
+	{ NL80211_BAND_IFTYPE_ATTR_IFTYPES, "Interface Types", ATTR_NESTED,
+			{ iftype_table } },
+	{ NL80211_BAND_IFTYPE_ATTR_HE_CAP_MAC, "HE MAC Capabilities",
+			ATTR_BINARY },
+	{ NL80211_BAND_IFTYPE_ATTR_HE_CAP_PHY, "HE PHY Capabilities",
+			ATTR_BINARY },
+	{ NL80211_BAND_IFTYPE_ATTR_HE_CAP_MCS_SET, "HE NSS/MCS Set",
+			ATTR_BINARY },
+	{ NL80211_BAND_IFTYPE_ATTR_HE_CAP_PPE, "HE PPE Thresholds",
+			ATTR_BINARY },
+	{ NL80211_BAND_IFTYPE_ATTR_MAX, "Highest band HE capability attribute",
+			ATTR_BINARY },
+	{ NL80211_BAND_IFTYPE_ATTR_HE_6GHZ_CAPA, "HE 6GHz band capabilities",
+			ATTR_BINARY },
+	{ }
+};
+
 static const struct attr_entry wiphy_bands_table[] = {
 	{ NL80211_BAND_ATTR_FREQS, "Frequencies",
 			ATTR_CUSTOM, { .function = print_band_frequencies } },
@@ -5552,6 +5570,8 @@ static const struct attr_entry wiphy_bands_table[] = {
 	{ NL80211_BAND_ATTR_HT_AMPDU_DENSITY, "AMPDU Density" },
 	{ NL80211_BAND_ATTR_VHT_MCS_SET, "VHT MCS Set" },
 	{ NL80211_BAND_ATTR_VHT_CAPA, "VHT Capabilities" },
+	{ NL80211_BAND_ATTR_IFTYPE_DATA, "Interface Type Data",
+			ATTR_ARRAY, { iftype_data_table, ATTR_NESTED }  },
 	{ }
 };
 
