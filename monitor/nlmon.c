@@ -139,7 +139,8 @@ struct attr_entry {
 	uint16_t attr;
 	const char *str;
 	enum attr_type type;
-	union {
+
+	struct {
 		const struct attr_entry *nested;
 		enum attr_type array_type;
 		attr_func_t function;
@@ -6691,6 +6692,7 @@ static void print_value(int indent, const char *label, enum attr_type type,
 }
 
 static void print_array(int indent, enum attr_type type,
+						const struct attr_entry *entry,
 						const void *buf, uint32_t len)
 {
 	const struct nlattr *nla;
@@ -6700,8 +6702,20 @@ static void print_array(int indent, enum attr_type type,
 		char str[8];
 
 		snprintf(str, sizeof(str), "%u", nla_type);
-		print_value(indent, str, type,
+
+		switch (type) {
+		case ATTR_NESTED:
+			if (entry->nested)
+				print_attributes(indent + 1, entry->nested,
+					NLA_DATA(nla), NLA_PAYLOAD(nla));
+			else
+				printf("missing nested table\n");
+			break;
+		default:
+			print_value(indent, str, type,
 				NLA_DATA(nla), NLA_PAYLOAD(nla));
+			break;
+		}
 	}
 }
 
@@ -6832,7 +6846,7 @@ static void print_attributes(int indent, const struct attr_entry *table,
 						NLA_PAYLOAD(nla));
 			if (array_type == ATTR_UNSPEC)
 				printf("missing type\n");
-			print_array(indent + 1, array_type,
+			print_array(indent + 1, array_type, &table[i],
 					NLA_DATA(nla), NLA_PAYLOAD(nla));
 			break;
 		case ATTR_FLAG_OR_U16:
