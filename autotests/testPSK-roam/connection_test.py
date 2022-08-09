@@ -13,7 +13,7 @@ from hostapd import HostapdCLI
 import testutil
 
 class Test(unittest.TestCase):
-    def validate_connection(self, wd, over_ds=False):
+    def validate_connection(self, wd, over_ds=False, pkt_loss=False):
         device = wd.list_devices(1)[0]
 
         ordered_network = device.get_ordered_network('TestFT', full_scan=True)
@@ -41,10 +41,23 @@ class Test(unittest.TestCase):
         if over_ds:
             self.rule0.enabled = True
 
-        device.roam(self.bss_hostapd[1].bssid)
+        if pkt_loss:
+            # Drop all data frames
+            self.rule1.enabled = True
+            # Set the current BSS signal lower so we have roam candidates
+            self.rule2.enabled = True
+            # Send 100 packets (to be dropped), should trigger beacon loss
+            testutil.tx_packets(device.name, self.bss_hostapd[0].ifname, 100)
+            device.wait_for_event('packet-loss-roam', timeout=30)
+        else:
+            device.roam(self.bss_hostapd[1].bssid)
 
         condition = 'obj.state == DeviceState.roaming'
         wd.wait_for_object_condition(device, condition)
+
+        if pkt_loss:
+            self.rule1.enabled = False
+            self.rule2.enabled = False
 
         # Check that iwd is on BSS 1 once out of roaming state and doesn't
         # go through 'disconnected', 'autoconnect', 'connecting' in between
@@ -132,6 +145,23 @@ class Test(unittest.TestCase):
 
         self.validate_connection(wd)
 
+    def test_roam_packet_loss(self):
+        wd = IWD(True)
+
+        self.bss_hostapd[0].set_value('wpa_key_mgmt', 'FT-PSK')
+        self.bss_hostapd[0].set_value('ft_over_ds', '0')
+        self.bss_hostapd[0].set_value('ocv', '1')
+        self.bss_hostapd[0].reload()
+        self.bss_hostapd[0].wait_for_event("AP-ENABLED")
+
+        self.bss_hostapd[1].set_value('wpa_key_mgmt', 'FT-PSK')
+        self.bss_hostapd[1].set_value('ft_over_ds', '0')
+        self.bss_hostapd[0].set_value('ocv', '1')
+        self.bss_hostapd[1].reload()
+        self.bss_hostapd[1].wait_for_event("AP-ENABLED")
+
+        self.validate_connection(wd, pkt_loss=True)
+
     def tearDown(self):
         os.system('ip link set "' + self.bss_hostapd[0].ifname + '" down')
         os.system('ip link set "' + self.bss_hostapd[1].ifname + '" down')
@@ -139,6 +169,8 @@ class Test(unittest.TestCase):
         os.system('ip link set "' + self.bss_hostapd[1].ifname + '" up')
 
         self.rule0.enabled = False
+        self.rule1.enabled = False
+        self.rule2.enabled = False
 
     @classmethod
     def setUpClass(cls):
@@ -148,6 +180,7 @@ class Test(unittest.TestCase):
 
         cls.bss_hostapd = [ HostapdCLI(config='ft-psk-ccmp-1.conf'),
                             HostapdCLI(config='ft-psk-ccmp-2.conf') ]
+        rad0 = hwsim.get_radio('rad0')
         rad2 = hwsim.get_radio('rad2')
 
         cls.rule0 = hwsim.rules.create()
@@ -156,6 +189,15 @@ class Test(unittest.TestCase):
         cls.rule0.signal = -2000
         cls.rule0.prefix = 'b0'
         cls.rule0.drop = True
+
+        cls.rule1 = hwsim.rules.create()
+        cls.rule1.source = rad2.addresses[0]
+        cls.rule1.prefix = '08'
+        cls.rule1.drop = True
+
+        cls.rule2 = hwsim.rules.create()
+        cls.rule2.source = rad0.addresses[0]
+        cls.rule2.signal = -4000
 
         # Set interface addresses to those expected by hostapd config files
         os.system('ip link set dev "' + cls.bss_hostapd[0].ifname + '" down')
