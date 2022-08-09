@@ -6741,7 +6741,7 @@ static void print_attributes(int indent, const struct attr_entry *table,
 		int64_t val_s64;
 		uint8_t *ptr;
 
-		str = "Reserved";
+		str = "Unknown";
 		type = ATTR_UNSPEC;
 		array_type = ATTR_UNSPEC;
 		nested = NULL;
@@ -6761,7 +6761,7 @@ static void print_attributes(int indent, const struct attr_entry *table,
 
 		switch (type) {
 		case ATTR_UNSPEC:
-			print_attr(indent, "%s: len %u", str,
+			print_attr(indent, "%s: %u len %u", str, nla_type,
 						NLA_PAYLOAD(nla));
 			print_hexdump(indent + 1,
 					NLA_DATA(nla), NLA_PAYLOAD(nla));
