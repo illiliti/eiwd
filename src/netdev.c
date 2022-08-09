@@ -1073,6 +1073,7 @@ static void netdev_cqm_event(struct l_genl_msg *msg, struct netdev *netdev)
 	const void *data;
 	uint32_t *rssi_event = NULL;
 	int32_t *rssi_val = NULL;
+	uint32_t *pkt_event = NULL;
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
@@ -1096,8 +1097,7 @@ static void netdev_cqm_event(struct l_genl_msg *msg, struct netdev *netdev)
 					if (len != 4)
 						continue;
 
-					l_debug("Packets lost event: %d",
-							*(uint32_t *) data);
+					pkt_event = (uint32_t *) data;
 					break;
 
 				case NL80211_ATTR_CQM_BEACON_LOSS_EVENT:
@@ -1128,7 +1128,9 @@ static void netdev_cqm_event(struct l_genl_msg *msg, struct netdev *netdev)
 			l_debug("Signal change event (above=%d)", *rssi_event);
 			netdev_cqm_event_rssi_threshold(netdev, *rssi_event);
 		}
-	}
+	} else if (pkt_event && netdev->event_filter)
+		netdev->event_filter(netdev, NETDEV_EVENT_PACKET_LOSS_NOTIFY,
+					pkt_event, netdev->user_data);
 }
 
 static void netdev_rekey_offload_event(struct l_genl_msg *msg,
