@@ -2535,15 +2535,10 @@ static void station_neighbor_report_cb(struct netdev *netdev, int err,
 		station_roam_failed(station);
 }
 
-static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
+static void station_start_roam(struct station *station)
 {
-	struct station *station = user_data;
 	int r;
 
-	l_debug("%u", netdev_get_ifindex(station->netdev));
-
-	l_timeout_remove(station->roam_trigger_timeout);
-	station->roam_trigger_timeout = NULL;
 	station->preparing_roam = true;
 
 	/*
@@ -2575,6 +2570,18 @@ static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
 
 	if (r < 0)
 		station_roam_failed(station);
+}
+
+static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
+{
+	struct station *station = user_data;
+
+	l_debug("%u", netdev_get_ifindex(station->netdev));
+
+	l_timeout_remove(station->roam_trigger_timeout);
+	station->roam_trigger_timeout = NULL;
+
+	station_start_roam(station);
 }
 
 static void station_roam_timeout_rearm(struct station *station, int seconds)
@@ -3057,6 +3064,23 @@ static void station_disconnect_event(struct station *station, void *event_data)
 	l_warn("Unexpected disconnect event");
 }
 
+#define STATION_PKT_LOSS_THRESHOLD 10
+
+static void station_packets_lost(struct station *station, uint32_t num_pkts)
+{
+	l_debug("Packets lost event: %u", num_pkts);
+
+	if (num_pkts < STATION_PKT_LOSS_THRESHOLD)
+		return;
+
+	if (station_cannot_roam(station))
+		return;
+
+	station_debug_event(station, "packet-loss-roam");
+
+	station_start_roam(station);
+}
+
 static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 					void *event_data, void *user_data)
 {
@@ -3091,6 +3115,9 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 		break;
 	case NETDEV_EVENT_CHANNEL_SWITCHED:
 		station_event_channel_switched(station, l_get_u32(event_data));
+		break;
+	case NETDEV_EVENT_PACKET_LOSS_NOTIFY:
+		station_packets_lost(station, l_get_u32(event_data));
 		break;
 	}
 }
