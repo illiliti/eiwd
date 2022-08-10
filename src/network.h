@@ -91,7 +91,7 @@ void network_blacklist_add(struct network *network, struct scan_bss *bss);
 struct erp_cache_entry *network_get_erp_cache(struct network *network);
 
 const struct l_queue_entry *network_bss_list_get_entries(
-						struct network *network);
+						const struct network *network);
 
 struct l_dbus_message *__network_connect(struct network *network,
 						struct scan_bss *bss,

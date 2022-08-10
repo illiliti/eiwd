@@ -1168,7 +1168,7 @@ struct erp_cache_entry *network_get_erp_cache(struct network *network)
 }
 
 const struct l_queue_entry *network_bss_list_get_entries(
-						struct network *network)
+						const struct network *network)
 {
 	return l_queue_get_entries(network->bss_list);
 }
