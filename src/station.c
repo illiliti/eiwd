@@ -4346,6 +4346,13 @@ static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 	if (!target || target == station->connected_bss)
 		return dbus_error_invalid_args(message);
 
+	if (station->connected_bss->ssid_len != target->ssid_len)
+		goto invalid_args;
+
+	if (memcmp(station->connected_bss->ssid, target->ssid,
+				target->ssid_len))
+		goto invalid_args;
+
 	l_debug("Attempting forced roam to BSS "MAC, MAC_STR(mac));
 
 	/* The various roam routines expect this to be set from scanning */
