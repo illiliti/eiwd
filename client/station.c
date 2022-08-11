@@ -280,7 +280,8 @@ static enum cmd_status cmd_list(const char *device_name, char **argv, int argc)
 static char *connect_cmd_arg_completion(const char *text, int state,
 					const char *device_name)
 {
-	const struct proxy_interface *device = device_get_default();
+	const struct proxy_interface *device = device_proxy_find(device_name,
+							IWD_STATION_INTERFACE);
 
 	if (!device)
 		return NULL;
