@@ -329,9 +329,6 @@ static char **cmd_completion_match_family_cmd(const char *cmd_family,
 			break;
 		}
 
-		if (family->set_default_entity)
-			family->set_default_entity(arg1);
-
 		matches = cmd_completion_match_entity_cmd(arg2, text,
 							family->command_list);
 
@@ -661,21 +658,6 @@ void command_set_exit_status(int status)
 int command_get_exit_status(void)
 {
 	return exit_status;
-}
-
-void command_reset_default_entities(void)
-{
-	const struct l_queue_entry *entry;
-
-	for (entry = l_queue_get_entries(command_families); entry;
-							entry = entry->next) {
-		struct command_family *family = entry->data;
-
-		if (!family->reset_default_entity)
-			continue;
-
-		family->reset_default_entity();
-	}
 }
 
 void command_family_register(const struct command_family *family)

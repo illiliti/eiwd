@@ -806,8 +806,6 @@ static void service_disappeared_callback(struct l_dbus *dbus,
 
 	l_queue_clear(proxy_interfaces, proxy_interface_destroy);
 
-	command_reset_default_entities();
-
 	display_disable_cmd_prompt();
 }
 
