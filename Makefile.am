@@ -301,7 +301,9 @@ client_iwctl_SOURCES = client/main.c \
 			client/wsc.c client/station.c \
 			client/diagnostic.c client/diagnostic.h \
 			client/daemon.c client/daemon.h \
-			client/dpp.c
+			client/dpp.c client/station-debug.c \
+			src/util.c src/util.h \
+			src/band.c src/band.h
 
 client_iwctl_LDADD = $(ell_ldadd) $(READLINE_LIBS)
 
