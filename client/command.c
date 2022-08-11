@@ -213,20 +213,57 @@ bool command_line_find_token(const char *token, uint8_t num_to_inspect)
 	return false;
 }
 
+/*
+ * Work around readline limitations of not being able to pass a context pointer
+ * to match functions. Set the command match function/entity to these globals
+ * and call a generic match function which can call the _real_ match function
+ * and include the entity.
+ */
+static command_completion_func_t cmd_current_completion_func = NULL;
+static const char *cmd_current_entity = NULL;
+
+static char *cmd_completion_generic(const char *text, int state)
+{
+	return cmd_current_completion_func(text, state, cmd_current_entity);
+}
+
 static char **cmd_completion_match_entity_cmd(const char *cmd, const char *text,
 						const struct command *cmd_list)
 {
 	char **matches = NULL;
 	size_t i;
+	char *family = NULL;
+	char *entity = NULL;
+	char *prompt = NULL;
 
 	for (i = 0; cmd_list[i].cmd; i++) {
+		char *tmp;
+
 		if (strcmp(cmd_list[i].cmd, cmd))
 			continue;
 
 		if (!cmd_list[i].completion)
 			break;
 
-		matches = rl_completion_matches(text, cmd_list[i].completion);
+		if (cmd_list[i].entity) {
+			prompt = rl_copy_text(0, rl_end);
+
+			family = strtok_r(prompt, " ", &tmp);
+			if (!family)
+				goto done;
+
+			entity = strtok_r(NULL, " ", &tmp);
+		}
+
+done:
+		cmd_current_completion_func = cmd_list[i].completion;
+		cmd_current_entity = entity;
+
+		matches = rl_completion_matches(text, cmd_completion_generic);
+
+		l_free(prompt);
+		cmd_current_completion_func = NULL;
+		cmd_current_entity = NULL;
 
 		break;
 	}
