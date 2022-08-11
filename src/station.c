@@ -4573,6 +4573,90 @@ static struct l_dbus_message *station_property_set_autoconnect(
 	return l_dbus_message_new_method_return(message);
 }
 
+static void station_append_byte_array(struct l_dbus_message_builder *builder,
+					const char *name,
+					const uint8_t *bytes, size_t len)
+{
+	size_t i;
+
+	l_dbus_message_builder_enter_dict(builder, "sv");
+	l_dbus_message_builder_append_basic(builder, 's', name);
+	l_dbus_message_builder_enter_variant(builder, "ay");
+	l_dbus_message_builder_enter_array(builder, "y");
+
+	for (i = 0; i < len; i++)
+		l_dbus_message_builder_append_basic(builder, 'y', &bytes[i]);
+
+	l_dbus_message_builder_leave_array(builder);
+	l_dbus_message_builder_leave_variant(builder);
+	l_dbus_message_builder_leave_dict(builder);
+}
+
+static void station_append_bss_list(struct l_dbus_message_builder *builder,
+					const struct l_queue_entry *entry)
+{
+	for (; entry; entry = entry->next) {
+		struct scan_bss *bss = entry->data;
+		int32_t rssi = bss->signal_strength / 100;
+
+		l_dbus_message_builder_enter_array(builder, "{sv}");
+
+		dbus_append_dict_basic(builder, "Frequency", 'u',
+						&bss->frequency);
+		dbus_append_dict_basic(builder, "RSSI", 'i',
+						&rssi);
+		dbus_append_dict_basic(builder, "Rank", 'q', &bss->rank);
+
+		dbus_append_dict_basic(builder, "Address", 's',
+					util_address_to_string(bss->addr));
+
+		station_append_byte_array(builder, "MDE", bss->mde, 3);
+
+		l_dbus_message_builder_leave_array(builder);
+	}
+}
+
+static struct l_dbus_message *station_debug_get_networks(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct station *station = user_data;
+	struct l_dbus_message *reply =
+				l_dbus_message_new_method_return(message);
+	struct l_dbus_message_builder *builder =
+				l_dbus_message_builder_new(reply);
+	const struct l_queue_entry *entry;
+
+	l_dbus_message_builder_enter_array(builder, "{oaa{sv}}");
+
+	if (l_queue_isempty(station->networks_sorted))
+		goto done;
+
+	for (entry = l_queue_get_entries(station->networks_sorted); entry;
+							entry = entry->next) {
+		const struct network *network = entry->data;
+
+		l_dbus_message_builder_enter_dict(builder, "oaa{sv}");
+		l_dbus_message_builder_append_basic(builder, 'o',
+						network_get_path(network));
+		l_dbus_message_builder_enter_array(builder, "a{sv}");
+
+		station_append_bss_list(builder,
+					network_bss_list_get_entries(network));
+
+		l_dbus_message_builder_leave_array(builder);
+		l_dbus_message_builder_leave_dict(builder);
+	}
+
+done:
+	l_dbus_message_builder_leave_array(builder);
+
+	l_dbus_message_builder_finalize(builder);
+	l_dbus_message_builder_destroy(builder);
+
+	return reply;
+}
+
 static void station_setup_debug_interface(
 					struct l_dbus_interface *interface)
 {
@@ -4585,6 +4669,9 @@ static void station_setup_debug_interface(
 	l_dbus_interface_method(interface, "Scan", 0,
 					station_debug_scan, "", "aq",
 					"frequencies");
+	l_dbus_interface_method(interface, "GetNetworks", 0,
+				station_debug_get_networks, "a{oaa{sv}}", "",
+				"networks");
 
 	l_dbus_interface_signal(interface, "Event", 0, "sav", "name", "data");
 
