@@ -17,18 +17,7 @@ class Test(unittest.TestCase):
         bss0_addr = bss_hostapd[0].bssid
         bss1_addr = bss_hostapd[1].bssid
 
-        # Fill in the neighbor AP tables in both BSSes.  By default each
-        # instance knows only about current BSS, even inside one hostapd
-        # process.
-        # Roaming still works without the neighbor AP table but neighbor
-        # reports have to be disabled in the .conf files
-        bss0_nr = ''.join(bss0_addr.split(':')) + \
-                '8f0000005101060603000000'
-        bss1_nr = ''.join(bss1_addr.split(':')) + \
-                '8f0000005102060603000000'
-
-        bss_hostapd[0].set_neighbor(bss1_addr, 'TestPreauth', bss1_nr)
-        bss_hostapd[1].set_neighbor(bss0_addr, 'TestPreauth', bss0_nr)
+        HostapdCLI.group_neighbors(*bss_hostapd)
 
         wd = IWD(True)
 
