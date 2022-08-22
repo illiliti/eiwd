@@ -55,15 +55,15 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.roaming'
         wd.wait_for_object_condition(device, condition)
 
-        if pkt_loss:
-            self.rule1.enabled = False
-            self.rule2.enabled = False
-
         # Check that iwd is on BSS 1 once out of roaming state and doesn't
         # go through 'disconnected', 'autoconnect', 'connecting' in between
         from_condition = 'obj.state == DeviceState.roaming'
         to_condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_change(device, from_condition, to_condition)
+
+        if pkt_loss:
+            self.rule1.enabled = False
+            self.rule2.enabled = False
 
         self.bss_hostapd[1].wait_for_event('AP-STA-CONNECTED %s' % device.address)
 
@@ -197,7 +197,7 @@ class Test(unittest.TestCase):
 
         cls.rule2 = hwsim.rules.create()
         cls.rule2.source = rad0.addresses[0]
-        cls.rule2.signal = -4000
+        cls.rule2.signal = -7000
 
         # Set interface addresses to those expected by hostapd config files
         os.system('ip link set dev "' + cls.bss_hostapd[0].ifname + '" down')
