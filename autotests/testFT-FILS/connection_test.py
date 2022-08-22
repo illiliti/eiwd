@@ -122,7 +122,6 @@ class Test(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        os.system('ip link set lo up')
         IWD.copy_to_storage('TestFT.8021x')
 
         cls.bss_hostapd = [ HostapdCLI(config='ft-eap-ccmp-1.conf'),

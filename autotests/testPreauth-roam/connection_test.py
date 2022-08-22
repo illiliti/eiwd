@@ -75,8 +75,6 @@ class Test(unittest.TestCase):
     def setUpClass(cls):
         IWD.copy_to_storage('TestPreauth.8021x')
 
-        os.system('ip link set lo up')
-
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
