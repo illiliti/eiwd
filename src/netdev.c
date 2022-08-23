@@ -3977,8 +3977,8 @@ offload_1x:
 }
 
 static void netdev_connect_common(struct netdev *netdev,
-					struct scan_bss *bss,
-					struct scan_bss *prev_bss,
+					const struct scan_bss *bss,
+					const struct scan_bss *prev_bss,
 					struct handshake_state *hs,
 					const struct iovec *vendor_ies,
 					size_t num_vendor_ies,
@@ -4071,7 +4071,7 @@ build_cmd_connect:
 				WIPHY_WORK_PRIORITY_CONNECT, &connect_work_ops);
 }
 
-int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
+int netdev_connect(struct netdev *netdev, const struct scan_bss *bss,
 				struct handshake_state *hs,
 				const struct iovec *vendor_ies,
 				size_t num_vendor_ies,
@@ -4178,8 +4178,9 @@ int netdev_disconnect(struct netdev *netdev,
 	return 0;
 }
 
-int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
-			struct scan_bss *orig_bss, struct handshake_state *hs,
+int netdev_reassociate(struct netdev *netdev, const struct scan_bss *target_bss,
+			const struct scan_bss *orig_bss,
+			struct handshake_state *hs,
 			netdev_event_func_t event_filter,
 			netdev_connect_cb_t cb, void *user_data)
 {
@@ -4796,7 +4797,8 @@ static void netdev_preauth_cb(const uint8_t *pmk, void *user_data)
 		pmk, preauth->user_data);
 }
 
-int netdev_preauthenticate(struct netdev *netdev, struct scan_bss *target_bss,
+int netdev_preauthenticate(struct netdev *netdev,
+				const struct scan_bss *target_bss,
 				netdev_preauthenticate_cb_t cb, void *user_data)
 {
 	struct netdev_preauth_state *preauth;
