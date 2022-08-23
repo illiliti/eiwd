@@ -85,11 +85,16 @@ class Test(unittest.TestCase):
         condition = 'not obj.connected'
         wd_ns0.wait_for_object_condition(ordered_network.network_object, condition)
 
-        # Connect to the same network from a dynamically configured client.  The
-        # DHCP server doesn't know (even though dev1 announced itself) that
-        # 192.168.1.10 is already in use and if it assigns dev2 the lowest
-        # available address, that's going to be 192.168.1.10.  dev1's ACD
-        # implementation should then stop using this address.
+        # Connect to the same network from a dynamically configured client.  We
+        # block ICMP pings so that the DHCP server can't confirm that
+        # 192.168.1.10 is in use by dev1 and if it assigns dev2 the lowest
+        # available address, that's going to be 192.168.1.10.  We also keep the
+        # second client's netdev in a separate namespace so that the kernel
+        # lets us assign the same IP.  dev1's ACD implementation should then
+        # stop using this address.  Yes, a quite unrealistic scenario but this
+        # lets us test our reaction to a conflict appearing after successful
+        # initial setup.
+        os.system("echo 1 > /proc/sys/net/ipv4/icmp_echo_ignore_all")
         ordered_network.network_object.connect()
 
         condition = 'obj.state == DeviceState.connected'
