@@ -13,36 +13,28 @@ import testutil
 from config import ctx
 import os
 import socket
+import gc
 
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
         # Use a non-default storage_dir for one of the instances, the default for the other one
-        wd = IWD(True, iwd_storage_dir='/tmp/storage')
-
-        ns0 = ctx.get_namespace('ns0')
-
-        wd_ns0 = IWD(True, namespace=ns0)
-
-        psk_agent = PSKAgent("secret123")
-        psk_agent_ns0 = PSKAgent("secret123", namespace=ns0)
-        wd.register_psk_agent(psk_agent)
-        wd_ns0.register_psk_agent(psk_agent_ns0)
-
-        dev1 = wd.list_devices(1)[0]
-        dev2 = wd_ns0.list_devices(1)[0]
+        iwd_main = IWD(True, iwd_storage_dir='/tmp/storage-main')
+        psk_agent_main = PSKAgent("secret123")
+        iwd_main.register_psk_agent(psk_agent_main)
+        dev1 = iwd_main.list_devices(1)[0]
 
         ordered_network = dev1.get_ordered_network('ap-main')
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 
         condition = 'not obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        iwd_main.wait_for_object_condition(ordered_network.network_object, condition)
 
         ordered_network.network_object.connect()
 
         condition = 'obj.state == DeviceState.connected'
-        wd.wait_for_object_condition(dev1, condition)
+        iwd_main.wait_for_object_condition(dev1, condition)
 
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected()
@@ -80,10 +72,56 @@ class Test(unittest.TestCase):
         # of the log since we care about the end result here.
         self.assertEqual(expected_rclog, entries[-3:])
 
+        # Run our second client in a separate namespace to allow ACD (ARP) to
+        # work, and also be able to set identical IPs on both interfaces for
+        # the next part of this test.
+        ns0 = ctx.get_namespace('ns0')
+
+        iwd_ns0_1 = IWD(True, namespace=ns0, iwd_storage_dir='/tmp/storage-ns0-1')
+        psk_agent_ns0_1 = PSKAgent("secret123", namespace=ns0)
+        iwd_ns0_1.register_psk_agent(psk_agent_ns0_1)
+        dev2 = iwd_ns0_1.list_devices(1)[0]
+
         ordered_network = dev2.get_ordered_network('ap-main')
 
         condition = 'not obj.connected'
-        wd_ns0.wait_for_object_condition(ordered_network.network_object, condition)
+        iwd_ns0_1.wait_for_object_condition(ordered_network.network_object, condition)
+
+        # Attempt a connection to the same AP that iwd_main is connected to
+        # using the same static config.  The new client's ACD client should
+        # detect an IP conflict and not allow the device to reach the
+        # "connected" state although the DBus .Connect call will succeed.
+        ordered_network.network_object.connect()
+        self.assertEqual(dev2.state, iwd.DeviceState.connecting)
+        try:
+            # We should either stay in "connecting" indefinitely or move to
+            # "disconnecting"
+            condition = 'obj.state != DeviceState.connecting'
+            iwd_ns0_1.wait_for_object_condition(dev2, condition, max_wait=21)
+            self.assertEqual(dev2.state, iwd.DeviceState.disconnecting)
+        except TimeoutError:
+            dev2.disconnect()
+
+        iwd_ns0_1.unregister_psk_agent(psk_agent_ns0_1)
+        del dev2
+        # Note: if any references to iwd_ns0_1 are left, the "del iwd_ns0_1"
+        # will not kill the IWD process the iwd_ns0_2 initialization will raise
+        # an exception.  The iwd_ns0_1.wait_for_object_condition() above
+        # creates a circular reference (which is not wrong in itself) and
+        # gc.collect() gets rid of it.  The actual solution is to eventually
+        # avoid executing anything important in .__del__ (which is wrong.)
+        gc.collect()
+        del iwd_ns0_1
+
+        iwd_ns0_2 = IWD(True, namespace=ns0, iwd_storage_dir='/tmp/storage-ns0-2')
+        psk_agent_ns0_2 = PSKAgent("secret123", namespace=ns0)
+        iwd_ns0_2.register_psk_agent(psk_agent_ns0_2)
+        dev2 = iwd_ns0_2.list_devices(1)[0]
+
+        ordered_network = dev2.get_ordered_network('ap-main')
+
+        condition = 'not obj.connected'
+        iwd_ns0_2.wait_for_object_condition(ordered_network.network_object, condition)
 
         # Connect to the same network from a dynamically configured client.  We
         # block ICMP pings so that the DHCP server can't confirm that
@@ -98,9 +136,9 @@ class Test(unittest.TestCase):
         ordered_network.network_object.connect()
 
         condition = 'obj.state == DeviceState.connected'
-        wd_ns0.wait_for_object_condition(dev2, condition)
+        iwd_ns0_2.wait_for_object_condition(dev2, condition)
 
-        wd.wait(1)
+        iwd_main.wait(1)
         # Check dev1 is now disconnected or without its IPv4 address
         if dev1.state == iwd.DeviceState.connected:
             testutil.test_ip_address_match(dev1.name, None)
@@ -109,9 +147,9 @@ class Test(unittest.TestCase):
         dev2.disconnect()
 
         condition = 'not obj.connected'
-        wd.wait_for_object_condition(ordered_network.network_object, condition)
+        iwd_main.wait_for_object_condition(ordered_network.network_object, condition)
 
-        wd.unregister_psk_agent(psk_agent)
+        iwd_main.unregister_psk_agent(psk_agent_main)
 
     @classmethod
     def setUpClass(cls):
@@ -132,7 +170,8 @@ class Test(unittest.TestCase):
         cls.dhcpd_pid = ctx.start_process(['dhcpd', '-f', '-cf', '/tmp/dhcpd.conf',
                                             '-lf', '/tmp/dhcpd.leases',
                                             hapd.ifname], cleanup=remove_lease)
-        IWD.copy_to_storage('static.psk', '/tmp/storage', 'ap-main.psk')
+        IWD.copy_to_storage('static.psk', '/tmp/storage-main', 'ap-main.psk')
+        IWD.copy_to_storage('static.psk', '/tmp/storage-ns0-1', 'ap-main.psk')
 
         cls.orig_path = os.environ['PATH']
         os.environ['PATH'] = '/tmp/test-bin:' + os.environ['PATH']
@@ -141,7 +180,7 @@ class Test(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.dhcpd_pid.kill()
-        os.system('rm -rf /tmp/resolvconf.log /tmp/test-bin /tmp/storage')
+        os.system('rm -rf /tmp/resolvconf.log /tmp/test-bin /tmp/storage-*')
         os.environ['PATH'] = cls.orig_path
 
 if __name__ == '__main__':
