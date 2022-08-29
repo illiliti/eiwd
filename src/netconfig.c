@@ -414,9 +414,8 @@ bool netconfig_configure(struct netconfig *netconfig,
 	netconfig->notify = notify;
 	netconfig->user_data = user_data;
 
-	/* TODO */
-
-	resolve_set_mdns(netconfig->resolve, netconfig->mdns);
+	if (unlikely(!l_netconfig_start(netconfig->nc)))
+		return false;
 
 	return true;
 }
@@ -448,6 +447,9 @@ bool netconfig_reset(struct netconfig *netconfig)
 {
 	l_netconfig_unconfigure(netconfig->nc);
 	l_netconfig_stop(netconfig->nc);
+
+	netconfig->connected[0] = false;
+	netconfig->connected[1] = false;
 
 	netconfig_free_settings(netconfig);
 	return true;
@@ -499,6 +501,44 @@ void netconfig_handle_fils_ip_resp(struct netconfig *netconfig,
 	netconfig->fils_override = l_memdup(info, sizeof(*info));
 }
 
+static void netconfig_event_handler(struct l_netconfig *nc, uint8_t family,
+					enum l_netconfig_event event,
+					void *user_data)
+{
+	struct netconfig *netconfig = user_data;
+
+	l_debug("l_netconfig event %d", event);
+
+	netconfig_commit(netconfig, family, event);
+
+	switch (event) {
+	case L_NETCONFIG_EVENT_CONFIGURE:
+	case L_NETCONFIG_EVENT_UPDATE:
+		break;
+
+	case L_NETCONFIG_EVENT_UNCONFIGURE:
+		break;
+
+	case L_NETCONFIG_EVENT_FAILED:
+		netconfig->connected[INDEX_FOR_AF(family)] = false;
+
+		/*
+		 * l_netconfig might have emitted an UNCONFIGURE before this
+		 * but now it tells us it's given up on (re)establishing the
+		 * IP setup.
+		 */
+		if (family == AF_INET && netconfig->notify)
+			netconfig->notify(NETCONFIG_EVENT_FAILED,
+						netconfig->user_data);
+
+		break;
+
+	default:
+		l_error("netconfig: Received unsupported l_netconfig event: %d",
+			event);
+	}
+}
+
 struct netconfig *netconfig_new(uint32_t ifindex)
 {
 	struct netdev *netdev = netdev_find(ifindex);
@@ -529,6 +569,9 @@ struct netconfig *netconfig_new(uint32_t ifindex)
 		else	/* Default for backwards compatibility */
 			dhcp_priority = L_LOG_DEBUG;
 	}
+
+	l_netconfig_set_event_handler(netconfig->nc, netconfig_event_handler,
+					netconfig, NULL);
 
 	l_dhcp_client_set_debug(l_netconfig_get_dhcp_client(netconfig->nc),
 				do_debug, "[DHCPv4] ", NULL, dhcp_priority);

@@ -114,6 +114,32 @@ static void netconfig_commit_done(struct netconfig *netconfig, uint8_t family,
 					enum l_netconfig_event event,
 					bool success)
 {
+	bool connected = netconfig->connected[INDEX_FOR_AF(family)];
+
+	if (!success) {
+		netconfig->connected[INDEX_FOR_AF(family)] = false;
+
+		if (netconfig->notify && family == AF_INET)
+			netconfig->notify(NETCONFIG_EVENT_FAILED,
+						netconfig->user_data);
+		return;
+	}
+
+	switch (event) {
+	case L_NETCONFIG_EVENT_CONFIGURE:
+	case L_NETCONFIG_EVENT_UPDATE:
+		netconfig->connected[INDEX_FOR_AF(family)] = true;
+
+		if (family == AF_INET && !connected && netconfig->notify)
+			netconfig->notify(NETCONFIG_EVENT_CONNECTED,
+						netconfig->user_data);
+
+		break;
+
+	case L_NETCONFIG_EVENT_UNCONFIGURE:
+	case L_NETCONFIG_EVENT_FAILED:
+		break;
+	}
 }
 
 static void netconfig_set_neighbor_entry_cb(int error,

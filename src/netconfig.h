@@ -27,6 +27,7 @@ struct ie_fils_ip_addr_response_info;
 
 enum netconfig_event {
 	NETCONFIG_EVENT_CONNECTED,
+	NETCONFIG_EVENT_FAILED,
 };
 
 typedef void (*netconfig_notify_func_t)(enum netconfig_event event,
@@ -42,6 +43,7 @@ struct netconfig {
 	bool static_config[2];
 	bool gateway_overridden[2];
 	bool dns_overridden[2];
+	bool connected[2];
 
 	const struct l_settings *active_settings;
 
