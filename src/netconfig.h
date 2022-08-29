@@ -81,6 +81,8 @@ void netconfig_commit_init(struct netconfig *netconfig);
 void netconfig_commit_free(struct netconfig *netconfig, const char *reasonstr);
 void netconfig_commit(struct netconfig *netconfig, uint8_t family,
 			enum l_netconfig_event event);
+int netconfig_register_agent(const char *name, const char *path);
+int netconfig_unregister_agent(const char *name, const char *path);
 
 void netconfig_dhcp_gateway_to_arp(struct netconfig *netconfig);
 void netconfig_commit_fils_macs(struct netconfig *netconfig, uint8_t family);

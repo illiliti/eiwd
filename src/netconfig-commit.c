@@ -37,6 +37,7 @@
 #include "src/netdev.h"
 #include "src/ie.h"
 #include "src/resolve.h"
+#include "src/dbus.h"
 #include "src/netconfig.h"
 
 struct netconfig_commit_ops {
@@ -108,6 +109,24 @@ void netconfig_commit(struct netconfig *netconfig, uint8_t family,
 				netconfig_use_fils_addr(netconfig, family))
 			netconfig_commit_fils_macs(netconfig, family);
 	}
+}
+
+static void netconfig_switch_backend(const struct netconfig_commit_ops *new_ops)
+{
+	const struct l_queue_entry *entry;
+
+	for (entry = l_queue_get_entries(netconfig_list); entry;
+			entry = entry->next) {
+		struct netconfig *netconfig = entry->data;
+
+		if (commit_ops->free_data)
+			commit_ops->free_data(netconfig, "");
+
+		if (new_ops->init_data)
+			new_ops->init_data(netconfig);
+	}
+
+	commit_ops = new_ops;
 }
 
 /*
@@ -277,4 +296,365 @@ static void netconfig_rtnl_commit(struct netconfig *netconfig, uint8_t family,
 		resolve_revert(netconfig->resolve);
 
 	netconfig_commit_done(netconfig, family, event, true);
+}
+
+struct netconfig_agent_data {
+	uint32_t pending_id[2];
+};
+
+struct netconfig_agent_call_data {
+	struct netconfig *netconfig;
+	uint8_t family;
+	enum l_netconfig_event event;
+};
+
+static char *netconfig_agent_name;
+static char *netconfig_agent_path;
+static unsigned int netconfig_agent_watch;
+
+static void netconfig_agent_cancel(struct netconfig *netconfig, uint8_t family,
+					const char *reasonstr)
+{
+	struct netconfig_agent_data *data = netconfig->commit_data;
+	struct l_dbus *dbus = dbus_get_bus();
+	const char *dev_path = netdev_get_path(netconfig->netdev);
+	struct l_dbus_message *message;
+	const char *method;
+
+	if (!data || !data->pending_id[INDEX_FOR_AF(family)])
+		return;
+
+	l_dbus_cancel(dbus, data->pending_id[INDEX_FOR_AF(family)]);
+	data->pending_id[INDEX_FOR_AF(family)] = 0;
+
+	method = (family == AF_INET ? "CancelIPv4" : "CancelIPv6");
+	l_debug("sending a %s(%s, %s) to %s %s", method, dev_path, reasonstr,
+		netconfig_agent_name, netconfig_agent_path);
+
+	message = l_dbus_message_new_method_call(dbus, netconfig_agent_name,
+						netconfig_agent_path,
+						IWD_NETCONFIG_AGENT_INTERFACE,
+						method);
+	l_dbus_message_set_arguments(message, "os", dev_path, reasonstr);
+	l_dbus_message_set_no_reply(message, true);
+	l_dbus_send(dbus, message);
+}
+
+static void netconfig_agent_receive_reply(struct l_dbus_message *reply,
+						void *user_data)
+{
+	struct netconfig_agent_call_data *cd = user_data;
+	struct netconfig_agent_data *data = cd->netconfig->commit_data;
+	const char *error, *text;
+	bool success = true;
+
+	l_debug("agent reply from %s %s", l_dbus_message_get_sender(reply),
+		l_dbus_message_get_path(reply));
+
+	data->pending_id[INDEX_FOR_AF(cd->family)] = 0;
+
+	if (l_dbus_message_get_error(reply, &error, &text)) {
+		success = false;
+		l_error("netconfig agent call returned %s(\"%s\")",
+			error, text);
+	} else if (!l_dbus_message_get_arguments(reply, "")) {
+		success = false;
+		l_error("netconfig agent call reply signature wrong: %s",
+			l_dbus_message_get_signature(reply));
+	}
+
+	netconfig_commit_done(cd->netconfig, cd->family, cd->event, success);
+}
+
+#define IS_IPV6_STR_FAST(str)	(strchr(str, ':') != NULL)
+
+typedef void (*netconfig_build_entry_fn)(struct l_dbus_message_builder *builder,
+					const void *data, uint8_t family);
+
+static void netconfig_agent_append_dict_dict_array(
+					struct l_dbus_message_builder *builder,
+					const char *key,
+					const struct l_queue_entry *value,
+					netconfig_build_entry_fn build_entry,
+					uint8_t family)
+{
+	l_dbus_message_builder_enter_dict(builder, "sv");
+	l_dbus_message_builder_append_basic(builder, 's', key);
+	l_dbus_message_builder_enter_variant(builder, "aa{sv}");
+	l_dbus_message_builder_enter_array(builder, "a{sv}");
+
+	for (; value; value = value->next)
+		build_entry(builder, value->data, family);
+
+	l_dbus_message_builder_leave_array(builder);
+	l_dbus_message_builder_leave_variant(builder);
+	l_dbus_message_builder_leave_dict(builder);
+}
+
+static void netconfig_agent_append_dict_strv(
+					struct l_dbus_message_builder *builder,
+					const char *key, char **value,
+					uint8_t family)
+{
+	if (!value)
+		return;
+
+	l_dbus_message_builder_enter_dict(builder, "sv");
+	l_dbus_message_builder_append_basic(builder, 's', key);
+	l_dbus_message_builder_enter_variant(builder, "as");
+	l_dbus_message_builder_enter_array(builder, "s");
+
+	for (; *value; value++) {
+		uint8_t value_family = IS_IPV6_STR_FAST((char *) *value) ?
+			AF_INET6 : AF_INET;
+
+		if (family == AF_UNSPEC || value_family == family)
+			l_dbus_message_builder_append_basic(builder, 's',
+								*value);
+	}
+
+	l_dbus_message_builder_leave_array(builder);
+	l_dbus_message_builder_leave_variant(builder);
+	l_dbus_message_builder_leave_dict(builder);
+}
+
+static void netconfig_agent_append_address(
+					struct l_dbus_message_builder *builder,
+					const void *data, uint8_t family)
+{
+	const struct l_rtnl_address *addr = data;
+	char addr_str[INET6_ADDRSTRLEN];
+	uint64_t valid_expiry_time;
+	uint64_t preferred_expiry_time;
+	uint64_t now = l_time_now();
+
+	if (l_rtnl_address_get_family(addr) != family)
+		return;
+
+	l_dbus_message_builder_enter_array(builder, "{sv}");
+
+	l_rtnl_address_get_address(addr, addr_str);
+	dbus_append_dict_basic(builder, "Address", 's', addr_str);
+
+	if (family == AF_INET) {
+		uint8_t plen = l_rtnl_address_get_prefix_length(addr);
+		dbus_append_dict_basic(builder, "PrefixLength", 'y', &plen);
+
+		if (l_rtnl_address_get_broadcast(addr, addr_str) &&
+				strcmp(addr_str, "0.0.0.0"))
+			dbus_append_dict_basic(builder, "Broadcast", 's',
+						addr_str);
+	}
+
+	l_rtnl_address_get_expiry(addr, &preferred_expiry_time,
+					&valid_expiry_time);
+
+	if (valid_expiry_time > now) {
+		uint32_t lt = l_time_to_secs(valid_expiry_time - now);
+
+		dbus_append_dict_basic(builder, "ValidLifetime", 'u', &lt);
+	}
+
+	if (preferred_expiry_time > now) {
+		uint32_t lt = l_time_to_secs(preferred_expiry_time - now);
+
+		dbus_append_dict_basic(builder, "PreferredLifetime", 'u', &lt);
+	}
+
+	l_dbus_message_builder_leave_array(builder);
+}
+
+static void netconfig_agent_append_route(struct l_dbus_message_builder *builder,
+						const void *data,
+						uint8_t family)
+{
+	const struct l_rtnl_route *rt = data;
+	char addr_str[INET6_ADDRSTRLEN];
+	uint8_t prefix_len;
+	uint64_t expiry_time;
+	uint64_t now = l_time_now();
+	uint32_t priority;
+	uint8_t preference;
+	uint32_t mtu;
+
+	if (l_rtnl_route_get_family(rt) != family)
+		return;
+
+	l_dbus_message_builder_enter_array(builder, "{sv}");
+
+	if (l_rtnl_route_get_dst(rt, addr_str, &prefix_len) && prefix_len) {
+		l_dbus_message_builder_enter_dict(builder, "sv");
+		l_dbus_message_builder_append_basic(builder, 's',
+							"Destination");
+		l_dbus_message_builder_enter_variant(builder, "(sy)");
+		l_dbus_message_builder_enter_struct(builder, "sy");
+		l_dbus_message_builder_append_basic(builder, 's', addr_str);
+		l_dbus_message_builder_append_basic(builder, 'y', &prefix_len);
+		l_dbus_message_builder_leave_struct(builder);
+		l_dbus_message_builder_leave_variant(builder);
+		l_dbus_message_builder_leave_dict(builder);
+	}
+
+	if (l_rtnl_route_get_gateway(rt, addr_str))
+		dbus_append_dict_basic(builder, "Router", 's', addr_str);
+
+	if (l_rtnl_route_get_prefsrc(rt, addr_str))
+		dbus_append_dict_basic(builder, "PreferredSource", 's',
+					addr_str);
+
+	expiry_time = l_rtnl_route_get_expiry(rt);
+	if (expiry_time > now) {
+		uint32_t lt = l_time_to_secs(expiry_time - now);
+
+		dbus_append_dict_basic(builder, "Lifetime", 'u', &lt);
+	}
+
+	priority = l_rtnl_route_get_priority(rt);
+	dbus_append_dict_basic(builder, "Priority", 'u', &priority);
+
+	/*
+	 * ICMPV6_ROUTER_PREF_MEDIUM is returned by default even for IPv4
+	 * routes where this property doesn't make sense so filter those out.
+	 */
+	preference = l_rtnl_route_get_preference(rt);
+	if (preference != ICMPV6_ROUTER_PREF_INVALID && family == AF_INET6)
+		dbus_append_dict_basic(builder, "Preference", 'y', &preference);
+
+	mtu = l_rtnl_route_get_mtu(rt);
+	if (mtu)
+		dbus_append_dict_basic(builder, "Priority", 'u', &mtu);
+
+	l_dbus_message_builder_leave_array(builder);
+}
+
+static void netconfig_agent_commit(struct netconfig *netconfig, uint8_t family,
+					enum l_netconfig_event event)
+{
+	struct netconfig_agent_data *data;
+	struct netconfig_agent_call_data *cd;
+	struct l_dbus *dbus = dbus_get_bus();
+	struct l_dbus_message *message;
+	struct l_dbus_message_builder *builder;
+	const char *dev_path = netdev_get_path(netconfig->netdev);
+	const char *dbus_method =
+		(family == AF_INET ? "ConfigureIPv4" : "ConfigureIPv6");
+	const char *cfg_method =
+		netconfig->static_config[INDEX_FOR_AF(family)] ?
+		"static" : "auto";
+	_auto_(l_strv_free) char **dns_list = NULL;
+	_auto_(l_strv_free) char **domains = NULL;
+
+	if (!netconfig->commit_data)
+		netconfig->commit_data = l_new(struct netconfig_agent_data, 1);
+
+	netconfig_agent_cancel(netconfig, family, "superseded");
+
+	l_debug("sending a %s(%s, ...) to %s %s", dbus_method, dev_path,
+		netconfig_agent_name, netconfig_agent_path);
+
+	message = l_dbus_message_new_method_call(dbus, netconfig_agent_name,
+						netconfig_agent_path,
+						IWD_NETCONFIG_AGENT_INTERFACE,
+						dbus_method);
+
+	/*
+	 * Build the call arguments: the Device object path and
+	 * the complicated config dict.
+	 */
+	builder = l_dbus_message_builder_new(message);
+	l_dbus_message_builder_append_basic(builder, 'o', dev_path);
+	l_dbus_message_builder_enter_array(builder, "{sv}");
+	dbus_append_dict_basic(builder, "Method", 's', cfg_method);
+
+	netconfig_agent_append_dict_dict_array(builder, "Addresses",
+					l_netconfig_get_addresses(netconfig->nc,
+							NULL, NULL, NULL, NULL),
+					netconfig_agent_append_address, family);
+
+	netconfig_agent_append_dict_dict_array(builder, "Routes",
+					l_netconfig_get_routes(netconfig->nc,
+							NULL, NULL, NULL, NULL),
+					netconfig_agent_append_route, family);
+
+	dns_list = l_netconfig_get_dns_list(netconfig->nc);
+	netconfig_agent_append_dict_strv(builder, "DomainNameServers",
+						dns_list, family);
+
+	domains = l_netconfig_get_domain_names(netconfig->nc);
+	netconfig_agent_append_dict_strv(builder, "DomainNames",
+						domains, AF_UNSPEC);
+
+	l_dbus_message_builder_leave_array(builder);
+	l_dbus_message_builder_finalize(builder);
+	l_dbus_message_builder_destroy(builder);
+
+	cd = l_new(struct netconfig_agent_call_data, 1);
+	cd->netconfig = netconfig;
+	cd->family = family;
+	cd->event = event;
+	data = netconfig->commit_data;
+	data->pending_id[INDEX_FOR_AF(family)] =
+		l_dbus_send_with_reply(dbus, message,
+					netconfig_agent_receive_reply,
+					cd, l_free);
+}
+
+static void netconfig_agent_free_data(struct netconfig *netconfig,
+					const char *reasonstr)
+{
+	if (!netconfig->commit_data)
+		return;
+
+	netconfig_agent_cancel(netconfig, AF_INET, reasonstr);
+	netconfig_agent_cancel(netconfig, AF_INET6, reasonstr);
+	l_free(l_steal_ptr(netconfig->commit_data));
+}
+
+static struct netconfig_commit_ops netconfig_agent_ops = {
+	.commit    = netconfig_agent_commit,
+	.free_data = netconfig_agent_free_data,
+};
+
+static void netconfig_agent_disconnect_handle(void *user_data)
+{
+	netconfig_unregister_agent(netconfig_agent_name, netconfig_agent_path);
+}
+
+static void netconfig_agent_disconnect_cb(struct l_dbus *dbus, void *user_data)
+{
+	l_debug("");
+	l_idle_oneshot(netconfig_agent_disconnect_handle, NULL, NULL);
+}
+
+int netconfig_register_agent(const char *name, const char *path)
+{
+	if (netconfig_agent_path)
+		return -EEXIST;
+
+	netconfig_agent_name = l_strdup(name);
+	netconfig_agent_path = l_strdup(path);
+	netconfig_agent_watch = l_dbus_add_disconnect_watch(dbus_get_bus(),
+						name,
+						netconfig_agent_disconnect_cb,
+						NULL, NULL);
+
+	netconfig_switch_backend(&netconfig_agent_ops);
+
+	return 0;
+}
+
+int netconfig_unregister_agent(const char *name, const char *path)
+{
+	if (!netconfig_agent_path || strcmp(netconfig_agent_path, path))
+		return -ENOENT;
+
+	if (strcmp(netconfig_agent_name, name))
+		return -EPERM;
+
+	l_free(l_steal_ptr(netconfig_agent_name));
+	l_free(l_steal_ptr(netconfig_agent_path));
+	l_dbus_remove_watch(dbus_get_bus(), netconfig_agent_watch);
+
+	netconfig_switch_backend(&netconfig_rtnl_ops);
+	return 0;
 }
