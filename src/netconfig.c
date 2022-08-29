@@ -145,7 +145,7 @@ static void netconfig_set_neighbor_entry_cb(int error,
 static struct l_rtnl_address *netconfig_get_static4_address(
 				const struct l_settings *active_settings)
 {
-	struct l_rtnl_address *ifaddr = NULL;
+	_auto_(l_rtnl_address_free) struct l_rtnl_address *ifaddr = NULL;
 	L_AUTO_FREE_VAR(char *, ip) = NULL;
 	L_AUTO_FREE_VAR(char *, netmask) = NULL;
 	struct in_addr in_addr;
@@ -153,13 +153,22 @@ static struct l_rtnl_address *netconfig_get_static4_address(
 	uint32_t prefix_len;
 
 	ip = l_settings_get_string(active_settings, "IPv4", "Address");
-	if (!ip)
+	if (unlikely(!ip)) {
+		l_error("netconfig: Can't load IPv4.Address");
 		return NULL;
+	}
 
-	netmask = l_settings_get_string(active_settings, "IPv4", "Netmask");
+	if (l_settings_has_key(active_settings, "IPv4", "Netmask") &&
+			!(netmask = l_settings_get_string(active_settings,
+								"IPv4",
+								"Netmask"))) {
+		l_error("netconfig: Can't load IPv4.Netmask");
+		return NULL;
+	}
+
 	if (netmask) {
 		if (inet_pton(AF_INET, netmask, &in_addr) != 1) {
-			l_error("netconfig: Can't parse IPv4 Netmask");
+			l_error("netconfig: Can't parse IPv4.Netmask");
 			return NULL;
 		}
 
@@ -167,14 +176,14 @@ static struct l_rtnl_address *netconfig_get_static4_address(
 
 		if (ntohl(in_addr.s_addr) !=
 				util_netmask_from_prefix(prefix_len)) {
-			l_error("netconfig: Invalid IPv4 Netmask");
+			l_error("netconfig: Invalid IPv4.Netmask");
 			return NULL;
 		}
 	} else
 		prefix_len = 24;
 
 	ifaddr = l_rtnl_address_new(ip, prefix_len);
-	if (!ifaddr) {
+	if (!ifaddr || l_rtnl_address_get_family(ifaddr) != AF_INET) {
 		l_error("netconfig: Unable to parse IPv4.Address");
 		return NULL;
 	}
@@ -182,12 +191,10 @@ static struct l_rtnl_address *netconfig_get_static4_address(
 	broadcast = l_settings_get_string(active_settings, "IPv4", "Broadcast");
 	if (broadcast && !l_rtnl_address_set_broadcast(ifaddr, broadcast)) {
 		l_error("netconfig: Unable to parse IPv4.Broadcast");
-		l_rtnl_address_free(ifaddr);
 		return NULL;
 	}
 
-	l_rtnl_address_set_noprefixroute(ifaddr, true);
-	return ifaddr;
+	return l_steal_ptr(ifaddr);
 }
 
 static struct l_rtnl_address *netconfig_get_static6_address(
@@ -196,12 +203,14 @@ static struct l_rtnl_address *netconfig_get_static6_address(
 	L_AUTO_FREE_VAR(char *, ip);
 	char *p;
 	char *endp;
-	struct l_rtnl_address *ret;
-	uint32_t prefix_len = 128;
+	_auto_(l_rtnl_address_free) struct l_rtnl_address *ret = NULL;
+	uint32_t prefix_len = 64;
 
 	ip = l_settings_get_string(active_settings, "IPv6", "Address");
-	if (!ip)
+	if (unlikely(!ip)) {
+		l_error("netconfig: Can't load IPv6.Address");
 		return NULL;
+	}
 
 	p = strrchr(ip, '/');
 	if (!p)
@@ -222,11 +231,13 @@ static struct l_rtnl_address *netconfig_get_static6_address(
 
 no_prefix_len:
 	ret = l_rtnl_address_new(ip, prefix_len);
-	if (!ret)
-		l_error("netconfig: Invalid IPv6 address %s is "
-				"provided in network configuration file.", ip);
+	if (!ret || l_rtnl_address_get_family(ret) != AF_INET6) {
+		l_error("netconfig: Invalid IPv6 address %s provided in "
+			"network configuration file.", ip);
+		return NULL;
+	}
 
-	return ret;
+	return l_steal_ptr(ret);
 }
 
 static void netconfig_gateway_to_arp(struct netconfig *netconfig)
