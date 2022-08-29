@@ -51,10 +51,13 @@ static struct l_netlink *rtnl;
 
 static void netconfig_rtnl_commit(struct netconfig *netconfig, uint8_t family,
 					enum l_netconfig_event event);
+static void netconfig_rtnl_free_data(struct netconfig *netconfig,
+					const char *reasonstr);
 
 /* Default backend */
 static struct netconfig_commit_ops netconfig_rtnl_ops = {
-	.commit = netconfig_rtnl_commit,
+	.commit    = netconfig_rtnl_commit,
+	.free_data = netconfig_rtnl_free_data,
 };
 
 /* Same backend for all netconfig objects */
@@ -262,8 +265,14 @@ static void netconfig_dns_list_update(struct netconfig *netconfig)
 	_auto_(l_strv_free) char **dns_list =
 		l_netconfig_get_dns_list(netconfig->nc);
 
+	if (l_strv_eq(netconfig->dns_list, dns_list))
+		return;
+
 	if (netconfig->resolve && dns_list)
 		resolve_set_dns(netconfig->resolve, dns_list);
+
+	l_strv_free(netconfig->dns_list);
+	netconfig->dns_list = l_steal_ptr(dns_list);
 }
 
 static void netconfig_domains_update(struct netconfig *netconfig)
@@ -271,8 +280,14 @@ static void netconfig_domains_update(struct netconfig *netconfig)
 	_auto_(l_strv_free) char **domains =
 		l_netconfig_get_domain_names(netconfig->nc);
 
+	if (l_strv_eq(netconfig->domains, domains))
+		return;
+
 	if (netconfig->resolve && domains)
 		resolve_set_domains(netconfig->resolve, domains);
+
+	l_strv_free(netconfig->domains);
+	netconfig->dns_list = l_steal_ptr(domains);
 }
 
 static void netconfig_rtnl_commit(struct netconfig *netconfig, uint8_t family,
@@ -280,7 +295,6 @@ static void netconfig_rtnl_commit(struct netconfig *netconfig, uint8_t family,
 {
 	l_netconfig_apply_rtnl(netconfig->nc);
 
-	/* TODO: cache values and skip updates if unchanged */
 	netconfig_dns_list_update(netconfig);
 	netconfig_domains_update(netconfig);
 
@@ -292,11 +306,22 @@ static void netconfig_rtnl_commit(struct netconfig *netconfig, uint8_t family,
 		 */
 		resolve_set_mdns(netconfig->resolve, netconfig->mdns);
 
-	if (event == L_NETCONFIG_EVENT_UNCONFIGURE && family == AF_INET)
+	if (event == L_NETCONFIG_EVENT_UNCONFIGURE && family == AF_INET) {
+		l_strv_free(l_steal_ptr(netconfig->dns_list));
+		l_strv_free(l_steal_ptr(netconfig->domains));
 		resolve_revert(netconfig->resolve);
+	}
 
 	netconfig_commit_done(netconfig, family, event, true);
 }
+
+static void netconfig_rtnl_free_data(struct netconfig *netconfig,
+					const char *reasonstr)
+{
+	l_strv_free(l_steal_ptr(netconfig->dns_list));
+	l_strv_free(l_steal_ptr(netconfig->domains));
+}
+
 
 struct netconfig_agent_data {
 	uint32_t pending_id[2];

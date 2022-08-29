@@ -44,6 +44,8 @@ struct netconfig {
 	bool gateway_overridden[2];
 	bool dns_overridden[2];
 	bool connected[2];
+	char **dns_list;
+	char **domains;
 
 	const struct l_settings *active_settings;
 
