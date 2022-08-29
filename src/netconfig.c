@@ -54,7 +54,7 @@
 
 struct netconfig {
 	struct l_netconfig *nc;
-	uint32_t ifindex;
+	struct netdev *netdev;
 
 	char *mdns;
 	struct ie_fils_ip_addr_response_info *fils_override;
@@ -581,7 +581,7 @@ struct netconfig *netconfig_new(uint32_t ifindex)
 
 	netconfig = l_new(struct netconfig, 1);
 	netconfig->nc = l_netconfig_new(ifindex);
-	netconfig->ifindex = ifindex;
+	netconfig->netdev = netdev;
 	netconfig->resolve = resolve_new(ifindex);
 
 	debug_level = getenv("IWD_DHCP_DEBUG");
