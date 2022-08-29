@@ -103,6 +103,10 @@ void netconfig_commit(struct netconfig *netconfig, uint8_t family,
 		if (family == AF_INET &&
 				!netconfig->static_config[INDEX_FOR_AF(family)])
 			netconfig_dhcp_gateway_to_arp(netconfig);
+
+		if (!netconfig->connected[INDEX_FOR_AF(family)] &&
+				netconfig_use_fils_addr(netconfig, family))
+			netconfig_commit_fils_macs(netconfig, family);
 	}
 }
 
@@ -185,6 +189,53 @@ void netconfig_dhcp_gateway_to_arp(struct netconfig *netconfig)
 					netconfig_set_neighbor_entry_cb, NULL,
 					NULL))
 		l_debug("l_rtnl_neighbor_set_hwaddr failed");
+}
+
+void netconfig_commit_fils_macs(struct netconfig *netconfig, uint8_t family)
+{
+	const struct ie_fils_ip_addr_response_info *fils =
+		netconfig->fils_override;
+	const void *addr;
+	const void *hwaddr;
+	size_t addr_len = (family == AF_INET ? 4 : 16);
+	uint32_t ifindex = netdev_get_ifindex(netconfig->netdev);
+
+	if (!fils)
+		return;
+
+	/*
+	 * Attempt to use the gateway/DNS MAC addressed received from the AP
+	 * by writing the mapping directly into the netdev's ARP table so as
+	 * to save one data frame roundtrip before first IP connections are
+	 * established.  This is very low-priority but print error messages
+	 * just because they may indicate bigger problems.
+	 */
+
+	addr = (family == AF_INET ? (void *) &fils->ipv4_gateway :
+			(void *) &fils->ipv6_gateway);
+	hwaddr = (family == AF_INET ?
+			&fils->ipv4_gateway_mac : &fils->ipv6_gateway_mac);
+
+	if (!l_memeqzero(addr, addr_len) && !l_memeqzero(hwaddr, ETH_ALEN) &&
+			unlikely(!l_rtnl_neighbor_set_hwaddr(rtnl, ifindex,
+						family, addr, hwaddr, ETH_ALEN,
+						netconfig_set_neighbor_entry_cb,
+						NULL, NULL)))
+		l_debug("l_rtnl_neighbor_set_hwaddr(%s, gateway) failed",
+			family == AF_INET ? "AF_INET" : "AF_INET6");
+
+	addr = (family == AF_INET ? (void *) &fils->ipv4_dns :
+			(void *) &fils->ipv6_dns);
+	hwaddr = (family == AF_INET ?
+			&fils->ipv4_dns_mac : &fils->ipv6_dns_mac);
+
+	if (!l_memeqzero(addr, addr_len) && !l_memeqzero(hwaddr, ETH_ALEN) &&
+			unlikely(!l_rtnl_neighbor_set_hwaddr(rtnl, ifindex,
+						family, addr, hwaddr, ETH_ALEN,
+						netconfig_set_neighbor_entry_cb,
+						NULL, NULL)))
+		l_debug("l_rtnl_neighbor_set_hwaddr(%s, DNS) failed",
+			family == AF_INET ? "AF_INET" : "AF_INET6");
 }
 
 static void netconfig_dns_list_update(struct netconfig *netconfig)

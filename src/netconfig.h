@@ -83,3 +83,4 @@ void netconfig_commit(struct netconfig *netconfig, uint8_t family,
 			enum l_netconfig_event event);
 
 void netconfig_dhcp_gateway_to_arp(struct netconfig *netconfig);
+void netconfig_commit_fils_macs(struct netconfig *netconfig, uint8_t family);
