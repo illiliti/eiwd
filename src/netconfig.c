@@ -27,9 +27,7 @@
 #include <errno.h>
 #include <arpa/inet.h>
 #include <net/if_arp.h>
-#include <netinet/if_ether.h>
 #include <netinet/in.h>
-#include <linux/rtnetlink.h>
 #include <limits.h>
 #include <string.h>
 #include <fcntl.h>
@@ -51,30 +49,6 @@
 #include "src/ie.h"
 #include "src/netconfig.h"
 #include "src/sysfs.h"
-
-struct netconfig {
-	struct l_netconfig *nc;
-	struct netdev *netdev;
-
-	char *mdns;
-	struct ie_fils_ip_addr_response_info *fils_override;
-	bool enabled[2];
-	bool static_config[2];
-	bool gateway_overridden[2];
-	bool dns_overridden[2];
-
-	const struct l_settings *active_settings;
-
-	netconfig_notify_func_t notify;
-	void *user_data;
-
-	struct resolve *resolve;
-};
-
-/* 0 for AF_INET, 1 for AF_INET6 */
-#define INDEX_FOR_AF(af)	((af) != AF_INET)
-
-static struct l_netlink *rtnl;
 
 /*
  * Routing priority offset, configurable in main.conf. The route with lower
@@ -116,7 +90,7 @@ static void netconfig_free(void *data)
 	l_free(netconfig);
 }
 
-static bool netconfig_use_fils_addr(struct netconfig *netconfig, int af)
+bool netconfig_use_fils_addr(struct netconfig *netconfig, int af)
 {
 	if (!netconfig->enabled[INDEX_FOR_AF(af)])
 		return false;
@@ -131,15 +105,6 @@ static bool netconfig_use_fils_addr(struct netconfig *netconfig, int af)
 		return !!netconfig->fils_override->ipv4_addr;
 
 	return !l_memeqzero(netconfig->fils_override->ipv6_addr, 16);
-}
-
-static void netconfig_set_neighbor_entry_cb(int error,
-						uint16_t type, const void *data,
-						uint32_t len, void *user_data)
-{
-	if (error)
-		l_error("l_rtnl_neighbor_set_hwaddr failed: %s (%i)",
-			strerror(-error), error);
 }
 
 static struct l_rtnl_address *netconfig_get_static4_address(
@@ -238,41 +203,6 @@ no_prefix_len:
 	}
 
 	return l_steal_ptr(ret);
-}
-
-static void netconfig_gateway_to_arp(struct netconfig *netconfig)
-{
-	struct l_dhcp_client *dhcp = l_netconfig_get_dhcp_client(netconfig->nc);
-	const struct l_dhcp_lease *lease;
-	_auto_(l_free) char *server_id = NULL;
-	_auto_(l_free) char *gw = NULL;
-	const uint8_t *server_mac;
-	struct in_addr in_gw;
-
-	/* Can only do this for DHCP in certain network setups */
-	if (netconfig->static_config[INDEX_FOR_AF(AF_INET)] ||
-			netconfig->fils_override)
-		return;
-
-	lease = l_dhcp_client_get_lease(dhcp);
-	if (!lease)
-		return;
-
-	server_id = l_dhcp_lease_get_server_id(lease);
-	gw = l_dhcp_lease_get_gateway(lease);
-	server_mac = l_dhcp_lease_get_server_mac(lease);
-
-	if (!gw || strcmp(server_id, gw) || !server_mac)
-		return;
-
-	l_debug("Gateway MAC is known, setting into ARP cache");
-	in_gw.s_addr = l_dhcp_lease_get_gateway_u32(lease);
-
-	if (!l_rtnl_neighbor_set_hwaddr(rtnl, netconfig->ifindex, AF_INET,
-					&in_gw, server_mac, ETH_ALEN,
-					netconfig_set_neighbor_entry_cb, NULL,
-					NULL))
-		l_debug("l_rtnl_neighbor_set_hwaddr failed");
 }
 
 static bool netconfig_load_dns(struct netconfig *netconfig,
@@ -501,7 +431,7 @@ bool netconfig_reconfigure(struct netconfig *netconfig, bool set_arp_gw)
 	 * to alleviate this
 	 */
 	if (set_arp_gw)
-		netconfig_gateway_to_arp(netconfig);
+		netconfig_dhcp_gateway_to_arp(netconfig);
 
 	if (!netconfig->static_config[INDEX_FOR_AF(AF_INET)]) {
 		/* TODO l_dhcp_client sending a DHCP inform request */
@@ -584,6 +514,8 @@ struct netconfig *netconfig_new(uint32_t ifindex)
 	netconfig->netdev = netdev;
 	netconfig->resolve = resolve_new(ifindex);
 
+	netconfig_commit_init(netconfig);
+
 	debug_level = getenv("IWD_DHCP_DEBUG");
 	if (debug_level != NULL) {
 		if (!strcmp("debug", debug_level))
@@ -618,6 +550,7 @@ void netconfig_destroy(struct netconfig *netconfig)
 	l_debug("");
 
 	netconfig_reset(netconfig);
+	netconfig_commit_free(netconfig, "aborted");
 	resolve_free(netconfig->resolve);
 	netconfig_free(netconfig);
 }
