@@ -3584,8 +3584,7 @@ failed:
 	return -EIO;
 }
 
-static void netdev_mac_change_failed(struct netdev *netdev,
-					struct rtnl_data *req, int error)
+static void netdev_mac_change_failed(struct netdev *netdev, int error)
 {
 	l_error("Error setting mac address on %d: %s", netdev->index,
 			strerror(-error));
@@ -3639,7 +3638,7 @@ static void netdev_mac_power_up_cb(int error, uint16_t type,
 	if (error) {
 		l_error("Error changing per-network MAC on interface %u: %s",
 			netdev->index, strerror(-error));
-		netdev_mac_change_failed(netdev, req, error);
+		netdev_mac_change_failed(netdev, error);
 		return;
 	}
 
@@ -3665,7 +3664,7 @@ static void netdev_mac_power_down_cb(int error, uint16_t type,
 	if (error) {
 		l_error("Error taking interface %u down for per-network MAC "
 			"generation: %s", netdev->index, strerror(-error));
-		netdev_mac_change_failed(netdev, req, error);
+		netdev_mac_change_failed(netdev, error);
 		return;
 	}
 
@@ -3674,7 +3673,7 @@ static void netdev_mac_power_down_cb(int error, uint16_t type,
 					netdev_mac_power_up_cb, req,
 					netdev_mac_destroy);
 	if (!netdev->mac_change_cmd_id) {
-		netdev_mac_change_failed(netdev, req, -EIO);
+		netdev_mac_change_failed(netdev, -EIO);
 		return;
 	}
 
