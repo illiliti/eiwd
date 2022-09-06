@@ -3601,12 +3601,8 @@ static void netdev_mac_change_failed(struct netdev *netdev,
 
 		goto failed;
 	} else {
-		/*
-		 * If the interface is up we can still try and connect. This
-		 * is a very rare case and most likely will never happen.
-		 */
-		l_info("Interface still up after failing to change the MAC, "
-			"continuing with connection");
+		/* If the interface is up we can still try and connect */
+		l_info("Failed to change the MAC, continuing with connection");
 		if (netdev_begin_connection(netdev) < 0)
 			goto failed;
 
@@ -3641,8 +3637,8 @@ static void netdev_mac_power_up_cb(int error, uint16_t type,
 	netdev->mac_change_cmd_id = 0;
 
 	if (error) {
-		l_error("Error taking interface %u up for per-network MAC "
-			"generation: %s", netdev->index, strerror(-error));
+		l_error("Error changing per-network MAC on interface %u: %s",
+			netdev->index, strerror(-error));
 		netdev_mac_change_failed(netdev, req, error);
 		return;
 	}
@@ -3673,8 +3669,6 @@ static void netdev_mac_power_down_cb(int error, uint16_t type,
 		return;
 	}
 
-	l_debug("Setting generated address on ifindex: %d to: "MAC,
-					netdev->index, MAC_STR(req->addr));
 	netdev->mac_change_cmd_id = l_rtnl_set_mac(rtnl, netdev->index,
 					req->addr, true,
 					netdev_mac_power_up_cb, req,
@@ -3713,6 +3707,8 @@ static int netdev_start_powered_mac_change(struct netdev *netdev)
 {
 	struct rtnl_data *req;
 	uint8_t new_addr[6];
+	bool powered = wiphy_has_ext_feature(netdev->wiphy,
+				NL80211_EXT_FEATURE_POWERED_ADDR_CHANGE);
 
 	/* No address set in handshake, use per-network MAC generation */
 	if (l_memeqzero(netdev->handshake->spa, ETH_ALEN))
@@ -3734,15 +3730,26 @@ static int netdev_start_powered_mac_change(struct netdev *netdev)
 	req->ref++;
 	memcpy(req->addr, new_addr, sizeof(req->addr));
 
-	netdev->mac_change_cmd_id = l_rtnl_set_powered(rtnl, netdev->index,
-					false, netdev_mac_power_down_cb,
-					req, netdev_mac_destroy);
+	if (powered)
+		netdev->mac_change_cmd_id = l_rtnl_set_mac(rtnl, netdev->index,
+						req->addr, false,
+						netdev_mac_power_up_cb, req,
+						netdev_mac_destroy);
+	else
+		netdev->mac_change_cmd_id = l_rtnl_set_powered(rtnl,
+						netdev->index, false,
+						netdev_mac_power_down_cb, req,
+						netdev_mac_destroy);
 
 	if (!netdev->mac_change_cmd_id) {
 		l_free(req);
 
 		return -EIO;
 	}
+
+	l_debug("Setting generated address on ifindex: %d to: "MAC" (%s)",
+					netdev->index, MAC_STR(req->addr),
+					powered ? "powered" : "power-down");
 
 	return 0;
 }
