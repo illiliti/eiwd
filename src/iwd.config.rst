@@ -206,6 +206,16 @@ The group ``[General]`` contains general settings.
        required are LoadCredentialEncrypted or SetCredentialEncrypted, and the
        secret identifier should be named whatever SystemdEncrypt is set to.
 
+   * - Country
+     - Value: Country Code (ISO Alpha-2)
+
+       Requests the country be set for the system. Note that setting this is
+       simply a **request** to set the country, and does not guarantee the
+       country will be set. For a self-managed wiphy it is never possible to set
+       the country from userspace. For other devices any regulatory domain
+       request is just a 'hint' and ultimately left up to the kernel to set the
+       country.
+
 Network
 -------
 
