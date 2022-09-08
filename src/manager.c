@@ -800,6 +800,14 @@ static void manager_config_notify(struct l_genl_msg *msg, void *user_data)
 	}
 }
 
+static void manager_set_reg_cb(struct l_genl_msg *msg, void *user_data)
+{
+	int err = l_genl_msg_get_error(msg);
+
+	if (err < 0)
+		l_error("Failed to set country (%d)", err);
+}
+
 static int manager_init(void)
 {
 	struct l_genl *genl = iwd_get_genl();
@@ -810,6 +818,7 @@ static int manager_init(void)
 	const char *randomize_str;
 	const char *if_whitelist = iwd_get_iface_whitelist();
 	const char *if_blacklist = iwd_get_iface_blacklist();
+	const char *cc;
 
 	nl80211 = l_genl_family_new(genl, NL80211_GENL_NAME);
 
@@ -851,6 +860,23 @@ static int manager_init(void)
 		l_genl_msg_unref(msg);
 		l_genl_family_cancel(nl80211, wiphy_dump);
 		goto error;
+	}
+
+	cc = l_settings_get_value(config, "General", "Country");
+	if (cc) {
+		if (strlen(cc) != 2 || !l_ascii_isalpha(cc[0]) ||
+					!l_ascii_isalpha(cc[1])) {
+			l_warn("[General].Country=%s is invalid. Country will "
+				"not be set", cc);
+		} else {
+			msg = l_genl_msg_new(NL80211_CMD_REQ_SET_REG);
+			l_genl_msg_append_attr(msg, NL80211_ATTR_REG_ALPHA2,
+						2, cc);
+			if (!l_genl_family_send(nl80211, msg,
+						manager_set_reg_cb,
+						NULL, NULL))
+				l_warn("Failed to set country");
+		}
 	}
 
 	randomize_str = l_settings_get_value(config, "General",
