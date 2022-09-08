@@ -443,6 +443,9 @@ static void rrm_handle_beacon_scan(struct rrm_state *rrm,
 	freq = band_channel_to_freq(beacon->channel, band);
 	scan_freq_set_add(freqs, freq);
 
+	if (!wiphy_constrain_freq_set(wiphy_find_by_wdev(rrm->wdev_id), freqs))
+		goto free_freqs;
+
 	if (passive)
 		beacon->scan_id = scan_passive_full(rrm->wdev_id, &params,
 						rrm_scan_triggered,
@@ -454,12 +457,13 @@ static void rrm_handle_beacon_scan(struct rrm_state *rrm,
 						rrm_scan_results, rrm,
 						NULL);
 
+free_freqs:
 	scan_freq_set_free(freqs);
 
-	if (beacon->scan_id == 0) {
-		rrm_info_destroy(&beacon->info);
-		rrm->pending = NULL;
-	}
+	if (beacon->scan_id)
+		return;
+
+	rrm_reject_measurement_request(rrm, REPORT_REJECT_INCAPABLE);
 }
 
 static bool rrm_verify_beacon_request(const uint8_t *request, size_t len)
