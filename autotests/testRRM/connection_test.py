@@ -21,6 +21,8 @@ beacon_passive = '510b0000000000ffffffffffff020100'
 beacon_active = '510b0000000001ffffffffffff020100'
 # Passive beacon with duration set
 beacon_passive_duration = '510b0000c80000ffffffffffff020100'
+# Passive beacon on disabled frequency (disallowed in US)
+beacon_passive_disabled = '520e0000c80000ffffffffffff020100'
 
 class Test(unittest.TestCase):
 
@@ -57,13 +59,15 @@ class Test(unittest.TestCase):
         hapd.req_beacon(device.address, basic_beacon)
 
         for e in ['BEACON-RESP-RX', 'BEACON-RESP-RX']:
-            hapd.wait_for_event(e)
+            event = hapd.wait_for_event(e).split(' ')
+            self.assertTrue(event[3] == '00')
 
         wd.wait(1)
 
         # This should return just ssidRRM
         hapd.req_beacon(device.address, beacon_with_ssid)
-        hapd.wait_for_event('BEACON-RESP-RX')
+        event = hapd.wait_for_event('BEACON-RESP-RX').split(' ')
+        self.assertTrue(event[3] == '00')
 
         wd.wait(1)
 
@@ -71,7 +75,8 @@ class Test(unittest.TestCase):
         hapd.req_beacon(device.address, beacon_passive)
         # TODO: See if we are scanning here (scan not initiated from station)
 
-        hapd.wait_for_event('BEACON-RESP-RX')
+        event = hapd.wait_for_event('BEACON-RESP-RX').split(' ')
+        self.assertTrue(event[3] == '00')
 
         wd.wait(1)
 
@@ -79,7 +84,8 @@ class Test(unittest.TestCase):
         hapd.req_beacon(device.address, beacon_active)
         # TODO: See if we are scanning here (scan not initiated from station)
 
-        hapd.wait_for_event('BEACON-RESP-RX')
+        event = hapd.wait_for_event('BEACON-RESP-RX').split(' ')
+        self.assertTrue(event[3] == '00')
 
         wd.wait(1)
 
@@ -87,7 +93,15 @@ class Test(unittest.TestCase):
         hapd.req_beacon(device.address, beacon_passive_duration)
         # TODO: See if we are scanning here (scan not initiated from station)
 
-        hapd.wait_for_event('BEACON-RESP-RX')
+        event = hapd.wait_for_event('BEACON-RESP-RX').split(' ')
+        self.assertTrue(event[3] == '00')
+
+        wd.wait(1)
+
+        hapd.req_beacon(device.address, beacon_passive_disabled)
+
+        event = hapd.wait_for_event('BEACON-RESP-RX').split(' ')
+        self.assertTrue(event[3] != '00')
 
         device.disconnect()
 
