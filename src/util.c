@@ -330,6 +330,9 @@ struct scan_freq_set *scan_freq_set_new(void)
 
 void scan_freq_set_free(struct scan_freq_set *freqs)
 {
+	if (!freqs)
+		return;
+
 	l_uintset_free(freqs->channels_5ghz);
 	l_uintset_free(freqs->channels_6ghz);
 	l_free(freqs);
@@ -378,7 +381,7 @@ bool scan_freq_set_contains(const struct scan_freq_set *freqs, uint32_t freq)
 	return false;
 }
 
-uint32_t scan_freq_set_get_bands(struct scan_freq_set *freqs)
+uint32_t scan_freq_set_get_bands(const struct scan_freq_set *freqs)
 {
 	uint32_t bands = 0;
 	uint32_t max;
@@ -499,6 +502,28 @@ void scan_freq_set_constrain(struct scan_freq_set *set,
 	set->channels_2ghz &= constraint->channels_2ghz;
 }
 
+void scan_freq_set_subtract(struct scan_freq_set *set,
+					const struct scan_freq_set *subtract)
+{
+	struct l_uintset *sub;
+
+	sub = l_uintset_subtract(set->channels_6ghz, subtract->channels_6ghz);
+	if (L_WARN_ON(!sub))
+		return;
+
+	l_uintset_free(set->channels_6ghz);
+	set->channels_6ghz = sub;
+
+	sub = l_uintset_subtract(set->channels_5ghz, subtract->channels_5ghz);
+	if (L_WARN_ON(!sub))
+		return;
+
+	l_uintset_free(set->channels_5ghz);
+	set->channels_5ghz = sub;
+
+	set->channels_2ghz &= ~subtract->channels_2ghz;
+}
+
 static void add_foreach(uint32_t freq, void *user_data)
 {
 	uint32_t **list = user_data;
@@ -531,4 +556,25 @@ uint32_t *scan_freq_set_to_fixed_array(const struct scan_freq_set *set,
 	*len_out = count;
 
 	return freqs;
+}
+
+struct scan_freq_set *scan_freq_set_clone(const struct scan_freq_set *set,
+							uint32_t band_mask)
+{
+	struct scan_freq_set *new = l_new(struct scan_freq_set, 1);
+
+	if (band_mask & BAND_FREQ_2_4_GHZ)
+		new->channels_2ghz = set->channels_2ghz;
+
+	if (band_mask & BAND_FREQ_5_GHZ)
+		new->channels_5ghz = l_uintset_clone(set->channels_5ghz);
+	else
+		new->channels_5ghz = l_uintset_new_from_range(1, 200);
+
+	if (band_mask & BAND_FREQ_6_GHZ)
+		new->channels_6ghz = l_uintset_clone(set->channels_6ghz);
+	else
+		new->channels_6ghz = l_uintset_new_from_range(1, 233);
+
+	return new;
 }

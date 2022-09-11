@@ -1,0 +1,68 @@
+Station Debug hierarchy [experimental]
+============================
+
+These are all development APIs not meant for production use.
+
+Service		net.connman.iwd
+Interface	net.connman.iwd.StationDebug
+Object path	/net/connman/iwd/{phy0,phy1,...}/{1,2,...}
+
+Methods		void ConnectBssid(array(y) address)
+
+			Connect to a specific BSS. The address parameter should
+			be a byte array of length 6, the BSSID of a BSS which
+			IWD already has in its scan list.
+
+			Possible errors: net.connman.iwd.InvalidArguments
+					 net.connman.iwd.NotFound
+
+		void Roam(array(y) address)
+
+			Roam to a specific BSS. The address parameter should be
+			a byte array of length 6, the BSSID of a BSS to roam to.
+			This BSS needs to be in IWD's scan results and fit the
+			requirements for a roam candidate (same network).
+			The type of roam is dependent on the network and is
+			chosen automatically by IWD.
+
+			Possible errors: net.connman.iwd.InvalidArguments
+					 net.connman.iwd.NotConnected
+
+		void Scan(array(q) frequencies)
+
+			Scan on specific frequencies. The frequencies parameter
+			should be a list of valid frequencies.
+
+			Possible errors: net.connman.iwd.Busy
+					 net.connman.iwd.InvalidArguments
+					 net.connamn.iwd.Failed
+
+		a{oaa{sv}} GetNetworks()
+
+			Get a list of networks including data for individual
+			BSS's. Returns a dictionary where keys are network
+			object paths and values are arrays of dictionaries
+			containing BSS information:
+
+			{
+				/network/path/1: [
+					{
+						Address: 11:22:33:44:55,
+						Frequency: 1234,
+						RSSI: -20,
+						Rank: 1000
+						MDE: 001122
+					},
+					{ ... }
+				]
+			}
+
+Signals:	Event(s name, av data)
+
+			Signal sent for various debug events. The 'name' is the
+			event name, and 'data' is event dependent.
+
+Properties:	boolean AutoConnect
+
+			True if IWD is in an autoconnect state. This property
+			can be written to put IWD into an autoconnect state.

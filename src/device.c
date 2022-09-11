@@ -276,6 +276,8 @@ static void device_wiphy_state_changed_event(struct wiphy *wiphy,
 
 	switch (event) {
 	case WIPHY_STATE_WATCH_EVENT_RFKILLED:
+	case WIPHY_STATE_WATCH_EVENT_REGDOM_STARTED:
+	case WIPHY_STATE_WATCH_EVENT_REGDOM_DONE:
 		break;
 	case WIPHY_STATE_WATCH_EVENT_POWERED:
 		if (device->dbus_powered)

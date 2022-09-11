@@ -94,14 +94,23 @@ struct scan_request {
 	 */
 	bool triggered : 1;
 	bool in_callback : 1; /* Scan request complete, re-entrancy guard */
+	/* The request was split anticipating 6GHz will become available */
+	bool split : 1;
 	struct l_queue *cmds;
 	/* The time the current scan was started. Reported in TRIGGER_SCAN */
 	uint64_t start_time_tsf;
 	struct wiphy_radio_work_item work;
+	/*
+	 * List of frequencies scanned so far. Since the NEW_SCAN_RESULTS event
+	 * contains frequencies of only the last CMD_TRIGGER we need to parse
+	 * and save these since there may be additional scan commands to run.
+	 */
+	struct scan_freq_set *freqs_scanned;
 };
 
 struct scan_context {
 	uint64_t wdev_id;
+	uint32_t wiphy_watch_id;
 	/*
 	 * Tells us whether a scan, our own or external, is running.
 	 * Set when scan gets triggered, cleared when scan done and
@@ -125,9 +134,9 @@ struct scan_context {
 struct scan_results {
 	struct scan_context *sc;
 	struct l_queue *bss_list;
-	struct scan_freq_set *freqs;
 	uint64_t time_stamp;
 	struct scan_request *sr;
+	struct scan_freq_set *freqs;
 };
 
 static bool start_next_scan_request(struct wiphy_radio_work_item *item);
@@ -159,6 +168,8 @@ static void scan_request_free(struct wiphy_radio_work_item *item)
 
 	l_queue_destroy(sr->cmds, (l_queue_destroy_func_t) l_genl_msg_unref);
 
+	scan_freq_set_free(sr->freqs_scanned);
+
 	l_free(sr);
 }
 
@@ -175,24 +186,6 @@ static void scan_request_failed(struct scan_context *sc,
 	sr->in_callback = false;
 	l_queue_remove(sc->requests, sr);
 	wiphy_radio_work_done(sc->wiphy, sr->work.id);
-}
-
-static struct scan_context *scan_context_new(uint64_t wdev_id)
-{
-	struct wiphy *wiphy = wiphy_find_by_wdev(wdev_id);
-	struct scan_context *sc;
-
-	if (!wiphy)
-		return NULL;
-
-	sc = l_new(struct scan_context, 1);
-
-	sc->wdev_id = wdev_id;
-	sc->wiphy = wiphy;
-	sc->state = SCAN_STATE_NOT_RUNNING;
-	sc->requests = l_queue_new();
-
-	return sc;
 }
 
 static void scan_request_cancel(void *data)
@@ -219,6 +212,8 @@ static void scan_context_free(struct scan_context *sc)
 
 	if (sc->get_fw_scan_cmd_id && nl80211)
 		l_genl_family_cancel(nl80211, sc->get_fw_scan_cmd_id);
+
+	wiphy_state_watch_remove(sc->wiphy, sc->wiphy_watch_id);
 
 	l_free(sc);
 }
@@ -279,7 +274,7 @@ static void scan_freq_append(uint32_t freq, void *user_data)
 }
 
 static void scan_build_attr_scan_frequencies(struct l_genl_msg *msg,
-						struct scan_freq_set *freqs)
+					const struct scan_freq_set *freqs)
 {
 	struct scan_freq_append_data append_data = { msg, 0 };
 
@@ -345,9 +340,24 @@ static bool scan_mac_address_randomization_is_disabled(void)
 	return disabled;
 }
 
+static struct scan_freq_set *scan_get_allowed_freqs(struct scan_context *sc)
+{
+	struct scan_freq_set *allowed = scan_freq_set_new();
+
+	scan_freq_set_merge(allowed, wiphy_get_supported_freqs(sc->wiphy));
+
+	if (!wiphy_constrain_freq_set(sc->wiphy, allowed)) {
+		scan_freq_set_free(allowed);
+		allowed = NULL;
+	}
+
+	return allowed;
+}
+
 static struct l_genl_msg *scan_build_cmd(struct scan_context *sc,
 					bool ignore_flush_flag, bool is_passive,
-					const struct scan_parameters *params)
+					const struct scan_parameters *params,
+					const struct scan_freq_set *freqs)
 {
 	struct l_genl_msg *msg;
 	uint32_t flags = 0;
@@ -359,8 +369,8 @@ static struct l_genl_msg *scan_build_cmd(struct scan_context *sc,
 	if (wiphy_get_max_scan_ie_len(sc->wiphy))
 		scan_build_attr_ie(msg, sc, params);
 
-	if (params->freqs)
-		scan_build_attr_scan_frequencies(msg, params->freqs);
+	if (freqs)
+		scan_build_attr_scan_frequencies(msg, freqs);
 
 	if (params->flush && !ignore_flush_flag && wiphy_has_feature(sc->wiphy,
 						NL80211_FEATURE_SCAN_FLUSH))
@@ -393,6 +403,8 @@ static struct l_genl_msg *scan_build_cmd(struct scan_context *sc,
 
 	if (params->ap_scan)
 		flags |= NL80211_SCAN_FLAG_AP;
+
+	flags |= NL80211_SCAN_FLAG_COLOCATED_6GHZ;
 
 	if (flags)
 		l_genl_msg_append_attr(msg, NL80211_ATTR_SCAN_FLAGS, 4, &flags);
@@ -515,16 +527,18 @@ static bool scan_cmds_add_hidden(const struct network_info *network,
 		 * of all scans in the batch after the last scan is finished.
 		 */
 		*data->cmd = scan_build_cmd(data->sc, true, false,
-								data->params);
+							data->params,
+							data->params->freqs);
 		l_genl_msg_enter_nested(*data->cmd, NL80211_ATTR_SCAN_SSIDS);
 	}
 
 	return true;
 }
 
-static void scan_cmds_add(struct l_queue *cmds, struct scan_context *sc,
+static void scan_build_next_cmd(struct l_queue *cmds, struct scan_context *sc,
 				bool passive,
-				const struct scan_parameters *params)
+				const struct scan_parameters *params,
+				const struct scan_freq_set *freqs)
 {
 	struct l_genl_msg *cmd;
 	struct scan_cmds_add_data data = {
@@ -535,7 +549,7 @@ static void scan_cmds_add(struct l_queue *cmds, struct scan_context *sc,
 		wiphy_get_max_num_ssids_per_scan(sc->wiphy),
 	};
 
-	cmd = scan_build_cmd(sc, false, passive, params);
+	cmd = scan_build_cmd(sc, false, passive, params, freqs);
 
 	if (passive) {
 		/* passive scan */
@@ -561,6 +575,57 @@ static void scan_cmds_add(struct l_queue *cmds, struct scan_context *sc,
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_SSID, 0, NULL);
 	l_genl_msg_leave_nested(cmd);
 	l_queue_push_tail(cmds, cmd);
+}
+
+static void scan_cmds_add(struct scan_request *sr, struct scan_context *sc,
+				bool passive,
+				const struct scan_parameters *params)
+{
+	unsigned int i;
+	struct scan_freq_set *subsets[2] = { 0 };
+	struct scan_freq_set *allowed = scan_get_allowed_freqs(sc);
+	const struct scan_freq_set *supported =
+					wiphy_get_supported_freqs(sc->wiphy);
+
+	/*
+	 * If 6GHz is not possible, or already allowed, or the frequencies are
+	 * explicit don't break up the request.
+	 */
+	if (!(scan_freq_set_get_bands(supported) & BAND_FREQ_6_GHZ) ||
+			(scan_freq_set_get_bands(allowed) & BAND_FREQ_6_GHZ) ||
+			params->freqs) {
+		scan_freq_set_free(allowed);
+		scan_build_next_cmd(sr->cmds, sc, passive,
+						params, params->freqs);
+		return;
+	}
+
+	/*
+	 * Otherwise a full spectrum scan will likely open up the 6GHz
+	 * band. The problem is the regdom update occurs after an
+	 * individual scan request so a single request isn't going to
+	 * include potential 6GHz results.
+	 *
+	 * Instead we can break this full scan up into individual bands
+	 * and increase our chances of the regdom updating after one of
+	 * the earlier requests. If it does update to allow 6GHz an
+	 * extra 6GHz-only passive scan can be appended to this request
+	 * at that time.
+	 */
+	subsets[0] = scan_freq_set_clone(allowed, BAND_FREQ_2_4_GHZ);
+	subsets[1] = scan_freq_set_clone(allowed, BAND_FREQ_5_GHZ);
+
+	scan_freq_set_free(allowed);
+
+	for(i = 0; i < L_ARRAY_SIZE(subsets); i++) {
+		if (!scan_freq_set_isempty(subsets[i]))
+			scan_build_next_cmd(sr->cmds, sc, passive, params,
+								subsets[i]);
+
+		scan_freq_set_free(subsets[i]);
+	}
+
+	sr->split = true;
 }
 
 static int scan_request_send_trigger(struct scan_context *sc,
@@ -607,6 +672,7 @@ static struct scan_request *scan_request_new(struct scan_context *sc,
 	sr->destroy = destroy;
 	sr->passive = passive;
 	sr->cmds = l_queue_new();
+	sr->freqs_scanned = scan_freq_set_new();
 
 	return sr;
 }
@@ -639,7 +705,7 @@ static uint32_t scan_common(uint64_t wdev_id, bool passive,
 
 	sr = scan_request_new(sc, passive, trigger, notify, userdata, destroy);
 
-	scan_cmds_add(sr->cmds, sc, passive, params);
+	scan_cmds_add(sr, sc, passive, params);
 
 	/*
 	 * sr->work isn't initialized yet, it will be done by
@@ -652,7 +718,7 @@ static uint32_t scan_common(uint64_t wdev_id, bool passive,
 					priority, &work_ops);
 }
 
-uint32_t scan_passive(uint64_t wdev_id, struct scan_freq_set *freqs,
+uint32_t scan_passive(uint64_t wdev_id, const struct scan_freq_set *freqs,
 			scan_trigger_func_t trigger, scan_notify_func_t notify,
 			void *userdata, scan_destroy_func_t destroy)
 {
@@ -733,7 +799,7 @@ static void add_owe_scan_cmd(struct scan_context *sc, struct scan_request *sr,
 	params.ssid_len = bss->owe_trans->ssid_len;
 	params.flush = true;
 
-	cmd = scan_build_cmd(sc, ignore_flush, false, &params);
+	cmd = scan_build_cmd(sc, ignore_flush, false, &params, params.freqs);
 
 	l_genl_msg_enter_nested(cmd, NL80211_ATTR_SCAN_SSIDS);
 	l_genl_msg_append_attr(cmd, 0, params.ssid_len, params.ssid);
@@ -1523,14 +1589,11 @@ fail:
 	return NULL;
 }
 
-static struct scan_freq_set *scan_parse_attr_scan_frequencies(
-						struct l_genl_attr *attr)
+static void scan_parse_attr_scan_frequencies(struct l_genl_attr *attr,
+						struct scan_freq_set *set)
 {
 	uint16_t type, len;
 	const void *data;
-	struct scan_freq_set *set;
-
-	set = scan_freq_set_new();
 
 	while (l_genl_attr_next(attr, &type, &len, &data)) {
 		uint32_t freq;
@@ -1541,8 +1604,6 @@ static struct scan_freq_set *scan_parse_attr_scan_frequencies(
 		freq = *((uint32_t *) data);
 		scan_freq_set_add(set, freq);
 	}
-
-	return set;
 }
 
 static struct scan_bss *scan_parse_result(struct l_genl_msg *msg,
@@ -1578,17 +1639,17 @@ static void scan_bss_compute_rank(struct scan_bss *bss)
 	double rank;
 	uint32_t irank;
 	/*
-	 * Maximum rate is 2340Mbps (VHT)
+	 * Maximum rate is 9607.8Mbps (HE)
 	 */
-	double max_rate = 2340000000;
+	double max_rate = 9607800000;
 
 	rank = (double)bss->data_rate / max_rate * USHRT_MAX;
 
-	/* Prefer 5G networks over 2.4G */
+	/* Prefer 5G/6G networks over 2.4G */
 	if (bss->frequency > 4000)
 		rank *= RANK_5G_FACTOR;
 
-	/* Rank loaded APs lower and lighly loaded APs higher */
+	/* Rank loaded APs lower and lightly loaded APs higher */
 	if (bss->utilization >= 192)
 		rank *= RANK_HIGH_UTILIZATION_FACTOR;
 	else if (bss->utilization <= 63)
@@ -1828,10 +1889,114 @@ static void get_scan_done(void *user)
 		l_queue_destroy(results->bss_list,
 				(l_queue_destroy_func_t) scan_bss_free);
 
-	if (results->freqs)
+	if (!results->sr)
 		scan_freq_set_free(results->freqs);
 
 	l_free(results);
+}
+
+static void scan_get_results(struct scan_context *sc, struct scan_request *sr,
+				struct scan_freq_set *freqs)
+{
+	struct scan_results *results;
+	struct l_genl_msg *scan_msg;
+
+	results = l_new(struct scan_results, 1);
+	results->sc = sc;
+	results->time_stamp = l_time_now();
+	results->sr = sr;
+	results->bss_list = l_queue_new();
+	results->freqs = freqs;
+
+	scan_msg = l_genl_msg_new_sized(NL80211_CMD_GET_SCAN, 8);
+
+	l_genl_msg_append_attr(scan_msg, NL80211_ATTR_WDEV, 8,
+					&sc->wdev_id);
+	sc->get_scan_cmd_id = l_genl_family_dump(nl80211, scan_msg,
+						get_scan_callback,
+						results, get_scan_done);
+}
+
+static void scan_wiphy_watch(struct wiphy *wiphy,
+				enum wiphy_state_watch_event event,
+				void *user_data)
+{
+	struct scan_context *sc = user_data;
+	struct scan_request *sr = NULL;
+	struct l_genl_msg *msg = NULL;
+	struct scan_parameters params = { 0 };
+	struct scan_freq_set *freqs_6ghz;
+	struct scan_freq_set *allowed;
+	bool allow_6g;
+	const struct scan_freq_set *supported =
+					wiphy_get_supported_freqs(wiphy);
+
+	/* Only care about regulatory events, and if 6GHz capable */
+	if (event != WIPHY_STATE_WATCH_EVENT_REGDOM_DONE ||
+			!(scan_freq_set_get_bands(supported) & BAND_FREQ_6_GHZ))
+		return;
+
+	if (!sc->sp.id)
+		return;
+
+	sr = l_queue_find(sc->requests, scan_request_match,
+						L_UINT_TO_PTR(sc->sp.id));
+	if (!sr)
+		return;
+
+	allowed = scan_get_allowed_freqs(sc);
+	allow_6g = scan_freq_set_get_bands(allowed) & BAND_FREQ_6_GHZ;
+
+	/*
+	 * This update did not allow 6GHz, or the original request was
+	 * not expecting 6GHz. The periodic scan should now be ended.
+	 */
+	if (!allow_6g || !sr->split) {
+		scan_get_results(sc, sr, sr->freqs_scanned);
+		goto free_allowed;
+	}
+
+	/*
+	 * At this point we know there is an ongoing periodic scan.
+	 * Create a new 6GHz passive scan request and append to the
+	 * command list
+	 */
+	freqs_6ghz = scan_freq_set_clone(allowed, BAND_FREQ_6_GHZ);
+
+	msg = scan_build_cmd(sc, false, true, &params, freqs_6ghz);
+	l_queue_push_tail(sr->cmds, msg);
+
+	scan_freq_set_free(freqs_6ghz);
+
+	/*
+	 * If this periodic scan is at the top of the queue, continue
+	 * running it.
+	 */
+	if (l_queue_peek_head(sc->requests) == sr)
+		start_next_scan_request(&sr->work);
+
+free_allowed:
+	scan_freq_set_free(allowed);
+}
+
+static struct scan_context *scan_context_new(uint64_t wdev_id)
+{
+	struct wiphy *wiphy = wiphy_find_by_wdev(wdev_id);
+	struct scan_context *sc;
+
+	if (!wiphy)
+		return NULL;
+
+	sc = l_new(struct scan_context, 1);
+
+	sc->wdev_id = wdev_id;
+	sc->wiphy = wiphy;
+	sc->state = SCAN_STATE_NOT_RUNNING;
+	sc->requests = l_queue_new();
+	sc->wiphy_watch_id = wiphy_state_watch_add(wiphy, scan_wiphy_watch,
+							sc, NULL);
+
+	return sc;
 }
 
 static bool scan_parse_flush_flag_from_msg(struct l_genl_msg *msg)
@@ -1850,8 +2015,8 @@ static bool scan_parse_flush_flag_from_msg(struct l_genl_msg *msg)
 	return false;
 }
 
-static void scan_parse_new_scan_results(struct l_genl_msg *msg,
-					struct scan_results *results)
+static void scan_parse_result_frequencies(struct l_genl_msg *msg,
+					struct scan_freq_set *freqs)
 {
 	struct l_genl_attr attr, nested;
 	uint16_t type, len;
@@ -1868,8 +2033,7 @@ static void scan_parse_new_scan_results(struct l_genl_msg *msg,
 				break;
 			}
 
-			results->freqs =
-				scan_parse_attr_scan_frequencies(&nested);
+			scan_parse_attr_scan_frequencies(&nested, freqs);
 			break;
 		}
 	}
@@ -1923,8 +2087,7 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 	switch (cmd) {
 	case NL80211_CMD_NEW_SCAN_RESULTS:
 	{
-		struct l_genl_msg *scan_msg;
-		struct scan_results *results;
+		struct scan_freq_set *freqs;
 		bool send_next = false;
 		bool retry = false;
 		bool get_results = false;
@@ -1940,6 +2103,14 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 				break;
 			}
 
+			/* Regdom changed during a periodic scan */
+			if (sc->sp.id == sr->work.id &&
+					wiphy_regdom_is_updating(sc->wiphy)) {
+				scan_parse_result_frequencies(msg,
+							sr->freqs_scanned);
+				return;
+			}
+
 			/*
 			 * If this was the last command for the current request
 			 * avoid starting the next request until the GET_SCAN
@@ -1948,8 +2119,11 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 			 */
 			if (l_queue_isempty(sr->cmds))
 				get_results = true;
-			else
+			else {
+				scan_parse_result_frequencies(msg,
+							sr->freqs_scanned);
 				send_next = true;
+			}
 		} else {
 			if (sc->get_scan_cmd_id)
 				break;
@@ -1988,20 +2162,18 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		if (!get_results)
 			break;
 
-		results = l_new(struct scan_results, 1);
-		results->sc = sc;
-		results->time_stamp = l_time_now();
-		results->sr = sr;
-		results->bss_list = l_queue_new();
+		/*
+		 * In case this was an external scan, setup a new, temporary
+		 * frequency set to report the results to the periodic callback
+		 */
+		if (!sr)
+			freqs = scan_freq_set_new();
+		else
+			freqs = sr->freqs_scanned;
 
-		scan_parse_new_scan_results(msg, results);
+		scan_parse_result_frequencies(msg, freqs);
 
-		scan_msg = l_genl_msg_new_sized(NL80211_CMD_GET_SCAN, 8);
-		l_genl_msg_append_attr(scan_msg, NL80211_ATTR_WDEV, 8,
-					&sc->wdev_id);
-		sc->get_scan_cmd_id = l_genl_family_dump(nl80211, scan_msg,
-							get_scan_callback,
-							results, get_scan_done);
+		scan_get_results(sc, sr, freqs);
 
 		break;
 	}
@@ -2198,3 +2370,4 @@ static void scan_exit(void)
 }
 
 IWD_MODULE(scan, scan_init, scan_exit)
+IWD_MODULE_DEPENDS(scan, wiphy)

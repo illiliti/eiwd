@@ -1981,6 +1981,7 @@ static bool p2p_provision_scan_notify(int err, struct l_queue *bss_list,
 static void p2p_provision_scan_start(struct p2p_device *dev)
 {
 	struct scan_parameters params = {};
+	struct scan_freq_set *freqs = NULL;
 	uint8_t buf[256];
 
 	params.flush = true;
@@ -2009,16 +2010,17 @@ static void p2p_provision_scan_start(struct p2p_device *dev)
 	 * contain all of the 2.4 and 5G channels.
 	 */
 	if (dev->conn_go_scan_retry < 12) {
-		params.freqs = scan_freq_set_new();
-		scan_freq_set_add(params.freqs, dev->conn_go_oper_freq);
+		freqs = scan_freq_set_new();
+		scan_freq_set_add(freqs, dev->conn_go_oper_freq);
+		params.freqs = freqs;
 	}
 
 	dev->scan_id = scan_active_full(dev->wdev_id, &params, NULL,
 					p2p_provision_scan_notify, dev,
 					p2p_scan_destroy);
 
-	if (params.freqs)
-		scan_freq_set_free(params.freqs);
+	if (freqs)
+		scan_freq_set_free(freqs);
 }
 
 static void p2p_start_client_provision(struct p2p_device *dev)
@@ -3781,6 +3783,7 @@ schedule:
 static bool p2p_device_scan_start(struct p2p_device *dev)
 {
 	struct scan_parameters params = {};
+	struct scan_freq_set *freqs;
 	uint8_t buf[256];
 	unsigned int i;
 
@@ -3816,13 +3819,13 @@ static bool p2p_device_scan_start(struct p2p_device *dev)
 	 * Request frames intended for both P2P Devices and non-P2P Devices."
 	 */
 	params.no_cck_rates = true;
-	params.freqs = scan_freq_set_new();
+	freqs = scan_freq_set_new();
 
 	for (i = 0; i < L_ARRAY_SIZE(channels_social); i++) {
 		int chan = channels_social[i];
 		uint32_t freq = band_channel_to_freq(chan, BAND_FREQ_2_4_GHZ);
 
-		scan_freq_set_add(params.freqs, freq);
+		scan_freq_set_add(freqs, freq);
 	}
 
 	/*
@@ -3849,12 +3852,14 @@ static bool p2p_device_scan_start(struct p2p_device *dev)
 			dev->chans_per_scan = CHANS_PER_SCAN;
 		}
 
-		scan_freq_set_add(params.freqs, freq);
+		scan_freq_set_add(freqs, freq);
 	}
+
+	params.freqs = freqs;
 
 	dev->scan_id = scan_active_full(dev->wdev_id, &params, NULL,
 					p2p_scan_notify, dev, p2p_scan_destroy);
-	scan_freq_set_free(params.freqs);
+	scan_freq_set_free(freqs);
 
 	return dev->scan_id != 0;
 }

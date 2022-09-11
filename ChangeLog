@@ -1,3 +1,11 @@
+ver 1.30:
+	Fix issue with handling OWE if buggy AP is detected.
+	Fix issue with handling quick scan and enabling 6GHz.
+	Fix issue with handling tags for extended IEs.
+	Add support for handling HE capabilities.
+	Add support for handling regulatory domain changes.
+	Add support for handling netdev packet loss events.
+
 ver 1.29:
 	Fix issue with handling EAP-Success message.
 	Fix issue with handling secure setting and EAPoL.

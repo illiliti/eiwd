@@ -247,15 +247,6 @@ The group ``[Network]`` contains network configuration related settings.
 
        If not specified, ``300`` is used as default.
 
-   * - MulticastDNS
-     - Values: true, false, resolve
-
-       Configures multicast DNS on each interface. If not specified,
-       systemd-resolved's default value will remain untouched.
-       See ``man 5 systemd.network`` for details.
-
-       Only applies when ``NameResolvingService=systemd``.
-
 Blacklist
 ---------
 

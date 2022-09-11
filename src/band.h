@@ -49,7 +49,16 @@ struct band_chandef {
 	uint32_t center2_frequency;
 };
 
+struct band_he_capabilities {
+	uint32_t iftypes;
+	uint8_t he_phy_capa[11];
+	uint8_t he_mcs_set[12];
+};
+
 struct band {
+	enum band_freq freq;
+	/* Each entry is type struct band_he_capabilities */
+	struct l_queue *he_capabilities;
 	uint8_t vht_mcs_set[8];
 	uint8_t vht_capabilities[4];
 	bool vht_supported : 1;
@@ -65,7 +74,8 @@ void band_free(struct band *band);
 bool band_ofdm_rate(uint8_t index, enum ofdm_channel_width width,
 			int32_t rssi, uint8_t nss, bool sgi,
 			uint64_t *data_rate);
-
+int band_estimate_he_rx_rate(const struct band *band, const uint8_t *hec,
+				int32_t rssi, uint64_t *out_dat_rate);
 int band_estimate_vht_rx_rate(const struct band *band,
 				const uint8_t *vhtc, const uint8_t *vhto,
 				const uint8_t *htc, const uint8_t *hto,

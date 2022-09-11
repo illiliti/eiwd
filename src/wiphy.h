@@ -56,6 +56,8 @@ enum {
 enum wiphy_state_watch_event {
 	WIPHY_STATE_WATCH_EVENT_POWERED,
 	WIPHY_STATE_WATCH_EVENT_RFKILLED,
+	WIPHY_STATE_WATCH_EVENT_REGDOM_STARTED,
+	WIPHY_STATE_WATCH_EVENT_REGDOM_DONE,
 };
 
 typedef void (*wiphy_state_watch_func_t)(struct wiphy *wiphy,
@@ -93,6 +95,7 @@ const char *wiphy_get_path(struct wiphy *wiphy);
 uint32_t wiphy_get_supported_bands(struct wiphy *wiphy);
 const struct scan_freq_set *wiphy_get_supported_freqs(
 						const struct wiphy *wiphy);
+const struct scan_freq_set *wiphy_get_disabled_freqs(const struct wiphy *wiphy);
 bool wiphy_can_transition_disable(struct wiphy *wiphy);
 bool wiphy_can_offload(struct wiphy *wiphy);
 bool wiphy_supports_cmds_auth_assoc(struct wiphy *wiphy);
@@ -121,6 +124,7 @@ const uint8_t *wiphy_get_extended_capabilities(struct wiphy *wiphy,
 const uint8_t *wiphy_get_rm_enabled_capabilities(struct wiphy *wiphy);
 bool wiphy_get_rsnxe(const struct wiphy *wiphy, uint8_t *buf, size_t len);
 void wiphy_get_reg_domain_country(struct wiphy *wiphy, char *out);
+bool wiphy_country_is_unknown(struct wiphy *wiphy);
 
 void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6]);
 void wiphy_generate_address_from_ssid(struct wiphy *wiphy, const char *ssid,
@@ -130,6 +134,7 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 				const void *ies, uint16_t ies_len,
 				const struct scan_bss *bss,
 				uint64_t *out_data_rate);
+bool wiphy_regdom_is_updating(struct wiphy *wiphy);
 
 uint32_t wiphy_state_watch_add(struct wiphy *wiphy,
 				wiphy_state_watch_func_t func, void *user_data,

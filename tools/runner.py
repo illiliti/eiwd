@@ -116,6 +116,9 @@ class RunnerCoreArgParse(ArgumentParser):
 				help='Writes PASS/FAIL to results file')
 		self.add_argument('--hw', '-w',
 				type=str,
+				nargs='?',
+				const=True,
+				action='store',
 				help='Use physical adapters for tests (passthrough)')
 		self.add_argument('--testhome', help=SUPPRESS)
 		self.add_argument('--monitor-parent', help=SUPPRESS)
@@ -367,6 +370,7 @@ class QemuRunner(RunnerAbstract):
 
 		usb_adapters = None
 		pci_adapters = None
+		ram = 256
 
 		super().__init__(args)
 
@@ -382,26 +386,29 @@ class QemuRunner(RunnerAbstract):
 		self._prepare_outfiles()
 
 		if args.hw:
-			hw_conf = ConfigParser()
-			hw_conf.read(args.hw)
+			if os.path.isfile(args.hw):
+				hw_conf = ConfigParser()
+				hw_conf.read(args.hw)
 
-			if hw_conf.has_section('USBAdapters'):
-				# The actual key name of the adapter
-				# doesn't matter since all we need is the
-				# bus/address. This gets named by the kernel
-				# anyways once in the VM.
-				usb_adapters = [v for v in hw_conf['USBAdapters'].values()]
+				if hw_conf.has_section('USBAdapters'):
+					# The actual key name of the adapter
+					# doesn't matter since all we need is the
+					# bus/address. This gets named by the kernel
+					# anyways once in the VM.
+					usb_adapters = [v for v in hw_conf['USBAdapters'].values()]
 
-			if hw_conf.has_section('PCIAdapters'):
-				pci_adapters = [v for v in hw_conf['PCIAdapters'].values()]
+			pci_adapters = self._find_pci_adapters()
 
 		kern_log = "ignore_loglevel" if "kernel" in args.verbose else "quiet"
+
+		if args.valgrind:
+			ram *= 2
 
 		qemu_cmdline = [
 			'qemu-system-x86_64',
 			'-machine', 'type=q35,accel=kvm:tcg',
 			'-nodefaults', '-no-user-config', '-monitor', 'none',
-			'-display', 'none', '-m', '256M', '-nographic', '-vga',
+			'-display', 'none', '-m', '%dM' % ram, '-nographic', '-vga',
 			'none', '-no-acpi', '-no-hpet',
 			'-no-reboot', '-fsdev',
 			'local,id=fsdev-root,path=/,readonly=on,security_model=none,multidevs=remap',
@@ -472,6 +479,25 @@ class QemuRunner(RunnerAbstract):
 
 
 		self.cmdline = qemu_cmdline
+
+	def _find_pci_adapters(self):
+		adapters = []
+
+		try:
+			files = os.listdir('/sys/module/vfio_pci/drivers/pci:vfio-pci')
+		except:
+			return None
+
+		for bus_addr in files:
+			if not bus_addr.startswith('0000:'):
+				continue
+
+			adapters.append(bus_addr.replace('0000:', ''))
+
+		if len(adapters) == 0:
+			return None
+
+		return adapters
 
 	def prepare_environment(self):
 		mounts = [ MountInfo('debugfs', 'debugfs', '/sys/kernel/debug', '', 0) ]

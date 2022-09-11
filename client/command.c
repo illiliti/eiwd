@@ -213,20 +213,57 @@ bool command_line_find_token(const char *token, uint8_t num_to_inspect)
 	return false;
 }
 
+/*
+ * Work around readline limitations of not being able to pass a context pointer
+ * to match functions. Set the command match function/entity to these globals
+ * and call a generic match function which can call the _real_ match function
+ * and include the entity.
+ */
+static command_completion_func_t cmd_current_completion_func = NULL;
+static const char *cmd_current_entity = NULL;
+
+static char *cmd_completion_generic(const char *text, int state)
+{
+	return cmd_current_completion_func(text, state, cmd_current_entity);
+}
+
 static char **cmd_completion_match_entity_cmd(const char *cmd, const char *text,
 						const struct command *cmd_list)
 {
 	char **matches = NULL;
 	size_t i;
+	char *family = NULL;
+	char *entity = NULL;
+	char *prompt = NULL;
 
 	for (i = 0; cmd_list[i].cmd; i++) {
+		char *tmp;
+
 		if (strcmp(cmd_list[i].cmd, cmd))
 			continue;
 
 		if (!cmd_list[i].completion)
 			break;
 
-		matches = rl_completion_matches(text, cmd_list[i].completion);
+		if (cmd_list[i].entity) {
+			prompt = rl_copy_text(0, rl_end);
+
+			family = strtok_r(prompt, " ", &tmp);
+			if (!family)
+				goto done;
+
+			entity = strtok_r(NULL, " ", &tmp);
+		}
+
+done:
+		cmd_current_completion_func = cmd_list[i].completion;
+		cmd_current_entity = entity;
+
+		matches = rl_completion_matches(text, cmd_completion_generic);
+
+		l_free(prompt);
+		cmd_current_completion_func = NULL;
+		cmd_current_entity = NULL;
 
 		break;
 	}
@@ -291,9 +328,6 @@ static char **cmd_completion_match_family_cmd(const char *cmd_family,
 						family->entity_arg_completion);
 			break;
 		}
-
-		if (family->set_default_entity)
-			family->set_default_entity(arg1);
 
 		matches = cmd_completion_match_entity_cmd(arg2, text,
 							family->command_list);
@@ -624,21 +658,6 @@ void command_set_exit_status(int status)
 int command_get_exit_status(void)
 {
 	return exit_status;
-}
-
-void command_reset_default_entities(void)
-{
-	const struct l_queue_entry *entry;
-
-	for (entry = l_queue_get_entries(command_families); entry;
-							entry = entry->next) {
-		struct command_family *family = entry->data;
-
-		if (!family->reset_default_entity)
-			continue;
-
-		family->reset_default_entity();
-	}
 }
 
 void command_family_register(const struct command_family *family)

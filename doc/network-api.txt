@@ -7,9 +7,9 @@ Object path	/net/connman/iwd/{phy0,phy1,...}/{1,2,...}/Xxx
 
 Methods		void Connect()
 
-			Connect to the network.  Request the device
-			implied by the object path to connect to specified
-			network.
+			Connect to the network.  Request the device implied by
+			the object path to connect to specified network.
+			Connecting to WEP networks is not supported.
 
 			Possible errors: net.connman.iwd.Aborted
 					 net.connman.iwd.Busy
@@ -42,7 +42,7 @@ Properties	string Name [readonly]
 		string Type [readonly]
 
 			Contains the type of the network.  Possible
-			types are "open", "psk", "8021x" (EAP)
+			types are "open", "wep", "psk", or "8021x" (EAP)
 
 		object KnownNetwork [readonly, optional]
 

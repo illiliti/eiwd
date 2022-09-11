@@ -25,7 +25,10 @@
 #define COMMAND_OPTION_PASSPHRASE	"passphrase"
 #define COMMAND_OPTION_DONTASK		"dont-ask"
 
-typedef char *(*command_completion_func_t) (const char *text, int state);
+typedef char *(*command_completion_func_t)(const char *text, int state,
+						const char *entity);
+typedef char *(*command_rl_completion_func_t)(const char *text, int state);
+
 
 enum cmd_status {
 	CMD_STATUS_TRIGGERED,
@@ -51,10 +54,8 @@ struct command_family {
 	const char *caption;
 	const char *name;
 	const struct command *command_list;
-	command_completion_func_t family_arg_completion;
-	command_completion_func_t entity_arg_completion;
-	void (*set_default_entity)(const char *entity);
-	void (*reset_default_entity)(void);
+	command_rl_completion_func_t family_arg_completion;
+	command_rl_completion_func_t entity_arg_completion;
 };
 
 bool command_option_get(const char *name, const char **value_out);
@@ -71,7 +72,6 @@ void command_noninteractive_trigger(void);
 bool command_is_interactive_mode(void);
 int command_get_exit_status(void);
 void command_set_exit_status(int status);
-void command_reset_default_entities(void);
 
 void command_family_register(const struct command_family *family);
 void command_family_unregister(const struct command_family *family);

@@ -487,8 +487,6 @@ class TestContext(Namespace):
 			print("Ofono or Phonesim not found, skipping test")
 			return
 
-		Process(['ip', 'link', 'set', 'lo', 'up']).wait()
-
 		os.environ['OFONO_PHONESIM_CONFIG'] = '/tmp/phonesim.conf'
 
 		phonesim_args = ['phonesim', '-p', '12345', '/usr/share/phonesim/default.xml']
@@ -889,7 +887,6 @@ def post_test(ctx, to_copy):
 			elif os.path.exists('/tmp/' + f):
 				os.remove('/tmp/' + f)
 
-		Process(['ip', 'link', 'set', 'lo', 'down']).wait()
 	except Exception as e:
 		print("Exception thrown in post_test")
 	finally:
@@ -1037,7 +1034,12 @@ atexit.register(exit_vm)
 runner.prepare_environment()
 
 if runner.args.start:
-	os.system(runner.args.start)
+	ctx = TestContext(runner.args)
+	ctx.start_dbus()
+	os.chdir(runner.args.testhome)
+	os.environ['DBUS_SYSTEM_BUS_ADDRESS'] = ctx.dbus_address
+
+	subprocess.run([runner.args.start])
 else:
 	run_tests(runner.args)
 

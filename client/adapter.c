@@ -319,7 +319,8 @@ static enum cmd_status cmd_set_property(const char *adapter_name,
 	return CMD_STATUS_TRIGGERED;
 }
 
-static char *set_property_cmd_arg_completion(const char *text, int state)
+static char *set_property_cmd_arg_completion(const char *text, int state,
+						const char *phy)
 {
 	return proxy_property_completion(adapter_properties, text, state);
 }

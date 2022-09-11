@@ -25,6 +25,7 @@
 
 #include <stdint.h>
 #include <unistd.h>
+#include <ell/cleanup.h>
 
 #define ___PASTE(a, b) a ## b
 #define __PASTE(a, b) ___PASTE(a, b)
@@ -111,15 +112,21 @@ struct scan_freq_set *scan_freq_set_new(void);
 void scan_freq_set_free(struct scan_freq_set *freqs);
 bool scan_freq_set_add(struct scan_freq_set *freqs, uint32_t freq);
 bool scan_freq_set_contains(const struct scan_freq_set *freqs, uint32_t freq);
-uint32_t scan_freq_set_get_bands(struct scan_freq_set *freqs);
+uint32_t scan_freq_set_get_bands(const struct scan_freq_set *freqs);
 void scan_freq_set_foreach(const struct scan_freq_set *freqs,
 				scan_freq_set_func_t func, void *user_data);
 void scan_freq_set_merge(struct scan_freq_set *to,
 					const struct scan_freq_set *from);
 void scan_freq_set_constrain(struct scan_freq_set *set,
 					const struct scan_freq_set *constraint);
+void scan_freq_set_subtract(struct scan_freq_set *set,
+					const struct scan_freq_set *subtract);
 bool scan_freq_set_isempty(const struct scan_freq_set *set);
 uint32_t *scan_freq_set_to_fixed_array(const struct scan_freq_set *set,
 					size_t *len_out);
+struct scan_freq_set *scan_freq_set_clone(const struct scan_freq_set *set,
+						uint32_t band_mask);
+
+DEFINE_CLEANUP_FUNC(scan_freq_set_free);
 
 #endif /* __UTIL_H */

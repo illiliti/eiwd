@@ -316,6 +316,25 @@ connect to that network.
 Network Configuration Settings
 ------------------------------
 
+The group ``[Network]`` contains general network settings and any network
+specific overrides for global defaults defined in the main iwd configuration
+file.
+
+.. list-table::
+   :header-rows: 0
+   :stub-columns: 0
+   :widths: 20 80
+   :align: left
+
+   * - MulticastDNS
+     - Values: true, false, resolve
+
+       Configures multicast DNS for this network. If not specified,
+       systemd-resolved's default value will remain untouched.
+       See ``man 5 systemd.network`` for details.
+
+       Only applies when ``NameResolvingService=systemd``.
+
 The group ``[IPv4]`` contains settings for Internet Protocol version 4 (IPv4)
 network configuration with the static addresses.
 

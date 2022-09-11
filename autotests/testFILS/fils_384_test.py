@@ -62,8 +62,6 @@ class Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         IWD.copy_to_storage('ssidFILS-384.8021x')
-        os.system('ip link set lo up')
-        pass
 
     @classmethod
     def tearDownClass(cls):

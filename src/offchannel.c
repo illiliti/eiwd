@@ -322,3 +322,4 @@ static void offchannel_exit(void)
 }
 
 IWD_MODULE(offchannel, offchannel_init, offchannel_exit);
+IWD_MODULE_DEPENDS(offchannel, wiphy);

@@ -66,6 +66,7 @@ static char **blacklist_filter;
 static int mac_randomize_bytes = 6;
 static char regdom_country[2];
 static uint32_t work_ids;
+static unsigned int wiphy_dump_id;
 
 enum driver_flag {
 	DEFAULT_IF = 0x1,
@@ -104,6 +105,8 @@ struct wiphy {
 	uint16_t supported_iftypes;
 	uint16_t supported_ciphers;
 	struct scan_freq_set *supported_freqs;
+	struct scan_freq_set *disabled_freqs;
+	struct scan_freq_set *pending_freqs;
 	struct band *band_2g;
 	struct band *band_5g;
 	struct band *band_6g;
@@ -120,6 +123,8 @@ struct wiphy {
 	/* Work queue for this radio */
 	struct l_queue *work;
 	bool work_in_callback;
+	unsigned int get_reg_id;
+	unsigned int dump_id;
 
 	bool support_scheduled_scan:1;
 	bool support_rekey_offload:1;
@@ -132,6 +137,7 @@ struct wiphy {
 	bool offchannel_tx_ok : 1;
 	bool blacklisted : 1;
 	bool registered : 1;
+	bool self_managed : 1;
 };
 
 static struct l_queue *wiphy_list = NULL;
@@ -316,6 +322,7 @@ static struct wiphy *wiphy_new(uint32_t id)
 
 	wiphy->id = id;
 	wiphy->supported_freqs = scan_freq_set_new();
+	wiphy->disabled_freqs = scan_freq_set_new();
 	watchlist_init(&wiphy->state_watches, NULL);
 	wiphy->extended_capabilities[0] = IE_TYPE_EXTENDED_CAPABILITIES;
 	wiphy->extended_capabilities[1] = EXT_CAP_LEN;
@@ -338,6 +345,12 @@ static void wiphy_free(void *data)
 
 	l_debug("Freeing wiphy %s[%u]", wiphy->name, wiphy->id);
 
+	if (wiphy->dump_id)
+		l_genl_family_cancel(nl80211, wiphy->dump_id);
+
+	if (wiphy->get_reg_id)
+		l_genl_family_cancel(nl80211, wiphy->get_reg_id);
+
 	for (i = 0; i < NUM_NL80211_IFTYPES; i++)
 		l_free(wiphy->iftype_extended_capabilities[i]);
 
@@ -357,6 +370,7 @@ static void wiphy_free(void *data)
 	}
 
 	scan_freq_set_free(wiphy->supported_freqs);
+	scan_freq_set_free(wiphy->disabled_freqs);
 	watchlist_destroy(&wiphy->state_watches);
 	l_free(wiphy->model_str);
 	l_free(wiphy->vendor_str);
@@ -452,6 +466,11 @@ const struct scan_freq_set *wiphy_get_supported_freqs(
 						const struct wiphy *wiphy)
 {
 	return wiphy->supported_freqs;
+}
+
+const struct scan_freq_set *wiphy_get_disabled_freqs(const struct wiphy *wiphy)
+{
+	return wiphy->disabled_freqs;
 }
 
 bool wiphy_can_transition_disable(struct wiphy *wiphy)
@@ -699,6 +718,7 @@ bool wiphy_constrain_freq_set(const struct wiphy *wiphy,
 						struct scan_freq_set *set)
 {
 	scan_freq_set_constrain(set, wiphy->supported_freqs);
+	scan_freq_set_subtract(set, wiphy->disabled_freqs);
 
 	if (!scan_freq_set_get_bands(set))
 		/* The set is empty. */
@@ -707,17 +727,16 @@ bool wiphy_constrain_freq_set(const struct wiphy *wiphy,
 	return true;
 }
 
-static char **wiphy_get_supported_iftypes(struct wiphy *wiphy, uint16_t mask)
+static char **wiphy_iftype_mask_to_str(uint16_t mask)
 {
-	uint16_t supported_mask = wiphy->supported_iftypes & mask;
-	char **ret = l_new(char *, __builtin_popcount(supported_mask) + 1);
+	char **ret = l_new(char *, __builtin_popcount(mask) + 1);
 	unsigned int i;
 	unsigned int j;
 
-	for (j = 0, i = 0; i < sizeof(supported_mask) * 8; i++) {
+	for (j = 0, i = 0; i < sizeof(mask) * 8; i++) {
 		const char *str;
 
-		if (!(supported_mask & (1 << i)))
+		if (!(mask & (1 << i)))
 			continue;
 
 		str = netdev_iftype_to_string(i + 1);
@@ -726,6 +745,11 @@ static char **wiphy_get_supported_iftypes(struct wiphy *wiphy, uint16_t mask)
 	}
 
 	return ret;
+}
+
+static char **wiphy_get_supported_iftypes(struct wiphy *wiphy, uint16_t mask)
+{
+	return wiphy_iftype_mask_to_str(wiphy->supported_iftypes & mask);
 }
 
 bool wiphy_supports_iftype(struct wiphy *wiphy, uint32_t iftype)
@@ -776,6 +800,22 @@ void wiphy_get_reg_domain_country(struct wiphy *wiphy, char *out)
 	out[1] = country[1];
 }
 
+bool wiphy_country_is_unknown(struct wiphy *wiphy)
+{
+	char cc[2];
+
+	wiphy_get_reg_domain_country(wiphy, cc);
+
+	/*
+	 * Treat OO and XX as an unknown country. Additional codes could be
+	 * added here if needed. The purpose of this is to know if we can
+	 * expect the disabled frequency list to be updated once a country is
+	 * known.
+	 */
+	return ((cc[0] == 'O' && cc[1] == 'O') ||
+			(cc[0] == 'X' && cc[1] == 'X'));
+}
+
 int wiphy_estimate_data_rate(struct wiphy *wiphy,
 				const void *ies, uint16_t ies_len,
 				const struct scan_bss *bss,
@@ -788,6 +828,7 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 	const void *vht_operation = NULL;
 	const void *ht_capabilities = NULL;
 	const void *ht_operation = NULL;
+	const void *he_capabilities = NULL;
 	const struct band *bandp;
 	enum band_freq band;
 
@@ -811,7 +852,7 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 	ie_tlv_iter_init(&iter, ies, ies_len);
 
 	while (ie_tlv_iter_next(&iter)) {
-		uint8_t tag = ie_tlv_iter_get_tag(&iter);
+		uint16_t tag = ie_tlv_iter_get_tag(&iter);
 
 		switch (tag) {
 		case IE_TYPE_SUPPORTED_RATES:
@@ -847,10 +888,21 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 
 			vht_operation = iter.data - 2;
 			break;
+		case IE_TYPE_HE_CAPABILITIES:
+			if (!ie_validate_he_capabilities(iter.data, iter.len))
+				return -EBADMSG;
+
+			he_capabilities = iter.data;
+			break;
 		default:
 			break;
 		}
 	}
+
+	if (!band_estimate_he_rx_rate(bandp, he_capabilities,
+					bss->signal_strength / 100,
+					out_data_rate))
+		return 0;
 
 	if (!band_estimate_vht_rx_rate(bandp, vht_capabilities, vht_operation,
 					ht_capabilities, ht_operation,
@@ -867,6 +919,11 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 						ext_supported_rates,
 						bss->signal_strength / 100,
 						out_data_rate);
+}
+
+bool wiphy_regdom_is_updating(struct wiphy *wiphy)
+{
+	return wiphy->pending_freqs != NULL;
 }
 
 uint32_t wiphy_state_watch_add(struct wiphy *wiphy,
@@ -903,20 +960,80 @@ static void wiphy_print_mcs_indexes(const uint8_t *mcs)
 	}
 }
 
-static void wiphy_print_vht_mcs_info(const uint8_t *mcs_map,
-						const char *prefix)
+static void wiphy_print_mcs_info(const uint8_t *mcs_map,
+						const char *prefix,
+						uint8_t value0,
+						uint8_t value1,
+						uint8_t value2)
 {
 	int i;
 
 	for (i = 14; i >= 0; i -= 2) {
+		uint8_t value;
 		int mcs = bit_field(mcs_map[i / 8], i % 8, 2);
 
 		if (mcs == 0x3)
 			continue;
 
+		switch (mcs) {
+		case 0:
+			value = value0;
+			break;
+		case 1:
+			value = value1;
+			break;
+		case 2:
+			value = value2;
+			break;
+		}
+
 		l_info("\t\t\tMax %s MCS: 0-%d for NSS: %d", prefix,
-			mcs + 7, i / 2 + 1);
+			value, i / 2 + 1);
 		return;
+	}
+}
+
+static void wiphy_print_he_capabilities(struct band *band,
+				const struct band_he_capabilities *he_cap)
+{
+	_auto_(l_strv_free) char **iftypes = NULL;
+	_auto_(l_free) char *joined = NULL;
+	uint8_t width_set = bit_field(he_cap->he_phy_capa[0], 1, 7);
+
+	iftypes = wiphy_iftype_mask_to_str(he_cap->iftypes);
+	joined = l_strjoinv(iftypes, ' ');
+
+	l_info("\t\t\tInterface Types: %s", joined);
+
+	switch (band->freq) {
+	case BAND_FREQ_2_4_GHZ:
+		wiphy_print_mcs_info(he_cap->he_mcs_set,
+					"HE RX <= 80MHz", 7, 9, 11);
+		wiphy_print_mcs_info(he_cap->he_mcs_set + 2,
+					"HE TX <= 80MHz", 7, 9, 11);
+		break;
+	case BAND_FREQ_5_GHZ:
+	case BAND_FREQ_6_GHZ:
+		wiphy_print_mcs_info(he_cap->he_mcs_set,
+					"HE RX <= 80MHz", 7, 9, 11);
+		wiphy_print_mcs_info(he_cap->he_mcs_set + 2,
+					"HE TX <= 80MHz", 7, 9, 11);
+
+		if (test_bit(&width_set, 2)) {
+			wiphy_print_mcs_info(he_cap->he_mcs_set + 4,
+					"HE RX <= 160MHz", 7, 9, 11);
+			wiphy_print_mcs_info(he_cap->he_mcs_set + 6,
+					"HE TX <= 160MHz", 7, 9, 11);
+		}
+
+		if (test_bit(&width_set, 3)) {
+			wiphy_print_mcs_info(he_cap->he_mcs_set + 8,
+					"HE RX <= 80+80MHz", 7, 9, 11);
+			wiphy_print_mcs_info(he_cap->he_mcs_set + 10,
+					"HE TX <= 80+80MHz", 7, 9, 11);
+		}
+
+		break;
 	}
 }
 
@@ -976,8 +1093,22 @@ static void wiphy_print_band_info(struct band *band, const char *name)
 		if (test_bit(band->vht_capabilities, 6))
 			l_info("\t\t\tShort GI for 160 and 80 + 80 Mhz");
 
-		wiphy_print_vht_mcs_info(band->vht_mcs_set, "RX");
-		wiphy_print_vht_mcs_info(band->vht_mcs_set + 4, "TX");
+		wiphy_print_mcs_info(band->vht_mcs_set, "RX", 7, 8, 9);
+		wiphy_print_mcs_info(band->vht_mcs_set + 4, "TX", 7, 8, 9);
+	}
+
+	if (band->he_capabilities) {
+		const struct l_queue_entry *entry;
+
+		l_info("\t\tHE Capabilities");
+
+		for (entry = l_queue_get_entries(band->he_capabilities);
+						entry; entry = entry->next) {
+			const struct band_he_capabilities *he_cap = entry->data;
+
+			wiphy_print_he_capabilities(band, he_cap);
+		}
+
 	}
 }
 
@@ -1090,30 +1221,6 @@ static void parse_supported_ciphers(struct wiphy *wiphy, const void *data,
 	}
 }
 
-static void parse_supported_frequencies(struct wiphy *wiphy,
-						struct l_genl_attr *freqs)
-{
-	uint16_t type, len;
-	const void *data;
-	struct l_genl_attr attr;
-
-	while (l_genl_attr_next(freqs, NULL, NULL, NULL)) {
-		if (!l_genl_attr_recurse(freqs, &attr))
-			continue;
-
-		while (l_genl_attr_next(&attr, &type, &len, &data)) {
-			uint32_t u32;
-
-			switch (type) {
-			case NL80211_FREQUENCY_ATTR_FREQ:
-				u32 = *((uint32_t *) data);
-				scan_freq_set_add(wiphy->supported_freqs, u32);
-				break;
-			}
-		}
-	}
-}
-
 static int parse_supported_rates(struct l_genl_attr *attr, struct band *band)
 {
 	uint16_t type;
@@ -1187,9 +1294,101 @@ static struct band *band_new_from_message(struct l_genl_attr *band)
 	toalloc = sizeof(struct band) + count * sizeof(uint8_t);
 	ret = l_malloc(toalloc);
 	memset(ret, 0, toalloc);
+
+#if __GNUC__ == 11 && __GNUC_MINOR__ == 2
+_Pragma("GCC diagnostic push")
+_Pragma("GCC diagnostic ignored \"-Warray-bounds\"")
+#endif
 	memset(ret->vht_mcs_set, 0xff, sizeof(ret->vht_mcs_set));
+#if __GNUC__ == 11 && __GNUC_MINOR__ == 2
+_Pragma("GCC diagnostic pop")
+#endif
 
 	return ret;
+}
+
+static uint32_t get_iftypes(struct l_genl_attr *iftypes)
+{
+	uint16_t type;
+	uint16_t len;
+	uint32_t types = 0;
+
+	while (l_genl_attr_next(iftypes, &type, &len, NULL)) {
+		if (len != 0)
+			continue;
+
+		types |= (1 << (type - 1));
+	}
+
+	return types;
+}
+
+static void parse_iftype_attrs(struct band *band, struct l_genl_attr *types)
+{
+	uint16_t type;
+	uint16_t len;
+	const void *data;
+	unsigned int count = 0;
+	struct band_he_capabilities *he_cap =
+					l_new(struct band_he_capabilities, 1);
+
+	while (l_genl_attr_next(types, &type, &len, &data)) {
+		struct l_genl_attr iftypes;
+
+		switch (type) {
+		case NL80211_BAND_IFTYPE_ATTR_IFTYPES:
+			if (!l_genl_attr_recurse(types, &iftypes))
+				goto parse_error;
+
+			he_cap->iftypes = get_iftypes(&iftypes);
+			break;
+		case NL80211_BAND_IFTYPE_ATTR_HE_CAP_PHY:
+			if (len > sizeof(he_cap->he_phy_capa))
+				continue;
+
+			memcpy(he_cap->he_phy_capa, data, len);
+			count++;
+			break;
+		case NL80211_BAND_IFTYPE_ATTR_HE_CAP_MCS_SET:
+			if (len > sizeof(he_cap->he_mcs_set))
+				continue;
+
+			memcpy(he_cap->he_mcs_set, data, len);
+			count++;
+			break;
+		default:
+			break;
+		}
+	}
+
+	/*
+	 * Since the capabilities element indicates what values are present in
+	 * the MCS set ensure both values are parsed
+	 */
+	if (count != 2 || !he_cap->iftypes)
+		goto parse_error;
+
+	if (!band->he_capabilities)
+		band->he_capabilities = l_queue_new();
+
+	l_queue_push_head(band->he_capabilities, he_cap);
+
+	return;
+
+parse_error:
+	l_free(he_cap);
+}
+
+static void parse_band_iftype_data(struct band *band, struct l_genl_attr *ifdata)
+{
+	while (l_genl_attr_next(ifdata, NULL, NULL, NULL)) {
+		struct l_genl_attr types;
+
+		if (!l_genl_attr_recurse(ifdata, &types))
+			continue;
+
+		parse_iftype_attrs(band, &types);
+	}
 }
 
 static void parse_supported_bands(struct wiphy *wiphy,
@@ -1203,16 +1402,20 @@ static void parse_supported_bands(struct wiphy *wiphy,
 	while (l_genl_attr_next(bands, &type, NULL, NULL)) {
 		struct band **bandp;
 		struct band *band;
+		enum band_freq freq;
 
 		switch (type) {
 		case NL80211_BAND_2GHZ:
 			bandp = &wiphy->band_2g;
+			freq = BAND_FREQ_2_4_GHZ;
 			break;
 		case NL80211_BAND_5GHZ:
 			bandp = &wiphy->band_5g;
+			freq = BAND_FREQ_5_GHZ;
 			break;
 		case NL80211_BAND_6GHZ:
 			bandp = &wiphy->band_6g;
+			freq = BAND_FREQ_6_GHZ;
 			break;
 		default:
 			continue;
@@ -1226,6 +1429,8 @@ static void parse_supported_bands(struct wiphy *wiphy,
 			if (!band)
 				continue;
 
+			band->freq = freq;
+
 			/* Reset iter to beginning */
 			if (!l_genl_attr_recurse(bands, &attr)) {
 				band_free(band);
@@ -1234,15 +1439,15 @@ static void parse_supported_bands(struct wiphy *wiphy,
 		} else
 			band = *bandp;
 
+
 		while (l_genl_attr_next(&attr, &type, &len, &data)) {
-			struct l_genl_attr freqs;
+			struct l_genl_attr nested;
 
 			switch (type) {
 			case NL80211_BAND_ATTR_FREQS:
-				if (!l_genl_attr_recurse(&attr, &freqs))
-					continue;
-
-				parse_supported_frequencies(wiphy, &freqs);
+				nl80211_parse_supported_frequencies(&attr,
+							wiphy->supported_freqs,
+							wiphy->disabled_freqs);
 				break;
 
 			case NL80211_BAND_ATTR_RATES:
@@ -1281,6 +1486,12 @@ static void parse_supported_bands(struct wiphy *wiphy,
 
 				memcpy(band->ht_capabilities, data, len);
 				band->ht_supported = true;
+				break;
+			case NL80211_BAND_ATTR_IFTYPE_DATA:
+				if (!l_genl_attr_recurse(&attr, &nested))
+					continue;
+
+				parse_band_iftype_data(band, &nested);
 				break;
 			}
 		}
@@ -1429,6 +1640,9 @@ static void wiphy_parse_attributes(struct wiphy *wiphy,
 			break;
 		case NL80211_ATTR_ROAM_SUPPORT:
 			wiphy->support_fw_roam = true;
+			break;
+		case NL80211_ATTR_WIPHY_SELF_MANAGED_REG:
+			wiphy->self_managed = true;
 			break;
 		}
 	}
@@ -1642,10 +1856,195 @@ static void wiphy_setup_rm_enabled_capabilities(struct wiphy *wiphy)
 	 */
 }
 
-static void wiphy_update_reg_domain(struct wiphy *wiphy, bool global,
+static void wiphy_dump_done(void *user_data)
+{
+	struct wiphy *wiphy = user_data;
+	const struct l_queue_entry *e;
+
+	/* This dump was canceled due to another dump */
+	if ((wiphy && !wiphy->dump_id) || (!wiphy && !wiphy_dump_id))
+		return;
+
+	if (wiphy) {
+		wiphy->dump_id = 0;
+		scan_freq_set_free(wiphy->disabled_freqs);
+		wiphy->disabled_freqs = wiphy->pending_freqs;
+		wiphy->pending_freqs = NULL;
+
+		WATCHLIST_NOTIFY(&wiphy->state_watches,
+				wiphy_state_watch_func_t, wiphy,
+				WIPHY_STATE_WATCH_EVENT_REGDOM_DONE);
+
+		return;
+	}
+
+	wiphy_dump_id = 0;
+
+	for (e = l_queue_get_entries(wiphy_list); e; e = e->next) {
+		wiphy = e->data;
+
+		if (!wiphy->pending_freqs || wiphy->self_managed)
+			continue;
+
+		scan_freq_set_free(wiphy->disabled_freqs);
+		wiphy->disabled_freqs = wiphy->pending_freqs;
+		wiphy->pending_freqs = NULL;
+
+		WATCHLIST_NOTIFY(&wiphy->state_watches,
+				wiphy_state_watch_func_t, wiphy,
+				WIPHY_STATE_WATCH_EVENT_REGDOM_DONE);
+	}
+}
+
+/* We are dumping wiphy(s) due to a regulatory change */
+static void wiphy_dump_callback(struct l_genl_msg *msg,
+						void *user_data)
+{
+	struct wiphy *wiphy;
+	uint32_t id;
+	struct l_genl_attr bands;
+	struct l_genl_attr attr;
+	uint16_t type;
+
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_WIPHY, &id,
+					NL80211_ATTR_WIPHY_BANDS, &bands,
+					NL80211_ATTR_UNSPEC) < 0)
+		return;
+
+	wiphy = wiphy_find(id);
+	if (L_WARN_ON(!wiphy))
+		return;
+
+	while (l_genl_attr_next(&bands, NULL, NULL, NULL)) {
+		if (!l_genl_attr_recurse(&bands, &attr))
+			return;
+
+		while (l_genl_attr_next(&attr, &type, NULL, NULL)) {
+			if (type != NL80211_BAND_ATTR_FREQS)
+				continue;
+
+			nl80211_parse_supported_frequencies(&attr, NULL,
+							wiphy->pending_freqs);
+		}
+	}
+}
+
+static bool wiphy_cancel_last_dump(struct wiphy *wiphy)
+{
+	const struct l_queue_entry *e;
+	unsigned int id = 0;
+
+	/*
+	 * Zero command ID to signal that wiphy_dump_done doesn't need to do
+	 * anything. For a self-managed wiphy just free/NULL pending_freqs. For
+	 * a global dump each wiphy needs to be checked and dealt with.
+	 */
+	if (wiphy && wiphy->dump_id) {
+		id = wiphy->dump_id;
+		wiphy->dump_id = 0;
+
+		scan_freq_set_free(wiphy->pending_freqs);
+		wiphy->pending_freqs = NULL;
+	} else if (!wiphy && wiphy_dump_id) {
+		id = wiphy_dump_id;
+		wiphy_dump_id = 0;
+
+		for (e = l_queue_get_entries(wiphy_list); e; e = e->next) {
+			struct wiphy *w = e->data;
+
+			if (!w->pending_freqs || w->self_managed)
+				continue;
+
+			scan_freq_set_free(w->pending_freqs);
+			w->pending_freqs = NULL;
+		}
+	}
+
+	if (id) {
+		l_debug("Canceling pending regdom wiphy dump (%s)",
+					wiphy ? wiphy->name : "global");
+
+		l_genl_family_cancel(nl80211, id);
+	}
+
+	return id != 0;
+}
+
+static void wiphy_dump_after_regdom(struct wiphy *wiphy)
+{
+	const struct l_queue_entry *e;
+	struct l_genl_msg *msg;
+	unsigned int id;
+	bool no_start_event;
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_GET_WIPHY, 128);
+
+	if (wiphy)
+		l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY, 4, &wiphy->id);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_SPLIT_WIPHY_DUMP, 0, NULL);
+	id = l_genl_family_dump(nl80211, msg, wiphy_dump_callback,
+						wiphy, wiphy_dump_done);
+	if (!id) {
+		l_error("Wiphy information dump failed");
+		l_genl_msg_unref(msg);
+		return;
+	}
+
+	/*
+	 * Another update while dumping wiphy. This next dump should supercede
+	 * the first and not result in a DONE event until this new dump is
+	 * finished. This is because the disabled frequencies are in an unknown
+	 * state and could cause incorrect behavior by any watchers.
+	 */
+	no_start_event = wiphy_cancel_last_dump(wiphy);
+
+	/* Limited dump so just emit the event for this wiphy */
+	if (wiphy) {
+		wiphy->dump_id = id;
+		wiphy->pending_freqs = scan_freq_set_new();
+
+		if (no_start_event)
+			return;
+
+		WATCHLIST_NOTIFY(&wiphy->state_watches,
+				wiphy_state_watch_func_t, wiphy,
+				WIPHY_STATE_WATCH_EVENT_REGDOM_STARTED);
+		return;
+	}
+
+	wiphy_dump_id = id;
+
+	/* Otherwise for a global regdom change notify for all wiphy's */
+	for (e = l_queue_get_entries(wiphy_list); e; e = e->next) {
+		struct wiphy *w = e->data;
+
+		if (w->self_managed)
+			continue;
+
+		w->pending_freqs = scan_freq_set_new();
+
+		if (no_start_event)
+			continue;
+
+		WATCHLIST_NOTIFY(&w->state_watches, wiphy_state_watch_func_t,
+				w, WIPHY_STATE_WATCH_EVENT_REGDOM_STARTED);
+	}
+}
+
+static bool wiphy_update_reg_domain(struct wiphy *wiphy, bool global,
 					struct l_genl_msg *msg)
 {
-	char *out_country;
+	char out_country[2];
+	char *orig;
+
+	/*
+	 * Write the new country code or XX if the reg domain is not a
+	 * country domain.
+	 */
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_REG_ALPHA2, out_country,
+				NL80211_ATTR_UNSPEC) < 0)
+		out_country[0] = out_country[1] = 'X';
 
 	if (global)
 		/*
@@ -1659,21 +2058,26 @@ static void wiphy_update_reg_domain(struct wiphy *wiphy, bool global,
 		 * wiphy created (that is not self-managed anyway) and we
 		 * haven't received any REG_CHANGE events yet.
 		 */
-		out_country = regdom_country;
+		orig = regdom_country;
+
 	else
-		out_country = wiphy->regdom_country;
+		orig = wiphy->regdom_country;
 
 	/*
-	 * Write the new country code or XX if the reg domain is not a
-	 * country domain.
+	 * The kernel seems to send regdom updates even if the country didn't
+	 * change. Skip these as there is no reason to re-dump.
 	 */
-	if (nl80211_parse_attrs(msg, NL80211_ATTR_REG_ALPHA2, out_country,
-				NL80211_ATTR_UNSPEC) < 0)
-		out_country[0] = out_country[1] = 'X';
+	if (orig[0] == out_country[0] && orig[1] == out_country[1])
+		return false;
 
 	l_debug("New reg domain country code for %s is %c%c",
 		global ? "(global)" : wiphy->name,
 		out_country[0], out_country[1]);
+
+	orig[0] = out_country[0];
+	orig[1] = out_country[1];
+
+	return true;
 }
 
 static void wiphy_get_reg_cb(struct l_genl_msg *msg, void *user_data)
@@ -1681,6 +2085,8 @@ static void wiphy_get_reg_cb(struct l_genl_msg *msg, void *user_data)
 	struct wiphy *wiphy = user_data;
 	uint32_t tmp;
 	bool global;
+
+	wiphy->get_reg_id = 0;
 
 	/*
 	 * NL80211_CMD_GET_REG contains an NL80211_ATTR_WIPHY iff the wiphy
@@ -1699,8 +2105,9 @@ static void wiphy_get_reg_domain(struct wiphy *wiphy)
 	msg = l_genl_msg_new(NL80211_CMD_GET_REG);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY, 4, &wiphy->id);
 
-	if (!l_genl_family_send(wiphy->nl80211, msg, wiphy_get_reg_cb, wiphy,
-				NULL)) {
+	wiphy->get_reg_id = l_genl_family_send(wiphy->nl80211, msg,
+						wiphy_get_reg_cb, wiphy, NULL);
+	if (!wiphy->get_reg_id) {
 		l_error("Error sending NL80211_CMD_GET_REG for %s", wiphy->name);
 		l_genl_msg_unref(msg);
 	}
@@ -1916,31 +2323,35 @@ static void setup_wiphy_interface(struct l_dbus_interface *interface)
 static void wiphy_reg_notify(struct l_genl_msg *msg, void *user_data)
 {
 	uint8_t cmd = l_genl_msg_get_command(msg);
+	struct wiphy *wiphy = NULL;
+	uint32_t wiphy_id;
 
 	l_debug("Notification of command %s(%u)",
 		nl80211cmd_to_string(cmd), cmd);
 
 	switch (cmd) {
 	case NL80211_CMD_REG_CHANGE:
-		wiphy_update_reg_domain(NULL, true, msg);
+		if (!wiphy_update_reg_domain(NULL, true, msg))
+			return;
 		break;
 	case NL80211_CMD_WIPHY_REG_CHANGE:
-	{
-		uint32_t wiphy_id;
-		struct wiphy *wiphy;
-
 		if (nl80211_parse_attrs(msg, NL80211_ATTR_WIPHY, &wiphy_id,
 					NL80211_ATTR_UNSPEC) < 0)
-			break;
+			return;
 
 		wiphy = wiphy_find(wiphy_id);
 		if (!wiphy)
-			break;
+			return;
 
-		wiphy_update_reg_domain(wiphy, false, msg);
+		if (!wiphy_update_reg_domain(wiphy, false, msg))
+			return;
+
 		break;
+	default:
+		return;
 	}
-	}
+
+	wiphy_dump_after_regdom(wiphy);
 }
 
 static void wiphy_radio_work_next(struct wiphy *wiphy)
@@ -2120,6 +2531,11 @@ static void wiphy_exit(void)
 {
 	l_strfreev(whitelist_filter);
 	l_strfreev(blacklist_filter);
+
+	if (wiphy_dump_id) {
+		l_genl_family_cancel(nl80211, wiphy_dump_id);
+		wiphy_dump_id = 0;
+	}
 
 	l_queue_destroy(wiphy_list, wiphy_free);
 	wiphy_list = NULL;

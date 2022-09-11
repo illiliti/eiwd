@@ -277,9 +277,11 @@ static enum cmd_status cmd_list(const char *device_name, char **argv, int argc)
 	return CMD_STATUS_DONE;
 }
 
-static char *connect_cmd_arg_completion(const char *text, int state)
+static char *connect_cmd_arg_completion(const char *text, int state,
+					const char *device_name)
 {
-	const struct proxy_interface *device = device_get_default();
+	const struct proxy_interface *device = device_proxy_find(device_name,
+							IWD_STATION_INTERFACE);
 
 	if (!device)
 		return NULL;
@@ -489,7 +491,8 @@ static void ordered_networks_callback(struct l_dbus_message *message,
 	l_queue_destroy(networks, ordered_networks_destroy);
 }
 
-static char *get_networks_cmd_arg_completion(const char *text, int state)
+static char *get_networks_cmd_arg_completion(const char *text, int state,
+						const char *device_name)
 {
 	static int index;
 	static int len;

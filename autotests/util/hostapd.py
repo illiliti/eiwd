@@ -281,3 +281,34 @@ class HostapdCLI(object):
     @property
     def enabled(self):
         return self._get_status()['state'] == 'ENABLED'
+
+    def set_address(self, mac):
+        os.system('ip link set dev %s down' % self.ifname)
+        os.system('ip link set dev %s addr %s up' % (self.ifname, mac))
+
+        self.reload()
+        self.wait_for_event("AP-ENABLED")
+
+    def _add_neighbors(self, *args, op_class=81):
+        for hapd in args:
+            status = hapd._get_status()
+
+            ssid = status['ssid[0]']
+            bssid = status['bssid[0]']
+            channel = int(status['channel'])
+
+            if (channel > 14 and op_class == 81):
+                raise Exception("default add_neighbors assumes opclass 0x51!")
+
+            channel = '{:02x}'.format(channel)
+            oper_class = '{:02x}'.format(op_class)
+
+            self.set_neighbor(bssid, ssid, '%s8f000000%s%s060603000000' %
+                                (bssid.replace(':', ''), oper_class, channel))
+
+    @classmethod
+    def group_neighbors(cls, *args):
+        for hapd in args:
+            others = [h for h in args if h != hapd]
+
+            hapd._add_neighbors(*others)

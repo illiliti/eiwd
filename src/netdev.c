@@ -1073,6 +1073,7 @@ static void netdev_cqm_event(struct l_genl_msg *msg, struct netdev *netdev)
 	const void *data;
 	uint32_t *rssi_event = NULL;
 	int32_t *rssi_val = NULL;
+	uint32_t *pkt_event = NULL;
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
@@ -1092,12 +1093,25 @@ static void netdev_cqm_event(struct l_genl_msg *msg, struct netdev *netdev)
 					rssi_event = (uint32_t *) data;
 					break;
 
+				case NL80211_ATTR_CQM_PKT_LOSS_EVENT:
+					if (len != 4)
+						continue;
+
+					pkt_event = (uint32_t *) data;
+					break;
+
+				case NL80211_ATTR_CQM_BEACON_LOSS_EVENT:
+					l_debug("Beacon lost event");
+					break;
+
 				case NL80211_ATTR_CQM_RSSI_LEVEL:
 					if (len != 4)
 						continue;
 
 					rssi_val = (int32_t *) data;
 					break;
+				default:
+					l_debug("Unknown CQM event: %d", type);
 				}
 			}
 
@@ -1106,11 +1120,17 @@ static void netdev_cqm_event(struct l_genl_msg *msg, struct netdev *netdev)
 	}
 
 	if (rssi_event) {
-		if (rssi_val)
+		if (rssi_val) {
+			l_debug("Signal change event (above=%d signal=%d)",
+							*rssi_event, *rssi_val);
 			netdev_cqm_event_rssi_value(netdev, *rssi_val);
-		else
+		} else {
+			l_debug("Signal change event (above=%d)", *rssi_event);
 			netdev_cqm_event_rssi_threshold(netdev, *rssi_event);
-	}
+		}
+	} else if (pkt_event && netdev->event_filter)
+		netdev->event_filter(netdev, NETDEV_EVENT_PACKET_LOSS_NOTIFY,
+					pkt_event, netdev->user_data);
 }
 
 static void netdev_rekey_offload_event(struct l_genl_msg *msg,
@@ -3957,8 +3977,8 @@ offload_1x:
 }
 
 static void netdev_connect_common(struct netdev *netdev,
-					struct scan_bss *bss,
-					struct scan_bss *prev_bss,
+					const struct scan_bss *bss,
+					const struct scan_bss *prev_bss,
 					struct handshake_state *hs,
 					const struct iovec *vendor_ies,
 					size_t num_vendor_ies,
@@ -4051,7 +4071,7 @@ build_cmd_connect:
 				WIPHY_WORK_PRIORITY_CONNECT, &connect_work_ops);
 }
 
-int netdev_connect(struct netdev *netdev, struct scan_bss *bss,
+int netdev_connect(struct netdev *netdev, const struct scan_bss *bss,
 				struct handshake_state *hs,
 				const struct iovec *vendor_ies,
 				size_t num_vendor_ies,
@@ -4158,8 +4178,9 @@ int netdev_disconnect(struct netdev *netdev,
 	return 0;
 }
 
-int netdev_reassociate(struct netdev *netdev, struct scan_bss *target_bss,
-			struct scan_bss *orig_bss, struct handshake_state *hs,
+int netdev_reassociate(struct netdev *netdev, const struct scan_bss *target_bss,
+			const struct scan_bss *orig_bss,
+			struct handshake_state *hs,
 			netdev_event_func_t event_filter,
 			netdev_connect_cb_t cb, void *user_data)
 {
@@ -4776,7 +4797,8 @@ static void netdev_preauth_cb(const uint8_t *pmk, void *user_data)
 		pmk, preauth->user_data);
 }
 
-int netdev_preauthenticate(struct netdev *netdev, struct scan_bss *target_bss,
+int netdev_preauthenticate(struct netdev *netdev,
+				const struct scan_bss *target_bss,
 				netdev_preauthenticate_cb_t cb, void *user_data)
 {
 	struct netdev_preauth_state *preauth;
@@ -6676,3 +6698,5 @@ void netdev_shutdown(void)
 
 IWD_MODULE(netdev, netdev_init, netdev_exit);
 IWD_MODULE_DEPENDS(netdev, eapol);
+IWD_MODULE_DEPENDS(netdev, frame_xchg);
+IWD_MODULE_DEPENDS(netdev, wiphy);

@@ -92,7 +92,7 @@ struct scan_bss {
 struct scan_parameters {
 	const uint8_t *extra_ie;
 	size_t extra_ie_size;
-	struct scan_freq_set *freqs;
+	const struct scan_freq_set *freqs;
 	uint16_t duration;
 	bool flush : 1;
 	bool randomize_mac_addr_hint : 1;
@@ -129,7 +129,7 @@ struct l_genl_msg *scan_build_trigger_scan_bss(uint32_t ifindex,
 						const uint8_t *ssid,
 						uint32_t ssid_len);
 
-uint32_t scan_passive(uint64_t wdev_id, struct scan_freq_set *freqs,
+uint32_t scan_passive(uint64_t wdev_id, const struct scan_freq_set *freqs,
 			scan_trigger_func_t trigger, scan_notify_func_t notify,
 			void *userdata, scan_destroy_func_t destroy);
 uint32_t scan_passive_full(uint64_t wdev_id,

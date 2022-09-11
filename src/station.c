@@ -112,6 +112,8 @@ struct station {
 	struct scan_freq_set *scan_freqs_order[3];
 	unsigned int dbus_scan_subset_idx;
 
+	uint32_t wiphy_watch;
+
 	bool preparing_roam : 1;
 	bool roam_scan_full : 1;
 	bool signal_low : 1;
@@ -1354,14 +1356,37 @@ static void station_quick_scan_destroy(void *userdata)
 
 static int station_quick_scan_trigger(struct station *station)
 {
-	struct scan_freq_set *known_freq_set;
+	_auto_(scan_freq_set_free) struct scan_freq_set *known_freq_set = NULL;
+	bool known_6ghz;
+	const struct scan_freq_set *disabled = wiphy_get_disabled_freqs(
+								station->wiphy);
+
+	if (wiphy_regdom_is_updating(station->wiphy)) {
+		l_debug("regdom is updating, delaying quick scan");
+		return -EAGAIN;
+	}
 
 	known_freq_set = known_networks_get_recent_frequencies(5);
 	if (!known_freq_set)
 		return -ENODATA;
 
+	known_6ghz = scan_freq_set_get_bands(known_freq_set) & BAND_FREQ_6_GHZ;
+
+	/*
+	 * This means IWD has previously connected to a 6GHz AP before, but now
+	 * the regulatory domain disallows 6GHz likely caused by a reboot, the
+	 * firmware going down, or a regulatory update. The only way to
+	 * re-enable 6GHz is to get enough beacons via scanning for the firmware
+	 * to set the regulatory domain. A quick scan is very unlikely to do
+	 * this since its so limited, so return an error which will fall back to
+	 * full autoconnect.
+	 */
+	if ((scan_freq_set_get_bands(disabled) & BAND_FREQ_6_GHZ) &&
+				wiphy_country_is_unknown(station->wiphy) &&
+				known_6ghz)
+		return -ENOTSUP;
+
 	if (!wiphy_constrain_freq_set(station->wiphy, known_freq_set)) {
-		scan_freq_set_free(known_freq_set);
 		return -ENOTSUP;
 	}
 
@@ -1370,8 +1395,6 @@ static int station_quick_scan_trigger(struct station *station)
 						station_quick_scan_triggered,
 						station_quick_scan_results,
 						station_quick_scan_destroy);
-	scan_freq_set_free(known_freq_set);
-
 	if (!station->quick_scan_id)
 		return -EIO;
 
@@ -1450,6 +1473,7 @@ static void station_enter_state(struct station *station,
 	struct l_dbus *dbus = dbus_get_bus();
 #endif
 	bool disconnected;
+	int ret;
 
 	l_debug("Old State: %s, new state: %s",
 			station_state_to_string(station->state),
@@ -1468,7 +1492,8 @@ static void station_enter_state(struct station *station,
 
 	switch (state) {
 	case STATION_STATE_AUTOCONNECT_QUICK:
-		if (!station_quick_scan_trigger(station))
+		ret = station_quick_scan_trigger(station);
+		if (ret == 0 || ret == -EAGAIN)
 			break;
 
 		station->state = STATION_STATE_AUTOCONNECT_FULL;
@@ -2300,6 +2325,7 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 	struct station *station = userdata;
 	struct network *network = station->connected_network;
 	struct handshake_state *hs = netdev_get_handshake(station->netdev);
+	struct scan_bss *current_bss = station->connected_bss;
 	struct scan_bss *bss;
 	struct scan_bss *best_bss = NULL;
 	double best_bss_rank = 0.0;
@@ -2331,9 +2357,20 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 	 * for BSSes that are within the FT Mobility Domain so as to favor
 	 * Fast Roaming, if it is supported.
 	 */
+	l_debug("Current BSS '%s' with SSID: %s",
+		util_address_to_string(current_bss->addr),
+		util_ssid_to_utf8(current_bss->ssid_len, current_bss->ssid));
 
 	while ((bss = l_queue_pop_head(bss_list))) {
 		double rank;
+		uint32_t kbps100 = DIV_ROUND_CLOSEST(bss->data_rate, 100000);
+
+		l_debug("Processing BSS '%s' with SSID: %s, freq: %u, rank: %u,"
+				" strength: %i, data_rate: %u.%u",
+				util_address_to_string(bss->addr),
+				util_ssid_to_utf8(bss->ssid_len, bss->ssid),
+				bss->frequency, bss->rank, bss->signal_strength,
+				kbps100 / 10, kbps100 % 10);
 
 		/* Skip the BSS we are connected to if doing an AP roam */
 		if (station->ap_directed_roaming && !memcmp(bss->addr,
@@ -2341,7 +2378,6 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 			goto next;
 
 		/* Skip result if it is not part of the ESS */
-
 		if (bss->ssid_len != hs->ssid_len ||
 				memcmp(bss->ssid, hs->ssid, hs->ssid_len))
 			goto next;
@@ -2513,15 +2549,10 @@ static void station_neighbor_report_cb(struct netdev *netdev, int err,
 		station_roam_failed(station);
 }
 
-static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
+static void station_start_roam(struct station *station)
 {
-	struct station *station = user_data;
 	int r;
 
-	l_debug("%u", netdev_get_ifindex(station->netdev));
-
-	l_timeout_remove(station->roam_trigger_timeout);
-	station->roam_trigger_timeout = NULL;
 	station->preparing_roam = true;
 
 	/*
@@ -2553,6 +2584,18 @@ static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
 
 	if (r < 0)
 		station_roam_failed(station);
+}
+
+static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
+{
+	struct station *station = user_data;
+
+	l_debug("%u", netdev_get_ifindex(station->netdev));
+
+	l_timeout_remove(station->roam_trigger_timeout);
+	station->roam_trigger_timeout = NULL;
+
+	station_start_roam(station);
 }
 
 static void station_roam_timeout_rearm(struct station *station, int seconds)
@@ -2793,6 +2836,29 @@ static bool station_try_next_bss(struct station *station)
 	return true;
 }
 
+static bool station_retry_owe_default_group(struct station *station)
+{
+	/*
+	 * Shouldn't ever get here with classic open networks so its safe to
+	 * assume if the security is none this is an OWE network.
+	 */
+	if (network_get_security(station->connected_network) != SECURITY_NONE)
+		return false;
+
+	/* If we already forced group 19, allow the BSS to be blacklisted */
+	if (network_get_force_default_owe_group(station->connected_network))
+		return false;
+
+	l_warn("Failed to connect to OWE BSS "MAC" possibly because the AP is "
+		"incorrectly deriving the PTK, this AP should be fixed. "
+		"Retrying with group 19 as a workaround",
+		MAC_STR(station->connected_bss->addr));
+
+	network_set_force_default_owe_group(station->connected_network);
+
+	return true;
+}
+
 static bool station_retry_with_reason(struct station *station,
 					uint16_t reason_code)
 {
@@ -2803,12 +2869,20 @@ static bool station_retry_with_reason(struct station *station,
 	 * Other reason codes can be added here if its decided we want to
 	 * fail in those cases.
 	 */
-	if (reason_code == MMPDU_REASON_CODE_PREV_AUTH_NOT_VALID ||
-			reason_code == MMPDU_REASON_CODE_IEEE8021X_FAILED)
+	switch (reason_code) {
+	case MMPDU_REASON_CODE_PREV_AUTH_NOT_VALID:
+		if (station_retry_owe_default_group(station))
+			goto try_next;
+		/* fall through */
+	case MMPDU_REASON_CODE_IEEE8021X_FAILED:
 		return false;
+	default:
+		break;
+	}
 
 	blacklist_add_bss(station->connected_bss->addr);
 
+try_next:
 	return station_try_next_bss(station);
 }
 
@@ -3004,6 +3078,23 @@ static void station_disconnect_event(struct station *station, void *event_data)
 	l_warn("Unexpected disconnect event");
 }
 
+#define STATION_PKT_LOSS_THRESHOLD 10
+
+static void station_packets_lost(struct station *station, uint32_t num_pkts)
+{
+	l_debug("Packets lost event: %u", num_pkts);
+
+	if (num_pkts < STATION_PKT_LOSS_THRESHOLD)
+		return;
+
+	if (station_cannot_roam(station))
+		return;
+
+	station_debug_event(station, "packet-loss-roam");
+
+	station_start_roam(station);
+}
+
 static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 					void *event_data, void *user_data)
 {
@@ -3038,6 +3129,9 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 		break;
 	case NETDEV_EVENT_CHANNEL_SWITCHED:
 		station_event_channel_switched(station, l_get_u32(event_data));
+		break;
+	case NETDEV_EVENT_PACKET_LOSS_NOTIFY:
+		station_packets_lost(station, l_get_u32(event_data));
 		break;
 	}
 }
@@ -4005,6 +4099,35 @@ static void station_fill_scan_freq_subsets(struct station *station)
 	}
 }
 
+static void station_wiphy_watch(struct wiphy *wiphy,
+				enum wiphy_state_watch_event event,
+				void *user_data)
+{
+	struct station *station = user_data;
+	int ret;
+
+	if (event != WIPHY_STATE_WATCH_EVENT_REGDOM_DONE)
+		return;
+
+	/*
+	 * The only state that requires special handling is for
+	 * quick scans since the previous quick scan was delayed until
+	 * the regulatory domain updated. Try again in case 6Ghz is now
+	 * unlocked (unlikely), or advance to full autoconnect. Just in
+	 * case this update came during a quick scan, ignore it.
+	 */
+	if (station->state != STATION_STATE_AUTOCONNECT_QUICK ||
+			station->quick_scan_id)
+		return;
+
+	ret = station_quick_scan_trigger(station);
+	if (!ret)
+		return;
+
+	L_WARN_ON(ret == -EAGAIN);
+	station_enter_state(station, STATION_STATE_AUTOCONNECT_FULL);
+}
+
 static struct station *station_create(struct netdev *netdev)
 {
 	struct station *station;
@@ -4026,6 +4149,10 @@ static struct station *station_create(struct netdev *netdev)
 
 	station->wiphy = netdev_get_wiphy(netdev);
 	station->netdev = netdev;
+
+	station->wiphy_watch = wiphy_state_watch_add(station->wiphy,
+							station_wiphy_watch,
+							station, NULL);
 
 	l_queue_push_head(station_list, station);
 
@@ -4139,6 +4266,8 @@ static void station_free(struct station *station)
 
 	if (station->scan_freqs_order[2])
 		scan_freq_set_free(station->scan_freqs_order[2]);
+
+	wiphy_state_watch_remove(station->wiphy, station->wiphy_watch);
 
 	l_free(station);
 }
@@ -4277,6 +4406,13 @@ static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 	target = network_bss_find_by_addr(station->connected_network, mac);
 	if (!target || target == station->connected_bss)
 		return dbus_error_invalid_args(message);
+
+	if (station->connected_bss->ssid_len != target->ssid_len)
+		goto invalid_args;
+
+	if (memcmp(station->connected_bss->ssid, target->ssid,
+				target->ssid_len))
+		goto invalid_args;
 
 	l_debug("Attempting forced roam to BSS "MAC, MAC_STR(mac));
 
@@ -4498,6 +4634,90 @@ static struct l_dbus_message *station_property_set_autoconnect(
 	return l_dbus_message_new_method_return(message);
 }
 
+static void station_append_byte_array(struct l_dbus_message_builder *builder,
+					const char *name,
+					const uint8_t *bytes, size_t len)
+{
+	size_t i;
+
+	l_dbus_message_builder_enter_dict(builder, "sv");
+	l_dbus_message_builder_append_basic(builder, 's', name);
+	l_dbus_message_builder_enter_variant(builder, "ay");
+	l_dbus_message_builder_enter_array(builder, "y");
+
+	for (i = 0; i < len; i++)
+		l_dbus_message_builder_append_basic(builder, 'y', &bytes[i]);
+
+	l_dbus_message_builder_leave_array(builder);
+	l_dbus_message_builder_leave_variant(builder);
+	l_dbus_message_builder_leave_dict(builder);
+}
+
+static void station_append_bss_list(struct l_dbus_message_builder *builder,
+					const struct l_queue_entry *entry)
+{
+	for (; entry; entry = entry->next) {
+		struct scan_bss *bss = entry->data;
+		int32_t rssi = bss->signal_strength / 100;
+
+		l_dbus_message_builder_enter_array(builder, "{sv}");
+
+		dbus_append_dict_basic(builder, "Frequency", 'u',
+						&bss->frequency);
+		dbus_append_dict_basic(builder, "RSSI", 'i',
+						&rssi);
+		dbus_append_dict_basic(builder, "Rank", 'q', &bss->rank);
+
+		dbus_append_dict_basic(builder, "Address", 's',
+					util_address_to_string(bss->addr));
+
+		station_append_byte_array(builder, "MDE", bss->mde, 3);
+
+		l_dbus_message_builder_leave_array(builder);
+	}
+}
+
+static struct l_dbus_message *station_debug_get_networks(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct station *station = user_data;
+	struct l_dbus_message *reply =
+				l_dbus_message_new_method_return(message);
+	struct l_dbus_message_builder *builder =
+				l_dbus_message_builder_new(reply);
+	const struct l_queue_entry *entry;
+
+	l_dbus_message_builder_enter_array(builder, "{oaa{sv}}");
+
+	if (l_queue_isempty(station->networks_sorted))
+		goto done;
+
+	for (entry = l_queue_get_entries(station->networks_sorted); entry;
+							entry = entry->next) {
+		const struct network *network = entry->data;
+
+		l_dbus_message_builder_enter_dict(builder, "oaa{sv}");
+		l_dbus_message_builder_append_basic(builder, 'o',
+						network_get_path(network));
+		l_dbus_message_builder_enter_array(builder, "a{sv}");
+
+		station_append_bss_list(builder,
+					network_bss_list_get_entries(network));
+
+		l_dbus_message_builder_leave_array(builder);
+		l_dbus_message_builder_leave_dict(builder);
+	}
+
+done:
+	l_dbus_message_builder_leave_array(builder);
+
+	l_dbus_message_builder_finalize(builder);
+	l_dbus_message_builder_destroy(builder);
+
+	return reply;
+}
+
 static void station_setup_debug_interface(
 					struct l_dbus_interface *interface)
 {
@@ -4510,6 +4730,9 @@ static void station_setup_debug_interface(
 	l_dbus_interface_method(interface, "Scan", 0,
 					station_debug_scan, "", "aq",
 					"frequencies");
+	l_dbus_interface_method(interface, "GetNetworks", 0,
+				station_debug_get_networks, "a{oaa{sv}}", "",
+				"networks");
 
 	l_dbus_interface_signal(interface, "Event", 0, "sav", "name", "data");
 
@@ -4654,4 +4877,6 @@ static void station_exit(void)
 
 IWD_MODULE(station, station_init, station_exit)
 IWD_MODULE_DEPENDS(station, netdev);
-IWD_MODULE_DEPENDS(station, netconfig)
+IWD_MODULE_DEPENDS(station, netconfig);
+IWD_MODULE_DEPENDS(station, frame_xchg);
+IWD_MODULE_DEPENDS(station, wiphy);

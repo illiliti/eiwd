@@ -1091,23 +1091,23 @@ class IWD(AsyncOpAbstract):
         some tests do require starting IWD using this constructor (by passing
         start_iwd_daemon=True)
     '''
-    _object_manager_if = None
-    _iwd_proc = None
-    _devices = None
     _default_instance = None
-    psk_agents = []
 
     def __init__(self, start_iwd_daemon = False, iwd_config_dir = '/tmp',
-                            iwd_storage_dir = IWD_STORAGE_DIR, namespace=ctx):
+                            iwd_storage_dir = IWD_STORAGE_DIR, namespace=ctx,
+                            developer_mode = True):
         self.namespace = namespace
         self._bus = namespace.get_bus()
+        self._object_manager_if = None
+        self._iwd_proc = None
 
         if start_iwd_daemon:
             if self.namespace.is_process_running('iwd'):
                 raise Exception("IWD requested to start but is already running")
 
             self._iwd_proc = self.namespace.start_iwd(iwd_config_dir,
-                                                        iwd_storage_dir)
+                                                        iwd_storage_dir,
+                                                        developer_mode)
 
         self._devices = DeviceList(self)
 
@@ -1117,6 +1117,8 @@ class IWD(AsyncOpAbstract):
         # correctly in non-namespace tests.
         if self.namespace.name is None:
             IWD._default_instance = weakref.ref(self)
+
+        self.psk_agents = []
 
     def __del__(self):
         for agent in self.psk_agents:

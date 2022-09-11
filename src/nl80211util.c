@@ -32,6 +32,7 @@
 
 #include "src/nl80211util.h"
 #include "src/band.h"
+#include "src/util.h"
 
 typedef bool (*attr_handler)(const void *data, uint16_t len, void *o);
 
@@ -128,6 +129,16 @@ static bool extract_iovec(const void *data, uint16_t len, void *o)
 	return true;
 }
 
+static bool extract_nested(const void *data, uint16_t len, void *o)
+{
+	const struct l_genl_attr *outer = data;
+	struct l_genl_attr *nested = o;
+
+	l_genl_attr_recurse(outer, nested);
+
+	return true;
+}
+
 static attr_handler handler_for_type(enum nl80211_attrs type)
 {
 	switch (type) {
@@ -157,6 +168,8 @@ static attr_handler handler_for_type(enum nl80211_attrs type)
 		return extract_uint32;
 	case NL80211_ATTR_FRAME:
 		return extract_iovec;
+	case NL80211_ATTR_WIPHY_BANDS:
+		return extract_nested;
 	default:
 		break;
 	}
@@ -221,6 +234,10 @@ int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
 			ret = -EALREADY;
 			goto done;
 		}
+
+		/* For nested attributes use the outer attribute as data */
+		if (entry->handler == extract_nested)
+			data = &attr;
 
 		if (!entry->handler(data, len, entry->data)) {
 			ret = -EINVAL;
@@ -466,5 +483,48 @@ int nl80211_parse_chandef(struct l_genl_msg *msg, struct band_chandef *out)
 		return -ENOENT;
 
 	memcpy(out, &t, sizeof(t));
+	return 0;
+}
+
+int nl80211_parse_supported_frequencies(struct l_genl_attr *band_freqs,
+					struct scan_freq_set *supported_list,
+					struct scan_freq_set *disabled_list)
+{
+	uint16_t type, len;
+	const void *data;
+	struct l_genl_attr attr;
+	struct l_genl_attr nested;
+
+	if (!l_genl_attr_recurse(band_freqs, &nested))
+		return -EBADMSG;
+
+	while (l_genl_attr_next(&nested, NULL, NULL, NULL)) {
+		uint32_t freq = 0;
+		bool disabled = false;
+
+		if (!l_genl_attr_recurse(&nested, &attr))
+			continue;
+
+		while (l_genl_attr_next(&attr, &type, &len, &data)) {
+			switch (type) {
+			case NL80211_FREQUENCY_ATTR_FREQ:
+				freq = *((uint32_t *) data);
+				break;
+			case NL80211_FREQUENCY_ATTR_DISABLED:
+				disabled = true;
+				break;
+			}
+		}
+
+		if (!freq)
+			continue;
+
+		if (supported_list)
+			scan_freq_set_add(supported_list, freq);
+
+		if (disabled && disabled_list)
+			scan_freq_set_add(disabled_list, freq);
+	}
+
 	return 0;
 }

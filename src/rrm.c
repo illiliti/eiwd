@@ -890,3 +890,4 @@ static void rrm_exit(void)
 
 IWD_MODULE(rrm, rrm_init, rrm_exit);
 IWD_MODULE_DEPENDS(rrm, netdev);
+IWD_MODULE_DEPENDS(rrm, frame_xchg);

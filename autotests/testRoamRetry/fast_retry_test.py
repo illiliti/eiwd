@@ -36,20 +36,7 @@ class Test(unittest.TestCase):
         rule1.bidirectional = True
         rule1.enabled = True
 
-        # Fill in the neighbor AP tables in both BSSes.  By default each
-        # instance knows only about current BSS, even inside one hostapd
-        # process.
-        # Roaming still works without the neighbor AP table but neighbor
-        # reports have to be disabled in the .conf files
-        bss0_nr = ''.join(bss_radio[0].addresses[0].split(':')) + \
-                '8f0000005101060603000000'
-        bss1_nr = ''.join(bss_radio[1].addresses[0].split(':')) + \
-                '8f0000005102060603000000'
-
-        bss_hostapd[0].set_neighbor(bss_radio[1].addresses[0], 'TestRoamRetry',
-                bss1_nr)
-        bss_hostapd[1].set_neighbor(bss_radio[0].addresses[0], 'TestRoamRetry',
-                bss0_nr)
+        HostapdCLI.group_neighbors(*bss_hostapd)
 
         # Start in the vicinity of BSS 0, check that iwd connects to BSS 0
         rule0.signal = -2000

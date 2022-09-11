@@ -34,6 +34,7 @@ struct proxy_interface;
 #define IWD_WSC_INTERFACE                "net.connman.iwd.SimpleConfiguration"
 #define IWD_STATION_INTERFACE            "net.connman.iwd.Station"
 #define IWD_STATION_DIAGNOSTIC_INTERFACE "net.connman.iwd.StationDiagnostic"
+#define IWD_STATION_DEBUG_INTERFACE      "net.connman.iwd.StationDebug"
 #define IWD_AP_DIAGNOSTIC_INTERFACE      "net.connman.iwd.AccessPointDiagnostic"
 #define IWD_DAEMON_INTERFACE             "net.connman.iwd.Daemon"
 #define IWD_DPP_INTERFACE                "net.connman.iwd.DeviceProvisioning"
