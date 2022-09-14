@@ -2304,6 +2304,21 @@ static void station_roam_scan_triggered(int err, void *user_data)
 	 */
 }
 
+static void station_update_roam_bss(struct station *station,
+					struct scan_bss *bss)
+{
+	struct network *network = station->connected_network;
+	struct scan_bss *old;
+
+	old = l_queue_remove_if(station->bss_list, bss_match_bssid, bss->addr);
+
+	network_bss_update(network, bss);
+	l_queue_push_tail(station->bss_list, bss);
+
+	if (old)
+		scan_bss_free(old);
+}
+
 static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 					const struct scan_freq_set *freqs,
 					void *userdata)
@@ -2412,18 +2427,7 @@ next:
 		goto fail_free_bss;
 	}
 
-	bss = network_bss_find_by_addr(network, best_bss->addr);
-	if (bss) {
-		network_bss_update(network, best_bss);
-		l_queue_remove(station->bss_list, bss);
-		scan_bss_free(bss);
-
-		l_queue_insert(station->bss_list, best_bss,
-				scan_bss_rank_compare, NULL);
-	} else {
-		network_bss_add(network, best_bss);
-		l_queue_push_tail(station->bss_list, best_bss);
-	}
+	station_update_roam_bss(station, best_bss);
 
 	station_transition_start(station, best_bss);
 
@@ -4347,6 +4351,70 @@ static struct l_dbus_message *station_get_diagnostics(struct l_dbus *dbus,
 	return NULL;
 }
 
+struct station_roam_data {
+	struct station *station;
+	struct l_dbus_message *pending;
+	uint8_t bssid[6];
+};
+
+static void station_force_roam_scan_triggered(int err, void *user_data)
+{
+	struct station_roam_data *data = user_data;
+	struct station *station = data->station;
+
+	if (err)
+		station_roam_failed(station);
+}
+
+static bool station_force_roam_scan_notify(int err, struct l_queue *bss_list,
+					const struct scan_freq_set *freqs,
+					void *user_data)
+{
+	struct station_roam_data *data = user_data;
+	struct station *station = data->station;
+	struct scan_bss *target;
+	struct l_dbus_message *reply;
+
+	if (err) {
+		reply = dbus_error_from_errno(err, data->pending);
+		goto reply;
+	}
+
+	target = l_queue_remove_if(bss_list, bss_match_bssid, data->bssid);
+	if (!target) {
+		reply = dbus_error_not_found(data->pending);
+		goto reply;
+	}
+
+	l_debug("Attempting forced roam to BSS "MAC, MAC_STR(target->addr));
+
+	/* The various roam routines expect this to be set from scanning */
+	station->preparing_roam = true;
+
+	station_update_roam_bss(station, target);
+
+	station_transition_start(station, target);
+
+	reply = l_dbus_message_new_method_return(data->pending);
+
+reply:
+	dbus_pending_reply(&data->pending, reply);
+
+	return false;
+}
+
+static void station_force_roam_scan_destroy(void *user_data)
+{
+	struct station_roam_data *data = user_data;
+
+	data->station->roam_scan_id = 0;
+
+	if (data->pending)
+		l_dbus_message_unref(data->pending);
+
+	l_free(data);
+}
+
 static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 						struct l_dbus_message *message,
 						void *user_data)
@@ -4356,6 +4424,9 @@ static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 	struct l_dbus_message_iter iter;
 	uint8_t *mac;
 	uint32_t mac_len;
+	struct scan_parameters params = { 0 };
+	struct scan_freq_set *freqs = NULL;
+	struct station_roam_data *data;
 
 	if (!l_dbus_message_get_arguments(message, "ay", &iter))
 		goto invalid_args;
@@ -4370,8 +4441,11 @@ static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 		return dbus_error_not_connected(message);
 
 	target = network_bss_find_by_addr(station->connected_network, mac);
-	if (!target || target == station->connected_bss)
-		return dbus_error_invalid_args(message);
+	if (!target)
+		goto full_scan;
+
+	if (target && target == station->connected_bss)
+		return dbus_error_already_exists(message);
 
 	if (station->connected_bss->ssid_len != target->ssid_len)
 		goto invalid_args;
@@ -4380,14 +4454,45 @@ static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 				target->ssid_len))
 		goto invalid_args;
 
-	l_debug("Attempting forced roam to BSS "MAC, MAC_STR(mac));
+	/*
+	 * Always scan before a roam to ensure the kernel has the BSS in its
+	 * cache. If we already see the BSS only scan that frequency
+	 */
+	freqs = scan_freq_set_new();
+	scan_freq_set_add(freqs, target->frequency);
 
-	/* The various roam routines expect this to be set from scanning */
-	station->preparing_roam = true;
+	params.freqs = freqs;
 
-	station_transition_start(station, target);
+full_scan:
+	params.flush = true;
 
-	return l_dbus_message_new_method_return(message);
+	data = l_new(struct station_roam_data, 1);
+	data->station = station;
+	data->pending = l_dbus_message_ref(message);
+	memcpy(data->bssid, mac, 6);
+
+	station->roam_scan_id = scan_active_full(
+					netdev_get_wdev_id(station->netdev),
+					&params,
+					station_force_roam_scan_triggered,
+					station_force_roam_scan_notify, data,
+					station_force_roam_scan_destroy);
+
+	if (freqs)
+		scan_freq_set_free(freqs);
+
+	if (!station->roam_scan_id) {
+		l_free(data);
+		return dbus_error_failed(message);
+	}
+
+	if (freqs)
+		l_debug("Scanning on %u for BSS "MAC, target->frequency,
+			MAC_STR(mac));
+	else
+		l_debug("Full scan for BSS "MAC, MAC_STR(mac));
+
+	return NULL;
 
 invalid_args:
 	return dbus_error_invalid_args(message);
