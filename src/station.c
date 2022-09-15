@@ -1110,9 +1110,15 @@ build_ie:
 	 * seen that they do not include the OCI in the 4-way handshake yet
 	 * still advertise the capability. Because of this OCV is disabled if
 	 * any offload features are detected (since IWD prefers to use offload).
+	 *
+	 * TODO: For now OCV is disabled if the network is FT capable. This is
+	 *       being done until support in the kernel is added to
+	 *       automatically include the OCI element for the association
+	 *       request.
 	 */
 	info.ocvc = !disable_ocv && bss_info.ocvc && info.mfpc &&
-			!wiphy_can_offload(wiphy);
+			!wiphy_can_offload(wiphy) &&
+			!IE_AKM_IS_FT(info.akm_suites);
 
 	/*
 	 * IEEE 802.11-2020 9.4.2.24.4 states extended key IDs can only be used
