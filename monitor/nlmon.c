@@ -5018,6 +5018,16 @@ static void print_action_mgmt_frame(unsigned int level,
 	print_mmpdu_header(level + 1, mmpdu);
 }
 
+static void print_probe_response(unsigned int level,
+				const struct mmpdu_header *mmpdu, size_t len)
+{
+	const struct mmpdu_probe_response *resp = mmpdu_body(mmpdu);
+
+	print_attr(level, "Subtype: Probe Response");
+	print_ie(level + 1, "Probe Response IEs", resp->ies,
+			(const uint8_t *) mmpdu + len - resp->ies);
+}
+
 static void print_frame_type(unsigned int level, const char *label,
 					const void *data, uint16_t size)
 {
@@ -5063,7 +5073,10 @@ static void print_frame_type(unsigned int level, const char *label,
 		str = "Probe request";
 		break;
 	case 0x05:
-		str = "Probe response";
+		if (mpdu)
+			print_probe_response(level + 1, mpdu, size);
+		else
+			str = "Probe response";
 		break;
 	case 0x06:
 		str = "Timing Advertisement";
