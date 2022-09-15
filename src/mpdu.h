@@ -374,7 +374,7 @@ struct mmpdu_probe_request {
 
 /* 802.11, Section 8.3.3.10 */
 struct mmpdu_probe_response {
-	uint8_t timestamp;
+	__le64 timestamp;
 	__le16 beacon_interval;
 	struct mmpdu_field_capability capability;
 	uint8_t ies[0];
@@ -382,14 +382,14 @@ struct mmpdu_probe_response {
 
 /* 802.11, Section 8.3.3.15 */
 struct mmpdu_timing_advertisement {
-	uint8_t timestamp;
+	__le64 timestamp;
 	struct mmpdu_field_capability capability;
 	uint8_t ies[0];
 } __attribute__ ((packed));
 
 /* 802.11, Section 8.3.3.2 */
 struct mmpdu_beacon {
-	uint8_t timestamp;
+	__le64 timestamp;
 	__le16 beacon_interval;
 	struct mmpdu_field_capability capability;
 	uint8_t ies[0];
