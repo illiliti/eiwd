@@ -32,6 +32,7 @@ typedef void (*frame_xchg_cb_t)(int err, void *user_data);
 typedef void (*frame_xchg_destroy_func_t)(void *user_data);
 
 struct frame_xchg_prefix {
+	uint16_t frame_type;
 	const uint8_t *data;
 	size_t len;
 };

@@ -820,6 +820,7 @@ static void p2p_peer_frame_xchg(struct p2p_peer *peer, struct iovec *tx_body,
 
 static const struct frame_xchg_prefix p2p_frame_go_neg_req = {
 	/* Management -> Public Action -> P2P -> GO Negotiation Request */
+	.frame_type = 0x00d0,
 	.data = (uint8_t []) {
 		0x04, 0x09, 0x50, 0x6f, 0x9a, 0x09,
 		P2P_ACTION_GO_NEGOTIATION_REQ
@@ -829,6 +830,7 @@ static const struct frame_xchg_prefix p2p_frame_go_neg_req = {
 
 static const struct frame_xchg_prefix p2p_frame_go_neg_resp = {
 	/* Management -> Public Action -> P2P -> GO Negotiation Response */
+	.frame_type = 0x00d0,
 	.data = (uint8_t []) {
 		0x04, 0x09, 0x50, 0x6f, 0x9a, 0x09,
 		P2P_ACTION_GO_NEGOTIATION_RESP
@@ -838,6 +840,7 @@ static const struct frame_xchg_prefix p2p_frame_go_neg_resp = {
 
 static const struct frame_xchg_prefix p2p_frame_go_neg_confirm = {
 	/* Management -> Public Action -> P2P -> GO Negotiation Confirm */
+	.frame_type = 0x00d0,
 	.data = (uint8_t []) {
 		0x04, 0x09, 0x50, 0x6f, 0x9a, 0x09,
 		P2P_ACTION_GO_NEGOTIATION_CONFIRM
@@ -847,6 +850,7 @@ static const struct frame_xchg_prefix p2p_frame_go_neg_confirm = {
 
 static const struct frame_xchg_prefix p2p_frame_pd_resp = {
 	/* Management -> Public Action -> P2P -> Provision Discovery Response */
+	.frame_type = 0x00d0,
 	.data = (uint8_t []) {
 		0x04, 0x09, 0x50, 0x6f, 0x9a, 0x09,
 		P2P_ACTION_PROVISION_DISCOVERY_RESP

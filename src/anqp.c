@@ -156,6 +156,7 @@ static bool anqp_response_frame_event(const struct mmpdu_header *hdr,
 }
 
 static const struct frame_xchg_prefix anqp_frame_prefix = {
+	.frame_type = 0x00d0,
 	.data = (uint8_t []) {
 		0x04, 0x0b,
 	},

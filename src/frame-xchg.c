@@ -1193,7 +1193,7 @@ uint32_t frame_xchg_startv(uint64_t wdev_id, struct iovec *frame, uint32_t freq,
 		watch = l_new(struct frame_xchg_watch_data, 1);
 		watch->prefix = prefix;
 		watch->cb = va_arg(resp_args, void *);
-		frame_watch_add(wdev_id, group_id, 0x00d0,
+		frame_watch_add(wdev_id, group_id, prefix->frame_type,
 				prefix->data, prefix->len,
 				frame_xchg_resp_cb, fx, NULL);
 
