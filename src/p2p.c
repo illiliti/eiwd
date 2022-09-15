@@ -190,12 +190,6 @@ static const int channels_scan_2_4_other[] = { 2, 3, 4, 5, 7, 8, 9, 10 };
  */
 #define P2P_GO_INTENT 2
 
-enum {
-	FRAME_GROUP_DEFAULT = 0,
-	FRAME_GROUP_LISTEN,
-	FRAME_GROUP_CONNECT,
-};
-
 static bool p2p_device_match(const void *a, const void *b)
 {
 	const struct p2p_device *dev = a;
@@ -718,7 +712,7 @@ static void p2p_connection_reset(struct p2p_device *dev)
 
 	netdev_watch_remove(dev->conn_netdev_watch_id);
 
-	frame_watch_group_remove(dev->wdev_id, FRAME_GROUP_CONNECT);
+	frame_watch_group_remove(dev->wdev_id, FRAME_GROUP_P2P_CONNECT);
 	frame_xchg_stop_wdev(dev->wdev_id);
 
 	if (!dev->enabled || (dev->enabled && dev->start_stop_cmd_id)) {
@@ -2527,13 +2521,13 @@ respond:
 
 	if (status == P2P_STATUS_SUCCESS)
 		p2p_peer_frame_xchg(peer, iov, dev->addr, 0, 600, 0, true,
-					FRAME_GROUP_CONNECT,
+					FRAME_GROUP_P2P_CONNECT,
 					p2p_go_negotiation_resp_done,
 					&p2p_frame_go_neg_confirm,
 					p2p_go_negotiation_confirm_cb, NULL);
 	else
 		p2p_peer_frame_xchg(peer, iov, dev->addr, 0, 0, 0, true,
-					FRAME_GROUP_CONNECT,
+					FRAME_GROUP_P2P_CONNECT,
 					p2p_go_negotiation_resp_err_done, NULL);
 
 	l_debug("GO Negotiation Response sent with status %i", status);
@@ -2804,7 +2798,7 @@ static bool p2p_go_negotiation_resp_cb(const struct mmpdu_header *mpdu,
 	iov[iov_len].iov_base = NULL;
 
 	p2p_peer_frame_xchg(dev->conn_peer, iov, dev->conn_peer->device_addr,
-				0, 0, 0, false, FRAME_GROUP_CONNECT,
+				0, 0, 0, false, FRAME_GROUP_P2P_CONNECT,
 				p2p_go_negotiation_confirm_done, NULL);
 	l_free(confirm_body);
 
@@ -2893,7 +2887,7 @@ static void p2p_start_go_negotiation(struct p2p_device *dev)
 
 	p2p_peer_frame_xchg(dev->conn_peer, iov, dev->conn_peer->device_addr,
 				100, resp_timeout, 256, false,
-				FRAME_GROUP_CONNECT,
+				FRAME_GROUP_P2P_CONNECT,
 				p2p_go_negotiation_req_done,
 				&p2p_frame_go_neg_resp,
 				p2p_go_negotiation_resp_cb, NULL);
@@ -3035,7 +3029,7 @@ static void p2p_start_provision_discovery(struct p2p_device *dev)
 	 * sent to the P2P Device Address of the P2P Group Owner"
 	 */
 	p2p_peer_frame_xchg(dev->conn_peer, iov, dev->conn_peer->device_addr,
-				200, 600, 8, false, FRAME_GROUP_CONNECT,
+				200, 600, 8, false, FRAME_GROUP_P2P_CONNECT,
 				p2p_provision_disc_req_done,
 				&p2p_frame_pd_resp, p2p_provision_disc_resp_cb,
 				NULL);
@@ -4167,9 +4161,9 @@ static void p2p_device_discovery_start(struct p2p_device *dev)
 		dev->listen_channel = channels_social[l_getrandom_uint32() %
 						L_ARRAY_SIZE(channels_social)];
 
-	frame_watch_add(dev->wdev_id, FRAME_GROUP_LISTEN, 0x0040,
+	frame_watch_add(dev->wdev_id, FRAME_GROUP_P2P_LISTEN, 0x0040,
 			(uint8_t *) "", 0, p2p_device_probe_cb, dev, NULL);
-	frame_watch_add(dev->wdev_id, FRAME_GROUP_LISTEN, 0x00d0,
+	frame_watch_add(dev->wdev_id, FRAME_GROUP_P2P_LISTEN, 0x00d0,
 			p2p_frame_go_neg_req.data, p2p_frame_go_neg_req.len,
 			p2p_device_go_negotiation_req_cb, dev, NULL);
 
@@ -4187,7 +4181,7 @@ static void p2p_device_discovery_stop(struct p2p_device *dev)
 		l_timeout_remove(dev->scan_timeout);
 
 	p2p_device_roc_cancel(dev);
-	frame_watch_group_remove(dev->wdev_id, FRAME_GROUP_LISTEN);
+	frame_watch_group_remove(dev->wdev_id, FRAME_GROUP_P2P_LISTEN);
 }
 
 static void p2p_device_enable_cb(struct l_genl_msg *msg, void *user_data)
