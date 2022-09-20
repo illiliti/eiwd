@@ -373,8 +373,7 @@ static void netconfig_agent_receive_reply(struct l_dbus_message *reply,
 	const char *error, *text;
 	bool success = true;
 
-	l_debug("agent reply from %s %s", l_dbus_message_get_sender(reply),
-		l_dbus_message_get_path(reply));
+	l_debug("agent reply from %s", l_dbus_message_get_sender(reply));
 
 	data->pending_id[INDEX_FOR_AF(cd->family)] = 0;
 
