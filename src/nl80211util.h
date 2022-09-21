@@ -49,6 +49,7 @@ struct l_genl_msg *nl80211_build_get_key(uint32_t ifindex, uint8_t key_index);
 const void *nl80211_parse_get_key_seq(struct l_genl_msg *msg);
 
 struct l_genl_msg *nl80211_build_cmd_frame(uint32_t ifindex,
+						uint16_t frame_type,
 						const uint8_t *addr,
 						const uint8_t *to,
 						uint32_t freq,

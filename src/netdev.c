@@ -4338,6 +4338,7 @@ static uint32_t netdev_send_action_framev(struct netdev *netdev,
 {
 	uint32_t id;
 	struct l_genl_msg *msg = nl80211_build_cmd_frame(netdev->index,
+								0x00d0,
 								netdev->addr,
 								to, freq,
 								iov, iov_len);

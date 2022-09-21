@@ -194,7 +194,7 @@ static bool rrm_send_response(struct rrm_state *rrm,
 	iov.iov_base = (void *)frame;
 	iov.iov_len = len;
 
-	msg = nl80211_build_cmd_frame(rrm->ifindex, own_addr, bss->addr,
+	msg = nl80211_build_cmd_frame(rrm->ifindex, 0x00d0, own_addr, bss->addr,
 					bss->frequency, &iov, 1);
 
 	if (!l_genl_family_send(nl80211, msg, rrm_send_response_cb,

@@ -431,6 +431,7 @@ const void *nl80211_parse_get_key_seq(struct l_genl_msg *msg)
 }
 
 struct l_genl_msg *nl80211_build_cmd_frame(uint32_t ifindex,
+						uint16_t frame_type,
 						const uint8_t *addr,
 						const uint8_t *to,
 						uint32_t freq,
@@ -439,18 +440,17 @@ struct l_genl_msg *nl80211_build_cmd_frame(uint32_t ifindex,
 {
 	struct l_genl_msg *msg;
 	struct iovec iovs[iov_len + 1];
-	const uint16_t frame_type = 0x00d0;
-	uint8_t action_frame[24];
+	uint8_t hdr[24];
 
-	memset(action_frame, 0, 24);
+	memset(hdr, 0, 24);
 
-	l_put_le16(frame_type, action_frame + 0);
-	memcpy(action_frame + 4, to, 6);
-	memcpy(action_frame + 10, addr, 6);
-	memcpy(action_frame + 16, to, 6);
+	l_put_le16(frame_type, hdr + 0);
+	memcpy(hdr + 4, to, 6);
+	memcpy(hdr + 10, addr, 6);
+	memcpy(hdr + 16, to, 6);
 
-	iovs[0].iov_base = action_frame;
-	iovs[0].iov_len = sizeof(action_frame);
+	iovs[0].iov_base = hdr;
+	iovs[0].iov_len = sizeof(hdr);
 	memcpy(iovs + 1, iov, sizeof(*iov) * iov_len);
 
 	msg = l_genl_msg_new_sized(NL80211_CMD_FRAME, 128 + 512);
