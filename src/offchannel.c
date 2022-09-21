@@ -150,9 +150,9 @@ static const struct wiphy_radio_work_item_ops offchannel_work_ops = {
 	.destroy = offchannel_work_destroy,
 };
 
-uint32_t offchannel_start(uint64_t wdev_id, uint32_t freq, uint32_t duration,
-			offchannel_started_cb_t started, void *user_data,
-			offchannel_destroy_cb_t destroy)
+uint32_t offchannel_start(uint64_t wdev_id, int priority, uint32_t freq,
+			uint32_t duration, offchannel_started_cb_t started,
+			void *user_data, offchannel_destroy_cb_t destroy)
 {
 	struct offchannel_info *info = l_new(struct offchannel_info, 1);
 
@@ -169,8 +169,7 @@ uint32_t offchannel_start(uint64_t wdev_id, uint32_t freq, uint32_t duration,
 	info->error = -ECANCELED;
 
 	return wiphy_radio_work_insert(wiphy_find_by_wdev(wdev_id), &info->work,
-					WIPHY_WORK_PRIORITY_OFFCHANNEL,
-					&offchannel_work_ops);
+					priority, &offchannel_work_ops);
 }
 
 void offchannel_cancel(uint64_t wdev_id, uint32_t id)
