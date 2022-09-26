@@ -2734,8 +2734,10 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 	size_t ies_len = 0;
 	struct ie_tlv_iter iter;
 	const uint8_t *resp_ies = NULL;
-	size_t resp_ies_len;
+	size_t resp_ies_len = 0;
 	struct handshake_state *hs = netdev->handshake;
+	bool timeout = false;
+	uint32_t timeout_reason = 0;
 
 	l_debug("");
 
@@ -2763,8 +2765,14 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 	while (l_genl_attr_next(&attr, &type, &len, &data)) {
 		switch (type) {
 		case NL80211_ATTR_TIMED_OUT:
-			l_warn("authentication timed out");
-			goto error;
+			timeout = true;
+			break;
+		case NL80211_ATTR_TIMEOUT_REASON:
+			if (len != 4)
+				break;
+
+			timeout_reason = l_get_u32(data);
+			break;
 		case NL80211_ATTR_STATUS_CODE:
 			if (len == sizeof(uint16_t))
 				status_code = data;
@@ -2778,6 +2786,11 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 			resp_ies_len = len;
 			break;
 		}
+	}
+
+	if (timeout) {
+		l_warn("connect event timed out, reason=%u", timeout_reason);
+		goto error;
 	}
 
 	if (netdev->expect_connect_failure) {
@@ -3106,7 +3119,7 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 	while (l_genl_attr_next(&attr, &type, &len, &data)) {
 		switch (type) {
 		case NL80211_ATTR_TIMED_OUT:
-			l_warn("authentication timed out");
+			l_warn("authentication event timed out");
 
 			if (auth_proto_auth_timeout(netdev->ap))
 				return;
