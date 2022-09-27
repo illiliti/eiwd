@@ -1123,8 +1123,18 @@ static void ft_info_destroy(void *data)
 static void ft_prepare_handshake(struct ft_info *info,
 					struct handshake_state *hs)
 {
+	handshake_state_set_authenticator_address(hs, info->aa);
+
+	memcpy(hs->mde + 2, info->mde, 3);
+
+	handshake_state_set_chandef(hs, NULL);
+
 	if (!hs->supplicant_ie)
 		return;
+
+	if (info->authenticator_ie)
+		handshake_state_set_authenticator_ie(hs,
+							info->authenticator_ie);
 
 	memcpy(hs->snonce, info->snonce, sizeof(hs->snonce));
 

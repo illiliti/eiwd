@@ -1413,17 +1413,20 @@ static void netdev_connect_ok(struct netdev *netdev)
 			scan_bss_free(netdev->fw_roam_bss);
 
 		netdev->fw_roam_bss = NULL;
+	} else if (netdev->in_ft) {
+		if (netdev->event_filter)
+			netdev->event_filter(netdev, NETDEV_EVENT_FT_ROAMED,
+						NULL, netdev->user_data);
+		netdev->in_ft = false;
+	} else if (netdev->connect_cb) {
+		netdev->connect_cb(netdev, NETDEV_RESULT_OK, NULL,
+					netdev->user_data);
+		netdev->connect_cb = NULL;
 	}
 
 	if (netdev->ft_ds_list) {
 		l_queue_destroy(netdev->ft_ds_list, netdev_ft_ds_entry_free);
 		netdev->ft_ds_list = NULL;
-	}
-
-	if (netdev->connect_cb) {
-		netdev->connect_cb(netdev, NETDEV_RESULT_OK, NULL,
-					netdev->user_data);
-		netdev->connect_cb = NULL;
 	}
 
 	netdev_rssi_polling_update(netdev);
@@ -3293,7 +3296,6 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 			eapol_sm_set_require_handshake(netdev->sm,
 							false);
 
-		netdev->in_ft = false;
 		netdev->in_reassoc = false;
 		netdev->associated = true;
 		return;
@@ -4459,6 +4461,7 @@ static int netdev_ft_tx_associate(uint32_t ifindex, uint32_t freq,
 					struct iovec *ft_iov, size_t n_ft_iov)
 {
 	struct netdev *netdev = netdev_find(ifindex);
+	struct netdev_handshake_state *nhs;
 	struct handshake_state *hs = netdev->handshake;
 	struct l_genl_msg *msg;
 	struct iovec iov[64];
@@ -4466,6 +4469,54 @@ static int netdev_ft_tx_associate(uint32_t ifindex, uint32_t freq,
 	unsigned int c_iov = 0;
 	enum mpdu_management_subtype subtype =
 				MPDU_MANAGEMENT_SUBTYPE_REASSOCIATION_REQUEST;
+
+	/*
+	 * At this point there is no going back with FT so reset all the flags
+	 * needed to associate with a new BSS.
+	 */
+	netdev->frequency = freq;
+	netdev->handshake->active_tk_index = 0;
+	netdev->associated = false;
+	netdev->operational = false;
+	netdev->in_ft = true;
+
+	/*
+	 * Cancel commands that could be running because of EAPoL activity
+	 * like re-keying, this way the callbacks for those commands don't
+	 * have to check if failures resulted from the transition.
+	 */
+	nhs = l_container_of(netdev->handshake,
+				struct netdev_handshake_state, super);
+
+	/* reset key states just as we do in initialization */
+	nhs->complete = false;
+	nhs->ptk_installed = false;
+	nhs->gtk_installed = true;
+	nhs->igtk_installed = true;
+
+	if (nhs->group_new_key_cmd_id) {
+		l_genl_family_cancel(nl80211, nhs->group_new_key_cmd_id);
+		nhs->group_new_key_cmd_id = 0;
+	}
+
+	if (nhs->group_management_new_key_cmd_id) {
+		l_genl_family_cancel(nl80211,
+			nhs->group_management_new_key_cmd_id);
+		nhs->group_management_new_key_cmd_id = 0;
+	}
+
+	if (netdev->rekey_offload_cmd_id) {
+		l_genl_family_cancel(nl80211, netdev->rekey_offload_cmd_id);
+		netdev->rekey_offload_cmd_id = 0;
+	}
+
+	netdev_rssi_polling_update(netdev);
+	netdev_cqm_rssi_update(netdev);
+
+	if (netdev->sm) {
+		eapol_sm_free(netdev->sm);
+		netdev->sm = NULL;
+	}
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
