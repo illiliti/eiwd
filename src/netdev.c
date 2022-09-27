@@ -4422,11 +4422,11 @@ restore_snonce:
 					MMPDU_STATUS_CODE_UNSPECIFIED);
 }
 
-static int netdev_ft_tx_associate(struct iovec *ft_iov, size_t n_ft_iov,
-					void *user_data)
+static int netdev_ft_tx_associate(uint32_t ifindex, uint32_t freq,
+					const uint8_t *prev_bssid,
+					struct iovec *ft_iov, size_t n_ft_iov)
 {
-	struct netdev *netdev = user_data;
-	struct auth_proto *ap = netdev->ap;
+	struct netdev *netdev = netdev_find(ifindex);
 	struct handshake_state *hs = netdev->handshake;
 	struct l_genl_msg *msg;
 	struct iovec iov[64];
@@ -4447,7 +4447,7 @@ static int netdev_ft_tx_associate(struct iovec *ft_iov, size_t n_ft_iov,
 	mpdu_sort_ies(subtype, iov, c_iov);
 
 	l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, ETH_ALEN,
-				ap->prev_bssid);
+				prev_bssid);
 	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
 
 	netdev->connect_cmd_id = l_genl_family_send(nl80211, msg,
@@ -4659,17 +4659,15 @@ int netdev_fast_transition(struct netdev *netdev,
 			l_get_le16(target_bss->mde))
 		return -EINVAL;
 
-	prepare_ft(netdev, target_bss);
-
-	handshake_state_new_snonce(netdev->handshake);
-
 	netdev->connect_cb = cb;
 
 	netdev->ap = ft_over_air_sm_new(netdev->handshake,
 					netdev_ft_tx_authenticate,
 					netdev_ft_tx_associate,
 					netdev_get_oci, netdev);
-	memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
+	prepare_ft(netdev, target_bss);
+
+	handshake_state_new_snonce(netdev->handshake);
 
 	wiphy_radio_work_insert(netdev->wiphy, &netdev->work,
 				WIPHY_WORK_PRIORITY_CONNECT, &ft_work_ops);
@@ -4701,16 +4699,14 @@ int netdev_fast_transition_over_ds(struct netdev *netdev,
 	if (!info || !info->parsed)
 		return -ENOENT;
 
-	prepare_ft(netdev, target_bss);
-
-	ft_over_ds_prepare_handshake(&info->super, netdev->handshake);
-
 	netdev->connect_cb = cb;
 
 	netdev->ap = ft_over_ds_sm_new(netdev->handshake,
 					netdev_ft_tx_associate,
 					netdev);
-	memcpy(netdev->ap->prev_bssid, orig_bss->addr, ETH_ALEN);
+	prepare_ft(netdev, target_bss);
+
+	ft_over_ds_prepare_handshake(&info->super, netdev->handshake);
 
 	wiphy_radio_work_insert(netdev->wiphy, &netdev->work,
 				WIPHY_WORK_PRIORITY_CONNECT, &ft_work_ops);
@@ -6656,6 +6652,8 @@ static int netdev_init(void)
 	__eapol_set_tx_packet_func(netdev_control_port_frame);
 	__eapol_set_install_pmk_func(netdev_set_pmk);
 
+	__ft_set_tx_associate_func(netdev_ft_tx_associate);
+
 	unicast_watch = l_genl_add_unicast_watch(genl, NL80211_GENL_NAME,
 						netdev_unicast_notify,
 						NULL, NULL);
@@ -6720,3 +6718,4 @@ IWD_MODULE(netdev, netdev_init, netdev_exit);
 IWD_MODULE_DEPENDS(netdev, eapol);
 IWD_MODULE_DEPENDS(netdev, frame_xchg);
 IWD_MODULE_DEPENDS(netdev, wiphy);
+IWD_MODULE_DEPENDS(netdev, ft);

@@ -21,11 +21,19 @@
  */
 
 struct handshake_state;
+struct scan_bss;
+
+typedef int (*ft_tx_frame_func_t)(uint32_t ifindex, uint16_t frame_type,
+					uint32_t frequency,
+					const uint8_t *dest, struct iovec *iov,
+					size_t iov_len);
 
 typedef void (*ft_tx_authenticate_func_t)(struct iovec *iov, size_t iov_len,
 					void *user_data);
-typedef int (*ft_tx_associate_func_t)(struct iovec *ie_iov, size_t iov_len,
-					void *user_data);
+
+typedef int (*ft_tx_associate_func_t)(uint32_t ifindex, uint32_t freq,
+					const uint8_t *prev_bssid,
+					struct iovec *ie_iov, size_t iov_len);
 typedef int (*ft_get_oci)(void *user_data);
 
 typedef void (*ft_ds_free_func_t)(void *user_data);
@@ -71,3 +79,13 @@ struct auth_proto *ft_over_ds_sm_new(struct handshake_state *hs,
 
 bool ft_over_ds_prepare_handshake(struct ft_ds_info *info,
 					struct handshake_state *hs);
+
+void __ft_set_tx_frame_func(ft_tx_frame_func_t func);
+void __ft_set_tx_associate_func(ft_tx_associate_func_t func);
+int __ft_rx_associate(uint32_t ifindex, const uint8_t *frame,
+			size_t frame_len);
+void __ft_rx_action(uint32_t ifindex, const uint8_t *frame, size_t frame_len);
+
+void ft_clear_authentications(uint32_t ifindex);
+int ft_action(uint32_t ifindex, uint32_t freq, const struct scan_bss *target);
+int ft_associate(uint32_t ifindex, const uint8_t *addr);
