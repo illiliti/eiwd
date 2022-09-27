@@ -960,18 +960,17 @@ void __ft_rx_authenticate(uint32_t ifindex, const uint8_t *frame,
 					&status, &ies, &ies_len))
 		return;
 
-	/* Verified to be expected target, offchannel can be canceled */
-	offchannel_cancel(netdev_get_wdev_id(netdev), info->offchannel_id);
-
 	if (status != 0)
-		return;
+		goto cancel;
 
 	if (!ft_parse_ies(info, hs, ies, ies_len))
-		return;
+		goto cancel;
 
 	info->parsed = true;
 
-	return;
+cancel:
+	/* Verified to be expected target, offchannel can be canceled */
+	offchannel_cancel(netdev_get_wdev_id(netdev), info->offchannel_id);
 }
 
 static void ft_send_authenticate(void *user_data)
@@ -1007,6 +1006,11 @@ static void ft_authenticate_destroy(int error, void *user_data)
 	struct ft_info *info = user_data;
 
 	info->offchannel_id = 0;
+
+	if (!info->parsed) {
+		l_queue_remove(info_list, info);
+		ft_info_destroy(info);
+	}
 }
 
 /*
