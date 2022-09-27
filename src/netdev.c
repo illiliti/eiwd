@@ -4380,6 +4380,38 @@ static uint32_t netdev_send_action_frame(struct netdev *netdev,
 						user_data);
 }
 
+static void netdev_ft_frame_cb(struct l_genl_msg *msg, void *user_data)
+{
+	if (l_genl_msg_get_error(msg) < 0)
+		l_debug("Failed to send FT-Frame");
+}
+
+static int netdev_tx_ft_frame(uint32_t ifindex, uint16_t frame_type,
+					uint32_t frequency, const uint8_t *dest,
+					struct iovec *iov, size_t iov_len)
+{
+	struct netdev *netdev = netdev_find(ifindex);
+	struct l_genl_msg *msg = nl80211_build_cmd_frame(netdev->index,
+							frame_type,
+							netdev->addr, dest,
+							frequency,
+							iov, iov_len);
+
+	/*
+	 * Even though the kernel is doing offchannel for Authentication this
+	 * flag is still required otherwise the kernel gives -EBUSY.
+	 */
+	l_genl_msg_append_attr(msg, NL80211_ATTR_OFFCHANNEL_TX_OK, 0, NULL);
+
+	if (!l_genl_family_send(nl80211, msg, netdev_ft_frame_cb,
+				netdev, NULL)) {
+		l_genl_msg_unref(msg);
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static void netdev_cmd_authenticate_ft_cb(struct l_genl_msg *msg,
 						void *user_data)
 {
@@ -6652,6 +6684,7 @@ static int netdev_init(void)
 	__eapol_set_tx_packet_func(netdev_control_port_frame);
 	__eapol_set_install_pmk_func(netdev_set_pmk);
 
+	__ft_set_tx_frame_func(netdev_tx_ft_frame);
 	__ft_set_tx_associate_func(netdev_ft_tx_associate);
 
 	unicast_watch = l_genl_add_unicast_watch(genl, NL80211_GENL_NAME,
