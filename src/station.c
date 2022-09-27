@@ -2314,9 +2314,8 @@ static void station_update_roam_bss(struct station *station,
 					struct scan_bss *bss)
 {
 	struct network *network = station->connected_network;
-	struct scan_bss *old;
-
-	old = l_queue_remove_if(station->bss_list, bss_match_bssid, bss->addr);
+	struct scan_bss *old =
+		l_queue_remove_if(station->bss_list, bss_match, bss);
 
 	network_bss_update(network, bss);
 	l_queue_push_tail(station->bss_list, bss);
