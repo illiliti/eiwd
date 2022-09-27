@@ -3176,6 +3176,10 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 		station_packets_lost(station, l_get_u32(event_data));
 		break;
 	case NETDEV_EVENT_FT_ROAMED:
+		if (station->state != STATION_STATE_ROAMING)
+			return;
+
+		station_roamed(station);
 		break;
 	}
 }
