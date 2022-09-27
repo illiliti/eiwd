@@ -2136,8 +2136,8 @@ static void station_preauthenticate_cb(struct netdev *netdev,
 	if (!station->preparing_roam || result == NETDEV_RESULT_ABORTED)
 		return;
 
-	bss = l_queue_find(station->bss_list, bss_match_bssid,
-				station->preauth_bssid);
+	bss = network_bss_find_by_addr(station->connected_network,
+						station->preauth_bssid);
 	if (!bss) {
 		l_error("Roam target BSS not found");
 		station_roam_failed(station);
