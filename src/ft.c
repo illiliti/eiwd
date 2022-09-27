@@ -1055,7 +1055,7 @@ int ft_associate(uint32_t ifindex, const uint8_t *addr)
 	 *       a different BSS.
 	 */
 	info = ft_info_find(ifindex, addr);
-	if (!info)
+	if (!info || !info->parsed)
 		return -ENOENT;
 
 	ft_prepare_handshake(info, hs);
