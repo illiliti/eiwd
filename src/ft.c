@@ -579,12 +579,17 @@ int ft_over_ds_parse_action_response(const uint8_t *frame, size_t frame_len,
 					const uint8_t **ies_out,
 					size_t *ies_len)
 {
+	struct mmpdu_header *hdr = (struct mmpdu_header *)frame;
+	size_t hdr_len = mmpdu_header_len(hdr);
 	uint16_t status;
 	const uint8_t *aa;
 	const uint8_t *spa;
 
-	if (frame_len < 16)
+	if (frame_len < hdr_len + 16)
 		return -EINVAL;
+
+	frame += hdr_len;
+	frame_len -= hdr_len;
 
 	/* Category FT */
 	if (frame[0] != 6)
@@ -596,6 +601,9 @@ int ft_over_ds_parse_action_response(const uint8_t *frame, size_t frame_len,
 
 	spa = frame + 2;
 	aa = frame + 8;
+
+	if (memcmp(spa, hdr->address_1, 6))
+		return -EINVAL;
 
 	status = l_get_le16(frame + 14);
 	if (status != 0)
