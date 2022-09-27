@@ -3172,6 +3172,7 @@ static void station_disconnect_event(struct station *station, void *event_data)
 					event_data, station);
 		return;
 	case STATION_STATE_CONNECTED:
+	case STATION_STATE_ROAMING:
 		station_disassociated(station);
 		return;
 	default:
