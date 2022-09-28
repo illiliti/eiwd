@@ -1160,7 +1160,7 @@ class IWD(AsyncOpAbstract):
 
     def wait_for_object_change(self, obj, from_str, to_str, max_wait = 50):
         '''
-            Expects condition 'from_str' to evaluate true while waiting for 'to_str'. If
+            Wait for 'from_str' to evaluate true then waits for 'to_str'. If
             at any point during the wait 'from_str' evaluates false, an exception is
             raised.
 
@@ -1180,9 +1180,8 @@ class IWD(AsyncOpAbstract):
 
             return False
 
-        # Does initial condition pass?
-        if not eval(from_str):
-            raise Exception("initial condition [%s] not met" % from_str)
+        # wait for initial condition
+        self._wait_for_object_condition(obj, from_str)
 
         ctx.non_block_wait(_eval_from_to, max_wait, obj, from_str, to_str,
                             exception=TimeoutError('[' + to_str + ']'\
