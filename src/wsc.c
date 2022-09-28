@@ -665,6 +665,8 @@ static void wsc_check_can_connect(struct wsc_station_dbus *wsc,
 	case STATION_STATE_AUTOCONNECT_QUICK:
 	case STATION_STATE_AUTOCONNECT_FULL:
 	case STATION_STATE_ROAMING:
+	case STATION_STATE_FT_ROAMING:
+	case STATION_STATE_FW_ROAMING:
 		l_warn("%s: invalid station state", __func__);
 		break;
 	}

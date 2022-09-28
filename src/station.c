@@ -197,6 +197,13 @@ static bool station_is_autoconnecting(struct station *station)
 			station->state == STATION_STATE_AUTOCONNECT_QUICK;
 }
 
+static bool station_is_roaming(struct station *station)
+{
+	return station->state == STATION_STATE_ROAMING ||
+			station->state == STATION_STATE_FT_ROAMING ||
+			station->state == STATION_STATE_FW_ROAMING;
+}
+
 static bool station_debug_event(struct station *station, const char *name)
 {
 	struct l_dbus_message *signal;
@@ -1461,6 +1468,10 @@ static const char *station_state_to_string(enum station_state state)
 		return "disconnecting";
 	case STATION_STATE_ROAMING:
 		return "roaming";
+	case STATION_STATE_FT_ROAMING:
+		return "ft-roaming";
+	case STATION_STATE_FW_ROAMING:
+		return "fw-roaming";
 	}
 
 	return "invalid";
@@ -1599,6 +1610,8 @@ static void station_enter_state(struct station *station,
 	case STATION_STATE_DISCONNECTING:
 		break;
 	case STATION_STATE_ROAMING:
+	case STATION_STATE_FT_ROAMING:
+	case STATION_STATE_FW_ROAMING:
 		station_set_evict_nocarrier(station, false);
 		break;
 	}
@@ -1722,7 +1735,7 @@ static void station_reset_connection_state(struct station *station)
 	if (station->state == STATION_STATE_CONNECTED ||
 			station->state == STATION_STATE_CONNECTING ||
 			station->state == STATION_STATE_CONNECTING_AUTO ||
-			station->state == STATION_STATE_ROAMING)
+			station_is_roaming(station))
 		network_disconnected(network);
 }
 
@@ -2055,7 +2068,7 @@ static void station_roam_failed(struct station *station)
 	 * If we attempted a reassociation or a fast transition, and ended up
 	 * here then we are now disconnected.
 	 */
-	if (station->state == STATION_STATE_ROAMING) {
+	if (station_is_roaming(station)) {
 		station_disassociated(station);
 		return;
 	}
@@ -2245,7 +2258,7 @@ try_next:
 
 	station->connected_bss = bss;
 	station->preparing_roam = false;
-	station_enter_state(station, STATION_STATE_ROAMING);
+	station_enter_state(station, STATION_STATE_FT_ROAMING);
 
 	return true;
 
@@ -2288,7 +2301,7 @@ static bool station_fast_transition(struct station *station,
 
 		station->connected_bss = bss;
 		station->preparing_roam = false;
-		station_enter_state(station, STATION_STATE_ROAMING);
+		station_enter_state(station, STATION_STATE_FT_ROAMING);
 
 		return true;
 	} else {
@@ -2742,7 +2755,8 @@ static bool station_cannot_roam(struct station *station)
 		disabled = false;
 
 	return disabled || station->preparing_roam ||
-					station->state == STATION_STATE_ROAMING;
+				station->state == STATION_STATE_ROAMING ||
+				station->state == STATION_STATE_FT_ROAMING;
 }
 
 #define WNM_REQUEST_MODE_PREFERRED_CANDIDATE_LIST	(1 << 0)
@@ -3180,7 +3194,8 @@ static void station_disconnect_event(struct station *station, void *event_data)
 					event_data, station);
 		return;
 	case STATION_STATE_CONNECTED:
-	case STATION_STATE_ROAMING:
+	case STATION_STATE_FT_ROAMING:
+	case STATION_STATE_FW_ROAMING:
 		station_disassociated(station);
 		return;
 	default:
@@ -3234,7 +3249,7 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 			station_signal_agent_notify(station);
 		break;
 	case NETDEV_EVENT_ROAMING:
-		station_enter_state(station, STATION_STATE_ROAMING);
+		station_enter_state(station, STATION_STATE_FW_ROAMING);
 		break;
 	case NETDEV_EVENT_ROAMED:
 		station_event_roamed(station, (struct scan_bss *) event_data);
@@ -3246,7 +3261,7 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 		station_packets_lost(station, l_get_u32(event_data));
 		break;
 	case NETDEV_EVENT_FT_ROAMED:
-		if (station->state != STATION_STATE_ROAMING)
+		if (L_WARN_ON(station->state != STATION_STATE_FT_ROAMING))
 			return;
 
 		station_roamed(station);
@@ -4069,6 +4084,8 @@ static bool station_property_get_state(struct l_dbus *dbus,
 		statestr = "disconnecting";
 		break;
 	case STATION_STATE_ROAMING:
+	case STATION_STATE_FT_ROAMING:
+	case STATION_STATE_FW_ROAMING:
 		statestr = "roaming";
 		break;
 	}
