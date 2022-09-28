@@ -1033,7 +1033,6 @@ int ft_authenticate(uint32_t ifindex, const struct scan_bss *target)
 						target->frequency,
 						200, ft_send_authenticate, info,
 						ft_authenticate_destroy);
-	ft_clear_authentications(ifindex);
 
 	l_queue_push_tail(info_list, info);
 
@@ -1055,8 +1054,19 @@ int ft_associate(uint32_t ifindex, const uint8_t *addr)
 	 *       a different BSS.
 	 */
 	info = ft_info_find(ifindex, addr);
-	if (!info || !info->parsed)
+	if (!info)
 		return -ENOENT;
+
+	/*
+	 * Either failed or no response. This may have been an FT-over-DS
+	 * attempt so clear out the entry so FT-over-Air can try again.
+	 */
+	if (!info->parsed) {
+		l_queue_remove(info_list, info);
+		ft_info_destroy(info);
+
+		return -ENOENT;
+	}
 
 	ft_prepare_handshake(info, hs);
 
