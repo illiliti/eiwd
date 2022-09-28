@@ -138,6 +138,7 @@ struct wiphy {
 	bool blacklisted : 1;
 	bool registered : 1;
 	bool self_managed : 1;
+	bool ap_probe_resp_offload : 1;
 };
 
 static struct l_queue *wiphy_list = NULL;
@@ -471,6 +472,11 @@ const struct scan_freq_set *wiphy_get_supported_freqs(
 const struct scan_freq_set *wiphy_get_disabled_freqs(const struct wiphy *wiphy)
 {
 	return wiphy->disabled_freqs;
+}
+
+bool wiphy_supports_probe_resp_offload(struct wiphy *wiphy)
+{
+	return wiphy->ap_probe_resp_offload;
 }
 
 bool wiphy_can_transition_disable(struct wiphy *wiphy)
@@ -1643,6 +1649,9 @@ static void wiphy_parse_attributes(struct wiphy *wiphy,
 			break;
 		case NL80211_ATTR_WIPHY_SELF_MANAGED_REG:
 			wiphy->self_managed = true;
+			break;
+		case NL80211_ATTR_PROBE_RESP_OFFLOAD:
+			wiphy->ap_probe_resp_offload = true;
 			break;
 		}
 	}
