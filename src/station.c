@@ -2746,6 +2746,7 @@ static bool station_cannot_roam(struct station *station)
 }
 
 #define WNM_REQUEST_MODE_PREFERRED_CANDIDATE_LIST	(1 << 0)
+#define WNM_REQUEST_MODE_DISASSOCIATION_IMMINENT	(1 << 2)
 #define WNM_REQUEST_MODE_TERMINATION_IMMINENT		(1 << 3)
 #define WNM_REQUEST_MODE_ESS_DISASSOCIATION_IMMINENT	(1 << 4)
 
@@ -2818,7 +2819,20 @@ static void station_ap_directed_roam(struct station *station,
 			dtimer, valid_interval,
 			MAC_STR(hdr->address_3));
 
-	/* check req_mode for optional values */
+	/*
+	 * The ap_directed_roaming flag forces IWD to roam if there are any
+	 * candidates, even if they are worse than the current BSS. This isn't
+	 * always a good idea since we may be associated to the best BSS. Where
+	 * this does matter is if the AP indicates its going down or will be
+	 * disassociating us. If either of these bits are set, set the
+	 * ap_directed_roaming flag. Otherwise still try roaming but don't
+	 * treat it any different than a normal roam.
+	 */
+	if (req_mode & (WNM_REQUEST_MODE_DISASSOCIATION_IMMINENT |
+			WNM_REQUEST_MODE_TERMINATION_IMMINENT |
+			WNM_REQUEST_MODE_ESS_DISASSOCIATION_IMMINENT))
+		station->ap_directed_roaming = true;
+
 	if (req_mode & WNM_REQUEST_MODE_TERMINATION_IMMINENT) {
 		if (pos + 12 > body_len)
 			goto format_error;
@@ -2841,7 +2855,6 @@ static void station_ap_directed_roam(struct station *station,
 		pos += url_len;
 	}
 
-	station->ap_directed_roaming = true;
 	station->preparing_roam = true;
 
 	l_timeout_remove(station->roam_trigger_timeout);
