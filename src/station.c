@@ -2763,6 +2763,31 @@ static void station_ap_directed_roam(struct station *station,
 	if (station_cannot_roam(station))
 		return;
 
+	if (station->state != STATION_STATE_CONNECTED) {
+		l_debug("roam: unexpected AP directed roam -- ignore");
+		return;
+	}
+
+	/*
+	 * Sanitize the frame to check that it is from our current AP.
+	 *
+	 * 802.11-2020 Section 9.3.3.1 about Address2:
+	 * "If the STA is an AP with dot11MultiBSSDImplemented set to false,
+	 * then this address is the BSSID."
+	 *
+	 * Address3:
+	 * "If the STA is an AP or PCP, the Address 3 field is the same as the
+	 * Address 2 field."
+	 *
+	 * For now check that Address2 & Address3 is the same as the connected
+	 * BSS address.
+	 */
+	if (memcmp(hdr->address_2, station->connected_bss, ETH_ALEN) ||
+			memcmp(hdr->address_2, hdr->address_3, ETH_ALEN)) {
+		l_debug("roam: AP directed roam not from our AP -- ignore");
+		return;
+	}
+
 	if (body_len < 7)
 		goto format_error;
 
@@ -2814,36 +2839,6 @@ static void station_ap_directed_roam(struct station *station,
 			goto format_error;
 
 		pos += url_len;
-	}
-
-	if (station->state != STATION_STATE_CONNECTED) {
-		l_debug("roam: unexpected AP directed roam -- ignore");
-		return;
-	}
-
-	/*
-	 * Sanitize the frame to check that it is from our current AP.
-	 *
-	 * 802.11-2020 Section 9.3.3.1 about Address2:
-	 * "If the STA is an AP with dot11MultiBSSDImplemented set to false,
-	 * then this address is the BSSID."
-	 *
-	 * Address3:
-	 * "If the STA is an AP or PCP, the Address 3 field is the same as the
-	 * Address 2 field."
-	 *
-	 * For now check that Address2 & Address3 is the same as the connected
-	 * BSS address.
-	 */
-	if (memcmp(hdr->address_2, station->connected_bss, ETH_ALEN) ||
-			memcmp(hdr->address_2, hdr->address_3, ETH_ALEN)) {
-		l_debug("roam: AP directed roam not from our AP -- ignore");
-		return;
-	}
-
-	if (station->preparing_roam) {
-		l_debug("roam: roam attempt already in progress -- ignore");
-		return;
 	}
 
 	station->ap_directed_roaming = true;
