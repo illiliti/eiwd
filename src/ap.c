@@ -699,7 +699,7 @@ static size_t ap_write_wsc_ie(struct ap_state *ap,
 	size_t len = 0;
 
 	/* WSC IE */
-	if (type == MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE) {
+	if (type == MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE && client_frame) {
 		const uint8_t *from = client_frame->address_2;
 		struct wsc_probe_response wsc_pr = {};
 		const struct mmpdu_probe_request *req =
@@ -2416,6 +2416,8 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff
 	};
 
+	static const uint8_t zero_addr[6] = { 0 };
+
 	for (i = 0, nl_ciphers_cnt = 0; i < 8; i++)
 		if (ap->ciphers & (1 << i))
 			nl_ciphers[nl_ciphers_cnt++] =
@@ -2457,6 +2459,21 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_AUTH_TYPE, 4, &auth_type);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_WIPHY_FREQ, 4, &ch_freq);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_CHANNEL_WIDTH, 4, &ch_width);
+
+	if (wiphy_supports_probe_resp_offload(wiphy)) {
+		uint8_t probe_resp[head_len + tail_len];
+		uint8_t *ptr = probe_resp;
+
+		ptr += ap_build_beacon_pr_head(ap,
+					MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE,
+					zero_addr, ptr, sizeof(probe_resp));
+		ptr += ap_build_beacon_pr_tail(ap,
+					MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE,
+					NULL, 0, ptr);
+
+		l_genl_msg_append_attr(cmd, NL80211_ATTR_PROBE_RESP,
+					ptr - probe_resp, probe_resp);
+	}
 
 	if (wiphy_has_ext_feature(wiphy,
 			NL80211_EXT_FEATURE_CONTROL_PORT_OVER_NL80211)) {
@@ -3321,10 +3338,12 @@ struct ap_state *ap_start(struct netdev *netdev, struct l_settings *config,
 			NULL, 0, ap_reassoc_req_cb, ap, NULL))
 		goto error;
 
-	if (!frame_watch_add(wdev_id, 0, 0x0000 |
+	if (!wiphy_supports_probe_resp_offload(wiphy)) {
+		if (!frame_watch_add(wdev_id, 0, 0x0000 |
 				(MPDU_MANAGEMENT_SUBTYPE_PROBE_REQUEST << 4),
 				NULL, 0, ap_probe_req_cb, ap, NULL))
-		goto error;
+			goto error;
+	}
 
 	if (!frame_watch_add(wdev_id, 0, 0x0000 |
 				(MPDU_MANAGEMENT_SUBTYPE_DISASSOCIATION << 4),
