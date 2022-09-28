@@ -199,7 +199,7 @@ class HostapdCLI(object):
         cmd = self.cmdline + ['remove_neighbor', addr]
         ctx.start_process(cmd).wait()
 
-    def send_bss_transition(self, device, nr_list):
+    def send_bss_transition(self, device, nr_list, disassoc_imminent=True):
         # Send a BSS transition to a station (device). nr_list should be an
         # array of tuples containing the BSS address and neighbor report.
         # Parsing the neighbor report is a bit ugly but it makes it more
@@ -207,6 +207,10 @@ class HostapdCLI(object):
         # string could be used in both API's.
         pref = 1
         cmd = self.cmdline + ['bss_tm_req', device]
+
+        if disassoc_imminent:
+            cmd.append('disassoc_imminent=1')
+
         for i in nr_list:
             addr = i[0]
             nr = i[1]
