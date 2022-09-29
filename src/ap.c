@@ -4143,32 +4143,14 @@ static int ap_init(void)
 	 * [General].EnableNetworkConfiguration is true.
 	 */
 	if (netconfig_enabled()) {
-		if (l_settings_get_value(settings, "IPv4", "APAddressPool")) {
-			global_addr4_strs = l_settings_get_string_list(settings,
-								"IPv4",
-								"APAddressPool",
-								',');
-			if (!global_addr4_strs || !*global_addr4_strs) {
-				l_error("Can't parse the [IPv4].APAddressPool "
+		global_addr4_strs =
+			l_settings_get_string_list(settings, "IPv4",
+							"APAddressPool", ',');
+		if (!global_addr4_strs || !global_addr4_strs[0]) {
+			l_error("Can't parse the [IPv4].APAddressPool "
 					"setting as a string list");
-				l_strv_free(global_addr4_strs);
-				global_addr4_strs = NULL;
-			}
-		} else if (l_settings_get_value(settings,
-						"General", "APRanges")) {
-			l_warn("The [General].APRanges setting is deprecated, "
-				"use [IPv4].APAddressPool instead");
-
-			global_addr4_strs = l_settings_get_string_list(settings,
-								"General",
-								"APRanges",
-								',');
-			if (!global_addr4_strs || !*global_addr4_strs) {
-				l_error("Can't parse the [General].APRanges "
-					"setting as a string list");
-				l_strv_free(global_addr4_strs);
-				global_addr4_strs = NULL;
-			}
+			l_strv_free(global_addr4_strs);
+			global_addr4_strs = NULL;
 		}
 
 		/* Fall back to 192.168.0.0/16 */
