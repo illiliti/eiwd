@@ -2101,6 +2101,30 @@ delayed_retry:
 	station_roam_retry(station);
 }
 
+static void station_disconnect_on_error_cb(struct netdev *netdev, bool success,
+					void *user_data)
+{
+	struct station *station = user_data;
+	bool continue_autoconnect;
+
+	station_enter_state(station, STATION_STATE_DISCONNECTED);
+
+	continue_autoconnect = station->state == STATION_STATE_CONNECTING_AUTO;
+
+	if (continue_autoconnect) {
+		if (station_autoconnect_next(station) < 0) {
+			l_debug("Nothing left on autoconnect list");
+			station_enter_state(station,
+					STATION_STATE_AUTOCONNECT_FULL);
+		}
+
+		return;
+	}
+
+	if (station->autoconnect)
+		station_enter_state(station, STATION_STATE_AUTOCONNECT_QUICK);
+}
+
 static void station_netconfig_event_handler(enum netconfig_event event,
 							void *user_data)
 {
@@ -2109,7 +2133,26 @@ static void station_netconfig_event_handler(enum netconfig_event event,
 	switch (event) {
 	case NETCONFIG_EVENT_CONNECTED:
 		station_enter_state(station, STATION_STATE_CONNECTED);
+		break;
+	case NETCONFIG_EVENT_FAILED:
+		if (station->connect_pending) {
+			struct l_dbus_message *reply = dbus_error_failed(
+						station->connect_pending);
 
+			dbus_pending_reply(&station->connect_pending, reply);
+		}
+
+		if (L_IN_SET(station->state, STATION_STATE_CONNECTING,
+				STATION_STATE_CONNECTING_AUTO))
+			network_connect_failed(station->connected_network,
+						false);
+
+		netdev_disconnect(station->netdev,
+					station_disconnect_on_error_cb,
+					station);
+		station_reset_connection_state(station);
+
+		station_enter_state(station, STATION_STATE_DISCONNECTING);
 		break;
 	default:
 		l_error("station: Unsupported netconfig event: %d.", event);
