@@ -7952,7 +7952,7 @@ static void print_nlmsghdr(const struct timeval *tv,
 							nlmsg->nlmsg_flags);
 	print_field("Sequence number: %u (0x%08x)",
 					nlmsg->nlmsg_seq, nlmsg->nlmsg_seq);
-	print_field("Port ID: %d", nlmsg->nlmsg_pid);
+	print_field("Port ID: %u", nlmsg->nlmsg_pid);
 }
 
 static void print_nlmsg(const struct timeval *tv, const struct nlmsghdr *nlmsg)
