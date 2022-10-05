@@ -1204,7 +1204,7 @@ static void process_rules(const struct radio_info_rec *src_radio,
 		struct hwsim_rule *rule = rule_entry->data;
 
 		if (!rule->enabled)
-			return;
+			continue;
 
 		if (!rule->source_any &&
 				!radio_match_addr(src_radio, rule->source) &&
