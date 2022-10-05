@@ -4724,6 +4724,36 @@ static void print_anqp_frame(unsigned int level, const uint8_t *anqp,
 	}
 }
 
+static void print_dpp_public_action_frame(unsigned int level,
+					const uint8_t *data, size_t len)
+{
+	print_attr(level, "DPP Action Frame");
+
+	print_attr(level + 1, "Crypto Suite: %u", *data);
+	data++;
+
+	switch (*data) {
+	case 0:
+		print_attr(level + 1, "Type: Authentication Request");
+		break;
+	case 1:
+		print_attr(level + 1, "Type: Authentication Response");
+		break;
+	case 2:
+		print_attr(level + 1, "Type: Authentication Confirm");
+		break;
+	case 11:
+		print_attr(level + 1, "Type: Configuration Result");
+		break;
+	case 13:
+		print_attr(level + 1, "Type: Presence Announcement");
+		break;
+	default:
+		print_attr(level + 1, "Type: Unknown (%u)", *data);
+		break;
+	}
+}
+
 static void print_public_action_frame(unsigned int level, const uint8_t *body,
 					size_t body_len)
 {
@@ -4790,6 +4820,12 @@ static void print_public_action_frame(unsigned int level, const uint8_t *body,
 			return;
 
 		print_p2p_public_action_frame(level + 1, body + 5,
+						body_len - 5);
+	} else if (!memcmp(oui, wifi_alliance_oui, 3) && oui[3] == 0x1a) {
+		if (!print_oui(level, oui))
+			return;
+
+		print_dpp_public_action_frame(level + 1, body + 5,
 						body_len - 5);
 	} else if (body[0] == 0x0a) {
 		if (body_len < 9)
