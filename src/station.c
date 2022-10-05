@@ -2293,6 +2293,7 @@ static bool station_ft_work_ready(struct wiphy_radio_work_item *item)
 
 	ret = ft_associate(netdev_get_ifindex(station->netdev), bss->addr);
 	if (ret == -ENOENT) {
+		station_debug_event(station, "ft-over-air-roam-failed");
 try_next:
 		station_transition_start(station);
 		return true;
@@ -2337,9 +2338,10 @@ static bool station_fast_transition(struct station *station,
 		ret = ft_associate(netdev_get_ifindex(station->netdev),
 					bss->addr);
 		/* No action responses from this BSS, try over air */
-		if (ret == -ENOENT)
+		if (ret == -ENOENT) {
+			station_debug_event(station, "try-ft-over-air");
 			goto try_over_air;
-		else if (ret < 0)
+		} else if (ret < 0)
 			return false;
 
 		station->connected_bss = bss;
