@@ -8,6 +8,7 @@ import iwd
 import validation
 from validation import TestHiddenNetworks
 from iwd import IWD
+from hostapd import HostapdCLI
 
 class TestOpenNetwork(unittest.TestCase):
     '''
@@ -25,8 +26,21 @@ class TestOpenNetwork(unittest.TestCase):
         tca.validate('ssidHiddenOpen', True)
 
     @classmethod
+    def setUpClass(cls):
+        cls.disabled = [HostapdCLI('ssidHiddenWPA.conf'),
+                        HostapdCLI('ssidOpen.conf'),
+                        HostapdCLI('ssidOverlap1.conf'),
+                        HostapdCLI('ssidOverlap2.conf'),
+                        HostapdCLI('ssidSomeHidden.conf')]
+        for hapd in cls.disabled:
+            hapd.disable()
+
+    @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
+
+        for hapd in cls.disabled:
+            hapd.reload()
 
 if __name__ == '__main__':
     unittest.main(exit=True)
