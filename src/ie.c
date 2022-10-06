@@ -589,15 +589,14 @@ static bool ie_parse_group_cipher(const uint8_t *data,
 	return true;
 }
 
-static bool ie_parse_pairwise_cipher(const uint8_t *data,
+static int ie_parse_pairwise_cipher(const uint8_t *data,
 					enum ie_rsn_cipher_suite *out)
 {
 	enum ie_rsn_cipher_suite tmp;
-
 	bool r = ie_parse_cipher_suite(data, &tmp);
 
 	if (!r)
-		return r;
+		return -ENOENT;
 
 	switch (tmp) {
 	case IE_RSN_CIPHER_SUITE_CCMP:
@@ -607,11 +606,11 @@ static bool ie_parse_pairwise_cipher(const uint8_t *data,
 	case IE_RSN_CIPHER_SUITE_USE_GROUP_CIPHER:
 		break;
 	default:
-		return false;
+		return -ERANGE;
 	}
 
 	*out = tmp;
-	return true;
+	return 0;
 }
 
 static bool ie_parse_group_management_cipher(const uint8_t *data,
@@ -682,9 +681,12 @@ static int parse_ciphers(const uint8_t *data, size_t len,
 	/* Parse Pairwise Cipher Suite List field */
 	for (i = 0, out_info->pairwise_ciphers = 0; i < count; i++) {
 		enum ie_rsn_cipher_suite suite;
+		int r = ie_parse_pairwise_cipher(data + i * 4, &suite);
 
-		if (!ie_parse_pairwise_cipher(data + i * 4, &suite))
-			return -ERANGE;
+		if (r == -ENOENT) /* Skip unknown */
+			continue;
+		else if (r < 0)
+			return r;
 
 		out_info->pairwise_ciphers |= suite;
 	}
