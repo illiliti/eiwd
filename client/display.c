@@ -410,7 +410,9 @@ static char* next_line(char *s, unsigned int *max, char **color_out)
 			/* color escape won't count for column width */
 			*max += color_end(s + i);
 			last_color = i;
-		}
+		/* Add width for non-codepoint UTF-8 bytes */
+		} else if (((uint8_t)s[i] >> 6) == 2)
+			*max += 1;
 	}
 
 	/* Reached the end of the string within the column bounds */
