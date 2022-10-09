@@ -183,12 +183,9 @@ struct network *station_get_connected_network(struct station *station)
 
 bool station_is_busy(struct station *station)
 {
-	if (station->state != STATION_STATE_DISCONNECTED &&
+	return station->state != STATION_STATE_DISCONNECTED &&
 			station->state != STATION_STATE_AUTOCONNECT_FULL &&
-			station->state != STATION_STATE_AUTOCONNECT_QUICK)
-		return true;
-
-	return false;
+			station->state != STATION_STATE_AUTOCONNECT_QUICK;
 }
 
 static bool station_is_autoconnecting(struct station *station)
