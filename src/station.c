@@ -1810,6 +1810,8 @@ static void parse_neighbor_report(struct station *station,
 	struct handshake_state *hs = netdev_get_handshake(station->netdev);
 	const struct scan_freq_set *supported =
 				wiphy_get_supported_freqs(station->wiphy);
+	const struct scan_freq_set *disabled =
+				wiphy_get_disabled_freqs(station->wiphy);
 
 	freq_set_md = scan_freq_set_new();
 	freq_set_no_md = scan_freq_set_new();
@@ -1846,8 +1848,9 @@ static void parse_neighbor_report(struct station *station,
 		if (!(band & wiphy_get_supported_bands(station->wiphy)))
 			continue;
 
-		/* Skip if frequency is not supported */
-		if (!scan_freq_set_contains(supported, freq))
+		/* Skip if frequency is not supported or disabled */
+		if (!scan_freq_set_contains(supported, freq) ||
+				scan_freq_set_contains(disabled, freq))
 			continue;
 
 		if (!memcmp(info.addr,
