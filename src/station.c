@@ -2656,12 +2656,17 @@ static int station_roam_scan_known_freqs(struct station *station)
 						station->connected_network);
 	struct scan_freq_set *freqs = network_info_get_roam_frequencies(info,
 					station->connected_bss->frequency, 5);
-	int r;
+	int r = -ENODATA;
 
 	if (!freqs)
-		return -ENODATA;
+		return r;
+
+	if (!wiphy_constrain_freq_set(station->wiphy, freqs))
+		goto free_set;
 
 	r = station_roam_scan(station, freqs);
+
+free_set:
 	scan_freq_set_free(freqs);
 	return r;
 }
