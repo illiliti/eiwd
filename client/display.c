@@ -30,6 +30,7 @@
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <wchar.h>
 
 #include <readline/history.h>
 #include <readline/readline.h>
@@ -398,21 +399,37 @@ static unsigned int color_end(char *s)
  */
 static char* next_line(char *s, unsigned int *max, char **color_out)
 {
-	unsigned int i;
+	unsigned int i = 0;
 	int last_space = -1;
 	int last_color = -1;
+	unsigned int s_len = strlen(s);
 
 	/* Find the last space before 'max', as well as any color */
-	for (i = 0; i <= *max && s[i] != '\0'; i++) {
-		if (s[i] == ' ')
-			last_space = i;
-		else if (s[i] == 0x1b) {
+	while (i <= *max && i != s_len) {
+		int sequence_len;
+		int sequence_columns;
+		wchar_t w;
+
+		if (s[i] == 0x1b) {
+			sequence_len = color_end(s + i);
 			/* color escape won't count for column width */
-			*max += color_end(s + i);
+			sequence_columns = 0;
 			last_color = i;
-		/* Add width for non-codepoint UTF-8 bytes */
-		} else if (((uint8_t)s[i] >> 6) == 2)
-			*max += 1;
+		} else {
+			if (s[i] == ' ')
+				last_space = i;
+			sequence_len = l_utf8_get_codepoint(&s[i], s_len - i,
+									&w);
+			if (sequence_len < 0) {
+				sequence_len = 1;
+				sequence_columns = 1;
+			} else
+				sequence_columns = wcwidth(w);
+		}
+
+		/* Compensate max bytes */
+		*max += sequence_len - sequence_columns;
+		i += sequence_len;
 	}
 
 	/* Reached the end of the string within the column bounds */
