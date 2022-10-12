@@ -420,11 +420,7 @@ static char* next_line(char *s, unsigned int *max, char **color_out)
 				last_space = i;
 			sequence_len = l_utf8_get_codepoint(&s[i], s_len - i,
 									&w);
-			if (sequence_len < 0) {
-				sequence_len = 1;
-				sequence_columns = 1;
-			} else
-				sequence_columns = wcwidth(w);
+			sequence_columns = wcwidth(w);
 		}
 
 		/* Compensate max bytes */
@@ -532,9 +528,17 @@ void display_table_row(const char *margin, unsigned int ncolumns, ...)
 
 	for (i = 0; i < ncolumns; i++) {
 		struct table_entry *e = &entries[i];
+		char *v;
 
 		e->width = va_arg(va, unsigned int);
-		e->next = l_strdup(va_arg(va, char*));
+		v = va_arg(va, char *);
+
+		if (!l_utf8_validate(v, strlen(v), NULL)) {
+			display_error("Invalid utf-8 string!");
+			goto done;
+		}
+
+		e->next = l_strdup(v);
 
 		str += entry_append(e, str);
 	}
@@ -565,9 +569,13 @@ void display_table_row(const char *margin, unsigned int ncolumns, ...)
 		str = buf;
 	}
 
+done:
 	for (i = 0; i < ncolumns; i++) {
 		if (entries[i].color)
 			l_free(entries[i].color);
+
+		if (entries[i].next)
+			l_free(entries[i].next);
 	}
 }
 
