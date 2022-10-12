@@ -405,6 +405,7 @@ static char* next_line(char *s, unsigned int width, unsigned int *new_width,
 	int last_color = -1;
 	unsigned int s_len = strlen(s);
 	unsigned int color_adjust = 0;
+	char *ret;
 
 	*new_width = width;
 	*color_out = NULL;
@@ -452,7 +453,7 @@ static char* next_line(char *s, unsigned int width, unsigned int *new_width,
 
 	/* Not anywhere nice to split the line */
 	if (last_space == -1)
-		last_space = *new_width - 1;
+		last_space = *new_width;
 
 	/*
 	 * Only set the color if it occurred prior to the last space. If after,
@@ -464,9 +465,11 @@ static char* next_line(char *s, unsigned int width, unsigned int *new_width,
 	else if (last_color != -1 && last_space < last_color)
 		*new_width -= color_adjust;
 
-	s[last_space] = '\0';
+	ret = l_strdup(s + last_space + 1);
 
-	return l_strdup(s + last_space + 1);
+	s[last_space + 1] = '\0';
+
+	return ret;
 }
 
 struct table_entry {
