@@ -404,8 +404,10 @@ static char* next_line(char *s, unsigned int width, unsigned int *new_width,
 	int last_space = -1;
 	int last_color = -1;
 	unsigned int s_len = strlen(s);
+	unsigned int color_adjust = 0;
 
 	*new_width = width;
+	*color_out = NULL;
 
 	/* Find the last space before 'max', as well as any color */
 	while (i <= *new_width && i < s_len) {
@@ -418,9 +420,22 @@ static char* next_line(char *s, unsigned int width, unsigned int *new_width,
 			/* color escape won't count for column width */
 			sequence_columns = 0;
 			last_color = i;
+
+			/*
+			 * Color after a space. If the line gets broken this
+			 * will need to be removed off new_width since it will
+			 * appear on the next line.
+			 */
+			if (last_space != -1)
+				color_adjust += sequence_len;
+
 		} else {
-			if (s[i] == ' ')
+			if (s[i] == ' ') {
 				last_space = i;
+				/* Any past colors will appear on this line */
+				color_adjust = 0;
+			}
+
 			sequence_len = l_utf8_get_codepoint(&s[i], s_len - i,
 									&w);
 			sequence_columns = wcwidth(w);
@@ -446,8 +461,8 @@ static char* next_line(char *s, unsigned int width, unsigned int *new_width,
 	if (last_color != -1 && last_space >= last_color)
 		*color_out = l_strndup(s + last_color,
 					color_end(s + last_color));
-	else
-		*color_out = NULL;
+	else if (last_color != -1 && last_space < last_color)
+		*new_width -= color_adjust;
 
 	s[last_space] = '\0';
 
