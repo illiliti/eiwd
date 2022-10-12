@@ -388,24 +388,27 @@ static unsigned int color_end(char *s)
 }
 
 /*
- * Finds last space in 's' before 'max' characters, terminates at that index,
+ * Finds last space in 's' before 'width' characters, terminates at that index,
  * and returns a new string to be printed on the next line.
  *
- * 'max' should be set to the column width, but is also an out parameter since
- * this width can be updated if colored escapes are detected.
+ * 'new_width' will be updated to include extra bytes for color escapes or
+ * wide characters if found.
  *
  * Any colored escapes found are set to 'color_out' so they can be re-enabled
  * on the next line.
  */
-static char* next_line(char *s, unsigned int *max, char **color_out)
+static char* next_line(char *s, unsigned int width, unsigned int *new_width,
+			char **color_out)
 {
 	unsigned int i = 0;
 	int last_space = -1;
 	int last_color = -1;
 	unsigned int s_len = strlen(s);
 
+	*new_width = width;
+
 	/* Find the last space before 'max', as well as any color */
-	while (i <= *max && i != s_len) {
+	while (i <= *new_width && i < s_len) {
 		int sequence_len;
 		int sequence_columns;
 		wchar_t w;
@@ -424,17 +427,17 @@ static char* next_line(char *s, unsigned int *max, char **color_out)
 		}
 
 		/* Compensate max bytes */
-		*max += sequence_len - sequence_columns;
+		*new_width += sequence_len - sequence_columns;
 		i += sequence_len;
 	}
 
 	/* Reached the end of the string within the column bounds */
-	if (i <= *max)
+	if (i <= *new_width)
 		return NULL;
 
 	/* Not anywhere nice to split the line */
 	if (last_space == -1)
-		last_space = *max - 1;
+		last_space = *new_width - 1;
 
 	/*
 	 * Only set the color if it occurred prior to the last space. If after,
@@ -465,7 +468,7 @@ static int entry_append(struct table_entry *e, char *line_buf)
 {
 	char *value = e->next;
 	unsigned int ret = 0;
-	unsigned int width = e->width;
+	unsigned int new_width;
 
 	/* Empty line */
 	if (!value)
@@ -479,10 +482,10 @@ static int entry_append(struct table_entry *e, char *line_buf)
 	}
 
 	/* Advance entry to next line, and terminate current */
-	e->next = next_line(value, &width, &e->color);
+	e->next = next_line(value, e->width, &new_width, &e->color);
 
 	/* Append current line */
-	ret += sprintf(line_buf + ret, "%-*s  ", width, value);
+	ret += sprintf(line_buf + ret, "%-*s  ", new_width, value);
 
 	l_free(value);
 
