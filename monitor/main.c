@@ -451,7 +451,7 @@ static int analyze_pcap(const char *pathname)
 
 	while (pcap_read(pcap, &tv, buf, snaplen, &len, &real_len)) {
 		struct nlmsghdr *nlmsg;
-		uint32_t aligned_len;
+		int64_t aligned_len;
 		uint16_t arphrd_type;
 		uint16_t proto_type;
 

@@ -8080,7 +8080,7 @@ static void print_rtnl_msg(const struct timeval *tv,
 void nlmon_print_rtnl(struct nlmon *nlmon, const struct timeval *tv,
 					const void *data, uint32_t size)
 {
-	uint32_t aligned_size = NLMSG_ALIGN(size);
+	int64_t aligned_size = NLMSG_ALIGN(size);
 	const struct nlmsghdr *nlmsg;
 
 	update_time_offset(tv);
@@ -8112,7 +8112,7 @@ void nlmon_print_rtnl(struct nlmon *nlmon, const struct timeval *tv,
 }
 
 void nlmon_print_genl(struct nlmon *nlmon, const struct timeval *tv,
-					const void *data, uint32_t size)
+					const void *data, int64_t size)
 {
 	const struct nlmsghdr *nlmsg;
 
@@ -8144,7 +8144,7 @@ static bool nlmon_receive(struct l_io *io, void *user_data)
 	unsigned char buf[8192];
 	unsigned char control[32];
 	ssize_t bytes_read;
-	uint32_t nlmsg_len;
+	int64_t nlmsg_len;
 	int fd;
 
 	fd = l_io_get_fd(io);

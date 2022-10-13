@@ -41,7 +41,7 @@ void nlmon_destroy(struct nlmon *nlmon);
 void nlmon_print_rtnl(struct nlmon *nlmon, const struct timeval *tv,
 					const void *data, uint32_t size);
 void nlmon_print_genl(struct nlmon *nlmon, const struct timeval *tv,
-					const void *data, uint32_t size);
+					const void *data, int64_t size);
 void nlmon_print_pae(struct nlmon *nlmon, const struct timeval *tv,
 					uint8_t type, int index,
 					const void *data, uint32_t size);
