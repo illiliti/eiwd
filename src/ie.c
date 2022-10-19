@@ -885,38 +885,37 @@ int ie_parse_osen_from_data(const uint8_t *data, size_t len,
 static bool ie_build_cipher_suite(uint8_t *data, const uint8_t *oui,
 					const enum ie_rsn_cipher_suite suite)
 {
+	uint8_t selector;
+
 	switch (suite) {
 	case IE_RSN_CIPHER_SUITE_USE_GROUP_CIPHER:
-		memcpy(data, oui, 3);
-		data[3] = 0;
-		return true;
+		selector = 0;
+		goto done;
 	case IE_RSN_CIPHER_SUITE_WEP40:
-		memcpy(data, oui, 3);
-		data[3] = 1;
-		return true;
+		selector = 1;
+		goto done;
 	case IE_RSN_CIPHER_SUITE_TKIP:
-		memcpy(data, oui, 3);
-		data[3] = 2;
-		return true;
+		selector = 2;
+		goto done;
 	case IE_RSN_CIPHER_SUITE_CCMP:
-		memcpy(data, oui, 3);
-		data[3] = 4;
-		return true;
+		selector = 4;
+		goto done;
 	case IE_RSN_CIPHER_SUITE_WEP104:
-		memcpy(data, oui, 3);
-		data[3] = 5;
-		return true;
+		selector = 5;
+		goto done;
 	case IE_RSN_CIPHER_SUITE_BIP_CMAC:
-		memcpy(data, oui, 3);
-		data[3] = 6;
-		return true;
+		selector = 6;
+		goto done;
 	case IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC:
-		memcpy(data, oui, 3);
-		data[3] = 7;
-		return true;
+		selector = 7;
+		goto done;
 	}
 
 	return false;
+done:
+	memcpy(data, oui, 3);
+	data[3] = selector;
+	return true;
 }
 
 #define RETURN_AKM(data, oui, id)		\
