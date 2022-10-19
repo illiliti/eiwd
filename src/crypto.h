@@ -30,7 +30,7 @@ enum crypto_cipher {
 	CRYPTO_CIPHER_WEP104 = 0x000fac05,
 	CRYPTO_CIPHER_TKIP = 0x000fac02,
 	CRYPTO_CIPHER_CCMP = 0x000fac04,
-	CRYPTO_CIPHER_BIP = 0x000fac06,
+	CRYPTO_CIPHER_BIP_CMAC = 0x000fac06,
 };
 
 enum crypto_akm {

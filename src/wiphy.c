@@ -1215,7 +1215,7 @@ static void parse_supported_ciphers(struct wiphy *wiphy, const void *data,
 		case CRYPTO_CIPHER_WEP104:
 			wiphy->supported_ciphers |= IE_RSN_CIPHER_SUITE_WEP104;
 			break;
-		case CRYPTO_CIPHER_BIP:
+		case CRYPTO_CIPHER_BIP_CMAC:
 			wiphy->supported_ciphers |= IE_RSN_CIPHER_SUITE_BIP;
 			break;
 		default:	/* TODO: Support other ciphers */

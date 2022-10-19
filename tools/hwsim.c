@@ -175,7 +175,7 @@ static const uint32_t hwsim_supported_ciphers[] = {
 	CRYPTO_CIPHER_WEP104,
 	CRYPTO_CIPHER_TKIP,
 	CRYPTO_CIPHER_CCMP,
-	CRYPTO_CIPHER_BIP,
+	CRYPTO_CIPHER_BIP_CMAC,
 };
 static uint32_t hwsim_ciphers[L_ARRAY_SIZE(hwsim_supported_ciphers)];
 static int hwsim_num_ciphers = 0;
@@ -196,7 +196,7 @@ static const struct hwsim_support cipher_map[] = {
 	{ "wep104", CRYPTO_CIPHER_WEP104 },
 	{ "tkip", CRYPTO_CIPHER_TKIP },
 	{ "ccmp", CRYPTO_CIPHER_CCMP },
-	{ "bip", CRYPTO_CIPHER_BIP },
+	{ "bip", CRYPTO_CIPHER_BIP_CMAC },
 	{ }
 };
 

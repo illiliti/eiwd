@@ -1684,7 +1684,7 @@ static void netdev_set_igtk(struct handshake_state *hs, uint16_t key_index,
 	}
 
 	switch (cipher) {
-	case CRYPTO_CIPHER_BIP:
+	case CRYPTO_CIPHER_BIP_CMAC:
 		memcpy(igtk_buf, igtk, 16);
 		break;
 	default:

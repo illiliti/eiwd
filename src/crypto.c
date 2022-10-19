@@ -501,7 +501,7 @@ int crypto_cipher_key_len(enum crypto_cipher cipher)
 		return 32;
 	case CRYPTO_CIPHER_CCMP:
 		return 16;
-	case CRYPTO_CIPHER_BIP:
+	case CRYPTO_CIPHER_BIP_CMAC:
 		return 16;
 	}
 

@@ -429,7 +429,7 @@ uint32_t ie_rsn_cipher_suite_to_cipher(enum ie_rsn_cipher_suite suite)
 	case IE_RSN_CIPHER_SUITE_WEP104:
 		return CRYPTO_CIPHER_WEP104;
 	case IE_RSN_CIPHER_SUITE_BIP:
-		return CRYPTO_CIPHER_BIP;
+		return CRYPTO_CIPHER_BIP_CMAC;
 	default:
 		return 0;
 	}
