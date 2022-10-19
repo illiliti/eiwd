@@ -423,7 +423,7 @@ static const struct ie_rsne_info_test ie_rsne_info_test_6 = {
 	.pairwise_ciphers = IE_RSN_CIPHER_SUITE_CCMP,
 	.akm_suites = IE_RSN_AKM_SUITE_8021X,
 	.mfpc = true, /* Management frame protection is enabled, not required */
-	.group_management_cipher = IE_RSN_CIPHER_SUITE_BIP,
+	.group_management_cipher = IE_RSN_CIPHER_SUITE_BIP_CMAC,
 };
 
 static void ie_test_rsne_info(const void *data)

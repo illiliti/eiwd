@@ -157,8 +157,8 @@ enum ie_rsn_cipher_suite wiphy_select_cipher(struct wiphy *wiphy, uint16_t mask)
 	if (mask & IE_RSN_CIPHER_SUITE_TKIP)
 		return IE_RSN_CIPHER_SUITE_TKIP;
 
-	if (mask & IE_RSN_CIPHER_SUITE_BIP)
-		return IE_RSN_CIPHER_SUITE_BIP;
+	if (mask & IE_RSN_CIPHER_SUITE_BIP_CMAC)
+		return IE_RSN_CIPHER_SUITE_BIP_CMAC;
 
 	return 0;
 }
@@ -178,7 +178,7 @@ static bool wiphy_can_connect_sae(struct wiphy *wiphy)
 	 * WPA3 Specification version 3, Section 2.3:
 	 * A STA shall negotiate PMF when associating to an AP using SAE
 	 */
-	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP)) {
+	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP_CMAC)) {
 		l_debug("HW not MFP capable, can't use SAE");
 		return false;
 	}
@@ -488,7 +488,7 @@ bool wiphy_can_transition_disable(struct wiphy *wiphy)
 	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_CCMP))
 		return false;
 
-	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP))
+	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP_CMAC))
 		return false;
 
 	return true;
@@ -1145,7 +1145,7 @@ static void wiphy_print_basic_info(struct wiphy *wiphy)
 		if (wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_TKIP)
 			len += sprintf(buf + len, " TKIP");
 
-		if (wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP)
+		if (wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP_CMAC)
 			len += sprintf(buf + len, " BIP");
 
 		l_info("%s", buf);
@@ -1216,7 +1216,8 @@ static void parse_supported_ciphers(struct wiphy *wiphy, const void *data,
 			wiphy->supported_ciphers |= IE_RSN_CIPHER_SUITE_WEP104;
 			break;
 		case CRYPTO_CIPHER_BIP_CMAC:
-			wiphy->supported_ciphers |= IE_RSN_CIPHER_SUITE_BIP;
+			wiphy->supported_ciphers |=
+				IE_RSN_CIPHER_SUITE_BIP_CMAC;
 			break;
 		default:	/* TODO: Support other ciphers */
 			break;

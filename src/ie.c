@@ -428,7 +428,7 @@ uint32_t ie_rsn_cipher_suite_to_cipher(enum ie_rsn_cipher_suite suite)
 		return CRYPTO_CIPHER_WEP40;
 	case IE_RSN_CIPHER_SUITE_WEP104:
 		return CRYPTO_CIPHER_WEP104;
-	case IE_RSN_CIPHER_SUITE_BIP:
+	case IE_RSN_CIPHER_SUITE_BIP_CMAC:
 		return CRYPTO_CIPHER_BIP_CMAC;
 	default:
 		return 0;
@@ -462,7 +462,7 @@ static bool ie_parse_cipher_suite(const uint8_t *data,
 			*out = IE_RSN_CIPHER_SUITE_WEP104;
 			return true;
 		case 6:
-			*out = IE_RSN_CIPHER_SUITE_BIP;
+			*out = IE_RSN_CIPHER_SUITE_BIP_CMAC;
 			return true;
 		case 7:
 			*out = IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC;
@@ -625,7 +625,7 @@ static bool ie_parse_group_management_cipher(const uint8_t *data,
 		return r;
 
 	switch (tmp) {
-	case IE_RSN_CIPHER_SUITE_BIP:
+	case IE_RSN_CIPHER_SUITE_BIP_CMAC:
 	case IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC:
 		break;
 	default:
@@ -746,7 +746,8 @@ static int parse_ciphers(const uint8_t *data, size_t len,
 	 * management frame protection enabled
 	 */
 	if (out_info->mfpc)
-		out_info->group_management_cipher = IE_RSN_CIPHER_SUITE_BIP;
+		out_info->group_management_cipher =
+						IE_RSN_CIPHER_SUITE_BIP_CMAC;
 
 	RSNE_ADVANCE(data, len, 2);
 
@@ -905,7 +906,7 @@ static bool ie_build_cipher_suite(uint8_t *data, const uint8_t *oui,
 		memcpy(data, oui, 3);
 		data[3] = 5;
 		return true;
-	case IE_RSN_CIPHER_SUITE_BIP:
+	case IE_RSN_CIPHER_SUITE_BIP_CMAC:
 		memcpy(data, oui, 3);
 		data[3] = 6;
 		return true;
@@ -1115,7 +1116,7 @@ static int build_ciphers_common(const struct ie_rsn_info *info, uint8_t *to,
 		else if (!info->mfpc)
 			goto done;
 		else if (info->group_management_cipher ==
-				IE_RSN_CIPHER_SUITE_BIP)
+				IE_RSN_CIPHER_SUITE_BIP_CMAC)
 			goto done;
 	}
 
@@ -1136,7 +1137,7 @@ static int build_ciphers_common(const struct ie_rsn_info *info, uint8_t *to,
 		goto done;
 
 	if (!force_group_mgmt_cipher && info->group_management_cipher ==
-							IE_RSN_CIPHER_SUITE_BIP)
+					IE_RSN_CIPHER_SUITE_BIP_CMAC)
 		goto done;
 
 	/* Group Management Cipher Suite */
