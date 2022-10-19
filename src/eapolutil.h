@@ -25,6 +25,9 @@
 #include <asm/byteorder.h>
 #include <linux/types.h>
 
+enum ie_rsn_akm_suite;
+enum ie_rsn_cipher_suite;
+
 enum eapol_protocol_version {
 	EAPOL_PROTOCOL_VERSION_2001	= 1,
 	EAPOL_PROTOCOL_VERSION_2004	= 2,
@@ -116,3 +119,6 @@ struct eapol_key {
 
 const struct eapol_key *eapol_key_validate(const uint8_t *frame, size_t len,
 						size_t mic_len);
+int eapol_key_descriptor_version_from_akm(enum ie_rsn_akm_suite akm,
+					enum ie_rsn_cipher_suite pairwise,
+					uint8_t *out_version);

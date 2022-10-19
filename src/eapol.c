@@ -2238,12 +2238,14 @@ static void eapol_key_handle(struct eapol_sm *sm,
 				const struct eapol_frame *frame,
 				bool unencrypted)
 {
+	struct handshake_state *hs = sm->handshake;
 	const struct eapol_key *ek;
 	const uint8_t *kck;
 	const uint8_t *kek;
 	uint8_t *decrypted_key_data = NULL;
 	size_t key_data_len = 0;
 	uint64_t replay_counter;
+	uint8_t expected_key_descriptor_version;
 
 	ek = eapol_key_validate((const uint8_t *) frame,
 				sizeof(struct eapol_header) +
@@ -2256,11 +2258,19 @@ static void eapol_key_handle(struct eapol_sm *sm,
 	if (!ek->key_ack)
 		return;
 
-	/* Further Descriptor Type check */
-	if (!sm->handshake->wpa_ie &&
-			ek->descriptor_type != EAPOL_DESCRIPTOR_TYPE_80211)
+	if (L_WARN_ON(eapol_key_descriptor_version_from_akm(hs->akm_suite,
+				hs->pairwise_cipher,
+				&expected_key_descriptor_version) < 0))
 		return;
-	else if (sm->handshake->wpa_ie &&
+
+	if (L_WARN_ON(expected_key_descriptor_version !=
+				ek->key_descriptor_version))
+		return;
+
+	/* Further Descriptor Type check */
+	if (!hs->wpa_ie && ek->descriptor_type != EAPOL_DESCRIPTOR_TYPE_80211)
+		return;
+	else if (hs->wpa_ie &&
 			ek->descriptor_type != EAPOL_DESCRIPTOR_TYPE_WPA)
 		return;
 
@@ -2293,31 +2303,30 @@ static void eapol_key_handle(struct eapol_sm *sm,
 	if (sm->have_replay && sm->replay_counter >= replay_counter)
 		return;
 
-	kck = handshake_state_get_kck(sm->handshake);
+	kck = handshake_state_get_kck(hs);
 
 	if (ek->key_mic) {
 		/* Haven't received step 1 yet, so no ptk */
-		if (!sm->handshake->have_snonce)
+		if (!hs->have_snonce)
 			return;
 
-		if (!eapol_verify_mic(sm->handshake->akm_suite, kck, ek,
-					sm->mic_len))
+		if (!eapol_verify_mic(hs->akm_suite, kck, ek, sm->mic_len))
 			return;
 	}
 
-	if ((ek->encrypted_key_data && !sm->handshake->wpa_ie) ||
-			(ek->key_type == 0 && sm->handshake->wpa_ie)) {
+	if ((ek->encrypted_key_data && !hs->wpa_ie) ||
+			(ek->key_type == 0 && hs->wpa_ie)) {
 		/*
 		 * If using a MIC (non-FILS) but haven't received step 1 yet
 		 * we disregard since there will be no ptk
 		 */
-		if (sm->mic_len && !sm->handshake->have_snonce)
+		if (sm->mic_len && !hs->have_snonce)
 			return;
 
-		kek = handshake_state_get_kek(sm->handshake);
+		kek = handshake_state_get_kek(hs);
 
 		decrypted_key_data = eapol_decrypt_key_data(
-					sm->handshake->akm_suite, kek,
+					hs->akm_suite, kek,
 					ek, &key_data_len, sm->mic_len);
 		if (!decrypted_key_data)
 			return;
@@ -2326,11 +2335,10 @@ static void eapol_key_handle(struct eapol_sm *sm,
 
 	if (ek->key_type == 0) {
 		/* GTK handshake allowed only after PTK handshake complete */
-		if (!sm->handshake->ptk_complete)
+		if (!hs->ptk_complete)
 			goto done;
 
-		if (sm->handshake->group_cipher ==
-				IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC)
+		if (hs->group_cipher == IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC)
 			goto done;
 
 		if (!decrypted_key_data)
