@@ -2519,6 +2519,44 @@ static unsigned int ie_rsn_akm_suite_to_nl80211(enum ie_rsn_akm_suite akm)
 	return 0;
 }
 
+static void netdev_append_nl80211_rsn_attributes(struct l_genl_msg *msg,
+						struct handshake_state *hs)
+{
+	uint32_t nl_cipher;
+	uint32_t nl_akm;
+	uint32_t wpa_version;
+
+	nl_cipher = ie_rsn_cipher_suite_to_cipher(hs->pairwise_cipher);
+	L_WARN_ON(!nl_cipher);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITES_PAIRWISE,
+					4, &nl_cipher);
+
+	nl_cipher = ie_rsn_cipher_suite_to_cipher(hs->group_cipher);
+	L_WARN_ON(!nl_cipher);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITE_GROUP,
+					4, &nl_cipher);
+
+	if (hs->mfp) {
+		uint32_t use_mfp = NL80211_MFP_REQUIRED;
+
+		l_genl_msg_append_attr(msg, NL80211_ATTR_USE_MFP, 4, &use_mfp);
+	}
+
+	nl_akm = ie_rsn_akm_suite_to_nl80211(hs->akm_suite);
+	L_WARN_ON(!nl_akm);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_AKM_SUITES, 4, &nl_akm);
+
+	if (IE_AKM_IS_SAE(hs->akm_suite))
+		wpa_version = NL80211_WPA_VERSION_3;
+	else if (hs->wpa_ie)
+		wpa_version = NL80211_WPA_VERSION_1;
+	else
+		wpa_version = NL80211_WPA_VERSION_2;
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_WPA_VERSIONS,
+						4, &wpa_version);
+}
+
 static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 						struct handshake_state *hs,
 						const uint8_t *prev_bssid,
@@ -2575,60 +2613,24 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 	l_genl_msg_append_attr(msg, NL80211_ATTR_SOCKET_OWNER, 0, NULL);
 
 	if (is_rsn) {
-		uint32_t nl_cipher;
-		uint32_t nl_akm;
-		uint32_t wpa_version;
-
-		if (hs->pairwise_cipher == IE_RSN_CIPHER_SUITE_CCMP)
-			nl_cipher = CRYPTO_CIPHER_CCMP;
-		else
-			nl_cipher = CRYPTO_CIPHER_TKIP;
-
-		l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITES_PAIRWISE,
-					4, &nl_cipher);
-
-		if (hs->group_cipher == IE_RSN_CIPHER_SUITE_CCMP)
-			nl_cipher = CRYPTO_CIPHER_CCMP;
-		else
-			nl_cipher = CRYPTO_CIPHER_TKIP;
-
-		l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITE_GROUP,
-					4, &nl_cipher);
-
-		if (hs->mfp) {
-			uint32_t use_mfp = NL80211_MFP_REQUIRED;
-			l_genl_msg_append_attr(msg, NL80211_ATTR_USE_MFP,
-								4, &use_mfp);
-		}
-
-		nl_akm = ie_rsn_akm_suite_to_nl80211(hs->akm_suite);
-		if (nl_akm)
-			l_genl_msg_append_attr(msg, NL80211_ATTR_AKM_SUITES,
-							4, &nl_akm);
-
-		if (IE_AKM_IS_SAE(hs->akm_suite))
-			wpa_version = NL80211_WPA_VERSION_3;
-		else if (hs->wpa_ie)
-			wpa_version = NL80211_WPA_VERSION_1;
-		else
-			wpa_version = NL80211_WPA_VERSION_2;
-
-		l_genl_msg_append_attr(msg, NL80211_ATTR_WPA_VERSIONS,
-						4, &wpa_version);
-
-		l_genl_msg_append_attr(msg, NL80211_ATTR_CONTROL_PORT, 0, NULL);
+		netdev_append_nl80211_rsn_attributes(msg, hs);
 		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_ie);
+	}
+
+	if (is_rsn || hs->settings_8021x) {
+		l_genl_msg_append_attr(msg, NL80211_ATTR_CONTROL_PORT,
+						0, NULL);
+
+		if (netdev->pae_over_nl80211)
+			l_genl_msg_append_attr(msg,
+					NL80211_ATTR_CONTROL_PORT_OVER_NL80211,
+					0, NULL);
 	}
 
 	if (netdev->owe_sm) {
 		owe_build_dh_ie(netdev->owe_sm, owe_dh_ie, &dh_ie_len);
 		c_iov = iov_ie_append(iov, n_iov, c_iov, owe_dh_ie);
 	}
-
-	if (netdev->pae_over_nl80211)
-		l_genl_msg_append_attr(msg,
-				NL80211_ATTR_CONTROL_PORT_OVER_NL80211,
-				0, NULL);
 
 	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->mde);
 	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
@@ -2953,52 +2955,17 @@ static struct l_genl_msg *netdev_build_cmd_associate_common(
 	l_genl_msg_append_attr(msg, NL80211_ATTR_SSID, hs->ssid_len, hs->ssid);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_SOCKET_OWNER, 0, NULL);
 
-	if (is_rsn) {
-		uint32_t nl_cipher;
-		uint32_t nl_akm;
-		uint32_t wpa_version;
+	if (is_rsn)
+		netdev_append_nl80211_rsn_attributes(msg, hs);
 
-		l_genl_msg_append_attr(msg, NL80211_ATTR_CONTROL_PORT, 0, NULL);
+	if (is_rsn || hs->settings_8021x) {
+		l_genl_msg_append_attr(msg, NL80211_ATTR_CONTROL_PORT,
+						0, NULL);
 
 		if (netdev->pae_over_nl80211)
 			l_genl_msg_append_attr(msg,
 					NL80211_ATTR_CONTROL_PORT_OVER_NL80211,
 					0, NULL);
-
-		if (hs->pairwise_cipher == IE_RSN_CIPHER_SUITE_CCMP)
-			nl_cipher = CRYPTO_CIPHER_CCMP;
-		else
-			nl_cipher = CRYPTO_CIPHER_TKIP;
-
-		l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITES_PAIRWISE,
-					4, &nl_cipher);
-
-		if (hs->group_cipher == IE_RSN_CIPHER_SUITE_CCMP)
-			nl_cipher = CRYPTO_CIPHER_CCMP;
-		else
-			nl_cipher = CRYPTO_CIPHER_TKIP;
-
-		l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITE_GROUP,
-					4, &nl_cipher);
-
-		if (hs->mfp) {
-			uint32_t use_mfp = NL80211_MFP_REQUIRED;
-			l_genl_msg_append_attr(msg, NL80211_ATTR_USE_MFP,
-								4, &use_mfp);
-		}
-
-		nl_akm = ie_rsn_akm_suite_to_nl80211(hs->akm_suite);
-		if (nl_akm)
-			l_genl_msg_append_attr(msg, NL80211_ATTR_AKM_SUITES,
-							4, &nl_akm);
-
-		if (hs->wpa_ie)
-			wpa_version = NL80211_WPA_VERSION_1;
-		else
-			wpa_version = NL80211_WPA_VERSION_2;
-
-		l_genl_msg_append_attr(msg, NL80211_ATTR_WPA_VERSIONS,
-						4, &wpa_version);
 	}
 
 	return msg;
