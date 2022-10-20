@@ -43,6 +43,12 @@ Methods		dict GetDiagnostics()
 
 			TxMCS [optional] - Transmitting MCS index
 
+			PairwiseCipher [optional] - The pairwise cipher chosen
+				for this connection. Possible values are:
+					- CCMP-128
+					- TKIP
+					- GCMP-128
+
 			Possible errors: net.connman.iwd.Busy
 					 net.connman.iwd.Failed
 					 net.connman.iwd.NotConnected
