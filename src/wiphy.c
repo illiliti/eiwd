@@ -1120,7 +1120,7 @@ static void wiphy_print_band_info(struct band *band, const char *name)
 
 static void wiphy_print_basic_info(struct wiphy *wiphy)
 {
-	char buf[1024];
+	char buf[2048];
 
 	l_info("Wiphy: %d, Name: %s", wiphy->id, wiphy->name);
 	l_info("\tPermanent Address: "MAC, MAC_STR(wiphy->permanent_addr));
@@ -1135,18 +1135,33 @@ static void wiphy_print_basic_info(struct wiphy *wiphy)
 		wiphy_print_band_info(wiphy->band_6g, "6GHz Band");
 
 	if (wiphy->supported_ciphers) {
-		int len = 0;
+		int n = 0;
+		size_t len = 0;
+		int i = sizeof(wiphy->supported_ciphers) * 8 - 1;
 
-		len += sprintf(buf + len, "\tCiphers:");
+		len += snprintf(buf, sizeof(buf), "\tCiphers:");
 
-		if (wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_CCMP)
-			len += sprintf(buf + len, " CCMP");
+		for (; i >= 0 && len < sizeof(buf); i--) {
+			typeof(wiphy->supported_ciphers) cipher = 1 << i;
+			const char *str;
 
-		if (wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_TKIP)
-			len += sprintf(buf + len, " TKIP");
+			if (cipher == IE_RSN_CIPHER_SUITE_WEP40 ||
+					cipher == IE_RSN_CIPHER_SUITE_WEP104)
+				continue;
 
-		if (wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP_CMAC)
-			len += sprintf(buf + len, " BIP");
+			if (!(wiphy->supported_ciphers & cipher))
+				continue;
+
+			str = ie_rsn_cipher_suite_to_string(cipher);
+			if (!str)
+				continue;
+
+			len += snprintf(buf + len, sizeof(buf) - len, "%s%s",
+					!n || (n % 4) ? " " : "\n\t\t ",
+					str);
+
+			n += 1;
+		}
 
 		l_info("%s", buf);
 	}
