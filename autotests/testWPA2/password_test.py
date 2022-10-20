@@ -13,7 +13,7 @@ import testutil
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
-        wd = IWD()
+        wd = IWD(True)
 
         devices = wd.list_devices(1)
         device = devices[0]
@@ -22,7 +22,7 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.disconnected'
         wd.wait_for_object_condition(device, condition)
 
-        ordered_network = device.get_ordered_network("ssidCCMP")
+        ordered_network = device.get_ordered_network("ssidWPA2")
         self.assertEqual(ordered_network.type, NetworkType.psk)
         network = ordered_network.network_object
 
