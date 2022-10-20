@@ -437,6 +437,30 @@ uint32_t ie_rsn_cipher_suite_to_cipher(enum ie_rsn_cipher_suite suite)
 	}
 }
 
+const char *ie_rsn_cipher_suite_to_string(enum ie_rsn_cipher_suite suite)
+{
+	switch (suite) {
+	case IE_RSN_CIPHER_SUITE_CCMP:
+		return "CCMP-128";
+	case IE_RSN_CIPHER_SUITE_TKIP:
+		return "TKIP";
+	case IE_RSN_CIPHER_SUITE_WEP40:
+		return "WEP-40";
+	case IE_RSN_CIPHER_SUITE_WEP104:
+		return "WEP-104";
+	case IE_RSN_CIPHER_SUITE_BIP_CMAC:
+		return "BIP-CMAC-128";
+	case IE_RSN_CIPHER_SUITE_GCMP:
+		return "GCMP-128";
+	case IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC:
+		return "NO-TRAFFIC";
+	case IE_RSN_CIPHER_SUITE_USE_GROUP_CIPHER:
+		break;
+	}
+
+	return NULL;
+}
+
 /* 802.11, Section 8.4.2.27.2 */
 static bool ie_parse_cipher_suite(const uint8_t *data,
 					enum ie_rsn_cipher_suite *out)

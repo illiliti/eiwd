@@ -587,6 +587,7 @@ unsigned char *ie_tlv_builder_finalize(struct ie_tlv_builder *builder,
 					size_t *out_len);
 
 uint32_t ie_rsn_cipher_suite_to_cipher(enum ie_rsn_cipher_suite suite);
+const char *ie_rsn_cipher_suite_to_string(enum ie_rsn_cipher_suite suite);
 
 int ie_parse_rsne(struct ie_tlv_iter *iter, struct ie_rsn_info *info);
 int ie_parse_rsne_from_data(const uint8_t *data, size_t len,
