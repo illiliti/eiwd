@@ -1564,12 +1564,15 @@ static bool netdev_copy_tk(uint8_t *tk_buf, const uint8_t *tk,
 {
 	switch (cipher) {
 	case CRYPTO_CIPHER_CCMP:
+	case CRYPTO_CIPHER_GCMP:
 		/*
-		 * 802.11-2016 12.8.3 Mapping PTK to CCMP keys:
+		 * 802.11-2020 12.8.3 Mapping PTK to CCMP keys:
 		 * "A STA shall use the temporal key as the CCMP key
 		 * for MPDUs between the two communicating STAs."
+		 *
+		 * Similar verbiage in 12.8.8
 		 */
-		memcpy(tk_buf, tk, 16);
+		memcpy(tk_buf, tk, crypto_cipher_key_len(cipher));
 		break;
 	case CRYPTO_CIPHER_TKIP:
 		/*
