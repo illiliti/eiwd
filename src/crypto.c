@@ -500,9 +500,17 @@ int crypto_cipher_key_len(enum crypto_cipher cipher)
 	case CRYPTO_CIPHER_TKIP:
 		return 32;
 	case CRYPTO_CIPHER_CCMP:
+	case CRYPTO_CIPHER_GCMP:
 		return 16;
+	case CRYPTO_CIPHER_CCMP_256:
+	case CRYPTO_CIPHER_GCMP_256:
+		return 32;
 	case CRYPTO_CIPHER_BIP_CMAC:
+	case CRYPTO_CIPHER_BIP_GMAC:
 		return 16;
+	case CRYPTO_CIPHER_BIP_CMAC_256:
+	case CRYPTO_CIPHER_BIP_GMAC_256:
+		return 32;
 	}
 
 	return 0;
