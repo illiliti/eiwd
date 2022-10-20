@@ -1167,7 +1167,8 @@ build_ie:
 	 * also indicates support.
 	 */
 	if (wiphy_supports_ext_key_id(wiphy) && bss_info.extended_key_id &&
-			info.pairwise_ciphers == IE_RSN_CIPHER_SUITE_CCMP)
+			(info.pairwise_ciphers & (IE_RSN_CIPHER_SUITE_CCMP |
+						  IE_RSN_CIPHER_SUITE_GCMP)))
 		info.extended_key_id = true;
 
 	/* RSN takes priority */

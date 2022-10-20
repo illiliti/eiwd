@@ -150,7 +150,9 @@ enum ie_rsn_cipher_suite wiphy_select_cipher(struct wiphy *wiphy, uint16_t mask)
 
 	mask &= wiphy->supported_ciphers;
 
-	/* CCMP is our first choice, TKIP second */
+	if (mask & IE_RSN_CIPHER_SUITE_GCMP)
+		return IE_RSN_CIPHER_SUITE_GCMP;
+
 	if (mask & IE_RSN_CIPHER_SUITE_CCMP)
 		return IE_RSN_CIPHER_SUITE_CCMP;
 
@@ -1233,6 +1235,9 @@ static void parse_supported_ciphers(struct wiphy *wiphy, const void *data,
 		case CRYPTO_CIPHER_BIP_CMAC:
 			wiphy->supported_ciphers |=
 				IE_RSN_CIPHER_SUITE_BIP_CMAC;
+			break;
+		case CRYPTO_CIPHER_GCMP:
+			wiphy->supported_ciphers |= IE_RSN_CIPHER_SUITE_GCMP;
 			break;
 		default:	/* TODO: Support other ciphers */
 			break;
