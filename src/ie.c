@@ -430,6 +430,8 @@ uint32_t ie_rsn_cipher_suite_to_cipher(enum ie_rsn_cipher_suite suite)
 		return CRYPTO_CIPHER_WEP104;
 	case IE_RSN_CIPHER_SUITE_BIP_CMAC:
 		return CRYPTO_CIPHER_BIP_CMAC;
+	case IE_RSN_CIPHER_SUITE_GCMP:
+		return CRYPTO_CIPHER_GCMP;
 	default:
 		return 0;
 	}
@@ -466,6 +468,9 @@ static bool ie_parse_cipher_suite(const uint8_t *data,
 			return true;
 		case 7:
 			*out = IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC;
+			return true;
+		case 8:
+			*out = IE_RSN_CIPHER_SUITE_GCMP;
 			return true;
 		default:
 			return false;
@@ -580,6 +585,7 @@ static bool ie_parse_group_cipher(const uint8_t *data,
 	case IE_RSN_CIPHER_SUITE_WEP104:
 	case IE_RSN_CIPHER_SUITE_WEP40:
 	case IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC:
+	case IE_RSN_CIPHER_SUITE_GCMP:
 		break;
 	default:
 		return false;
@@ -604,6 +610,7 @@ static int ie_parse_pairwise_cipher(const uint8_t *data,
 	case IE_RSN_CIPHER_SUITE_WEP104:
 	case IE_RSN_CIPHER_SUITE_WEP40:
 	case IE_RSN_CIPHER_SUITE_USE_GROUP_CIPHER:
+	case IE_RSN_CIPHER_SUITE_GCMP:
 		break;
 	default:
 		return -ERANGE;
@@ -911,6 +918,9 @@ static bool ie_build_cipher_suite(uint8_t *data, const uint8_t *oui,
 	case IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC:
 		selector = 7;
 		goto done;
+	case IE_RSN_CIPHER_SUITE_GCMP:
+		selector = 8;
+		goto done;
 	}
 
 	return false;
@@ -999,6 +1009,7 @@ static int build_ciphers_common(const struct ie_rsn_info *info, uint8_t *to,
 		IE_RSN_CIPHER_SUITE_WEP104,
 		IE_RSN_CIPHER_SUITE_WEP40,
 		IE_RSN_CIPHER_SUITE_USE_GROUP_CIPHER,
+		IE_RSN_CIPHER_SUITE_GCMP,
 	};
 	unsigned int pos = 0;
 	unsigned int i;

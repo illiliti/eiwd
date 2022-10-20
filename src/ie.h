@@ -331,6 +331,7 @@ enum ie_rsn_cipher_suite {
 	IE_RSN_CIPHER_SUITE_WEP104		= 0x0010,
 	IE_RSN_CIPHER_SUITE_BIP_CMAC		= 0x0020,
 	IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC	= 0x0040,
+	IE_RSN_CIPHER_SUITE_GCMP		= 0x0080,
 };
 
 enum ie_rsn_akm_suite {
