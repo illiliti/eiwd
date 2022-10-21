@@ -390,6 +390,14 @@ static inline bool IE_AKM_IS_8021X(uint32_t akm)
 			IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384);
 }
 
+static inline bool IE_CIPHER_IS_GCMP_CCMP(uint32_t cipher_suite)
+{
+	return cipher_suite & (IE_RSN_CIPHER_SUITE_CCMP |
+				IE_RSN_CIPHER_SUITE_CCMP_256 |
+				IE_RSN_CIPHER_SUITE_GCMP |
+				IE_RSN_CIPHER_SUITE_GCMP_256);
+}
+
 #define IE_LEN(ie) \
 	((ie) ? (ie)[1] + 2 : 0)
 
