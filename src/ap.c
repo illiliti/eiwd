@@ -3303,8 +3303,11 @@ struct ap_state *ap_start(struct netdev *netdev, struct l_settings *config,
 	err = -EINVAL;
 
 	/* TODO: Add all ciphers supported by wiphy */
-	ap->ciphers = wiphy_select_cipher(wiphy, 0xffff);
-	ap->group_cipher = wiphy_select_cipher(wiphy, 0xffff);
+	ap->ciphers = wiphy_select_cipher(wiphy, IE_RSN_CIPHER_SUITE_TKIP |
+						IE_RSN_CIPHER_SUITE_CCMP);
+	ap->group_cipher = wiphy_select_cipher(wiphy,
+						IE_RSN_CIPHER_SUITE_TKIP |
+						IE_RSN_CIPHER_SUITE_CCMP);
 	ap->beacon_interval = 100;
 	ap->networks = l_queue_new();
 
