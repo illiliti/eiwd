@@ -48,6 +48,8 @@ Methods		dict GetDiagnostics()
 					- CCMP-128
 					- TKIP
 					- GCMP-128
+					- GCMP-256
+					- CCMP-256
 
 			Possible errors: net.connman.iwd.Busy
 					 net.connman.iwd.Failed
