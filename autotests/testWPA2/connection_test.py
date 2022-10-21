@@ -54,6 +54,18 @@ class Test(unittest.TestCase):
         self.hostapd.wait_for_event("AP-ENABLED")
         self.validate_connection_success(self.wd)
 
+    def test_gcmp_256(self):
+        self.hostapd.set_value('rsn_pairwise', 'GCMP-256')
+        self.hostapd.reload()
+        self.hostapd.wait_for_event("AP-ENABLED")
+        self.validate_connection_success(self.wd)
+
+    def test_ccmp_256(self):
+        self.hostapd.set_value('rsn_pairwise', 'CCMP-256')
+        self.hostapd.reload()
+        self.hostapd.wait_for_event("AP-ENABLED")
+        self.validate_connection_success(self.wd)
+
     def setUp(self):
         self.wd = IWD(True)
 
