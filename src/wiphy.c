@@ -165,6 +165,15 @@ enum ie_rsn_cipher_suite wiphy_select_cipher(struct wiphy *wiphy, uint16_t mask)
 	if (mask & IE_RSN_CIPHER_SUITE_TKIP)
 		return IE_RSN_CIPHER_SUITE_TKIP;
 
+	if (mask & IE_RSN_CIPHER_SUITE_BIP_GMAC_256)
+		return IE_RSN_CIPHER_SUITE_BIP_GMAC_256;
+
+	if (mask & IE_RSN_CIPHER_SUITE_BIP_CMAC_256)
+		return IE_RSN_CIPHER_SUITE_BIP_CMAC_256;
+
+	if (mask & IE_RSN_CIPHER_SUITE_BIP_GMAC)
+		return IE_RSN_CIPHER_SUITE_BIP_GMAC;
+
 	if (mask & IE_RSN_CIPHER_SUITE_BIP_CMAC)
 		return IE_RSN_CIPHER_SUITE_BIP_CMAC;
 
@@ -1252,6 +1261,18 @@ static void parse_supported_ciphers(struct wiphy *wiphy, const void *data,
 		case CRYPTO_CIPHER_CCMP_256:
 			wiphy->supported_ciphers |=
 				IE_RSN_CIPHER_SUITE_CCMP_256;
+			break;
+		case CRYPTO_CIPHER_BIP_GMAC:
+			wiphy->supported_ciphers |=
+				IE_RSN_CIPHER_SUITE_BIP_GMAC;
+			break;
+		case CRYPTO_CIPHER_BIP_GMAC_256:
+			wiphy->supported_ciphers |=
+				IE_RSN_CIPHER_SUITE_BIP_GMAC_256;
+			break;
+		case CRYPTO_CIPHER_BIP_CMAC_256:
+			wiphy->supported_ciphers |=
+				IE_RSN_CIPHER_SUITE_BIP_CMAC_256;
 			break;
 		default:	/* TODO: Support other ciphers */
 			break;
