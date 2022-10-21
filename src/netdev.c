@@ -1674,7 +1674,7 @@ static void netdev_set_igtk(struct handshake_state *hs, uint16_t key_index,
 {
 	struct netdev_handshake_state *nhs =
 		l_container_of(hs, struct netdev_handshake_state, super);
-	uint8_t igtk_buf[16];
+	uint8_t igtk_buf[32];
 	struct netdev *netdev = nhs->netdev;
 	struct l_genl_msg *msg;
 
@@ -1690,7 +1690,10 @@ static void netdev_set_igtk(struct handshake_state *hs, uint16_t key_index,
 
 	switch (cipher) {
 	case CRYPTO_CIPHER_BIP_CMAC:
-		memcpy(igtk_buf, igtk, 16);
+	case CRYPTO_CIPHER_BIP_GMAC:
+	case CRYPTO_CIPHER_BIP_GMAC_256:
+	case CRYPTO_CIPHER_BIP_CMAC_256:
+		memcpy(igtk_buf, igtk, igtk_len);
 		break;
 	default:
 		l_error("Unexpected cipher: %x", cipher);
