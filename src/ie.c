@@ -436,6 +436,12 @@ uint32_t ie_rsn_cipher_suite_to_cipher(enum ie_rsn_cipher_suite suite)
 		return CRYPTO_CIPHER_GCMP_256;
 	case IE_RSN_CIPHER_SUITE_CCMP_256:
 		return CRYPTO_CIPHER_CCMP_256;
+	case IE_RSN_CIPHER_SUITE_BIP_GMAC:
+		return CRYPTO_CIPHER_BIP_GMAC;
+	case IE_RSN_CIPHER_SUITE_BIP_GMAC_256:
+		return CRYPTO_CIPHER_BIP_GMAC_256;
+	case IE_RSN_CIPHER_SUITE_BIP_CMAC_256:
+		return CRYPTO_CIPHER_BIP_CMAC_256;
 	default:
 		return 0;
 	}
@@ -464,6 +470,12 @@ const char *ie_rsn_cipher_suite_to_string(enum ie_rsn_cipher_suite suite)
 		return "NO-TRAFFIC";
 	case IE_RSN_CIPHER_SUITE_USE_GROUP_CIPHER:
 		break;
+	case IE_RSN_CIPHER_SUITE_BIP_GMAC:
+		return "BIP-GMAC-128";
+	case IE_RSN_CIPHER_SUITE_BIP_GMAC_256:
+		return "BIP-GMAC-256";
+	case IE_RSN_CIPHER_SUITE_BIP_CMAC_256:
+		return "BIP-CMAC-256";
 	}
 
 	return NULL;
@@ -509,6 +521,15 @@ static bool ie_parse_cipher_suite(const uint8_t *data,
 			return true;
 		case 10:
 			*out = IE_RSN_CIPHER_SUITE_CCMP_256;
+			return true;
+		case 11:
+			*out = IE_RSN_CIPHER_SUITE_BIP_GMAC;
+			return true;
+		case 12:
+			*out = IE_RSN_CIPHER_SUITE_BIP_GMAC_256;
+			return true;
+		case 13:
+			*out = IE_RSN_CIPHER_SUITE_BIP_CMAC_256;
 			return true;
 		default:
 			return false;
@@ -675,6 +696,9 @@ static bool ie_parse_group_management_cipher(const uint8_t *data,
 	switch (tmp) {
 	case IE_RSN_CIPHER_SUITE_BIP_CMAC:
 	case IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC:
+	case IE_RSN_CIPHER_SUITE_BIP_GMAC:
+	case IE_RSN_CIPHER_SUITE_BIP_GMAC_256:
+	case IE_RSN_CIPHER_SUITE_BIP_CMAC_256:
 		break;
 	default:
 		return false;
@@ -968,6 +992,15 @@ static bool ie_build_cipher_suite(uint8_t *data, const uint8_t *oui,
 		goto done;
 	case IE_RSN_CIPHER_SUITE_CCMP_256:
 		selector = 10;
+		goto done;
+	case IE_RSN_CIPHER_SUITE_BIP_GMAC:
+		selector = 11;
+		goto done;
+	case IE_RSN_CIPHER_SUITE_BIP_GMAC_256:
+		selector = 12;
+		goto done;
+	case IE_RSN_CIPHER_SUITE_BIP_CMAC_256:
+		selector = 13;
 		goto done;
 	}
 
