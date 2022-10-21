@@ -1565,6 +1565,8 @@ static bool netdev_copy_tk(uint8_t *tk_buf, const uint8_t *tk,
 	switch (cipher) {
 	case CRYPTO_CIPHER_CCMP:
 	case CRYPTO_CIPHER_GCMP:
+	case CRYPTO_CIPHER_GCMP_256:
+	case CRYPTO_CIPHER_CCMP_256:
 		/*
 		 * 802.11-2020 12.8.3 Mapping PTK to CCMP keys:
 		 * "A STA shall use the temporal key as the CCMP key
