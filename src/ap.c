@@ -4146,7 +4146,7 @@ static int ap_init(void)
 		global_addr4_strs =
 			l_settings_get_string_list(settings, "IPv4",
 							"APAddressPool", ',');
-		if (!global_addr4_strs || !global_addr4_strs[0]) {
+		if (global_addr4_strs && !global_addr4_strs[0]) {
 			l_error("Can't parse the [IPv4].APAddressPool "
 					"setting as a string list");
 			l_strv_free(global_addr4_strs);
