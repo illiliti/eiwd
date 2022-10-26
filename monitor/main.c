@@ -569,8 +569,7 @@ done:
 	return exit_status;
 }
 
-static int process_pcap(struct pcap *pcap, uint16_t id,
-			const struct nlmon_config *config)
+static int process_pcap(struct pcap *pcap, const struct nlmon_config *config)
 {
 	struct nlmon *nlmon = NULL;
 	struct timeval tv;
@@ -587,7 +586,7 @@ static int process_pcap(struct pcap *pcap, uint16_t id,
 		return EXIT_FAILURE;
 	}
 
-	nlmon = nlmon_create(id, config);
+	nlmon = nlmon_create(0, config);
 
 	while (pcap_read(pcap, &tv, buf, snaplen, &len, &real_len)) {
 		uint16_t arphrd_type;
@@ -696,13 +695,12 @@ int main(int argc, char *argv[])
 	const char *reader_path = NULL;
 	const char *analyze_path = NULL;
 	const char *ifname = NULL;
-	uint16_t nl80211_family = 0;
 	int exit_status;
 
 	for (;;) {
 		int opt;
 
-		opt = getopt_long(argc, argv, "r:w:a:F:i:nvhyse",
+		opt = getopt_long(argc, argv, "r:w:a:i:nvhyse",
 						main_options, NULL);
 		if (opt < 0)
 			break;
@@ -717,26 +715,6 @@ int main(int argc, char *argv[])
 			break;
 		case 'a':
 			analyze_path = optarg;
-			break;
-		case 'F':
-			if (strlen(optarg) > 3) {
-				if (!strncasecmp(optarg, "0x", 2) &&
-							!isxdigit(optarg[2])) {
-					usage();
-					return EXIT_FAILURE;
-				}
-				nl80211_family = strtoul(optarg + 2, NULL, 16);
-			} else {
-				if (!isdigit(optarg[0])) {
-					usage();
-					return EXIT_FAILURE;
-				}
-				nl80211_family = strtoul(optarg, NULL, 10);
-			}
-			if (nl80211_family == 0) {
-				usage();
-				return EXIT_FAILURE;
-			}
 			break;
 		case 'i':
 			ifname = optarg;
@@ -799,8 +777,7 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "Invalid packet format\n");
 			exit_status = EXIT_FAILURE;
 		} else
-			exit_status = process_pcap(pcap, nl80211_family,
-							&config);
+			exit_status = process_pcap(pcap, &config);
 
 		pcap_close(pcap);
 
