@@ -507,6 +507,9 @@ static bool netconfig_load_fils_settings(struct netconfig *netconfig,
 bool netconfig_configure(struct netconfig *netconfig,
 				netconfig_notify_func_t notify, void *user_data)
 {
+	if (netconfig->started)
+		return false;
+
 	netconfig->notify = notify;
 	netconfig->user_data = user_data;
 
@@ -521,11 +524,15 @@ bool netconfig_configure(struct netconfig *netconfig,
 	if (unlikely(!l_netconfig_start(netconfig->nc)))
 		return false;
 
+	netconfig->started = true;
 	return true;
 }
 
 bool netconfig_reconfigure(struct netconfig *netconfig, bool set_arp_gw)
 {
+	if (!netconfig->started)
+		return false;
+
 	/*
 	 * Starting with kernel 4.20, ARP cache is flushed when the netdev
 	 * detects NO CARRIER.  This can result in unnecessarily long delays
@@ -558,6 +565,10 @@ bool netconfig_reconfigure(struct netconfig *netconfig, bool set_arp_gw)
 
 bool netconfig_reset(struct netconfig *netconfig)
 {
+	if (!netconfig->started)
+		return false;
+
+	netconfig->started = false;
 	l_netconfig_unconfigure(netconfig->nc);
 	l_netconfig_stop(netconfig->nc);
 
@@ -619,6 +630,10 @@ static void netconfig_event_handler(struct l_netconfig *nc, uint8_t family,
 					void *user_data)
 {
 	struct netconfig *netconfig = user_data;
+
+	/* Once stopped, only commit a final L_NETCONFIG_EVENT_UNCONFIGURE */
+	if (!netconfig->started && event != L_NETCONFIG_EVENT_UNCONFIGURE)
+		return;
 
 	l_debug("l_netconfig event %d", event);
 

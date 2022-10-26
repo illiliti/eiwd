@@ -401,6 +401,9 @@ static void netconfig_agent_receive_reply(struct l_dbus_message *reply,
 
 	data->pending_id[INDEX_FOR_AF(cd->family)] = 0;
 
+	if (!cd->netconfig->started)
+		return;
+
 	if (l_dbus_message_get_error(reply, &error, &text)) {
 		success = false;
 		l_error("netconfig agent call returned %s(\"%s\")",

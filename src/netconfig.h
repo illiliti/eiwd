@@ -43,6 +43,7 @@ struct netconfig {
 	bool static_config[2];
 	bool gateway_overridden[2];
 	bool dns_overridden[2];
+	bool started;
 	bool connected[2];
 	char **dns_list;
 	char **domains;
