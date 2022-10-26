@@ -92,9 +92,33 @@ void netconfig_commit_free(struct netconfig *netconfig, const char *reasonstr)
 		l_queue_destroy(l_steal_ptr(netconfig_list), NULL);
 }
 
+static void netconfig_commit_print_addrs(const char *verb,
+					const struct l_queue_entry *addrs)
+{
+	for (; addrs; addrs = addrs->next) {
+		const struct l_rtnl_address *addr = addrs->data;
+		char str[INET6_ADDRSTRLEN];
+
+		if (l_rtnl_address_get_address(addr, str))
+			l_debug("%s address: %s", verb, str);
+	}
+}
+
 void netconfig_commit(struct netconfig *netconfig, uint8_t family,
 			enum l_netconfig_event event)
 {
+	const struct l_queue_entry *added;
+	const struct l_queue_entry *removed;
+	const struct l_queue_entry *expired;
+
+	l_netconfig_get_addresses(netconfig->nc, &added, NULL,
+						&removed, &expired);
+
+	/* Only print IP additions and removals to avoid cluttering the log */
+	netconfig_commit_print_addrs("installing", added);
+	netconfig_commit_print_addrs("removing", removed);
+	netconfig_commit_print_addrs("expired", expired);
+
 	commit_ops->commit(netconfig, family, event);
 
 	if (event == L_NETCONFIG_EVENT_CONFIGURE) {
