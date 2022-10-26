@@ -7253,7 +7253,7 @@ static void nlmon_message(struct nlmon *nlmon, const struct timeval *tv,
 	}
 }
 
-struct nlmon *nlmon_create(uint16_t id)
+struct nlmon *nlmon_create(uint16_t id, const struct nlmon_config *config)
 {
 	struct nlmon *nlmon;
 
@@ -7261,6 +7261,10 @@ struct nlmon *nlmon_create(uint16_t id)
 
 	nlmon->id = id;
 	nlmon->req_list = l_queue_new();
+	nlmon->nortnl = config->nortnl;
+	nlmon->nowiphy = config->nowiphy;
+	nlmon->noscan = config->noscan;
+	nlmon->noies = config->noies;
 
 	return nlmon;
 }
@@ -8449,17 +8453,12 @@ struct nlmon *nlmon_open(const char *ifname, uint16_t id, const char *pathname,
 	} else
 		pcap = NULL;
 
-	nlmon = l_new(struct nlmon, 1);
 
-	nlmon->id = id;
+	nlmon = nlmon_create(id, config);
+
 	nlmon->io = io;
 	nlmon->pae_io = pae_io;
-	nlmon->req_list = l_queue_new();
 	nlmon->pcap = pcap;
-	nlmon->nortnl = config->nortnl;
-	nlmon->nowiphy = config->nowiphy;
-	nlmon->noscan = config->noscan;
-	nlmon->noies = config->noies;
 
 	l_io_set_read_handler(nlmon->io, nlmon_receive, nlmon, NULL);
 	l_io_set_read_handler(nlmon->pae_io, pae_receive, nlmon, NULL);

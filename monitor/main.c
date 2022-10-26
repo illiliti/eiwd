@@ -569,7 +569,8 @@ done:
 	return exit_status;
 }
 
-static int process_pcap(struct pcap *pcap, uint16_t id)
+static int process_pcap(struct pcap *pcap, uint16_t id,
+			const struct nlmon_config *config)
 {
 	struct nlmon *nlmon = NULL;
 	struct timeval tv;
@@ -586,7 +587,7 @@ static int process_pcap(struct pcap *pcap, uint16_t id)
 		return EXIT_FAILURE;
 	}
 
-	nlmon = nlmon_create(id);
+	nlmon = nlmon_create(id, config);
 
 	while (pcap_read(pcap, &tv, buf, snaplen, &len, &real_len)) {
 		uint16_t arphrd_type;
@@ -797,7 +798,8 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "Invalid packet format\n");
 			exit_status = EXIT_FAILURE;
 		} else
-			exit_status = process_pcap(pcap, nl80211_family);
+			exit_status = process_pcap(pcap, nl80211_family,
+							&config);
 
 		pcap_close(pcap);
 
