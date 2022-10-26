@@ -1062,6 +1062,7 @@ static void eapol_send_ptk_1_of_4(struct eapol_sm *sm)
 	enum crypto_cipher cipher = ie_rsn_cipher_suite_to_cipher(
 				sm->handshake->pairwise_cipher);
 	uint8_t pmkid[16];
+	uint8_t key_descriptor_version;
 
 	handshake_state_new_anonce(sm->handshake);
 
@@ -1073,8 +1074,11 @@ static void eapol_send_ptk_1_of_4(struct eapol_sm *sm)
 	ek->header.protocol_version = sm->protocol_version;
 	ek->header.packet_type = 0x3;
 	ek->descriptor_type = EAPOL_DESCRIPTOR_TYPE_80211;
-	/* Must be HMAC-SHA1-128 + AES when using CCMP with PSK or 8021X */
-	ek->key_descriptor_version = EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_SHA1_AES;
+	L_WARN_ON(eapol_key_descriptor_version_from_akm(
+				sm->handshake->akm_suite,
+				sm->handshake->pairwise_cipher,
+				&key_descriptor_version) < 0);
+	ek->key_descriptor_version = key_descriptor_version;
 	ek->key_type = true;
 	ek->key_ack = true;
 	ek->key_length = L_CPU_TO_BE16(crypto_cipher_key_len(cipher));
@@ -1358,6 +1362,7 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 				sm->handshake->group_cipher);
 	const uint8_t *kck;
 	const uint8_t *kek;
+	uint8_t key_descriptor_version;
 
 	sm->replay_counter++;
 
@@ -1365,8 +1370,11 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 	ek->header.protocol_version = sm->protocol_version;
 	ek->header.packet_type = 0x3;
 	ek->descriptor_type = EAPOL_DESCRIPTOR_TYPE_80211;
-	/* Must be HMAC-SHA1-128 + AES when using CCMP with PSK or 8021X */
-	ek->key_descriptor_version = EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_SHA1_AES;
+	L_WARN_ON(eapol_key_descriptor_version_from_akm(
+				sm->handshake->akm_suite,
+				sm->handshake->pairwise_cipher,
+				&key_descriptor_version) < 0);
+	ek->key_descriptor_version = key_descriptor_version;
 	ek->key_type = true;
 	ek->install = true;
 	ek->key_ack = true;
