@@ -690,14 +690,17 @@ class Device(IWDDBusAbstract):
         return self._device_provisioning.stop()
 
     def __str__(self, prefix = ''):
-        return prefix + 'Device: ' + self.device_path + '\n'\
+        s = prefix + 'Device: ' + self.device_path + '\n'\
                + prefix + '\tName:\t\t' + self.name + '\n'\
-               + prefix + '\tAddress:\t' + self.address + '\n'\
-               + prefix + '\tState:\t\t' + str(self.state) + '\n'\
+               + prefix + '\tAddress:\t' + self.address + '\n' \
                + prefix + '\tPowered:\t' + str(self.powered) + '\n'\
-               + prefix + '\tConnected net:\t' + str(self.connected_network) +\
-                                                                            '\n'
+               + prefix + '\tMode:\t\t' + self._properties['Mode'] + '\n'
 
+        if self._properties['Mode'] == 'station':
+            s += prefix + '\tState:\t\t' + str(self.state) + '\n'\
+               + prefix + '\tConnected net:\t' + str(self.connected_network) + '\n'
+
+        return s
 
 class Network(IWDDBusAbstract):
     '''Class represents a network object: net.connman.iwd.Network'''
