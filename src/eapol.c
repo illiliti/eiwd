@@ -390,11 +390,31 @@ static int eapol_encrypt_key_data(const uint8_t *kek, uint8_t *key_data,
 				size_t key_data_len,
 				struct eapol_key *out_frame, size_t mic_len)
 {
+	uint8_t key[32];
+	bool ret;
+
 	switch (out_frame->key_descriptor_version) {
 	case EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_MD5_ARC4:
-		/* Not supported */
-		return -ENOTSUP;
+		/*
+		 * Not following the spec to generate the IV. The spec outlines
+		 * a procedure where a 32 byte buffer is held and incremented
+		 * each time nonces are created, and the IV comes from this
+		 * buffer. In the end randomizing the IV every time should be
+		 * just as good. This is how we handle the GTK in AP mode.
+		 */
+		l_getrandom(out_frame->eapol_key_iv, 16);
 
+		memcpy(key, out_frame->eapol_key_iv, 16);
+		memcpy(key + 16, kek, 16);
+
+		ret = arc4_skip(key, 32, 256, key_data, key_data_len,
+				EAPOL_KEY_DATA(out_frame, mic_len));
+		explicit_bzero(key, sizeof(key));
+
+		if (!ret)
+			return -ENOTSUP;
+
+		break;
 	case EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_SHA1_AES:
 	case EAPOL_KEY_DESCRIPTOR_VERSION_AES_128_CMAC_AES:
 		if (key_data_len < 16 || key_data_len % 8)
