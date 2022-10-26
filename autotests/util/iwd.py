@@ -519,7 +519,8 @@ class Device(IWDDBusAbstract):
         IWD._wait_for_object_condition(self, condition)
 
         try:
-            if full_scan:
+            # Do a full scan if instructed or if hostapd isn't being used
+            if full_scan or not ctx.hostapd:
                 self.scan()
             else:
                 self.debug_scan(ctx.get_frequencies())
