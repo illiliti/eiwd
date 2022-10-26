@@ -196,7 +196,13 @@ static const struct hwsim_support cipher_map[] = {
 	{ "wep104", CRYPTO_CIPHER_WEP104 },
 	{ "tkip", CRYPTO_CIPHER_TKIP },
 	{ "ccmp", CRYPTO_CIPHER_CCMP },
-	{ "bip", CRYPTO_CIPHER_BIP_CMAC },
+	{ "bip_cmac", CRYPTO_CIPHER_BIP_CMAC },
+	{ "gcmp", CRYPTO_CIPHER_GCMP },
+	{ "gcmp_256", CRYPTO_CIPHER_GCMP_256 },
+	{ "ccmp_256", CRYPTO_CIPHER_CCMP_256 },
+	{ "bip_gmac", CRYPTO_CIPHER_BIP_GMAC },
+	{ "bip_gmac_256", CRYPTO_CIPHER_BIP_GMAC_256 },
+	{ "bip_cmac_256", CRYPTO_CIPHER_BIP_CMAC_256 },
 	{ }
 };
 
