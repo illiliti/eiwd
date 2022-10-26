@@ -104,6 +104,7 @@ struct nlmon {
 	bool nowiphy;
 	bool noscan;
 	bool noies;
+	bool read;
 };
 
 struct nlmon_req {
@@ -7202,7 +7203,7 @@ static void nlmon_message(struct nlmon *nlmon, const struct timeval *tv,
 		return;
 	}
 
-	if (nlmsg->nlmsg_type != nlmon->id) {
+	if (!nlmon->read && nlmsg->nlmsg_type != nlmon->id) {
 		if (nlmsg->nlmsg_type == GENL_ID_CTRL)
 			store_message(nlmon, tv, nlmsg);
 		return;
@@ -7265,6 +7266,7 @@ struct nlmon *nlmon_create(uint16_t id, const struct nlmon_config *config)
 	nlmon->nowiphy = config->nowiphy;
 	nlmon->noscan = config->noscan;
 	nlmon->noies = config->noies;
+	nlmon->read = config->read_only;
 
 	return nlmon;
 }

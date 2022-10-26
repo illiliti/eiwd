@@ -710,6 +710,7 @@ int main(int argc, char *argv[])
 		switch (opt) {
 		case 'r':
 			reader_path = optarg;
+			config.read_only = true;
 			break;
 		case 'w':
 			writer_path = optarg;

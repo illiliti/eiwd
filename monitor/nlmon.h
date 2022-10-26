@@ -30,6 +30,7 @@ struct nlmon_config {
 	bool nowiphy;
 	bool noscan;
 	bool noies;
+	bool read_only;
 };
 
 struct nlmon *nlmon_open(const char *ifname, uint16_t id, const char *pathname,
