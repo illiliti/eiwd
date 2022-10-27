@@ -8089,6 +8089,9 @@ void nlmon_print_rtnl(struct nlmon *nlmon, const struct timeval *tv,
 	int64_t aligned_size = NLMSG_ALIGN(size);
 	const struct nlmsghdr *nlmsg;
 
+	if (nlmon->nortnl)
+		return;
+
 	update_time_offset(tv);
 
 	for (nlmsg = data; NLMSG_OK(nlmsg, aligned_size);
@@ -8207,9 +8210,7 @@ static bool nlmon_receive(struct l_io *io, void *user_data)
 		case NETLINK_ROUTE:
 			store_netlink(nlmon, tv, proto_type, nlmsg);
 
-			if (!nlmon->nortnl)
-				nlmon_print_rtnl(nlmon, tv, nlmsg,
-							nlmsg->nlmsg_len);
+			nlmon_print_rtnl(nlmon, tv, nlmsg, nlmsg->nlmsg_len);
 			break;
 		case NETLINK_GENERIC:
 			nlmon_message(nlmon, tv, tp, nlmsg);
