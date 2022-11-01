@@ -3631,6 +3631,9 @@ static void ap_if_event_func(enum ap_event_type type, const void *event_data,
 		l_dbus_property_changed(dbus_get_bus(),
 					netdev_get_path(ap_if->netdev),
 					IWD_AP_INTERFACE, "Name");
+		l_dbus_property_changed(dbus_get_bus(),
+					netdev_get_path(ap_if->netdev),
+					IWD_AP_INTERFACE, "Frequency");
 
 		l_rtnl_set_linkmode_and_operstate(rtnl,
 					netdev_get_ifindex(ap_if->netdev),
@@ -3963,6 +3966,24 @@ static bool ap_dbus_property_get_scanning(struct l_dbus *dbus,
 	return true;
 }
 
+static bool ap_dbus_property_get_freq(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct ap_if_data *ap_if = user_data;
+	uint32_t freq;
+
+	if (!ap_if->ap || !ap_if->ap->started)
+		return false;
+
+	freq = band_channel_to_freq(ap_if->ap->channel, BAND_FREQ_2_4_GHZ);
+
+	l_dbus_message_builder_append_basic(builder, 'u', &freq);
+
+	return true;
+}
+
 static void ap_setup_interface(struct l_dbus_interface *interface)
 {
 	l_dbus_interface_method(interface, "Start", 0, ap_dbus_start, "",
@@ -3982,6 +4003,8 @@ static void ap_setup_interface(struct l_dbus_interface *interface)
 					ap_dbus_property_get_name, NULL);
 	l_dbus_interface_property(interface, "Scanning", 0, "b",
 					ap_dbus_property_get_scanning, NULL);
+	l_dbus_interface_property(interface, "Frequency", 0, "u",
+					ap_dbus_property_get_freq, NULL);
 }
 
 static void ap_destroy_interface(void *user_data)
