@@ -176,6 +176,12 @@ static const uint32_t hwsim_supported_ciphers[] = {
 	CRYPTO_CIPHER_TKIP,
 	CRYPTO_CIPHER_CCMP,
 	CRYPTO_CIPHER_BIP_CMAC,
+	CRYPTO_CIPHER_GCMP,
+	CRYPTO_CIPHER_GCMP_256,
+	CRYPTO_CIPHER_CCMP_256,
+	CRYPTO_CIPHER_BIP_GMAC,
+	CRYPTO_CIPHER_BIP_GMAC_256,
+	CRYPTO_CIPHER_BIP_CMAC_256,
 };
 static uint32_t hwsim_ciphers[L_ARRAY_SIZE(hwsim_supported_ciphers)];
 static int hwsim_num_ciphers = 0;
