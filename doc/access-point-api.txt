@@ -67,3 +67,7 @@ Properties	boolean Started [readonly]
 		boolean Scanning [readonly]
 
 			Reflects whether the access point is scanning.
+
+		uint32 Frequency [readonly, optional]
+
+			The frequency that the Access Point is operating on.
