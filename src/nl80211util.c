@@ -139,6 +139,17 @@ static bool extract_nested(const void *data, uint16_t len, void *o)
 	return true;
 }
 
+static bool extract_u8(const void *data, uint16_t len, void *o)
+{
+	uint8_t *out = o;
+
+	if (len != 1)
+		return false;
+
+	*out = l_get_u8(data);
+	return true;
+}
+
 static attr_handler handler_for_type(enum nl80211_attrs type)
 {
 	switch (type) {
@@ -146,6 +157,7 @@ static attr_handler handler_for_type(enum nl80211_attrs type)
 		return extract_ifindex;
 	case NL80211_ATTR_WIPHY:
 	case NL80211_ATTR_IFTYPE:
+	case NL80211_ATTR_KEY_TYPE:
 		return extract_uint32;
 	case NL80211_ATTR_WDEV:
 	case NL80211_ATTR_COOKIE:
@@ -170,6 +182,8 @@ static attr_handler handler_for_type(enum nl80211_attrs type)
 		return extract_iovec;
 	case NL80211_ATTR_WIPHY_BANDS:
 		return extract_nested;
+	case NL80211_ATTR_KEY_IDX:
+		return extract_u8;
 	default:
 		break;
 	}
