@@ -5174,6 +5174,20 @@ static void netdev_channel_switch_event(struct l_genl_msg *msg,
 				&netdev->frequency, netdev->user_data);
 }
 
+static void netdev_michael_mic_failure(struct l_genl_msg *msg,
+					struct netdev *netdev)
+{
+	uint8_t idx;
+	uint32_t type;
+
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_KEY_IDX, &idx,
+				NL80211_ATTR_KEY_TYPE, &type,
+				NL80211_ATTR_UNSPEC) < 0)
+		return;
+
+	l_debug("ifindex=%u key_idx=%u type=%u", netdev->index, idx, type);
+}
+
 static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = NULL;
@@ -5223,6 +5237,9 @@ static void netdev_mlme_notify(struct l_genl_msg *msg, void *user_data)
 		break;
 	case NL80211_CMD_DEL_STATION:
 		netdev_station_event(msg, netdev, false);
+		break;
+	case NL80211_CMD_MICHAEL_MIC_FAILURE:
+		netdev_michael_mic_failure(msg, netdev);
 		break;
 	}
 }
