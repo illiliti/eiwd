@@ -36,6 +36,7 @@ struct ap {
 	bool started;
 	char *name;
 	bool scanning;
+	uint32_t freq;
 };
 
 static void *ap_create(void)
@@ -126,10 +127,35 @@ static const char *get_scanning_tostr(const void *data)
 	return ap->scanning ? "yes" : "no";
 }
 
+static void update_freq(void *data, struct l_dbus_message_iter *variant)
+{
+	struct ap *ap = data;
+	uint32_t value;
+
+	if (!l_dbus_message_iter_get_variant(variant, "u", &value)) {
+		ap->freq = 0;
+
+		return;
+	}
+
+	ap->freq = value;
+}
+
+static const char *get_freq_tostr(const void *data)
+{
+	const struct ap *ap = data;
+	static char str[5];
+
+	sprintf(str, "%u", ap->freq);
+
+	return str;
+}
+
 static const struct proxy_interface_property ap_properties[] = {
 	{ "Started",  "b", update_started,  get_started_tostr },
 	{ "Name",     "s", update_name, get_name_tostr },
 	{ "Scanning", "b", update_scanning, get_scanning_tostr },
+	{ "Frequency", "u", update_freq, get_freq_tostr },
 	{ }
 };
 
