@@ -1643,7 +1643,7 @@ static void netdev_set_gtk(struct handshake_state *hs, uint16_t key_index,
 		return;
 	}
 
-	if (!netdev_copy_tk(gtk_buf, gtk, cipher, false)) {
+	if (!netdev_copy_tk(gtk_buf, gtk, cipher, hs->authenticator)) {
 		netdev_setting_keys_failed(nhs, -ENOENT);
 		return;
 	}
@@ -2057,7 +2057,7 @@ static void netdev_set_tk(struct handshake_state *hs, uint8_t key_index,
 	l_debug("ifindex=%d key_idx=%u", netdev->index, key_index);
 
 	err = -ENOENT;
-	if (!netdev_copy_tk(tk_buf, tk, cipher, false))
+	if (!netdev_copy_tk(tk_buf, tk, cipher, hs->authenticator))
 		goto invalid_key;
 
 	msg = netdev_build_cmd_new_key_pairwise(netdev, cipher, addr, tk_buf,
@@ -2091,7 +2091,7 @@ static void netdev_set_ext_tk(struct handshake_state *hs, uint8_t key_idx,
 				L_BE16_TO_CPU(step4->header.packet_len);
 
 	err = -ENOENT;
-	if (!netdev_copy_tk(tk_buf, tk, cipher, false))
+	if (!netdev_copy_tk(tk_buf, tk, cipher, hs->authenticator))
 		goto error;
 
 	msg = netdev_build_cmd_new_rx_key_pairwise(netdev, cipher, addr, tk_buf,
