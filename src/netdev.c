@@ -1635,7 +1635,7 @@ static void netdev_set_gtk(struct handshake_state *hs, uint16_t key_index,
 
 	nhs->gtk_installed = false;
 
-	l_debug("%d", netdev->index);
+	l_debug("ifindex=%d key_idx=%u", netdev->index, key_index);
 
 	if (crypto_cipher_key_len(cipher) != gtk_len) {
 		l_error("Unexpected key length: %d", gtk_len);
@@ -1680,7 +1680,7 @@ static void netdev_set_igtk(struct handshake_state *hs, uint16_t key_index,
 
 	nhs->igtk_installed = false;
 
-	l_debug("%d", netdev->index);
+	l_debug("ifindex=%d key_idx=%u", netdev->index, key_index);
 
 	if (crypto_cipher_key_len(cipher) != igtk_len) {
 		l_error("Unexpected key length: %d", igtk_len);
@@ -2054,7 +2054,7 @@ static void netdev_set_tk(struct handshake_state *hs, uint8_t key_index,
 		return;
 	}
 
-	l_debug("%d", netdev->index);
+	l_debug("ifindex=%d key_idx=%u", netdev->index, key_index);
 
 	err = -ENOENT;
 	if (!netdev_copy_tk(tk_buf, tk, cipher, false))
