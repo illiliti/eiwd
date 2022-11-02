@@ -180,6 +180,11 @@ enum ie_rsn_cipher_suite wiphy_select_cipher(struct wiphy *wiphy, uint16_t mask)
 	return 0;
 }
 
+uint16_t wiphy_get_supported_ciphers(struct wiphy *wiphy, uint16_t mask)
+{
+	return wiphy->supported_ciphers & mask;
+}
+
 static bool wiphy_can_connect_sae(struct wiphy *wiphy)
 {
 	/*

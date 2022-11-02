@@ -68,6 +68,8 @@ typedef void (*wiphy_destroy_func_t)(void *user_data);
 
 enum ie_rsn_cipher_suite wiphy_select_cipher(struct wiphy *wiphy,
 							uint16_t mask);
+uint16_t wiphy_get_supported_ciphers(struct wiphy *wiphy, uint16_t mask);
+
 enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 					const struct scan_bss *bss,
 					enum security security,
