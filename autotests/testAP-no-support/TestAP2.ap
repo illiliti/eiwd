@@ -1,0 +1,3 @@
+[Security]
+Passphrase=secret123
+PairwiseCiphers=CCMP
