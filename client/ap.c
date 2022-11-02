@@ -37,6 +37,8 @@ struct ap {
 	char *name;
 	bool scanning;
 	uint32_t freq;
+	char *pairwise;
+	char *group;
 };
 
 static void *ap_create(void)
@@ -50,6 +52,12 @@ static void ap_destroy(void *data)
 
 	if (ap->name)
 		l_free(ap->name);
+
+	if (ap->pairwise)
+		l_free(ap->pairwise);
+
+	if (ap->group)
+		l_free(ap->group);
 
 	l_free(ap);
 }
@@ -151,11 +159,67 @@ static const char *get_freq_tostr(const void *data)
 	return str;
 }
 
+static void update_pairwise(void *data, struct l_dbus_message_iter *variant)
+{
+	struct ap *ap = data;
+	char *value;
+
+	if (ap->pairwise)
+		l_free(ap->pairwise);
+
+	if (!l_dbus_message_iter_get_variant(variant, "s", &value)) {
+		ap->pairwise = NULL;
+
+		return;
+	}
+
+	ap->pairwise = l_strdup(value);
+}
+
+static const char *get_pairwise_tostr(const void *data)
+{
+	const struct ap *ap = data;
+
+	if (!ap->pairwise)
+		return "";
+
+	return ap->pairwise;
+}
+
+static void update_group(void *data, struct l_dbus_message_iter *variant)
+{
+	struct ap *ap = data;
+	char *value;
+
+	if (ap->group)
+		l_free(ap->group);
+
+	if (!l_dbus_message_iter_get_variant(variant, "s", &value)) {
+		ap->group = NULL;
+
+		return;
+	}
+
+	ap->group = l_strdup(value);
+}
+
+static const char *get_group_tostr(const void *data)
+{
+	const struct ap *ap = data;
+
+	if (!ap->group)
+		return "";
+
+	return ap->group;
+}
+
 static const struct proxy_interface_property ap_properties[] = {
 	{ "Started",  "b", update_started,  get_started_tostr },
 	{ "Name",     "s", update_name, get_name_tostr },
 	{ "Scanning", "b", update_scanning, get_scanning_tostr },
 	{ "Frequency", "u", update_freq, get_freq_tostr },
+	{ "PairwiseCiphers", "s", update_pairwise, get_pairwise_tostr },
+	{ "GroupCipher", "s", update_group, get_group_tostr },
 	{ }
 };
 
