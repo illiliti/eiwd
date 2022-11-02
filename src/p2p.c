@@ -1273,6 +1273,9 @@ static void p2p_group_start(struct p2p_device *dev)
 	/* Enable netconfig, set maximum usable DHCP lease time */
 	l_settings_set_uint(config, "IPv4", "LeaseTime", 0x7fffffff);
 
+	l_settings_set_string(config, "Security", "PairwiseCiphers", "CCMP");
+	l_settings_set_string(config, "Security", "GroupCipher", "CCMP");
+
 	dev->capability.group_caps |= P2P_GROUP_CAP_GO;
 	dev->capability.group_caps |= P2P_GROUP_CAP_GROUP_FORMATION;
 	dev->capability.group_caps |= P2P_GROUP_CAP_IP_ALLOCATION;
