@@ -588,8 +588,7 @@ EXTRA_DIST = src/genbuiltin src/iwd.service.in src/net.connman.iwd.service \
 
 AM_CFLAGS = $(ell_cflags) -fvisibility=hidden \
 				-DUNITDIR=\""$(top_srcdir)/unit/"\" \
-				-DCERTDIR=\""$(top_builddir)/unit/"\" \
-				-DJSMN_PARENT_LINKS -DJSMN_STRICT
+				-DCERTDIR=\""$(top_builddir)/unit/"\"
 
 if MAINTAINER_MODE
 AM_CFLAGS += -DHAVE_PKCS8_SUPPORT
