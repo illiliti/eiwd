@@ -3711,6 +3711,9 @@ static void ap_if_event_func(enum ap_event_type type, const void *event_data,
 					IWD_AP_INTERFACE, "Name");
 		l_dbus_property_changed(dbus_get_bus(),
 					netdev_get_path(ap_if->netdev),
+					IWD_AP_INTERFACE, "Frequency");
+		l_dbus_property_changed(dbus_get_bus(),
+					netdev_get_path(ap_if->netdev),
 					IWD_AP_INTERFACE, "PairwiseCiphers");
 		l_dbus_property_changed(dbus_get_bus(),
 					netdev_get_path(ap_if->netdev),
