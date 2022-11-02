@@ -401,6 +401,25 @@ static inline bool IE_CIPHER_IS_GCMP_CCMP(uint32_t cipher_suite)
 				IE_RSN_CIPHER_SUITE_GCMP_256);
 }
 
+#define IE_GROUP_CIPHERS		\
+(					\
+	IE_RSN_CIPHER_SUITE_TKIP |	\
+	IE_RSN_CIPHER_SUITE_CCMP |	\
+	IE_RSN_CIPHER_SUITE_GCMP |	\
+	IE_RSN_CIPHER_SUITE_GCMP_256 |	\
+	IE_RSN_CIPHER_SUITE_CCMP_256	\
+)
+
+/*
+ * Since WEP is unsupported we can just use the group cipher list with
+ * "Use group cipher" appended
+ */
+#define IE_PAIRWISE_CIPHERS			\
+(						\
+	IE_GROUP_CIPHERS |			\
+	IE_RSN_CIPHER_SUITE_USE_GROUP_CIPHER	\
+)
+
 #define IE_LEN(ie) \
 	((ie) ? (ie)[1] + 2 : 0)
 
