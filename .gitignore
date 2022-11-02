@@ -4,6 +4,7 @@
 .libs
 .deps
 .dirstamp
+.cache
 tags
 cscope.*
 Makefile
