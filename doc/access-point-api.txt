@@ -71,3 +71,15 @@ Properties	boolean Started [readonly]
 		uint32 Frequency [readonly, optional]
 
 			The frequency that the Access Point is operating on.
+
+		array{string} PairwiseCiphers [readonly, optional]
+
+			List of pairwise ciphers the access point supports.
+			The same format as setting a list of ciphers for an AP
+			profile, i.e. TKIP, CCMP-128, GCMP-128, CCMP-256 etc.
+
+		string GroupCipher [readonly, optional]
+
+			The group cipher suite the access point is using.
+			Possible values are the same as what could be included
+			in the PairwiseCiphers list.
