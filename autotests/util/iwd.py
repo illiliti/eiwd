@@ -521,13 +521,16 @@ class Device(IWDDBusAbstract):
     def scanning(self):
         '''
         Reflects whether the device is currently scanning
-        for networks.  net.connman.iwd.Network objects are
-        updated when this property goes from true to false.
+        for networks.  For station devices net.connman.iwd.Network
+        objects are updated when this property goes from true to false
 
         @rtype: boolean
         '''
-        props = self._station_properties()
-        return bool(props['Scanning'])
+        if self._properties['Mode'] == 'station':
+            props = self._station_properties()
+            return bool(props['Scanning'])
+        else:
+            return bool(self._ap.scanning)
 
     @property
     def autoconnect(self):
@@ -544,12 +547,14 @@ class Device(IWDDBusAbstract):
            Possible exception: BusyEx
                                FailedEx
         '''
-        self._iface.Scan(dbus_interface=IWD_STATION_INTERFACE,
+        if self._properties['Mode'] == 'station':
+            self._iface.Scan(dbus_interface=IWD_STATION_INTERFACE,
                                reply_handler=self._success,
                                error_handler=self._failure)
-
-        if wait:
-            self._wait_for_async_op()
+            if wait:
+                self._wait_for_async_op()
+        else:
+            self._ap.scan()
 
     def disconnect(self):
         '''Disconnect from the network
@@ -576,6 +581,9 @@ class Device(IWDDBusAbstract):
            groups the maximum relative signal-strength is the
            main sorting factor.
         '''
+        if self._properties['Mode'] == 'ap':
+            return self._ap.get_ordered_networks()
+
         ordered_networks = []
         if not full_scan:
             for bus_obj in self._station.GetOrderedNetworks():
