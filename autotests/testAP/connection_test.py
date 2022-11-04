@@ -60,7 +60,7 @@ class Test(unittest.TestCase):
                 dev1.start_ap('TestAP2')
 
                 self.assertTrue(dev1.group_cipher == group)
-                self.assertTrue(dev1.pairwise_ciphers == pairwise)
+                self.assertIn(pairwise, dev1.pairwise_ciphers)
 
                 try:
                     validate(wd, dev2, dev1, 'TestAP2', 'Password2', ip_checks=False)

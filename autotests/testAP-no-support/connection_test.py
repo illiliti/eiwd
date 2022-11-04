@@ -27,7 +27,7 @@ class Test(unittest.TestCase):
         dev_ap.start_ap('TestAP2', 'Password2')
 
         self.assertTrue(dev_ap.group_cipher == 'TKIP')
-        self.assertTrue(dev_ap.pairwise_ciphers == 'TKIP')
+        self.assertIn('TKIP', dev_ap.pairwise_ciphers)
 
         ordered_network = dev_sta.get_ordered_network('TestAP2')
 
