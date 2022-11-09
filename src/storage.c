@@ -53,6 +53,7 @@
 #define STORAGE_FILE_MODE (S_IRUSR | S_IWUSR)
 
 #define KNOWN_FREQ_FILENAME ".known_network.freq"
+#define TLS_CACHE_FILENAME ".tls-session-cache"
 
 static char *storage_path = NULL;
 static char *storage_hotspot_path = NULL;
@@ -699,6 +700,40 @@ void storage_known_frequencies_sync(struct l_settings *known_freqs)
 	l_free(data);
 
 	l_free(known_freq_file_path);
+}
+
+struct l_settings *storage_tls_session_cache_load(void)
+{
+	_auto_(l_settings_free) struct l_settings *cache = l_settings_new();
+	_auto_(l_free) char *tls_cache_file_path =
+		storage_get_path("%s", TLS_CACHE_FILENAME);
+
+	if (unlikely(!l_settings_load_from_file(cache, tls_cache_file_path)))
+		return NULL;
+
+	return l_steal_ptr(cache);
+}
+
+void storage_tls_session_cache_sync(struct l_settings *cache)
+{
+	_auto_(l_free) char *tls_cache_file_path = NULL;
+	_auto_(l_free) char *data = NULL;
+	size_t len;
+
+	if (!cache)
+		return;
+
+	tls_cache_file_path = storage_get_path("%s", TLS_CACHE_FILENAME);
+	data = l_settings_to_data(cache, &len);
+
+	/*
+	 * Note this data contains cryptographic secrets.  write_file()
+	 * happens to set the right permissions on the file.
+	 *
+	 * TODO: consider encrypting with system_key.
+	 */
+	write_file(data, len, false, "%s", tls_cache_file_path);
+	explicit_bzero(data, len);
 }
 
 bool storage_is_file(const char *filename)
