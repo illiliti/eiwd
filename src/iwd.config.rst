@@ -310,6 +310,13 @@ autoconnect purposes.
        networks are highly RSSI sensitive, so it is still possible for IWD to
        prefer 2.4Ghz APs in certain circumstances.
 
+   * - BandModifier6Ghz
+     - Values: floating point value (default: **1.0**)
+
+       Increase or decrease the preference for 6GHz access points by increasing
+       or decreasing the value of this modifier.  Since 6GHz networks are highly
+       RSSI sensitive, this gives an option to prefer 6GHz APs over 5GHz APs.
+
 Scan
 ----
 

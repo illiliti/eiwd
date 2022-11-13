@@ -54,6 +54,7 @@
 
 /* User configurable options */
 static double RANK_5G_FACTOR;
+static double RANK_6G_FACTOR;
 static uint32_t SCAN_MAX_INTERVAL;
 static uint32_t SCAN_INIT_INTERVAL;
 
@@ -1645,9 +1646,13 @@ static void scan_bss_compute_rank(struct scan_bss *bss)
 
 	rank = (double)bss->data_rate / max_rate * USHRT_MAX;
 
-	/* Prefer 5G/6G networks over 2.4G */
-	if (bss->frequency > 4000)
+	/* Prefer 5G networks over 2.4G and 6G */
+	if (bss->frequency >= 4900 && bss->frequency < 5900)
 		rank *= RANK_5G_FACTOR;
+
+	/* Prefer 6G networks over 2.4G and 5G */
+	if (bss->frequency >= 5900 && bss->frequency < 7200)
+		rank *= RANK_6G_FACTOR;
 
 	/* Rank loaded APs lower and lightly loaded APs higher */
 	if (bss->utilization >= 192)
@@ -2342,6 +2347,10 @@ static int scan_init(void)
 	if (!l_settings_get_double(config, "Rank", "BandModifier5Ghz",
 					&RANK_5G_FACTOR))
 		RANK_5G_FACTOR = 1.0;
+
+	if (!l_settings_get_double(config, "Rank", "BandModifier6Ghz",
+					&RANK_6G_FACTOR))
+		RANK_6G_FACTOR = 1.0;
 
 	if (!l_settings_get_uint(config, "Scan", "InitialPeriodicScanInterval",
 					&SCAN_INIT_INTERVAL))
