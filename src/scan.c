@@ -2044,6 +2044,33 @@ static void scan_parse_result_frequencies(struct l_genl_msg *msg,
 	}
 }
 
+static void scan_retry_pending(uint32_t wiphy_id)
+{
+	const struct l_queue_entry *entry;
+
+	l_debug("");
+
+	for (entry = l_queue_get_entries(scan_contexts); entry;
+						entry = entry->next) {
+		struct scan_context *sc = entry->data;
+		struct scan_request *sr = l_queue_peek_head(sc->requests);
+
+		if (wiphy_get_id(sc->wiphy) != wiphy_id)
+			continue;
+
+		if (!sr)
+			continue;
+
+		if (!wiphy_radio_work_is_running(sc->wiphy, sr->work.id))
+			continue;
+
+		sc->state = SCAN_STATE_NOT_RUNNING;
+		start_next_scan_request(&sr->work);
+
+		return;
+	}
+}
+
 static void scan_notify(struct l_genl_msg *msg, void *user_data)
 {
 	struct l_genl_attr attr;
@@ -2065,8 +2092,17 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		return;
 
 	sc = l_queue_find(scan_contexts, scan_context_match, &wdev_id);
-	if (!sc)
+	if (!sc) {
+		/*
+		 * If the event is for an unmanaged device, retry pending scan
+		 * requests on the same wiphy.
+		 */
+		if (cmd == NL80211_CMD_NEW_SCAN_RESULTS ||
+		    cmd == NL80211_CMD_SCAN_ABORTED)
+			scan_retry_pending(wiphy_id);
+
 		return;
+	}
 
 	l_debug("Scan notification %s(%u)", nl80211cmd_to_string(cmd), cmd);
 
