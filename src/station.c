@@ -5185,6 +5185,7 @@ static void station_exit(void)
 }
 
 IWD_MODULE(station, station_init, station_exit)
+IWD_MODULE_DEPENDS(station, known_networks)
 IWD_MODULE_DEPENDS(station, netdev);
 IWD_MODULE_DEPENDS(station, netconfig);
 IWD_MODULE_DEPENDS(station, frame_xchg);
