@@ -60,6 +60,9 @@
 #include "src/sysfs.h"
 #include "src/band.h"
 #include "src/ft.h"
+#include "src/eap.h"
+#include "src/eap-tls-common.h"
+#include "src/storage.h"
 
 static struct l_queue *station_list;
 static uint32_t netdev_watch;
@@ -69,6 +72,7 @@ static bool anqp_disabled;
 static bool supports_arp_evict_nocarrier;
 static bool supports_ndisc_evict_nocarrier;
 static struct watchlist event_watches;
+static uint32_t known_networks_watch;
 
 struct station {
 	enum station_state state;
@@ -5087,6 +5091,22 @@ static void station_netdev_watch(struct netdev *netdev,
 	}
 }
 
+static void station_known_networks_changed(enum known_networks_event event,
+						const struct network_info *info,
+						void *user_data)
+{
+	_auto_(l_free) char *network_id = NULL;
+
+	if (event != KNOWN_NETWORKS_EVENT_REMOVED)
+		return;
+
+	if (info->type != SECURITY_8021X)
+		return;
+
+	network_id = l_util_hexstring(info->ssid, strlen(info->ssid));
+	eap_tls_forget_peer(network_id);
+}
+
 static int station_init(void)
 {
 	station_list = l_queue_new();
@@ -5139,6 +5159,12 @@ static int station_init(void)
 
 	watchlist_init(&event_watches, NULL);
 
+	eap_tls_set_session_cache_ops(storage_eap_tls_cache_load,
+					storage_eap_tls_cache_sync);
+	known_networks_watch = known_networks_watch_add(
+						station_known_networks_changed,
+						NULL, NULL);
+
 	return 0;
 }
 
@@ -5154,6 +5180,8 @@ static void station_exit(void)
 	l_queue_destroy(station_list, NULL);
 	station_list = NULL;
 	watchlist_destroy(&event_watches);
+	known_networks_watch_remove(known_networks_watch);
+	known_networks_watch = 0;
 }
 
 IWD_MODULE(station, station_init, station_exit)
