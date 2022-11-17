@@ -28,7 +28,9 @@
 #include <errno.h>
 #include <ell/ell.h>
 
+#include "ell/useful.h"
 #include "src/missing.h"
+#include "src/module.h"
 #include "src/eap.h"
 #include "src/eap-private.h"
 #include "src/eap-tls-common.h"
@@ -122,6 +124,10 @@ struct eap_tls_state {
 	const struct eap_tls_variant_ops *variant_ops;
 	void *variant_data;
 };
+
+static struct l_settings *eap_tls_session_cache;
+static eap_tls_session_cache_load_func_t eap_tls_session_cache_load;
+static eap_tls_session_cache_sync_func_t eap_tls_session_cache_sync;
 
 static void __eap_tls_common_state_reset(struct eap_tls_state *eap_tls)
 {
@@ -571,6 +577,15 @@ static int eap_tls_handle_fragmented_request(struct eap_state *eap,
 	return r;
 }
 
+static void eap_tls_session_cache_update(void *user_data)
+{
+	if (L_WARN_ON(!eap_tls_session_cache_sync) ||
+			L_WARN_ON(!eap_tls_session_cache))
+		return;
+
+	eap_tls_session_cache_sync(eap_tls_session_cache);
+}
+
 static bool eap_tls_tunnel_init(struct eap_state *eap)
 {
 	struct eap_tls_state *eap_tls = eap_get_data(eap);
@@ -632,6 +647,17 @@ static bool eap_tls_tunnel_init(struct eap_state *eap)
 
 	if (eap_tls->domain_mask)
 		l_tls_set_domain_mask(eap_tls->tunnel, eap_tls->domain_mask);
+
+	if (!eap_tls_session_cache_load)
+		goto start;
+
+	if (!eap_tls_session_cache)
+		eap_tls_session_cache = eap_tls_session_cache_load();
+
+	l_tls_set_session_cache(eap_tls->tunnel, eap_tls_session_cache,
+				eap_get_peer_id(eap),
+				24 * 3600 * L_USEC_PER_SEC, 0,
+				eap_tls_session_cache_update, NULL);
 
 start:
 	if (!l_tls_start(eap_tls->tunnel)) {
@@ -1085,3 +1111,35 @@ void eap_tls_common_tunnel_close(struct eap_state *eap)
 
 	l_tls_close(eap_tls->tunnel);
 }
+
+void eap_tls_set_session_cache_ops(eap_tls_session_cache_load_func_t load,
+					eap_tls_session_cache_sync_func_t sync)
+{
+	eap_tls_session_cache_load = load;
+	eap_tls_session_cache_sync = sync;
+}
+
+void eap_tls_forget_peer(const char *peer_id)
+{
+	if (L_WARN_ON(!eap_tls_session_cache_sync))
+		return;
+
+	if (!eap_tls_session_cache)
+		eap_tls_session_cache = eap_tls_session_cache_load();
+
+	if (l_settings_remove_group(eap_tls_session_cache, peer_id))
+		eap_tls_session_cache_sync(eap_tls_session_cache);
+}
+
+static int eap_tls_common_init(void)
+{
+	return 0;
+}
+
+static void eap_tls_common_exit(void)
+{
+	l_settings_free(eap_tls_session_cache);
+	eap_tls_session_cache = NULL;
+}
+
+IWD_MODULE(eap_tls_common, eap_tls_common_init, eap_tls_common_exit);

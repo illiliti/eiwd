@@ -94,6 +94,9 @@ const char *eap_get_identity(struct eap_state *eap);
 
 void eap_rx_packet(struct eap_state *eap, const uint8_t *pkt, size_t len);
 
+void eap_set_peer_id(struct eap_state *eap, const char *id);
+const char *eap_get_peer_id(struct eap_state *eap);
+
 void __eap_set_config(struct l_settings *config);
 
 int eap_init(void);
