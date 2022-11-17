@@ -769,7 +769,7 @@ static int netconfig_init(void)
 	if (!l_settings_get_bool(iwd_get_config(), "Network",
 					"EnableIPv6",
 					&ipv6_enabled))
-		ipv6_enabled = false;
+		ipv6_enabled = true;
 
 	mdns_global = l_settings_get_string(iwd_get_config(), "Network",
 						"MulticastDNS");

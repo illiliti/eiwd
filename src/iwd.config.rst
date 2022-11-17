@@ -228,7 +228,7 @@ The group ``[Network]`` contains network configuration related settings.
    :align: left
 
    * - EnableIPv6
-     - Values: true, **false**
+     - Values: **true**, false
 
        Sets the global default that tells **iwd** whether it should configure
        IPv6 addresses and routes (either provided via static settings,
