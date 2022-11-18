@@ -1,5 +1,6 @@
 [Unit]
 Description=Wireless service
+Documentation=man:iwd(8) man:iwd.config(5) man:iwd.network(5) man:iwd.ap(5)
 After=network-pre.target
 Before=network.target
 Wants=network.target
