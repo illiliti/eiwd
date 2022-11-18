@@ -1,3 +1,19 @@
+ver 2.0:
+	Fix issue with handling P2P and limiting ciphers to CCMP.
+	Fix issue with scanning before forced roaming action.
+	Fix issue with provided scan frequencies from RRM.
+	Fix issue with handling Michael MIC failure message.
+	Fix issue with handling timestamp size in MPDU frames.
+	Fix issue with handling enablement of OCVC for FT AKMs.
+	Fix issue with handling FT work as highest priority.
+	Fix issue with handling roaming events and Multi-BSS.
+	Add support for utilizing roaming candidates list.
+	Add support for utilizing TLS session caching.
+	Add support for ciphers with 256 bits key size.
+	Add support for Access Point mode with legacy TKIP.
+	Add support for MAC address changes while powered.
+	Add support for IPv4 and IPv6 network configuration.
+
 ver 1.30:
 	Fix issue with handling OWE if buggy AP is detected.
 	Fix issue with handling quick scan and enabling 6GHz.
