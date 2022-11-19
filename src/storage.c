@@ -53,6 +53,7 @@
 #define STORAGE_FILE_MODE (S_IRUSR | S_IWUSR)
 
 #define KNOWN_FREQ_FILENAME ".known_network.freq"
+#define EAP_TLS_CACHE_FILENAME ".eap-tls-session-cache"
 
 static char *storage_path = NULL;
 static char *storage_hotspot_path = NULL;
@@ -699,6 +700,47 @@ void storage_known_frequencies_sync(struct l_settings *known_freqs)
 	l_free(data);
 
 	l_free(known_freq_file_path);
+}
+
+struct l_settings *storage_eap_tls_cache_load(void)
+{
+	_auto_(l_free) char *path =
+		storage_get_path("%s", EAP_TLS_CACHE_FILENAME);
+	struct l_settings *cache = l_settings_new();
+
+	if (!l_settings_load_from_file(cache, path))
+		l_debug("No session cache loaded from %s, starting with an "
+			"empty cache", path);
+
+	return cache;
+}
+
+void storage_eap_tls_cache_sync(const struct l_settings *cache)
+{
+	_auto_(l_free) char *path =
+		storage_get_path("%s", EAP_TLS_CACHE_FILENAME);
+	_auto_(l_free) char *settings_data = NULL;
+	_auto_(l_free) char *data = NULL;
+	size_t len;
+	static const char comment[] =
+		"# External changes to this file are not tracked by IWD "
+		"and will be overwritten.\n\n";
+	static const size_t comment_len = L_ARRAY_SIZE(comment) - 1;
+
+	settings_data = l_settings_to_data(cache, &len);
+	data = l_malloc(comment_len + len);
+	memcpy(data, comment, comment_len);
+	memcpy(data + comment_len, settings_data, len);
+
+	/*
+	 * Note this data contains cryptographic secrets.  write_file()
+	 * happens to set the right permissions on the file.
+	 *
+	 * TODO: consider encrypting with system_key.
+	 */
+	write_file(data, comment_len + len, false, "%s", path);
+	explicit_bzero(settings_data, len);
+	explicit_bzero(data, len);
 }
 
 bool storage_is_file(const char *filename)

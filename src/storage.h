@@ -51,6 +51,9 @@ int storage_network_remove(enum security type, const char *ssid);
 struct l_settings *storage_known_frequencies_load(void);
 void storage_known_frequencies_sync(struct l_settings *known_freqs);
 
+struct l_settings *storage_eap_tls_cache_load(void);
+void storage_eap_tls_cache_sync(const struct l_settings *cache);
+
 int __storage_decrypt(struct l_settings *settings, const char *ssid,
 				bool *changed);
 char *__storage_encrypt(const struct l_settings *settings, const char *ssid,

@@ -329,8 +329,14 @@ enum ie_rsn_cipher_suite {
 	IE_RSN_CIPHER_SUITE_TKIP		= 0x0004,
 	IE_RSN_CIPHER_SUITE_CCMP		= 0x0008,
 	IE_RSN_CIPHER_SUITE_WEP104		= 0x0010,
-	IE_RSN_CIPHER_SUITE_BIP			= 0x0020,
+	IE_RSN_CIPHER_SUITE_BIP_CMAC		= 0x0020,
 	IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC	= 0x0040,
+	IE_RSN_CIPHER_SUITE_GCMP		= 0x0080,
+	IE_RSN_CIPHER_SUITE_GCMP_256		= 0x0100,
+	IE_RSN_CIPHER_SUITE_CCMP_256		= 0x0200,
+	IE_RSN_CIPHER_SUITE_BIP_GMAC		= 0x0400,
+	IE_RSN_CIPHER_SUITE_BIP_GMAC_256	= 0x0800,
+	IE_RSN_CIPHER_SUITE_BIP_CMAC_256	= 0x1000,
 };
 
 enum ie_rsn_akm_suite {
@@ -386,6 +392,33 @@ static inline bool IE_AKM_IS_8021X(uint32_t akm)
 			IE_RSN_AKM_SUITE_8021X_SHA256 |
 			IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384);
 }
+
+static inline bool IE_CIPHER_IS_GCMP_CCMP(uint32_t cipher_suite)
+{
+	return cipher_suite & (IE_RSN_CIPHER_SUITE_CCMP |
+				IE_RSN_CIPHER_SUITE_CCMP_256 |
+				IE_RSN_CIPHER_SUITE_GCMP |
+				IE_RSN_CIPHER_SUITE_GCMP_256);
+}
+
+#define IE_GROUP_CIPHERS		\
+(					\
+	IE_RSN_CIPHER_SUITE_TKIP |	\
+	IE_RSN_CIPHER_SUITE_CCMP |	\
+	IE_RSN_CIPHER_SUITE_GCMP |	\
+	IE_RSN_CIPHER_SUITE_GCMP_256 |	\
+	IE_RSN_CIPHER_SUITE_CCMP_256	\
+)
+
+/*
+ * Since WEP is unsupported we can just use the group cipher list with
+ * "Use group cipher" appended
+ */
+#define IE_PAIRWISE_CIPHERS			\
+(						\
+	IE_GROUP_CIPHERS |			\
+	IE_RSN_CIPHER_SUITE_USE_GROUP_CIPHER	\
+)
 
 #define IE_LEN(ie) \
 	((ie) ? (ie)[1] + 2 : 0)
@@ -586,6 +619,7 @@ unsigned char *ie_tlv_builder_finalize(struct ie_tlv_builder *builder,
 					size_t *out_len);
 
 uint32_t ie_rsn_cipher_suite_to_cipher(enum ie_rsn_cipher_suite suite);
+const char *ie_rsn_cipher_suite_to_string(enum ie_rsn_cipher_suite suite);
 
 int ie_parse_rsne(struct ie_tlv_iter *iter, struct ie_rsn_info *info);
 int ie_parse_rsne_from_data(const uint8_t *data, size_t len,

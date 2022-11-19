@@ -104,6 +104,7 @@ struct nlmon {
 	bool nowiphy;
 	bool noscan;
 	bool noies;
+	bool read;
 };
 
 struct nlmon_req {
@@ -4724,6 +4725,36 @@ static void print_anqp_frame(unsigned int level, const uint8_t *anqp,
 	}
 }
 
+static void print_dpp_public_action_frame(unsigned int level,
+					const uint8_t *data, size_t len)
+{
+	print_attr(level, "DPP Action Frame");
+
+	print_attr(level + 1, "Crypto Suite: %u", *data);
+	data++;
+
+	switch (*data) {
+	case 0:
+		print_attr(level + 1, "Type: Authentication Request");
+		break;
+	case 1:
+		print_attr(level + 1, "Type: Authentication Response");
+		break;
+	case 2:
+		print_attr(level + 1, "Type: Authentication Confirm");
+		break;
+	case 11:
+		print_attr(level + 1, "Type: Configuration Result");
+		break;
+	case 13:
+		print_attr(level + 1, "Type: Presence Announcement");
+		break;
+	default:
+		print_attr(level + 1, "Type: Unknown (%u)", *data);
+		break;
+	}
+}
+
 static void print_public_action_frame(unsigned int level, const uint8_t *body,
 					size_t body_len)
 {
@@ -4790,6 +4821,12 @@ static void print_public_action_frame(unsigned int level, const uint8_t *body,
 			return;
 
 		print_p2p_public_action_frame(level + 1, body + 5,
+						body_len - 5);
+	} else if (!memcmp(oui, wifi_alliance_oui, 3) && oui[3] == 0x1a) {
+		if (!print_oui(level, oui))
+			return;
+
+		print_dpp_public_action_frame(level + 1, body + 5,
 						body_len - 5);
 	} else if (body[0] == 0x0a) {
 		if (body_len < 9)
@@ -5018,6 +5055,16 @@ static void print_action_mgmt_frame(unsigned int level,
 	print_mmpdu_header(level + 1, mmpdu);
 }
 
+static void print_probe_response(unsigned int level,
+				const struct mmpdu_header *mmpdu, size_t len)
+{
+	const struct mmpdu_probe_response *resp = mmpdu_body(mmpdu);
+
+	print_attr(level, "Subtype: Probe Response");
+	print_ie(level + 1, "Probe Response IEs", resp->ies,
+			(const uint8_t *) mmpdu + len - resp->ies);
+}
+
 static void print_frame_type(unsigned int level, const char *label,
 					const void *data, uint16_t size)
 {
@@ -5063,7 +5110,10 @@ static void print_frame_type(unsigned int level, const char *label,
 		str = "Probe request";
 		break;
 	case 0x05:
-		str = "Probe response";
+		if (mpdu)
+			print_probe_response(level + 1, mpdu, size);
+		else
+			str = "Probe response";
 		break;
 	case 0x06:
 		str = "Timing Advertisement";
@@ -7153,7 +7203,7 @@ static void nlmon_message(struct nlmon *nlmon, const struct timeval *tv,
 		return;
 	}
 
-	if (nlmsg->nlmsg_type != nlmon->id) {
+	if (!nlmon->read && nlmsg->nlmsg_type != nlmon->id) {
 		if (nlmsg->nlmsg_type == GENL_ID_CTRL)
 			store_message(nlmon, tv, nlmsg);
 		return;
@@ -7204,7 +7254,7 @@ static void nlmon_message(struct nlmon *nlmon, const struct timeval *tv,
 	}
 }
 
-struct nlmon *nlmon_create(uint16_t id)
+struct nlmon *nlmon_create(uint16_t id, const struct nlmon_config *config)
 {
 	struct nlmon *nlmon;
 
@@ -7212,6 +7262,11 @@ struct nlmon *nlmon_create(uint16_t id)
 
 	nlmon->id = id;
 	nlmon->req_list = l_queue_new();
+	nlmon->nortnl = config->nortnl;
+	nlmon->nowiphy = config->nowiphy;
+	nlmon->noscan = config->noscan;
+	nlmon->noies = config->noies;
+	nlmon->read = config->read_only;
 
 	return nlmon;
 }
@@ -7939,7 +7994,7 @@ static void print_nlmsghdr(const struct timeval *tv,
 							nlmsg->nlmsg_flags);
 	print_field("Sequence number: %u (0x%08x)",
 					nlmsg->nlmsg_seq, nlmsg->nlmsg_seq);
-	print_field("Port ID: %d", nlmsg->nlmsg_pid);
+	print_field("Port ID: %u", nlmsg->nlmsg_pid);
 }
 
 static void print_nlmsg(const struct timeval *tv, const struct nlmsghdr *nlmsg)
@@ -8031,8 +8086,11 @@ static void print_rtnl_msg(const struct timeval *tv,
 void nlmon_print_rtnl(struct nlmon *nlmon, const struct timeval *tv,
 					const void *data, uint32_t size)
 {
-	uint32_t aligned_size = NLMSG_ALIGN(size);
+	int64_t aligned_size = NLMSG_ALIGN(size);
 	const struct nlmsghdr *nlmsg;
+
+	if (nlmon->nortnl)
+		return;
 
 	update_time_offset(tv);
 
@@ -8063,7 +8121,7 @@ void nlmon_print_rtnl(struct nlmon *nlmon, const struct timeval *tv,
 }
 
 void nlmon_print_genl(struct nlmon *nlmon, const struct timeval *tv,
-					const void *data, uint32_t size)
+					const void *data, int64_t size)
 {
 	const struct nlmsghdr *nlmsg;
 
@@ -8095,7 +8153,7 @@ static bool nlmon_receive(struct l_io *io, void *user_data)
 	unsigned char buf[8192];
 	unsigned char control[32];
 	ssize_t bytes_read;
-	uint32_t nlmsg_len;
+	int64_t nlmsg_len;
 	int fd;
 
 	fd = l_io_get_fd(io);
@@ -8152,9 +8210,7 @@ static bool nlmon_receive(struct l_io *io, void *user_data)
 		case NETLINK_ROUTE:
 			store_netlink(nlmon, tv, proto_type, nlmsg);
 
-			if (!nlmon->nortnl)
-				nlmon_print_rtnl(nlmon, tv, nlmsg,
-							nlmsg->nlmsg_len);
+			nlmon_print_rtnl(nlmon, tv, nlmsg, nlmsg->nlmsg_len);
 			break;
 		case NETLINK_GENERIC:
 			nlmon_message(nlmon, tv, tp, nlmsg);
@@ -8400,17 +8456,12 @@ struct nlmon *nlmon_open(const char *ifname, uint16_t id, const char *pathname,
 	} else
 		pcap = NULL;
 
-	nlmon = l_new(struct nlmon, 1);
 
-	nlmon->id = id;
+	nlmon = nlmon_create(id, config);
+
 	nlmon->io = io;
 	nlmon->pae_io = pae_io;
-	nlmon->req_list = l_queue_new();
 	nlmon->pcap = pcap;
-	nlmon->nortnl = config->nortnl;
-	nlmon->nowiphy = config->nowiphy;
-	nlmon->noscan = config->noscan;
-	nlmon->noies = config->noies;
 
 	l_io_set_read_handler(nlmon->io, nlmon_receive, nlmon, NULL);
 	l_io_set_read_handler(nlmon->pae_io, pae_receive, nlmon, NULL);

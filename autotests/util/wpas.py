@@ -72,7 +72,6 @@ class Wpas:
 
     def _check_event(self, event):
         if not event and len(self._rx_data) >= 1:
-            print("returning %s" % self._rx_data[0])
             return self._rx_data[0]
 
         for e in self._rx_data:

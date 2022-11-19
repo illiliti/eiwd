@@ -7,6 +7,7 @@ sys.path.append('../util')
 import iwd
 from iwd import IWD
 from iwd import PSKAgent
+from hostapd import HostapdCLI
 import testutil
 import time
 
@@ -67,11 +68,20 @@ class TestConnectionAfterHiddenNetwork(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        pass
+        cls.disabled = [HostapdCLI('ssidHiddenOpen.conf'),
+                        HostapdCLI('ssidHiddenWPA.conf'),
+                        HostapdCLI('ssidOverlap1.conf'),
+                        HostapdCLI('ssidOverlap2.conf')]
+
+        for hapd in cls.disabled:
+            hapd.disable()
 
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
+
+        for hapd in cls.disabled:
+            hapd.reload()
 
 if __name__ == '__main__':
     unittest.main(exit=True)

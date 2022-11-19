@@ -37,6 +37,9 @@
 #include "src/mpdu.h"
 #include "src/auth-proto.h"
 #include "src/sae.h"
+#include "src/module.h"
+
+static bool debug;
 
 /* SHA-512 is the highest supported hashing function as of 802.11-2020 */
 #define SAE_MAX_HASH_LEN 64
@@ -44,6 +47,12 @@
 #define SAE_RETRANSMIT_TIMEOUT	2
 #define SAE_SYNC_MAX		3
 #define SAE_MAX_ASSOC_RETRY	3
+
+#define sae_debug(fmat, ...) \
+({	\
+	if (debug) \
+		l_info("[SAE]: "fmat, ##__VA_ARGS__); \
+})
 
 enum sae_state {
 	SAE_STATE_NOTHING = 0,
@@ -154,7 +163,7 @@ static int sae_choose_next_group(struct sae_sm *sm)
 			return -ENOENT;
 		}
 
-		l_debug("Forcing default SAE group 19");
+		sae_debug("Forcing default SAE group 19");
 
 		sm->group_retry++;
 		sm->group = 19;
@@ -176,6 +185,8 @@ static int sae_choose_next_group(struct sae_sm *sm)
 	sm->group = ecc_groups[sm->group_retry];
 
 get_curve:
+	sae_debug("Using group %u", sm->group);
+
 	sm->curve = l_ecc_curve_from_ike_group(sm->group);
 
 	return 0;
@@ -326,6 +337,9 @@ static int sae_reject(struct sae_sm *sm, uint16_t transaction, uint16_t status)
 		l_put_u16(sm->group, ptr);
 		ptr += 2;
 	}
+
+	sae_debug("Rejecting exchange transaction=%u status=%u",
+			transaction, status);
 
 	sm->tx_auth(reject, ptr - reject, sm->user_data);
 
@@ -631,6 +645,9 @@ static bool sae_send_confirm(struct sae_sm *sm)
 	memcpy(ptr, confirm, r);
 	ptr += r;
 
+	sae_debug("Sending Confirm to "MAC" sc=%u",
+			MAC_STR(sm->handshake->aa), sm->sc);
+
 	sm->tx_auth(body, ptr - body, sm->user_data);
 	return true;
 }
@@ -827,6 +844,8 @@ static int sae_process_confirm(struct sae_sm *sm, const uint8_t *from,
 
 	sm->state = SAE_STATE_ACCEPTED;
 
+	sae_debug("Sending Associate to "MAC, MAC_STR(sm->handshake->aa));
+
 	sm->tx_assoc(sm->user_data);
 
 	return 0;
@@ -844,6 +863,8 @@ static bool sae_send_commit(struct sae_sm *sm, bool retry)
 	if (r < 0)
 		return false;
 
+	sae_debug("Sending Commit to "MAC, MAC_STR(hs->aa));
+
 	sm->tx_auth(commit, r, sm->user_data);
 
 	return true;
@@ -857,6 +878,8 @@ static bool sae_assoc_timeout(struct auth_proto *ap)
 		return false;
 
 	sm->assoc_retry++;
+
+	sae_debug("Retry Associate to "MAC, MAC_STR(sm->handshake->aa));
 
 	sm->tx_assoc(sm->user_data);
 
@@ -920,6 +943,8 @@ static int sae_process_anti_clogging(struct sae_sm *sm, const uint8_t *ptr,
 		l_error("anti-clogging token size invalid %zu", len);
 		return -EBADMSG;
 	}
+
+	sae_debug("Processed anti-clogging token");
 
 	l_free(sm->token);
 	sm->token = l_memdup(ptr, len);
@@ -1035,6 +1060,9 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 			sm->state = SAE_STATE_NOTHING;
 			goto reject_unsupp_group;
 		}
+
+		sae_debug("AP rejected group, trying again with group %u",
+				sm->group);
 
 		sm->sync = 0;
 		sae_send_commit(sm, false);
@@ -1297,8 +1325,6 @@ static int sae_verify_packet(struct sae_sm *sm, uint16_t trans,
 				uint16_t status, const uint8_t *frame,
 				size_t len)
 {
-	l_debug("rx trans=%u, state=%s", trans, sae_state_to_str(sm->state));
-
 	if (trans != SAE_STATE_COMMITTED && trans != SAE_STATE_CONFIRMED)
 		return -EBADMSG;
 
@@ -1324,16 +1350,23 @@ static int sae_rx_authenticate(struct auth_proto *ap,
 	const struct mmpdu_header *hdr = (const struct mmpdu_header *) frame;
 	const struct mmpdu_authentication *auth = mmpdu_body(hdr);
 	int ret;
+	uint16_t transaction = L_LE16_TO_CPU(auth->transaction_sequence);
+	uint16_t status = L_LE16_TO_CPU(auth->status);
+
+	sae_debug("Received frame transaction=%u status=%u state=%s",
+			transaction, status, sae_state_to_str(sm->state));
 
 	len -= mmpdu_header_len(hdr);
 
-	ret = sae_verify_packet(sm, L_LE16_TO_CPU(auth->transaction_sequence),
-					L_LE16_TO_CPU(auth->status),
-					auth->ies, len - 6);
-	if (ret != 0)
-		return ret;
+	ret = sae_verify_packet(sm, transaction, status, auth->ies, len - 6);
+	if (ret != 0) {
+		if (ret < 0 && ret != -EAGAIN)
+			sae_debug("Frame did not verify (%s)", strerror(-ret));
 
-	switch (L_LE16_TO_CPU(auth->transaction_sequence)) {
+		return ret;
+	}
+
+	switch (transaction) {
 	case SAE_STATE_COMMITTED:
 		return sae_process_commit(sm, hdr->address_2, auth->ies,
 						len - 6);
@@ -1341,8 +1374,7 @@ static int sae_rx_authenticate(struct auth_proto *ap,
 		return sae_process_confirm(sm, hdr->address_2, auth->ies,
 						len - 6);
 	default:
-		l_error("invalid transaction sequence %u",
-				L_LE16_TO_CPU(auth->transaction_sequence));
+		l_error("invalid transaction sequence %u", transaction);
 	}
 
 	/* should never get here */
@@ -1442,12 +1474,26 @@ struct auth_proto *sae_sm_new(struct handshake_state *hs,
 						hs->authenticator_rsnxe;
 
 	if (ie_rsnxe_capable(rsnxe, IE_RSNX_SAE_H2E) && hs->ecc_sae_pts) {
-		l_debug("Using SAE H2E");
+		sae_debug("Using SAE H2E");
 		sm->sae_type = CRYPTO_SAE_HASH_TO_ELEMENT;
 	} else {
-		l_debug("Using SAE Hunting and Pecking");
+		sae_debug("Using SAE Hunting and Pecking");
 		sm->sae_type = CRYPTO_SAE_LOOPING;
 	}
 
 	return &sm->ap;
 }
+
+static int sae_init(void)
+{
+	if (getenv("IWD_SAE_DEBUG"))
+		debug = true;
+
+	return 0;
+}
+
+static void sae_exit(void)
+{
+}
+
+IWD_MODULE(sae, sae_init, sae_exit);

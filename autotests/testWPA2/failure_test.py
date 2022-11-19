@@ -13,7 +13,7 @@ import testutil
 class Test(unittest.TestCase):
 
     def test_connection_success(self):
-        wd = IWD()
+        wd = IWD(True)
 
         psk_agent = PSKAgent("InvalidPassword")
         wd.register_psk_agent(psk_agent)
@@ -22,7 +22,7 @@ class Test(unittest.TestCase):
         self.assertIsNotNone(devices)
         device = devices[0]
 
-        ordered_network = device.get_ordered_network('ssidCCMP')
+        ordered_network = device.get_ordered_network('ssidWPA2')
 
         self.assertEqual(ordered_network.type, NetworkType.psk)
 

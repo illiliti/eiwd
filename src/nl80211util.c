@@ -139,6 +139,17 @@ static bool extract_nested(const void *data, uint16_t len, void *o)
 	return true;
 }
 
+static bool extract_u8(const void *data, uint16_t len, void *o)
+{
+	uint8_t *out = o;
+
+	if (len != 1)
+		return false;
+
+	*out = l_get_u8(data);
+	return true;
+}
+
 static attr_handler handler_for_type(enum nl80211_attrs type)
 {
 	switch (type) {
@@ -146,6 +157,7 @@ static attr_handler handler_for_type(enum nl80211_attrs type)
 		return extract_ifindex;
 	case NL80211_ATTR_WIPHY:
 	case NL80211_ATTR_IFTYPE:
+	case NL80211_ATTR_KEY_TYPE:
 		return extract_uint32;
 	case NL80211_ATTR_WDEV:
 	case NL80211_ATTR_COOKIE:
@@ -170,6 +182,8 @@ static attr_handler handler_for_type(enum nl80211_attrs type)
 		return extract_iovec;
 	case NL80211_ATTR_WIPHY_BANDS:
 		return extract_nested;
+	case NL80211_ATTR_KEY_IDX:
+		return extract_u8;
 	default:
 		break;
 	}
@@ -431,6 +445,7 @@ const void *nl80211_parse_get_key_seq(struct l_genl_msg *msg)
 }
 
 struct l_genl_msg *nl80211_build_cmd_frame(uint32_t ifindex,
+						uint16_t frame_type,
 						const uint8_t *addr,
 						const uint8_t *to,
 						uint32_t freq,
@@ -439,18 +454,17 @@ struct l_genl_msg *nl80211_build_cmd_frame(uint32_t ifindex,
 {
 	struct l_genl_msg *msg;
 	struct iovec iovs[iov_len + 1];
-	const uint16_t frame_type = 0x00d0;
-	uint8_t action_frame[24];
+	uint8_t hdr[24];
 
-	memset(action_frame, 0, 24);
+	memset(hdr, 0, 24);
 
-	l_put_le16(frame_type, action_frame + 0);
-	memcpy(action_frame + 4, to, 6);
-	memcpy(action_frame + 10, addr, 6);
-	memcpy(action_frame + 16, to, 6);
+	l_put_le16(frame_type, hdr + 0);
+	memcpy(hdr + 4, to, 6);
+	memcpy(hdr + 10, addr, 6);
+	memcpy(hdr + 16, to, 6);
 
-	iovs[0].iov_base = action_frame;
-	iovs[0].iov_len = sizeof(action_frame);
+	iovs[0].iov_base = hdr;
+	iovs[0].iov_len = sizeof(hdr);
 	memcpy(iovs + 1, iov, sizeof(*iov) * iov_len);
 
 	msg = l_genl_msg_new_sized(NL80211_CMD_FRAME, 128 + 512);

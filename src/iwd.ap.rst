@@ -82,6 +82,21 @@ configuration.
        Processed passphrase for this network in the form of a hex-encoded
        32-byte pre-shared key.  Either this or *Passphrase* must be present.
 
+   * - PairwiseCiphers
+     - Comma separated list of pairwise ciphers for the AP supports.
+
+       Values can include: TKIP, CCMP, GCMP, GCMP-256, CCMP-256
+
+       The underlying hardware and IWD's AP implementation must also support the
+       ciphers listed
+
+   * - GroupCipher
+     - Group cipher the AP uses
+
+       A single cipher value the AP can use as the group cipher. Values are the
+       same as pairwise ciphers and the same restrictions apply (hardware and
+       IWD implementation must support the cipher)
+
 IPv4 Network Configuration
 --------------------------
 

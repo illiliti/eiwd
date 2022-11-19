@@ -92,6 +92,8 @@ static void arc4_skip_test(const void *data)
 
 	assert(arc4_skip(test->key, 16, test->offset, buf, sizeof(buf), buf));
 	assert(!memcmp(buf, test->result, sizeof(buf)));
+	assert(arc4_skip(test->key, 16, test->offset, buf, sizeof(buf), buf));
+	assert(l_memeqzero(buf, 16));
 }
 
 int main(int argc, char *argv[])

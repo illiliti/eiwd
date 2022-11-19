@@ -32,8 +32,15 @@ typedef void (*frame_xchg_cb_t)(int err, void *user_data);
 typedef void (*frame_xchg_destroy_func_t)(void *user_data);
 
 struct frame_xchg_prefix {
+	uint16_t frame_type;
 	const uint8_t *data;
 	size_t len;
+};
+
+enum frame_xchg_group {
+	FRAME_GROUP_DEFAULT = 0,
+	FRAME_GROUP_P2P_LISTEN,
+	FRAME_GROUP_P2P_CONNECT,
 };
 
 bool frame_watch_add(uint64_t wdev_id, uint32_t group, uint16_t frame_type,

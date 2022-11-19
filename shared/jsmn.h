@@ -45,10 +45,10 @@ extern "C" {
  */
 typedef enum {
   JSMN_UNDEFINED = 0,
-  JSMN_OBJECT = 1,
-  JSMN_ARRAY = 2,
-  JSMN_STRING = 3,
-  JSMN_PRIMITIVE = 4
+  JSMN_OBJECT = 1 << 0,
+  JSMN_ARRAY = 1 << 1,
+  JSMN_STRING = 1 << 2,
+  JSMN_PRIMITIVE = 1 << 3
 } jsmntype_t;
 
 enum jsmnerr {
@@ -66,7 +66,7 @@ enum jsmnerr {
  * start	start position in JSON data string
  * end		end position in JSON data string
  */
-typedef struct {
+typedef struct jsmntok {
   jsmntype_t type;
   int start;
   int end;
@@ -80,7 +80,7 @@ typedef struct {
  * JSON parser. Contains an array of token blocks available. Also stores
  * the string being parsed now and current position in that string.
  */
-typedef struct {
+typedef struct jsmn_parser {
   unsigned int pos;     /* offset in the JSON string */
   unsigned int toknext; /* next token to allocate */
   int toksuper;         /* superior token node, e.g. parent object or array */
@@ -154,6 +154,9 @@ static int jsmn_parse_primitive(jsmn_parser *parser, const char *js,
     case ']':
     case '}':
       goto found;
+    default:
+                   /* to quiet a warning from gcc*/
+      break;
     }
     if (js[parser->pos] < 32 || js[parser->pos] >= 127) {
       parser->pos = start;
@@ -193,10 +196,10 @@ static int jsmn_parse_string(jsmn_parser *parser, const char *js,
   jsmntok_t *token;
 
   int start = parser->pos;
-
-  parser->pos++;
-
+  
   /* Skip starting quote */
+  parser->pos++;
+  
   for (; parser->pos < len && js[parser->pos] != '\0'; parser->pos++) {
     char c = js[parser->pos];
 

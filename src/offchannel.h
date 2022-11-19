@@ -23,7 +23,7 @@
 typedef void (*offchannel_started_cb_t)(void *user_data);
 typedef void (*offchannel_destroy_cb_t)(int error, void *user_data);
 
-uint32_t offchannel_start(uint64_t wdev_id, uint32_t freq, uint32_t duration,
-			offchannel_started_cb_t started, void *user_data,
-			offchannel_destroy_cb_t destroy);
+uint32_t offchannel_start(uint64_t wdev_id, int priority, uint32_t freq,
+			uint32_t duration, offchannel_started_cb_t started,
+			void *user_data, offchannel_destroy_cb_t destroy);
 void offchannel_cancel(uint64_t wdev_id, uint32_t id);

@@ -50,6 +50,7 @@ enum netdev_event {
 	NETDEV_EVENT_RSSI_THRESHOLD_HIGH,
 	NETDEV_EVENT_RSSI_LEVEL_NOTIFY,
 	NETDEV_EVENT_PACKET_LOSS_NOTIFY,
+	NETDEV_EVENT_FT_ROAMED,
 };
 
 enum netdev_watch_event {
@@ -165,16 +166,7 @@ int netdev_reassociate(struct netdev *netdev,
 			struct handshake_state *hs,
 			netdev_event_func_t event_filter,
 			netdev_connect_cb_t cb, void *user_data);
-int netdev_fast_transition(struct netdev *netdev,
-				const struct scan_bss *target_bss,
-				const struct scan_bss *orig_bss,
-				netdev_connect_cb_t cb);
-int netdev_fast_transition_over_ds_action(struct netdev *netdev,
-					const struct scan_bss *target_bss);
-int netdev_fast_transition_over_ds(struct netdev *netdev,
-					const struct scan_bss *target_bss,
-					const struct scan_bss *orig_bss,
-					netdev_connect_cb_t cb);
+
 int netdev_preauthenticate(struct netdev *netdev,
 				const struct scan_bss *target_bss,
 				netdev_preauthenticate_cb_t cb,

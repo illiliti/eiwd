@@ -30,6 +30,9 @@
 
 #include "src/json.h"
 
+#define JSMN_STATIC
+#define JSMN_STRICT
+#define JSMN_PARENT_LINKS
 #include "shared/jsmn.h"
 
 /* Max number of tokens supported. Increase if larger objects are expected */

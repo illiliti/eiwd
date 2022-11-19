@@ -299,6 +299,69 @@ class DeviceProvisioning(IWDDBusAbstract):
     def role(self):
         return self._properties['Role']
 
+class AccessPointDevice(IWDDBusAbstract):
+    '''
+        Class represents net.connman.iwd.AccessPoint
+    '''
+    _iface_name = IWD_AP_INTERFACE
+
+    def start(self, ssid, psk):
+        self._iface.Start(ssid, psk, reply_handler=self._success,
+                                        error_handler=self._failure)
+        self._wait_for_async_op()
+
+        IWD._wait_for_object_condition(self, 'obj.started == True')
+
+    def start_profile(self, ssid):
+        self._iface.StartProfile(ssid, reply_handler=self._success,
+                                        error_handler=self._failure)
+        self._wait_for_async_op()
+
+        IWD._wait_for_object_condition(self, 'obj.started == True')
+
+    def stop(self):
+        self._iface.Stop(reply_handler=self._success,
+                            error_handler=self._failure)
+        self._wait_for_async_op()
+
+        IWD._wait_for_object_condition(self, 'obj.started == False')
+
+    def scan(self):
+        self._iface.Scan(reply_handler=self._success,
+                                        error_handler=self._failure)
+        self._wait_for_async_op()
+
+        IWD._wait_for_object_condition(self, 'obj.scanning == True')
+        IWD._wait_for_object_condition(self, 'obj.scanning == False')
+
+    def get_ordered_networks(self):
+        return self._iface.GetOrderedNetworks()
+
+    @property
+    def started(self):
+        return self._properties['Started']
+
+    @property
+    def name(self):
+        return self._properties['Name']
+
+    @property
+    def scanning(self):
+        return self._properties['Scanning']
+
+    @property
+    def frequency(self):
+        return self._properties['Frequency']
+
+    @property
+    def pairwise_ciphers(self):
+        return self._properties['PairwiseCiphers']
+
+    @property
+    def group_cipher(self):
+        return self._properties['GroupCipher']
+
+
 class Device(IWDDBusAbstract):
     '''
         Class represents a network device object: net.connman.iwd.Device
@@ -312,6 +375,7 @@ class Device(IWDDBusAbstract):
         self._station_props = None
         self._station_debug_obj = None
         self._dpp_obj = None
+        self._ap_obj = None
 
         IWDDBusAbstract.__init__(self, *args, **kwargs)
 
@@ -353,6 +417,17 @@ class Device(IWDDBusAbstract):
                                                     namespace=self._namespace)
 
         return self._station_debug_obj
+
+    @property
+    def _ap(self):
+        if self._properties['Mode'] != 'ap':
+            self._prop_proxy.Set(IWD_DEVICE_INTERFACE, 'Mode', 'ap')
+
+        if self._ap_obj is None:
+            self._ap_obj = AccessPointDevice(object_path=self._object_path,
+                                                namespace=self._namespace)
+
+        return self._ap_obj
 
     def _station_properties(self):
         if self._station_props is not None:
@@ -446,13 +521,16 @@ class Device(IWDDBusAbstract):
     def scanning(self):
         '''
         Reflects whether the device is currently scanning
-        for networks.  net.connman.iwd.Network objects are
-        updated when this property goes from true to false.
+        for networks.  For station devices net.connman.iwd.Network
+        objects are updated when this property goes from true to false
 
         @rtype: boolean
         '''
-        props = self._station_properties()
-        return bool(props['Scanning'])
+        if self._properties['Mode'] == 'station':
+            props = self._station_properties()
+            return bool(props['Scanning'])
+        else:
+            return bool(self._ap.scanning)
 
     @property
     def autoconnect(self):
@@ -469,12 +547,14 @@ class Device(IWDDBusAbstract):
            Possible exception: BusyEx
                                FailedEx
         '''
-        self._iface.Scan(dbus_interface=IWD_STATION_INTERFACE,
+        if self._properties['Mode'] == 'station':
+            self._iface.Scan(dbus_interface=IWD_STATION_INTERFACE,
                                reply_handler=self._success,
                                error_handler=self._failure)
-
-        if wait:
-            self._wait_for_async_op()
+            if wait:
+                self._wait_for_async_op()
+        else:
+            self._ap.scan()
 
     def disconnect(self):
         '''Disconnect from the network
@@ -501,6 +581,9 @@ class Device(IWDDBusAbstract):
            groups the maximum relative signal-strength is the
            main sorting factor.
         '''
+        if self._properties['Mode'] == 'ap':
+            return self._ap.get_ordered_networks()
+
         ordered_networks = []
         if not full_scan:
             for bus_obj in self._station.GetOrderedNetworks():
@@ -519,7 +602,8 @@ class Device(IWDDBusAbstract):
         IWD._wait_for_object_condition(self, condition)
 
         try:
-            if full_scan:
+            # Do a full scan if instructed or if hostapd isn't being used
+            if full_scan or not ctx.hostapd:
                 self.scan()
             else:
                 self.debug_scan(ctx.get_frequencies())
@@ -604,19 +688,29 @@ class Device(IWDDBusAbstract):
         except Exception as e:
             raise _convert_dbus_ex(e)
 
-        self._ap_iface = dbus.Interface(self._bus.get_object(IWD_SERVICE,
-                                            self.device_path),
-                                            IWD_AP_INTERFACE)
         if psk:
-            self._ap_iface.Start(ssid, psk, reply_handler=self._success,
-                                    error_handler=self._failure)
+            self._ap.start(ssid, psk)
         else:
-            self._ap_iface.StartProfile(ssid, reply_handler=self._success,
-                                    error_handler=self._failure)
-        self._wait_for_async_op()
+            self._ap.start_profile(ssid)
 
     def stop_ap(self):
         self._prop_proxy.Set(IWD_DEVICE_INTERFACE, 'Mode', 'station')
+
+        IWD._wait_for_object_condition(self, "obj._properties['Mode'] == 'station'")
+
+    @property
+    def group_cipher(self):
+        if self._properties['Mode'] != 'ap':
+            raise Exception('group_cipher only supported in AP mode')
+
+        return self._ap.group_cipher
+
+    @property
+    def pairwise_ciphers(self):
+        if self._properties['Mode'] != 'ap':
+            raise Exception('pairwise_cipher only supported in AP mode')
+
+        return self._ap.pairwise_ciphers
 
     def connect_hidden_network(self, name):
         '''Connect to a hidden network
@@ -689,14 +783,17 @@ class Device(IWDDBusAbstract):
         return self._device_provisioning.stop()
 
     def __str__(self, prefix = ''):
-        return prefix + 'Device: ' + self.device_path + '\n'\
+        s = prefix + 'Device: ' + self.device_path + '\n'\
                + prefix + '\tName:\t\t' + self.name + '\n'\
-               + prefix + '\tAddress:\t' + self.address + '\n'\
-               + prefix + '\tState:\t\t' + str(self.state) + '\n'\
+               + prefix + '\tAddress:\t' + self.address + '\n' \
                + prefix + '\tPowered:\t' + str(self.powered) + '\n'\
-               + prefix + '\tConnected net:\t' + str(self.connected_network) +\
-                                                                            '\n'
+               + prefix + '\tMode:\t\t' + self._properties['Mode'] + '\n'
 
+        if self._properties['Mode'] == 'station':
+            s += prefix + '\tState:\t\t' + str(self.state) + '\n'\
+               + prefix + '\tConnected net:\t' + str(self.connected_network) + '\n'
+
+        return s
 
 class Network(IWDDBusAbstract):
     '''Class represents a network object: net.connman.iwd.Network'''
@@ -1160,7 +1257,7 @@ class IWD(AsyncOpAbstract):
 
     def wait_for_object_change(self, obj, from_str, to_str, max_wait = 50):
         '''
-            Expects condition 'from_str' to evaluate true while waiting for 'to_str'. If
+            Wait for 'from_str' to evaluate true then waits for 'to_str'. If
             at any point during the wait 'from_str' evaluates false, an exception is
             raised.
 
@@ -1180,9 +1277,8 @@ class IWD(AsyncOpAbstract):
 
             return False
 
-        # Does initial condition pass?
-        if not eval(from_str):
-            raise Exception("initial condition [%s] not met" % from_str)
+        # wait for initial condition
+        self._wait_for_object_condition(obj, from_str)
 
         ctx.non_block_wait(_eval_from_to, max_wait, obj, from_str, to_str,
                             exception=TimeoutError('[' + to_str + ']'\

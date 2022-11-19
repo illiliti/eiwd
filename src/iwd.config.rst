@@ -206,6 +206,16 @@ The group ``[General]`` contains general settings.
        required are LoadCredentialEncrypted or SetCredentialEncrypted, and the
        secret identifier should be named whatever SystemdEncrypt is set to.
 
+   * - Country
+     - Value: Country Code (ISO Alpha-2)
+
+       Requests the country be set for the system. Note that setting this is
+       simply a **request** to set the country, and does not guarantee the
+       country will be set. For a self-managed wiphy it is never possible to set
+       the country from userspace. For other devices any regulatory domain
+       request is just a 'hint' and ultimately left up to the kernel to set the
+       country.
+
 Network
 -------
 
@@ -218,7 +228,7 @@ The group ``[Network]`` contains network configuration related settings.
    :align: left
 
    * - EnableIPv6
-     - Values: true, **false**
+     - Values: **true**, false
 
        Sets the global default that tells **iwd** whether it should configure
        IPv6 addresses and routes (either provided via static settings,
@@ -299,6 +309,13 @@ autoconnect purposes.
        preferred due to their increase throughput / data rate.  However, 5GHz
        networks are highly RSSI sensitive, so it is still possible for IWD to
        prefer 2.4Ghz APs in certain circumstances.
+
+   * - BandModifier6Ghz
+     - Values: floating point value (default: **1.0**)
+
+       Increase or decrease the preference for 6GHz access points by increasing
+       or decreasing the value of this modifier.  Since 6GHz networks are highly
+       RSSI sensitive, this gives an option to prefer 6GHz APs over 5GHz APs.
 
 Scan
 ----

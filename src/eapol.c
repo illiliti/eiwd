@@ -390,11 +390,31 @@ static int eapol_encrypt_key_data(const uint8_t *kek, uint8_t *key_data,
 				size_t key_data_len,
 				struct eapol_key *out_frame, size_t mic_len)
 {
+	uint8_t key[32];
+	bool ret;
+
 	switch (out_frame->key_descriptor_version) {
 	case EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_MD5_ARC4:
-		/* Not supported */
-		return -ENOTSUP;
+		/*
+		 * Not following the spec to generate the IV. The spec outlines
+		 * a procedure where a 32 byte buffer is held and incremented
+		 * each time nonces are created, and the IV comes from this
+		 * buffer. In the end randomizing the IV every time should be
+		 * just as good. This is how we handle the GTK in AP mode.
+		 */
+		l_getrandom(out_frame->eapol_key_iv, 16);
 
+		memcpy(key, out_frame->eapol_key_iv, 16);
+		memcpy(key + 16, kek, 16);
+
+		ret = arc4_skip(key, 32, 256, key_data, key_data_len,
+				EAPOL_KEY_DATA(out_frame, mic_len));
+		explicit_bzero(key, sizeof(key));
+
+		if (!ret)
+			return -ENOTSUP;
+
+		break;
 	case EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_SHA1_AES:
 	case EAPOL_KEY_DESCRIPTOR_VERSION_AES_128_CMAC_AES:
 		if (key_data_len < 16 || key_data_len % 8)
@@ -1062,6 +1082,7 @@ static void eapol_send_ptk_1_of_4(struct eapol_sm *sm)
 	enum crypto_cipher cipher = ie_rsn_cipher_suite_to_cipher(
 				sm->handshake->pairwise_cipher);
 	uint8_t pmkid[16];
+	uint8_t key_descriptor_version;
 
 	handshake_state_new_anonce(sm->handshake);
 
@@ -1073,8 +1094,11 @@ static void eapol_send_ptk_1_of_4(struct eapol_sm *sm)
 	ek->header.protocol_version = sm->protocol_version;
 	ek->header.packet_type = 0x3;
 	ek->descriptor_type = EAPOL_DESCRIPTOR_TYPE_80211;
-	/* Must be HMAC-SHA1-128 + AES when using CCMP with PSK or 8021X */
-	ek->key_descriptor_version = EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_SHA1_AES;
+	L_WARN_ON(eapol_key_descriptor_version_from_akm(
+				sm->handshake->akm_suite,
+				sm->handshake->pairwise_cipher,
+				&key_descriptor_version) < 0);
+	ek->key_descriptor_version = key_descriptor_version;
 	ek->key_type = true;
 	ek->key_ack = true;
 	ek->key_length = L_CPU_TO_BE16(crypto_cipher_key_len(cipher));
@@ -1358,6 +1382,7 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 				sm->handshake->group_cipher);
 	const uint8_t *kck;
 	const uint8_t *kek;
+	uint8_t key_descriptor_version;
 
 	sm->replay_counter++;
 
@@ -1365,8 +1390,11 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 	ek->header.protocol_version = sm->protocol_version;
 	ek->header.packet_type = 0x3;
 	ek->descriptor_type = EAPOL_DESCRIPTOR_TYPE_80211;
-	/* Must be HMAC-SHA1-128 + AES when using CCMP with PSK or 8021X */
-	ek->key_descriptor_version = EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_SHA1_AES;
+	L_WARN_ON(eapol_key_descriptor_version_from_akm(
+				sm->handshake->akm_suite,
+				sm->handshake->pairwise_cipher,
+				&key_descriptor_version) < 0);
+	ek->key_descriptor_version = key_descriptor_version;
 	ek->key_type = true;
 	ek->install = true;
 	ek->key_ack = true;
@@ -2238,12 +2266,14 @@ static void eapol_key_handle(struct eapol_sm *sm,
 				const struct eapol_frame *frame,
 				bool unencrypted)
 {
+	struct handshake_state *hs = sm->handshake;
 	const struct eapol_key *ek;
 	const uint8_t *kck;
 	const uint8_t *kek;
 	uint8_t *decrypted_key_data = NULL;
 	size_t key_data_len = 0;
 	uint64_t replay_counter;
+	uint8_t expected_key_descriptor_version;
 
 	ek = eapol_key_validate((const uint8_t *) frame,
 				sizeof(struct eapol_header) +
@@ -2256,11 +2286,19 @@ static void eapol_key_handle(struct eapol_sm *sm,
 	if (!ek->key_ack)
 		return;
 
-	/* Further Descriptor Type check */
-	if (!sm->handshake->wpa_ie &&
-			ek->descriptor_type != EAPOL_DESCRIPTOR_TYPE_80211)
+	if (L_WARN_ON(eapol_key_descriptor_version_from_akm(hs->akm_suite,
+				hs->pairwise_cipher,
+				&expected_key_descriptor_version) < 0))
 		return;
-	else if (sm->handshake->wpa_ie &&
+
+	if (L_WARN_ON(expected_key_descriptor_version !=
+				ek->key_descriptor_version))
+		return;
+
+	/* Further Descriptor Type check */
+	if (!hs->wpa_ie && ek->descriptor_type != EAPOL_DESCRIPTOR_TYPE_80211)
+		return;
+	else if (hs->wpa_ie &&
 			ek->descriptor_type != EAPOL_DESCRIPTOR_TYPE_WPA)
 		return;
 
@@ -2293,31 +2331,30 @@ static void eapol_key_handle(struct eapol_sm *sm,
 	if (sm->have_replay && sm->replay_counter >= replay_counter)
 		return;
 
-	kck = handshake_state_get_kck(sm->handshake);
+	kck = handshake_state_get_kck(hs);
 
 	if (ek->key_mic) {
 		/* Haven't received step 1 yet, so no ptk */
-		if (!sm->handshake->have_snonce)
+		if (!hs->have_snonce)
 			return;
 
-		if (!eapol_verify_mic(sm->handshake->akm_suite, kck, ek,
-					sm->mic_len))
+		if (!eapol_verify_mic(hs->akm_suite, kck, ek, sm->mic_len))
 			return;
 	}
 
-	if ((ek->encrypted_key_data && !sm->handshake->wpa_ie) ||
-			(ek->key_type == 0 && sm->handshake->wpa_ie)) {
+	if ((ek->encrypted_key_data && !hs->wpa_ie) ||
+			(ek->key_type == 0 && hs->wpa_ie)) {
 		/*
 		 * If using a MIC (non-FILS) but haven't received step 1 yet
 		 * we disregard since there will be no ptk
 		 */
-		if (sm->mic_len && !sm->handshake->have_snonce)
+		if (sm->mic_len && !hs->have_snonce)
 			return;
 
-		kek = handshake_state_get_kek(sm->handshake);
+		kek = handshake_state_get_kek(hs);
 
 		decrypted_key_data = eapol_decrypt_key_data(
-					sm->handshake->akm_suite, kek,
+					hs->akm_suite, kek,
 					ek, &key_data_len, sm->mic_len);
 		if (!decrypted_key_data)
 			return;
@@ -2326,11 +2363,10 @@ static void eapol_key_handle(struct eapol_sm *sm,
 
 	if (ek->key_type == 0) {
 		/* GTK handshake allowed only after PTK handshake complete */
-		if (!sm->handshake->ptk_complete)
+		if (!hs->ptk_complete)
 			goto done;
 
-		if (sm->handshake->group_cipher ==
-				IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC)
+		if (hs->group_cipher == IE_RSN_CIPHER_SUITE_NO_GROUP_TRAFFIC)
 			goto done;
 
 		if (!decrypted_key_data)
@@ -2734,6 +2770,8 @@ void eapol_register(struct eapol_sm *sm)
 bool eapol_start(struct eapol_sm *sm)
 {
 	if (sm->handshake->settings_8021x) {
+		_auto_(l_free) char *network_id = NULL;
+
 		sm->eap = eap_new(eapol_eap_msg_cb, eapol_eap_complete_cb, sm);
 
 		if (!sm->eap)
@@ -2749,6 +2787,10 @@ bool eapol_start(struct eapol_sm *sm)
 
 		eap_set_key_material_func(sm->eap, eapol_eap_results_cb);
 		eap_set_event_func(sm->eap, eapol_eap_event_cb);
+
+		network_id = l_util_hexstring(sm->handshake->ssid,
+						sm->handshake->ssid_len);
+		eap_set_peer_id(sm->eap, network_id);
 	}
 
 	sm->started = true;

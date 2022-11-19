@@ -8,6 +8,7 @@ import iwd
 import validation
 from validation import TestHiddenNetworks
 from iwd import IWD
+from hostapd import HostapdCLI
 
 class TestWpaNetwork(unittest.TestCase):
     '''
@@ -34,9 +35,19 @@ class TestWpaNetwork(unittest.TestCase):
     def setUpClass(cls):
         IWD.copy_to_storage('ssidAlreadyKnown.open')
 
+        cls.disabled = [HostapdCLI('ssidHiddenOpen.conf'),
+                        HostapdCLI('ssidHiddenWPA.conf'),
+                        HostapdCLI('ssidSomeHidden.conf')]
+
+        for hapd in cls.disabled:
+            hapd.disable()
+
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()
+
+        for hapd in cls.disabled:
+            hapd.reload()
 
 if __name__ == '__main__':
     unittest.main(exit=True)

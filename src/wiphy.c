@@ -138,6 +138,7 @@ struct wiphy {
 	bool blacklisted : 1;
 	bool registered : 1;
 	bool self_managed : 1;
+	bool ap_probe_resp_offload : 1;
 };
 
 static struct l_queue *wiphy_list = NULL;
@@ -149,17 +150,39 @@ enum ie_rsn_cipher_suite wiphy_select_cipher(struct wiphy *wiphy, uint16_t mask)
 
 	mask &= wiphy->supported_ciphers;
 
-	/* CCMP is our first choice, TKIP second */
+	if (mask & IE_RSN_CIPHER_SUITE_GCMP_256)
+		return IE_RSN_CIPHER_SUITE_GCMP_256;
+
+	if (mask & IE_RSN_CIPHER_SUITE_CCMP_256)
+		return IE_RSN_CIPHER_SUITE_CCMP_256;
+
+	if (mask & IE_RSN_CIPHER_SUITE_GCMP)
+		return IE_RSN_CIPHER_SUITE_GCMP;
+
 	if (mask & IE_RSN_CIPHER_SUITE_CCMP)
 		return IE_RSN_CIPHER_SUITE_CCMP;
 
 	if (mask & IE_RSN_CIPHER_SUITE_TKIP)
 		return IE_RSN_CIPHER_SUITE_TKIP;
 
-	if (mask & IE_RSN_CIPHER_SUITE_BIP)
-		return IE_RSN_CIPHER_SUITE_BIP;
+	if (mask & IE_RSN_CIPHER_SUITE_BIP_GMAC_256)
+		return IE_RSN_CIPHER_SUITE_BIP_GMAC_256;
+
+	if (mask & IE_RSN_CIPHER_SUITE_BIP_CMAC_256)
+		return IE_RSN_CIPHER_SUITE_BIP_CMAC_256;
+
+	if (mask & IE_RSN_CIPHER_SUITE_BIP_GMAC)
+		return IE_RSN_CIPHER_SUITE_BIP_GMAC;
+
+	if (mask & IE_RSN_CIPHER_SUITE_BIP_CMAC)
+		return IE_RSN_CIPHER_SUITE_BIP_CMAC;
 
 	return 0;
+}
+
+uint16_t wiphy_get_supported_ciphers(struct wiphy *wiphy, uint16_t mask)
+{
+	return wiphy->supported_ciphers & mask;
 }
 
 static bool wiphy_can_connect_sae(struct wiphy *wiphy)
@@ -177,7 +200,7 @@ static bool wiphy_can_connect_sae(struct wiphy *wiphy)
 	 * WPA3 Specification version 3, Section 2.3:
 	 * A STA shall negotiate PMF when associating to an AP using SAE
 	 */
-	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP)) {
+	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP_CMAC)) {
 		l_debug("HW not MFP capable, can't use SAE");
 		return false;
 	}
@@ -473,6 +496,11 @@ const struct scan_freq_set *wiphy_get_disabled_freqs(const struct wiphy *wiphy)
 	return wiphy->disabled_freqs;
 }
 
+bool wiphy_supports_probe_resp_offload(struct wiphy *wiphy)
+{
+	return wiphy->ap_probe_resp_offload;
+}
+
 bool wiphy_can_transition_disable(struct wiphy *wiphy)
 {
 	/*
@@ -482,7 +510,7 @@ bool wiphy_can_transition_disable(struct wiphy *wiphy)
 	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_CCMP))
 		return false;
 
-	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP))
+	if (!(wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP_CMAC))
 		return false;
 
 	return true;
@@ -1114,7 +1142,7 @@ static void wiphy_print_band_info(struct band *band, const char *name)
 
 static void wiphy_print_basic_info(struct wiphy *wiphy)
 {
-	char buf[1024];
+	char buf[2048];
 
 	l_info("Wiphy: %d, Name: %s", wiphy->id, wiphy->name);
 	l_info("\tPermanent Address: "MAC, MAC_STR(wiphy->permanent_addr));
@@ -1129,18 +1157,33 @@ static void wiphy_print_basic_info(struct wiphy *wiphy)
 		wiphy_print_band_info(wiphy->band_6g, "6GHz Band");
 
 	if (wiphy->supported_ciphers) {
-		int len = 0;
+		int n = 0;
+		size_t len = 0;
+		int i = sizeof(wiphy->supported_ciphers) * 8 - 1;
 
-		len += sprintf(buf + len, "\tCiphers:");
+		len += snprintf(buf, sizeof(buf), "\tCiphers:");
 
-		if (wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_CCMP)
-			len += sprintf(buf + len, " CCMP");
+		for (; i >= 0 && len < sizeof(buf); i--) {
+			typeof(wiphy->supported_ciphers) cipher = 1 << i;
+			const char *str;
 
-		if (wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_TKIP)
-			len += sprintf(buf + len, " TKIP");
+			if (cipher == IE_RSN_CIPHER_SUITE_WEP40 ||
+					cipher == IE_RSN_CIPHER_SUITE_WEP104)
+				continue;
 
-		if (wiphy->supported_ciphers & IE_RSN_CIPHER_SUITE_BIP)
-			len += sprintf(buf + len, " BIP");
+			if (!(wiphy->supported_ciphers & cipher))
+				continue;
+
+			str = ie_rsn_cipher_suite_to_string(cipher);
+			if (!str)
+				continue;
+
+			len += snprintf(buf + len, sizeof(buf) - len, "%s%s",
+					!n || (n % 4) ? " " : "\n\t\t ",
+					str);
+
+			n += 1;
+		}
 
 		l_info("%s", buf);
 	}
@@ -1209,8 +1252,32 @@ static void parse_supported_ciphers(struct wiphy *wiphy, const void *data,
 		case CRYPTO_CIPHER_WEP104:
 			wiphy->supported_ciphers |= IE_RSN_CIPHER_SUITE_WEP104;
 			break;
-		case CRYPTO_CIPHER_BIP:
-			wiphy->supported_ciphers |= IE_RSN_CIPHER_SUITE_BIP;
+		case CRYPTO_CIPHER_BIP_CMAC:
+			wiphy->supported_ciphers |=
+				IE_RSN_CIPHER_SUITE_BIP_CMAC;
+			break;
+		case CRYPTO_CIPHER_GCMP:
+			wiphy->supported_ciphers |= IE_RSN_CIPHER_SUITE_GCMP;
+			break;
+		case CRYPTO_CIPHER_GCMP_256:
+			wiphy->supported_ciphers |=
+				IE_RSN_CIPHER_SUITE_GCMP_256;
+			break;
+		case CRYPTO_CIPHER_CCMP_256:
+			wiphy->supported_ciphers |=
+				IE_RSN_CIPHER_SUITE_CCMP_256;
+			break;
+		case CRYPTO_CIPHER_BIP_GMAC:
+			wiphy->supported_ciphers |=
+				IE_RSN_CIPHER_SUITE_BIP_GMAC;
+			break;
+		case CRYPTO_CIPHER_BIP_GMAC_256:
+			wiphy->supported_ciphers |=
+				IE_RSN_CIPHER_SUITE_BIP_GMAC_256;
+			break;
+		case CRYPTO_CIPHER_BIP_CMAC_256:
+			wiphy->supported_ciphers |=
+				IE_RSN_CIPHER_SUITE_BIP_CMAC_256;
 			break;
 		default:	/* TODO: Support other ciphers */
 			break;
@@ -1643,6 +1710,9 @@ static void wiphy_parse_attributes(struct wiphy *wiphy,
 			break;
 		case NL80211_ATTR_WIPHY_SELF_MANAGED_REG:
 			wiphy->self_managed = true;
+			break;
+		case NL80211_ATTR_PROBE_RESP_OFFLOAD:
+			wiphy->ap_probe_resp_offload = true;
 			break;
 		}
 	}

@@ -48,9 +48,6 @@ class Test(unittest.TestCase):
 
         device.roam(bss1_addr)
 
-        condition = 'obj.state == DeviceState.roaming'
-        wd.wait_for_object_condition(device, condition)
-
         # TODO: verify that the PMK from preauthentication was used
 
         # Check that iwd is on BSS 1 once out of roaming state and doesn't

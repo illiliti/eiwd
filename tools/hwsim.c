@@ -175,7 +175,13 @@ static const uint32_t hwsim_supported_ciphers[] = {
 	CRYPTO_CIPHER_WEP104,
 	CRYPTO_CIPHER_TKIP,
 	CRYPTO_CIPHER_CCMP,
-	CRYPTO_CIPHER_BIP,
+	CRYPTO_CIPHER_BIP_CMAC,
+	CRYPTO_CIPHER_GCMP,
+	CRYPTO_CIPHER_GCMP_256,
+	CRYPTO_CIPHER_CCMP_256,
+	CRYPTO_CIPHER_BIP_GMAC,
+	CRYPTO_CIPHER_BIP_GMAC_256,
+	CRYPTO_CIPHER_BIP_CMAC_256,
 };
 static uint32_t hwsim_ciphers[L_ARRAY_SIZE(hwsim_supported_ciphers)];
 static int hwsim_num_ciphers = 0;
@@ -196,7 +202,13 @@ static const struct hwsim_support cipher_map[] = {
 	{ "wep104", CRYPTO_CIPHER_WEP104 },
 	{ "tkip", CRYPTO_CIPHER_TKIP },
 	{ "ccmp", CRYPTO_CIPHER_CCMP },
-	{ "bip", CRYPTO_CIPHER_BIP },
+	{ "bip_cmac", CRYPTO_CIPHER_BIP_CMAC },
+	{ "gcmp", CRYPTO_CIPHER_GCMP },
+	{ "gcmp_256", CRYPTO_CIPHER_GCMP_256 },
+	{ "ccmp_256", CRYPTO_CIPHER_CCMP_256 },
+	{ "bip_gmac", CRYPTO_CIPHER_BIP_GMAC },
+	{ "bip_gmac_256", CRYPTO_CIPHER_BIP_GMAC_256 },
+	{ "bip_cmac_256", CRYPTO_CIPHER_BIP_CMAC_256 },
 	{ }
 };
 
@@ -1204,7 +1216,7 @@ static void process_rules(const struct radio_info_rec *src_radio,
 		struct hwsim_rule *rule = rule_entry->data;
 
 		if (!rule->enabled)
-			return;
+			continue;
 
 		if (!rule->source_any &&
 				!radio_match_addr(src_radio, rule->source) &&

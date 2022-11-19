@@ -217,15 +217,9 @@ static void display_station(const char *device_name,
 			47, network_get_name(station->connected_network));
 
 		display_addresses(device_name);
-
-		/*
-		 * If connected the diagnostic interface is presumably up so
-		 * don't add the table footer just yet.
-		 */
-		return;
 	}
 
-	display_table_footer();
+	/* The table footer is handled by cmd_show. */
 }
 
 static void display_station_inline(const char *margin, const void *data)

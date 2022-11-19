@@ -54,6 +54,7 @@
 
 /* User configurable options */
 static double RANK_5G_FACTOR;
+static double RANK_6G_FACTOR;
 static uint32_t SCAN_MAX_INTERVAL;
 static uint32_t SCAN_INIT_INTERVAL;
 
@@ -1645,9 +1646,13 @@ static void scan_bss_compute_rank(struct scan_bss *bss)
 
 	rank = (double)bss->data_rate / max_rate * USHRT_MAX;
 
-	/* Prefer 5G/6G networks over 2.4G */
-	if (bss->frequency > 4000)
+	/* Prefer 5G networks over 2.4G and 6G */
+	if (bss->frequency >= 4900 && bss->frequency < 5900)
 		rank *= RANK_5G_FACTOR;
+
+	/* Prefer 6G networks over 2.4G and 5G */
+	if (bss->frequency >= 5900 && bss->frequency < 7200)
+		rank *= RANK_6G_FACTOR;
 
 	/* Rank loaded APs lower and lightly loaded APs higher */
 	if (bss->utilization >= 192)
@@ -2039,6 +2044,33 @@ static void scan_parse_result_frequencies(struct l_genl_msg *msg,
 	}
 }
 
+static void scan_retry_pending(uint32_t wiphy_id)
+{
+	const struct l_queue_entry *entry;
+
+	l_debug("");
+
+	for (entry = l_queue_get_entries(scan_contexts); entry;
+						entry = entry->next) {
+		struct scan_context *sc = entry->data;
+		struct scan_request *sr = l_queue_peek_head(sc->requests);
+
+		if (wiphy_get_id(sc->wiphy) != wiphy_id)
+			continue;
+
+		if (!sr)
+			continue;
+
+		if (!wiphy_radio_work_is_running(sc->wiphy, sr->work.id))
+			continue;
+
+		sc->state = SCAN_STATE_NOT_RUNNING;
+		start_next_scan_request(&sr->work);
+
+		return;
+	}
+}
+
 static void scan_notify(struct l_genl_msg *msg, void *user_data)
 {
 	struct l_genl_attr attr;
@@ -2060,8 +2092,17 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 		return;
 
 	sc = l_queue_find(scan_contexts, scan_context_match, &wdev_id);
-	if (!sc)
+	if (!sc) {
+		/*
+		 * If the event is for an unmanaged device, retry pending scan
+		 * requests on the same wiphy.
+		 */
+		if (cmd == NL80211_CMD_NEW_SCAN_RESULTS ||
+		    cmd == NL80211_CMD_SCAN_ABORTED)
+			scan_retry_pending(wiphy_id);
+
 		return;
+	}
 
 	l_debug("Scan notification %s(%u)", nl80211cmd_to_string(cmd), cmd);
 
@@ -2342,6 +2383,10 @@ static int scan_init(void)
 	if (!l_settings_get_double(config, "Rank", "BandModifier5Ghz",
 					&RANK_5G_FACTOR))
 		RANK_5G_FACTOR = 1.0;
+
+	if (!l_settings_get_double(config, "Rank", "BandModifier6Ghz",
+					&RANK_6G_FACTOR))
+		RANK_6G_FACTOR = 1.0;
 
 	if (!l_settings_get_uint(config, "Scan", "InitialPeriodicScanInterval",
 					&SCAN_INIT_INTERVAL))

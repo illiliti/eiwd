@@ -37,6 +37,14 @@ def dbg(*s, **kwargs):
 	'''
 	print(*s, **kwargs, file=sys.__stdout__)
 
+def write_results(file, results):
+	with open(file, 'w') as f:
+		for test, results in results.items():
+			if results.failures != 0 or results.errors != 0:
+				f.write('%s:FAIL\n' % test)
+			else:
+				f.write('%s:PASS\n' % test)
+
 def exit_vm():
 	if config:
 		for p in Process.get_all():
@@ -45,13 +53,9 @@ def exit_vm():
 
 		if config.ctx and config.ctx.results:
 			success = print_results(config.ctx.results)
-		else:
-			success = False
 
-		if config.ctx.args.result:
-			result = 'PASS' if success else 'FAIL'
-			with open(config.ctx.args.result, 'w') as f:
-				f.write(result)
+			if config.ctx.args.result:
+				write_results(config.ctx.args.result, config.ctx.results)
 
 	os.sync()
 

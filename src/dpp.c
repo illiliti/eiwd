@@ -1622,6 +1622,7 @@ static void dpp_start_offchannel(struct dpp_sm *dpp, uint32_t freq)
 	 * called).
 	 */
 	uint32_t id = offchannel_start(netdev_get_wdev_id(dpp->netdev),
+				WIPHY_WORK_PRIORITY_OFFCHANNEL,
 				freq, dpp->dwell, dpp_roc_started,
 				dpp, dpp_presence_timeout);
 

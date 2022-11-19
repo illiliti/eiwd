@@ -1,5 +1,6 @@
 [Unit]
 Description=Ethernet service
+Documentation=man:ead(8)
 After=network-pre.target
 Before=network.target
 Wants=network.target

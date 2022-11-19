@@ -194,7 +194,7 @@ static bool rrm_send_response(struct rrm_state *rrm,
 	iov.iov_base = (void *)frame;
 	iov.iov_len = len;
 
-	msg = nl80211_build_cmd_frame(rrm->ifindex, own_addr, bss->addr,
+	msg = nl80211_build_cmd_frame(rrm->ifindex, 0x00d0, own_addr, bss->addr,
 					bss->frequency, &iov, 1);
 
 	if (!l_genl_family_send(nl80211, msg, rrm_send_response_cb,
@@ -443,6 +443,9 @@ static void rrm_handle_beacon_scan(struct rrm_state *rrm,
 	freq = band_channel_to_freq(beacon->channel, band);
 	scan_freq_set_add(freqs, freq);
 
+	if (!wiphy_constrain_freq_set(wiphy_find_by_wdev(rrm->wdev_id), freqs))
+		goto free_freqs;
+
 	if (passive)
 		beacon->scan_id = scan_passive_full(rrm->wdev_id, &params,
 						rrm_scan_triggered,
@@ -454,12 +457,13 @@ static void rrm_handle_beacon_scan(struct rrm_state *rrm,
 						rrm_scan_results, rrm,
 						NULL);
 
+free_freqs:
 	scan_freq_set_free(freqs);
 
-	if (beacon->scan_id == 0) {
-		rrm_info_destroy(&beacon->info);
-		rrm->pending = NULL;
-	}
+	if (beacon->scan_id)
+		return;
+
+	rrm_reject_measurement_request(rrm, REPORT_REJECT_INCAPABLE);
 }
 
 static bool rrm_verify_beacon_request(const uint8_t *request, size_t len)

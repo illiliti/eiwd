@@ -59,6 +59,7 @@ struct eap_state {
 	char *identity;
 	char *identity_setting;
 	bool authenticator;
+	char *peer_id;
 
 	int last_id;
 	void *method_state;
@@ -154,6 +155,7 @@ void eap_free(struct eap_state *eap)
 
 	eap_free_common(eap);
 	l_timeout_remove(eap->complete_timeout);
+	eap_set_peer_id(eap, NULL);
 
 	l_free(eap);
 }
@@ -835,6 +837,17 @@ err:
 	eap_free_common(eap);
 
 	return false;
+}
+
+void eap_set_peer_id(struct eap_state *eap, const char *id)
+{
+	l_free(eap->peer_id);
+	eap->peer_id = l_strdup(id);
+}
+
+const char *eap_get_peer_id(struct eap_state *eap)
+{
+	return eap->peer_id;
 }
 
 void eap_set_data(struct eap_state *eap, void *data)

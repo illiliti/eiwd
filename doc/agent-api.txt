@@ -145,50 +145,121 @@ Methods		void Release() [noreply]
 			agent, because when this method gets called it has
 			already been unregistered.
 
-		void ConfigureIPv4(object device, string interface, dict config)
+		void ConfigureIPv4(object device, dict config)
 
-			This method gets called during a connection setup
-			when a new set of IPv4 configuration values is to
-			be written to a network interface.  The connection
-			is aborted if the method call returns an error or
-			times out.  The 'config' dictionary (a{sv}) maps
-			string keys to values of types defined per key.
+			This method gets called during connection setup
+			and later while the connection is operational
+			whenever a new set of IPv4 configuration values is to
+			be written to a network interface.  The connection is
+			aborted if the method call returns an error or times
+			out.
 
-			The following key/value pairs are used, but more
+			In case of a station-mode connection, the 'device'
+			parameter points at an object with a
+			net.connman.iwd.Device interface whose Name property
+			contains the name of network interface.  In case of a
+			P2P connection, the object will have
+			a net.connman.iwd.p2p.Peer interface whose
+			ConnectectedInterface property contains the name of
+			the target network interface.
+
+			The 'config' dictionary (a{sv}) maps string keys to
+			values of types defined per key.  Each call receives
+			the full set of values which supersede those from
+			previous calls.
+
+			The following key/value pairs are defined, but more
 			may be added in future versions.
 
 			string Method - Indicates whether the local address
 			was set statically (value "static") or obtained
 			automatically such as through DHCP (value "auto").
-			Even when the address was obtained from the remote
+			Even when addresses were obtained from the remote
 			end some configuration bits, such as DNS addresses,
 			may have been overridden locally.
 
-			string Address - Local IP address string.
+			array(dict) Addresses - Local IP addresses.  Each
+			address is described by a set of key/value properties
+			as documented further down.
 
-			byte PrefixLength - Holds the prefix-length of the
-			local subnet.  For IPv4 this maps to the netmask.
-
-			string Gateway [optional] - Local subnet's gateway
-			address if one exists.
+			array(dict) Routes - Routes for on-link and off-link
+			prefixes/subnets and default routers.  Each route is
+			described by a set of key/value properties as
+			documented further down.
 
 			array(string) DomainNameServers [optional] - Holds
-			the list of DNS addresses configured if any exist.
+			the list of DNS server addresses configured if any
+			exist.
 
 			array(string) DomainNames [optional] - Holds the
 			network's local domain names if any exist.
 
-			Possible Errors: net.connman.iwd.Agent.Error.Canceled
+			string MDNS [optional] - One of "true", "false" and
+			"resolve".  Controls whether Multicast DNS support is
+			to be enabled on the link.  When set to "resolve",
+			only resolution is enabled, but not host or service
+			registration and announcement (see systemd.network(5).)
 
-		void ConfigureIPv6(object device, string interface, dict config)
+			The following properties are defined for local
+			addresses, but more may be added in the future:
+
+			string Address - Holds the IP address string.
+
+			byte PrefixLength [optional] - Prefix length
+			associated with the address's subnet (IPv4 only).
+
+			string Broadcast [optional] - Broadcast address
+			associated with the address's subnet (IPv4 only).
+
+			uint32 ValidLifetime [optional] - Remaining validity
+			and ownership time for this address assignment/lease,
+			in seconds at the time of the method call.
+			If absent the address doesn't expire.
+
+			uint32 PreferredLifetime [optional] - Number of
+			seconds left at the time of the method call for this
+			address to be preferred over other addresses.
+
+			The following properties are defined for routes,
+			but more may be added in the future:
+
+			string, byte Destination [optional] - Holds the
+			route's destination IP prefix string and the prefix
+			length in bits.  Absent for default routes.
+
+			string Router [optional] - Holds the router's IP
+			address.  Absent for on-link routes.
+
+			string PreferredSource [optional] - Route source IP
+			address.
+
+			uint32 Lifetime [optional] - Remaining route validity
+			time in seconds at the time of the method call.
+			If absent the route doesn't expire.
+
+			uint32 Priority - Relative route priority.
+
+			byte Preference [optional] - ICMPv6 route preference:
+			0 for medium, 1 for high and 3 for low.
+
+			uint32 MTU [optional] - Router MTU.
+
+			Possible Errors: net.connman.iwd.Agent.Error.Canceled
+					 net.connman.iwd.Agent.Error.Failed
+
+		void ConfigureIPv6(object device, dict config)
 
 			Same as ConfigureIPv4 above but for IPv6.
 
-		void Cancel(object device, string interface,
-						string reason) [noreply]
+		void CancelIPv4(object device, string reason) [noreply]
 
-			This method gets called to indicate that the connection
-			request failed before a reply was returned.  The
-			argument will indicate why the request is being
-			cancelled and may be "out-of-range", "user-canceled",
-			"timed-out" or "shutdown".
+			This method gets called to indicate that the network
+			configuration was aborted before a reply was received
+			for an ongoing ConfigureIPv4 or ConfigureIPv6 call.
+			The last argument will indicate why the request is being
+			cancelled and may be one of: "aborted", "superseded",
+			"timed-out".
+
+		void CancelIPv6(object device, string reason) [noreply]
+
+			Same as CancelIPv4 above but for IPv6.

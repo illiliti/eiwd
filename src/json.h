@@ -27,10 +27,10 @@ struct json_iter;
  */
 enum json_type {
 	JSON_UNDEFINED = 0,
-	JSON_OBJECT = 1,
-	JSON_ARRAY = 2,
-	JSON_STRING = 3,
-	JSON_PRIMITIVE = 4
+	JSON_OBJECT = 1 << 0,
+	JSON_ARRAY = 1 << 1,
+	JSON_STRING = 1 << 2,
+	JSON_PRIMITIVE = 1 << 3,
 };
 
 enum json_flag {

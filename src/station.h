@@ -42,7 +42,9 @@ enum station_state {
 	STATION_STATE_CONNECTING_AUTO,
 	STATION_STATE_CONNECTED,
 	STATION_STATE_DISCONNECTING,
-	STATION_STATE_ROAMING
+	STATION_STATE_ROAMING,		/* Reassociation */
+	STATION_STATE_FT_ROAMING,	/* Fast transition */
+	STATION_STATE_FW_ROAMING,	/* Firmware roamed by itself */
 };
 
 enum station_event {

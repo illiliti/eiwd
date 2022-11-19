@@ -449,6 +449,9 @@ class Namespace:
 		if Process.is_verbose('iwd-rtnl'):
 			env['IWD_RTNL_DEBUG'] = '1'
 
+		if Process.is_verbose('iwd-sae'):
+			env['IWD_SAE_DEBUG'] = '1'
+
 		proc = self.start_process(args, env=env)
 
 		proc.wait_for_service(self, 'net.connman.iwd', 20)

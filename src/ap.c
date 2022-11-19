@@ -699,7 +699,7 @@ static size_t ap_write_wsc_ie(struct ap_state *ap,
 	size_t len = 0;
 
 	/* WSC IE */
-	if (type == MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE) {
+	if (type == MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE && client_frame) {
 		const uint8_t *from = client_frame->address_2;
 		struct wsc_probe_response wsc_pr = {};
 		const struct mmpdu_probe_request *req =
@@ -2416,6 +2416,8 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff
 	};
 
+	static const uint8_t zero_addr[6] = { 0 };
+
 	for (i = 0, nl_ciphers_cnt = 0; i < 8; i++)
 		if (ap->ciphers & (1 << i))
 			nl_ciphers[nl_ciphers_cnt++] =
@@ -2457,6 +2459,21 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_AUTH_TYPE, 4, &auth_type);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_WIPHY_FREQ, 4, &ch_freq);
 	l_genl_msg_append_attr(cmd, NL80211_ATTR_CHANNEL_WIDTH, 4, &ch_width);
+
+	if (wiphy_supports_probe_resp_offload(wiphy)) {
+		uint8_t probe_resp[head_len + tail_len];
+		uint8_t *ptr = probe_resp;
+
+		ptr += ap_build_beacon_pr_head(ap,
+					MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE,
+					zero_addr, ptr, sizeof(probe_resp));
+		ptr += ap_build_beacon_pr_tail(ap,
+					MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE,
+					NULL, 0, ptr);
+
+		l_genl_msg_append_attr(cmd, NL80211_ATTR_PROBE_RESP,
+					ptr - probe_resp, probe_resp);
+	}
 
 	if (wiphy_has_ext_feature(wiphy,
 			NL80211_EXT_FEATURE_CONTROL_PORT_OVER_NL80211)) {
@@ -3115,12 +3132,54 @@ static bool ap_load_psk(struct ap_state *ap, const struct l_settings *config)
 	return true;
 }
 
+/*
+ * Note: only PTK/GTK ciphers are supported here since this is all these are
+ *       used for.
+ */
+static enum ie_rsn_cipher_suite ap_string_to_cipher(const char *str)
+{
+	if (!strcmp(str, "UseGroupCipher"))
+		return IE_RSN_CIPHER_SUITE_USE_GROUP_CIPHER;
+	else if (!strcmp(str, "TKIP"))
+		return IE_RSN_CIPHER_SUITE_TKIP;
+	else if (!strcmp(str, "CCMP-128") || !strcmp(str, "CCMP"))
+		return IE_RSN_CIPHER_SUITE_CCMP;
+	else if (!strcmp(str, "GCMP-128") || !strcmp(str, "GCMP"))
+		return IE_RSN_CIPHER_SUITE_GCMP;
+	else if (!strcmp(str, "GCMP-256"))
+		return IE_RSN_CIPHER_SUITE_GCMP_256;
+	else if (!strcmp(str, "CCMP-256"))
+		return IE_RSN_CIPHER_SUITE_CCMP_256;
+	else
+		return 0;
+}
+
+static char **ap_ciphers_to_strv(uint16_t ciphers)
+{
+	uint16_t i;
+	char **list = l_strv_new();
+
+	for (i = 0; i < 16; i++) {
+		if (!(ciphers & (1 << i)))
+			continue;
+
+		list = l_strv_append(list,
+					ie_rsn_cipher_suite_to_string(1 << i));
+	}
+
+	return list;
+}
+
 static int ap_load_config(struct ap_state *ap, const struct l_settings *config,
 				bool *out_cck_rates)
 {
+	struct wiphy *wiphy = netdev_get_wiphy(ap->netdev);
 	size_t len;
 	L_AUTO_FREE_VAR(char *, strval) = NULL;
+	_auto_(l_strv_free) char **ciphers_str = NULL;
+	uint16_t cipher_mask;
 	int err;
+	int i;
 
 	strval = l_settings_get_string(config, "General", "SSID");
 	if (L_WARN_ON(!strval))
@@ -3195,6 +3254,8 @@ static int ap_load_config(struct ap_state *ap, const struct l_settings *config,
 			l_error("AP [WSC].PrimaryDeviceType format unknown");
 			return -EINVAL;
 		}
+
+		l_free(l_steal_ptr(strval));
 	} else {
 		/* Make ourselves a WFA standard PC by default */
 		ap->wsc_primary_device_type.category = 1;
@@ -3243,6 +3304,61 @@ static int ap_load_config(struct ap_state *ap, const struct l_settings *config,
 	} else
 		*out_cck_rates = true;
 
+	cipher_mask = wiphy_get_supported_ciphers(wiphy, IE_GROUP_CIPHERS);
+
+	/* If the config sets a group cipher use that directly */
+	strval = l_settings_get_string(config, "Security", "GroupCipher");
+	if (strval) {
+		enum ie_rsn_cipher_suite cipher = ap_string_to_cipher(strval);
+
+		if (!cipher || !(cipher & cipher_mask)) {
+			l_error("Unsupported or unknown group cipher %s",
+					strval);
+			return -ENOTSUP;
+		}
+
+		ap->group_cipher = cipher;
+		l_free(l_steal_ptr(strval));
+	} else {
+		/* No config override, use CCMP (or TKIP if not supported) */
+		if (cipher_mask & IE_RSN_CIPHER_SUITE_CCMP)
+			ap->group_cipher = IE_RSN_CIPHER_SUITE_CCMP;
+		else
+			ap->group_cipher = IE_RSN_CIPHER_SUITE_TKIP;
+	}
+
+	cipher_mask = wiphy_get_supported_ciphers(wiphy, IE_PAIRWISE_CIPHERS);
+
+	ciphers_str = l_settings_get_string_list(config, "Security",
+						"PairwiseCiphers", ',');
+	for (i = 0; ciphers_str && ciphers_str[i]; i++) {
+		enum ie_rsn_cipher_suite cipher =
+					ap_string_to_cipher(ciphers_str[i]);
+
+		/*
+		 * Constrain list to only values in both supported ciphers and
+		 * the cipher list provided.
+		 */
+		if (!cipher || !(cipher & cipher_mask)) {
+			l_error("Unsupported or unknown pairwise cipher %s",
+					ciphers_str[i]);
+			return -ENOTSUP;
+		}
+
+		ap->ciphers |= cipher;
+	}
+
+	if (!ap->ciphers) {
+		/*
+		 * Default behavior if no ciphers are specified, disable TKIP
+		 * for security if CCMP is available
+		 */
+		if (cipher_mask & IE_RSN_CIPHER_SUITE_CCMP)
+			cipher_mask &= ~IE_RSN_CIPHER_SUITE_TKIP;
+
+		ap->ciphers = cipher_mask;
+	}
+
 	return 0;
 }
 
@@ -3285,9 +3401,6 @@ struct ap_state *ap_start(struct netdev *netdev, struct l_settings *config,
 
 	err = -EINVAL;
 
-	/* TODO: Add all ciphers supported by wiphy */
-	ap->ciphers = wiphy_select_cipher(wiphy, 0xffff);
-	ap->group_cipher = wiphy_select_cipher(wiphy, 0xffff);
 	ap->beacon_interval = 100;
 	ap->networks = l_queue_new();
 
@@ -3321,10 +3434,12 @@ struct ap_state *ap_start(struct netdev *netdev, struct l_settings *config,
 			NULL, 0, ap_reassoc_req_cb, ap, NULL))
 		goto error;
 
-	if (!frame_watch_add(wdev_id, 0, 0x0000 |
+	if (!wiphy_supports_probe_resp_offload(wiphy)) {
+		if (!frame_watch_add(wdev_id, 0, 0x0000 |
 				(MPDU_MANAGEMENT_SUBTYPE_PROBE_REQUEST << 4),
 				NULL, 0, ap_probe_req_cb, ap, NULL))
-		goto error;
+			goto error;
+	}
 
 	if (!frame_watch_add(wdev_id, 0, 0x0000 |
 				(MPDU_MANAGEMENT_SUBTYPE_DISASSOCIATION << 4),
@@ -3554,6 +3669,28 @@ struct ap_if_data {
 	struct l_dbus_message *pending;
 };
 
+static void ap_properties_changed(struct ap_if_data *ap_if)
+{
+	l_dbus_property_changed(dbus_get_bus(),
+				netdev_get_path(ap_if->netdev),
+				IWD_AP_INTERFACE, "Started");
+	l_dbus_property_changed(dbus_get_bus(),
+				netdev_get_path(ap_if->netdev),
+				IWD_AP_INTERFACE, "Name");
+	l_dbus_property_changed(dbus_get_bus(),
+				netdev_get_path(ap_if->netdev),
+				IWD_AP_INTERFACE, "Frequency");
+	l_dbus_property_changed(dbus_get_bus(),
+				netdev_get_path(ap_if->netdev),
+				IWD_AP_INTERFACE, "PairwiseCiphers");
+	l_dbus_property_changed(dbus_get_bus(),
+				netdev_get_path(ap_if->netdev),
+				IWD_AP_INTERFACE, "GroupCipher");
+	l_dbus_property_changed(dbus_get_bus(),
+				netdev_get_path(ap_if->netdev),
+				IWD_AP_INTERFACE, "Scanning");
+}
+
 static void ap_if_event_func(enum ap_event_type type, const void *event_data,
 				void *user_data)
 {
@@ -3585,12 +3722,8 @@ static void ap_if_event_func(enum ap_event_type type, const void *event_data,
 
 		reply = l_dbus_message_new_method_return(ap_if->pending);
 		dbus_pending_reply(&ap_if->pending, reply);
-		l_dbus_property_changed(dbus_get_bus(),
-					netdev_get_path(ap_if->netdev),
-					IWD_AP_INTERFACE, "Started");
-		l_dbus_property_changed(dbus_get_bus(),
-					netdev_get_path(ap_if->netdev),
-					IWD_AP_INTERFACE, "Name");
+
+		ap_properties_changed(ap_if);
 
 		l_rtnl_set_linkmode_and_operstate(rtnl,
 					netdev_get_ifindex(ap_if->netdev),
@@ -3603,12 +3736,7 @@ static void ap_if_event_func(enum ap_event_type type, const void *event_data,
 						netdev_get_path(ap_if->netdev),
 						IWD_AP_DIAGNOSTIC_INTERFACE);
 
-		l_dbus_property_changed(dbus_get_bus(),
-					netdev_get_path(ap_if->netdev),
-					IWD_AP_INTERFACE, "Started");
-		l_dbus_property_changed(dbus_get_bus(),
-					netdev_get_path(ap_if->netdev),
-					IWD_AP_INTERFACE, "Name");
+		ap_properties_changed(ap_if);
 
 		l_rtnl_set_linkmode_and_operstate(rtnl,
 					netdev_get_ifindex(ap_if->netdev),
@@ -3941,6 +4069,70 @@ static bool ap_dbus_property_get_scanning(struct l_dbus *dbus,
 	return true;
 }
 
+static bool ap_dbus_property_get_freq(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct ap_if_data *ap_if = user_data;
+	uint32_t freq;
+
+	if (!ap_if->ap || !ap_if->ap->started)
+		return false;
+
+	freq = band_channel_to_freq(ap_if->ap->channel, BAND_FREQ_2_4_GHZ);
+
+	l_dbus_message_builder_append_basic(builder, 'u', &freq);
+
+	return true;
+}
+
+static bool ap_dbus_property_get_pairwise(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct ap_if_data *ap_if = user_data;
+	char **ciphers;
+	size_t i;
+
+	if (!ap_if->ap || !ap_if->ap->started)
+		return false;
+
+	ciphers = ap_ciphers_to_strv(ap_if->ap->ciphers);
+
+	l_dbus_message_builder_enter_array(builder, "s");
+
+	for (i = 0; ciphers[i]; i++)
+		l_dbus_message_builder_append_basic(builder, 's', ciphers[i]);
+
+	l_dbus_message_builder_leave_array(builder);
+
+	l_strv_free(ciphers);
+
+	return true;
+}
+
+static bool ap_dbus_property_get_group(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct ap_if_data *ap_if = user_data;
+	char **cipher;
+
+	if (!ap_if->ap || !ap_if->ap->started)
+		return false;
+
+	cipher = ap_ciphers_to_strv(ap_if->ap->group_cipher);
+
+	/* Group cipher will only ever be a single value */
+	l_dbus_message_builder_append_basic(builder, 's', cipher[0]);
+	l_strv_free(cipher);
+
+	return true;
+}
+
 static void ap_setup_interface(struct l_dbus_interface *interface)
 {
 	l_dbus_interface_method(interface, "Start", 0, ap_dbus_start, "",
@@ -3960,6 +4152,12 @@ static void ap_setup_interface(struct l_dbus_interface *interface)
 					ap_dbus_property_get_name, NULL);
 	l_dbus_interface_property(interface, "Scanning", 0, "b",
 					ap_dbus_property_get_scanning, NULL);
+	l_dbus_interface_property(interface, "Frequency", 0, "u",
+					ap_dbus_property_get_freq, NULL);
+	l_dbus_interface_property(interface, "PairwiseCiphers", 0, "as",
+					ap_dbus_property_get_pairwise, NULL);
+	l_dbus_interface_property(interface, "GroupCipher", 0, "s",
+					ap_dbus_property_get_group, NULL);
 }
 
 static void ap_destroy_interface(void *user_data)
@@ -4128,32 +4326,14 @@ static int ap_init(void)
 	 * [General].EnableNetworkConfiguration is true.
 	 */
 	if (netconfig_enabled()) {
-		if (l_settings_get_value(settings, "IPv4", "APAddressPool")) {
-			global_addr4_strs = l_settings_get_string_list(settings,
-								"IPv4",
-								"APAddressPool",
-								',');
-			if (!global_addr4_strs || !*global_addr4_strs) {
-				l_error("Can't parse the [IPv4].APAddressPool "
+		global_addr4_strs =
+			l_settings_get_string_list(settings, "IPv4",
+							"APAddressPool", ',');
+		if (global_addr4_strs && !global_addr4_strs[0]) {
+			l_error("Can't parse the [IPv4].APAddressPool "
 					"setting as a string list");
-				l_strv_free(global_addr4_strs);
-				global_addr4_strs = NULL;
-			}
-		} else if (l_settings_get_value(settings,
-						"General", "APRanges")) {
-			l_warn("The [General].APRanges setting is deprecated, "
-				"use [IPv4].APAddressPool instead");
-
-			global_addr4_strs = l_settings_get_string_list(settings,
-								"General",
-								"APRanges",
-								',');
-			if (!global_addr4_strs || !*global_addr4_strs) {
-				l_error("Can't parse the [General].APRanges "
-					"setting as a string list");
-				l_strv_free(global_addr4_strs);
-				global_addr4_strs = NULL;
-			}
+			l_strv_free(global_addr4_strs);
+			global_addr4_strs = NULL;
 		}
 
 		/* Fall back to 192.168.0.0/16 */

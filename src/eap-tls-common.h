@@ -20,6 +20,9 @@
  *
  */
 
+typedef struct l_settings *(*eap_tls_session_cache_load_func_t)(void);
+typedef void (*eap_tls_session_cache_sync_func_t)(const struct l_settings *);
+
 enum eap_tls_version {
 	EAP_TLS_VERSION_0               = 0x00,
 	EAP_TLS_VERSION_1               = 0x01,
@@ -81,3 +84,7 @@ bool eap_tls_common_tunnel_prf_get_bytes(struct eap_state *eap,
 void eap_tls_common_tunnel_send(struct eap_state *eap, const uint8_t *data,
 							size_t data_len);
 void eap_tls_common_tunnel_close(struct eap_state *eap);
+
+void eap_tls_set_session_cache_ops(eap_tls_session_cache_load_func_t load,
+					eap_tls_session_cache_sync_func_t sync);
+void eap_tls_forget_peer(const char *peer_id);

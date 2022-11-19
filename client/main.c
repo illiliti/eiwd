@@ -25,6 +25,7 @@
 #endif
 
 #include <errno.h>
+#include <locale.h>
 #include <signal.h>
 #include <ell/ell.h>
 
@@ -49,6 +50,8 @@ static void signal_handler(uint32_t signo, void *user_data)
 int main(int argc, char *argv[])
 {
 	bool all_done;
+
+	setlocale(LC_CTYPE, "");
 
 	if (!l_main_init())
 		return EXIT_FAILURE;

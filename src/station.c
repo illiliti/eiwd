@@ -59,6 +59,10 @@
 #include "src/frame-xchg.h"
 #include "src/sysfs.h"
 #include "src/band.h"
+#include "src/ft.h"
+#include "src/eap.h"
+#include "src/eap-tls-common.h"
+#include "src/storage.h"
 
 static struct l_queue *station_list;
 static uint32_t netdev_watch;
@@ -68,6 +72,7 @@ static bool anqp_disabled;
 static bool supports_arp_evict_nocarrier;
 static bool supports_ndisc_evict_nocarrier;
 static struct watchlist event_watches;
+static uint32_t known_networks_watch;
 
 struct station {
 	enum station_state state;
@@ -107,12 +112,15 @@ struct station {
 
 	/* Set of frequencies to scan first when attempting a roam */
 	struct scan_freq_set *roam_freqs;
+	struct l_queue *roam_bss_list;
 
 	/* Frequencies split into subsets by priority */
 	struct scan_freq_set *scan_freqs_order[3];
 	unsigned int dbus_scan_subset_idx;
 
 	uint32_t wiphy_watch;
+
+	struct wiphy_radio_work_item ft_work;
 
 	bool preparing_roam : 1;
 	bool roam_scan_full : 1;
@@ -128,6 +136,39 @@ struct anqp_entry {
 	struct network *network;
 	uint32_t pending;
 };
+
+/*
+ * Used as entries for the roam list since holding scan_bss pointers directly
+ * from station->bss_list is not 100% safe due to the possibility of the
+ * hardware scanning and overwriting station->bss_list.
+ */
+struct roam_bss {
+	uint8_t addr[6];
+	uint16_t rank;
+	int32_t signal_strength;
+};
+
+static struct roam_bss *roam_bss_from_scan_bss(const struct scan_bss *bss)
+{
+	struct roam_bss *rbss = l_new(struct roam_bss, 1);
+
+	memcpy(rbss->addr, bss->addr, 6);
+	rbss->rank = bss->rank;
+	rbss->signal_strength = bss->signal_strength;
+
+	return rbss;
+}
+
+static int roam_bss_rank_compare(const void *a, const void *b, void *user_data)
+{
+	const struct roam_bss *new_bss = a, *bss = b;
+
+	if (bss->rank == new_bss->rank)
+		return (bss->signal_strength >
+					new_bss->signal_strength) ? 1 : -1;
+
+	return (bss->rank > new_bss->rank) ? 1 : -1;
+}
 
 struct wiphy *station_get_wiphy(struct station *station)
 {
@@ -146,18 +187,22 @@ struct network *station_get_connected_network(struct station *station)
 
 bool station_is_busy(struct station *station)
 {
-	if (station->state != STATION_STATE_DISCONNECTED &&
+	return station->state != STATION_STATE_DISCONNECTED &&
 			station->state != STATION_STATE_AUTOCONNECT_FULL &&
-			station->state != STATION_STATE_AUTOCONNECT_QUICK)
-		return true;
-
-	return false;
+			station->state != STATION_STATE_AUTOCONNECT_QUICK;
 }
 
 static bool station_is_autoconnecting(struct station *station)
 {
 	return station->state == STATION_STATE_AUTOCONNECT_FULL ||
 			station->state == STATION_STATE_AUTOCONNECT_QUICK;
+}
+
+static bool station_is_roaming(struct station *station)
+{
+	return station->state == STATION_STATE_ROAMING ||
+			station->state == STATION_STATE_FT_ROAMING ||
+			station->state == STATION_STATE_FW_ROAMING;
 }
 
 static bool station_debug_event(struct station *station, const char *name)
@@ -1112,9 +1157,15 @@ build_ie:
 	 * seen that they do not include the OCI in the 4-way handshake yet
 	 * still advertise the capability. Because of this OCV is disabled if
 	 * any offload features are detected (since IWD prefers to use offload).
+	 *
+	 * TODO: For now OCV is disabled if the network is FT capable. This is
+	 *       being done until support in the kernel is added to
+	 *       automatically include the OCI element for the association
+	 *       request.
 	 */
 	info.ocvc = !disable_ocv && bss_info.ocvc && info.mfpc &&
-			!wiphy_can_offload(wiphy);
+			!wiphy_can_offload(wiphy) &&
+			!IE_AKM_IS_FT(info.akm_suites);
 
 	/*
 	 * IEEE 802.11-2020 9.4.2.24.4 states extended key IDs can only be used
@@ -1122,7 +1173,7 @@ build_ie:
 	 * also indicates support.
 	 */
 	if (wiphy_supports_ext_key_id(wiphy) && bss_info.extended_key_id &&
-			info.pairwise_ciphers == IE_RSN_CIPHER_SUITE_CCMP)
+			IE_CIPHER_IS_GCMP_CCMP(info.pairwise_ciphers))
 		info.extended_key_id = true;
 
 	/* RSN takes priority */
@@ -1420,6 +1471,10 @@ static const char *station_state_to_string(enum station_state state)
 		return "disconnecting";
 	case STATION_STATE_ROAMING:
 		return "roaming";
+	case STATION_STATE_FT_ROAMING:
+		return "ft-roaming";
+	case STATION_STATE_FW_ROAMING:
+		return "fw-roaming";
 	}
 
 	return "invalid";
@@ -1566,6 +1621,8 @@ static void station_enter_state(struct station *station,
 	case STATION_STATE_DISCONNECTING:
 		break;
 	case STATION_STATE_ROAMING:
+	case STATION_STATE_FT_ROAMING:
+	case STATION_STATE_FW_ROAMING:
 		station_set_evict_nocarrier(station, false);
 		break;
 	}
@@ -1644,6 +1701,10 @@ static void station_roam_state_clear(struct station *station)
 		scan_freq_set_free(station->roam_freqs);
 		station->roam_freqs = NULL;
 	}
+
+	l_queue_clear(station->roam_bss_list, l_free);
+
+	ft_clear_authentications(netdev_get_ifindex(station->netdev));
 }
 
 static void station_reset_connection_state(struct station *station)
@@ -1689,7 +1750,7 @@ static void station_reset_connection_state(struct station *station)
 	if (station->state == STATION_STATE_CONNECTED ||
 			station->state == STATION_STATE_CONNECTING ||
 			station->state == STATION_STATE_CONNECTING_AUTO ||
-			station->state == STATION_STATE_ROAMING)
+			station_is_roaming(station))
 		network_disconnected(network);
 }
 
@@ -1767,6 +1828,8 @@ static void parse_neighbor_report(struct station *station,
 	struct handshake_state *hs = netdev_get_handshake(station->netdev);
 	const struct scan_freq_set *supported =
 				wiphy_get_supported_freqs(station->wiphy);
+	const struct scan_freq_set *disabled =
+				wiphy_get_disabled_freqs(station->wiphy);
 
 	freq_set_md = scan_freq_set_new();
 	freq_set_no_md = scan_freq_set_new();
@@ -1803,8 +1866,9 @@ static void parse_neighbor_report(struct station *station,
 		if (!(band & wiphy_get_supported_bands(station->wiphy)))
 			continue;
 
-		/* Skip if frequency is not supported */
-		if (!scan_freq_set_contains(supported, freq))
+		/* Skip if frequency is not supported or disabled */
+		if (!scan_freq_set_contains(supported, freq) ||
+				scan_freq_set_contains(disabled, freq))
 			continue;
 
 		if (!memcmp(info.addr,
@@ -1959,7 +2023,8 @@ static void station_ft_ds_action_start(struct station *station)
 		 * Fire and forget. Netdev will maintain a cache of responses
 		 * and when the time comes these can be referenced for a roam
 		 */
-		netdev_fast_transition_over_ds_action(station->netdev, bss);
+		ft_action(netdev_get_ifindex(station->netdev),
+				station->connected_bss->frequency, bss);
 	}
 }
 
@@ -1989,6 +2054,8 @@ static void station_roamed(struct station *station)
 			l_warn("Could not request neighbor report");
 	}
 
+	l_queue_clear(station->roam_bss_list, l_free);
+
 	station_ft_ds_action_start(station);
 
 	station_enter_state(station, STATION_STATE_CONNECTED);
@@ -2013,11 +2080,13 @@ static void station_roam_failed(struct station *station)
 {
 	l_debug("%u", netdev_get_ifindex(station->netdev));
 
+	l_queue_clear(station->roam_bss_list, l_free);
+
 	/*
 	 * If we attempted a reassociation or a fast transition, and ended up
 	 * here then we are now disconnected.
 	 */
-	if (station->state == STATION_STATE_ROAMING) {
+	if (station_is_roaming(station)) {
 		station_disassociated(station);
 		return;
 	}
@@ -2050,6 +2119,30 @@ delayed_retry:
 	station_roam_retry(station);
 }
 
+static void station_disconnect_on_error_cb(struct netdev *netdev, bool success,
+					void *user_data)
+{
+	struct station *station = user_data;
+	bool continue_autoconnect;
+
+	station_enter_state(station, STATION_STATE_DISCONNECTED);
+
+	continue_autoconnect = station->state == STATION_STATE_CONNECTING_AUTO;
+
+	if (continue_autoconnect) {
+		if (station_autoconnect_next(station) < 0) {
+			l_debug("Nothing left on autoconnect list");
+			station_enter_state(station,
+					STATION_STATE_AUTOCONNECT_FULL);
+		}
+
+		return;
+	}
+
+	if (station->autoconnect)
+		station_enter_state(station, STATION_STATE_AUTOCONNECT_QUICK);
+}
+
 static void station_netconfig_event_handler(enum netconfig_event event,
 							void *user_data)
 {
@@ -2058,7 +2151,26 @@ static void station_netconfig_event_handler(enum netconfig_event event,
 	switch (event) {
 	case NETCONFIG_EVENT_CONNECTED:
 		station_enter_state(station, STATION_STATE_CONNECTED);
+		break;
+	case NETCONFIG_EVENT_FAILED:
+		if (station->connect_pending) {
+			struct l_dbus_message *reply = dbus_error_failed(
+						station->connect_pending);
 
+			dbus_pending_reply(&station->connect_pending, reply);
+		}
+
+		if (L_IN_SET(station->state, STATION_STATE_CONNECTING,
+				STATION_STATE_CONNECTING_AUTO))
+			network_connect_failed(station->connected_network,
+						false);
+
+		netdev_disconnect(station->netdev,
+					station_disconnect_on_error_cb,
+					station);
+		station_reset_connection_state(station);
+
+		station_enter_state(station, STATION_STATE_DISCONNECTING);
 		break;
 	default:
 		l_error("station: Unsupported netconfig event: %d.", event);
@@ -2084,42 +2196,26 @@ static void station_reassociate_cb(struct netdev *netdev,
 		station_roam_failed(station);
 }
 
-static void station_fast_transition_cb(struct netdev *netdev,
-					enum netdev_result result,
-					void *event_data,
-					void *user_data)
-{
-	struct station *station = user_data;
-
-	l_debug("%u, result: %d", netdev_get_ifindex(station->netdev), result);
-
-	if (station->state != STATION_STATE_ROAMING)
-		return;
-
-	if (result == NETDEV_RESULT_OK)
-		station_roamed(station);
-	else
-		station_roam_failed(station);
-}
-
 static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 					void *event_data, void *user_data);
 
-static void station_transition_reassociate(struct station *station,
+static int station_transition_reassociate(struct station *station,
 						struct scan_bss *bss,
 						struct handshake_state *new_hs)
 {
-	if (netdev_reassociate(station->netdev, bss, station->connected_bss,
+	int ret;
+
+	ret = netdev_reassociate(station->netdev, bss, station->connected_bss,
 				new_hs, station_netdev_event,
-				station_reassociate_cb, station) < 0) {
-		handshake_state_free(new_hs);
-		station_roam_failed(station);
-		return;
-	}
+				station_reassociate_cb, station);
+	if (ret < 0)
+		return ret;
 
 	station->connected_bss = bss;
 	station->preparing_roam = false;
 	station_enter_state(station, STATION_STATE_ROAMING);
+
+	return 0;
 }
 
 static bool bss_match_bssid(const void *a, const void *b)
@@ -2144,8 +2240,8 @@ static void station_preauthenticate_cb(struct netdev *netdev,
 	if (!station->preparing_roam || result == NETDEV_RESULT_ABORTED)
 		return;
 
-	bss = l_queue_find(station->bss_list, bss_match_bssid,
-				station->preauth_bssid);
+	bss = network_bss_find_by_addr(station->connected_network,
+						station->preauth_bssid);
 	if (!bss) {
 		l_error("Roam target BSS not found");
 		station_roam_failed(station);
@@ -2191,18 +2287,109 @@ static void station_preauthenticate_cb(struct netdev *netdev,
 		handshake_state_set_supplicant_ie(new_hs, rsne_buf);
 	}
 
-	station_transition_reassociate(station, bss, new_hs);
+	if (station_transition_reassociate(station, bss, new_hs) < 0) {
+		handshake_state_free(new_hs);
+		station_roam_failed(station);
+	}
 }
 
-static void station_transition_start(struct station *station,
-							struct scan_bss *bss)
+static void station_transition_start(struct station *station);
+
+static bool station_ft_work_ready(struct wiphy_radio_work_item *item)
+{
+	struct station *station = l_container_of(item, struct station, ft_work);
+	struct roam_bss *rbss = l_queue_pop_head(station->roam_bss_list);
+	struct scan_bss *bss = network_bss_find_by_addr(
+					station->connected_network, rbss->addr);
+	int ret;
+
+	l_free(rbss);
+
+	/* Very unlikely, but the BSS could have gone away */
+	if (!bss)
+		goto try_next;
+
+	ret = ft_associate(netdev_get_ifindex(station->netdev), bss->addr);
+	if (ret == -ENOENT) {
+		station_debug_event(station, "ft-over-air-roam-failed");
+try_next:
+		station_transition_start(station);
+		return true;
+	} else if (ret < 0)
+		goto assoc_failed;
+
+	station->connected_bss = bss;
+	station->preparing_roam = false;
+	station_enter_state(station, STATION_STATE_FT_ROAMING);
+
+	return true;
+
+assoc_failed:
+	station_roam_failed(station);
+	return true;
+}
+
+static const struct wiphy_radio_work_item_ops ft_work_ops = {
+	.do_work = station_ft_work_ready,
+};
+
+static bool station_fast_transition(struct station *station,
+					struct scan_bss *bss)
+{
+	struct handshake_state *hs = netdev_get_handshake(station->netdev);
+	struct network *connected = station->connected_network;
+	const struct network_info *info = network_get_info(connected);
+	const struct iovec *vendor_ies;
+	size_t iov_elems = 0;
+	int ret;
+
+	/* Rebuild handshake RSN for target AP */
+	if (station_build_handshake_rsn(hs, station->wiphy,
+				station->connected_network, bss) < 0)
+		return false;
+
+	/* Reset the vendor_ies in case they're different */
+	vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
+	handshake_state_set_vendor_ies(hs, vendor_ies, iov_elems);
+
+	if ((hs->mde[4] & 1)) {
+		ret = ft_associate(netdev_get_ifindex(station->netdev),
+					bss->addr);
+		/* No action responses from this BSS, try over air */
+		if (ret == -ENOENT) {
+			station_debug_event(station, "try-ft-over-air");
+			goto try_over_air;
+		} else if (ret < 0)
+			return false;
+
+		station->connected_bss = bss;
+		station->preparing_roam = false;
+		station_enter_state(station, STATION_STATE_FT_ROAMING);
+
+		return true;
+	} else {
+try_over_air:
+		/*
+		 * Send FT-Authenticate and insert a work item which will be
+		 * gated until authentication completes
+		 */
+		ft_authenticate(netdev_get_ifindex(station->netdev), bss);
+
+		wiphy_radio_work_insert(station->wiphy, &station->ft_work,
+				WIPHY_WORK_PRIORITY_CONNECT, &ft_work_ops);
+
+		return true;
+	}
+}
+
+static bool station_try_next_transition(struct station *station,
+					struct scan_bss *bss)
 {
 	struct handshake_state *hs = netdev_get_handshake(station->netdev);
 	struct network *connected = station->connected_network;
 	enum security security = network_get_security(connected);
 	struct handshake_state *new_hs;
 	struct ie_rsn_info cur_rsne, target_rsne;
-	int ret;
 
 	l_debug("%u, target %s", netdev_get_ifindex(station->netdev),
 			util_address_to_string(bss->addr));
@@ -2211,54 +2398,8 @@ static void station_transition_start(struct station *station,
 	station->ap_directed_roaming = false;
 
 	/* Can we use Fast Transition? */
-	if (station_can_fast_transition(hs, bss)) {
-		const struct network_info *info = network_get_info(connected);
-		const struct iovec *vendor_ies;
-		size_t iov_elems = 0;
-
-		/* Rebuild handshake RSN for target AP */
-		if (station_build_handshake_rsn(hs, station->wiphy,
-				station->connected_network, bss) < 0) {
-			l_error("rebuilding handshake rsne failed");
-			station_roam_failed(station);
-			return;
-		}
-
-		/* Reset the vendor_ies in case they're different */
-		vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
-		handshake_state_set_vendor_ies(hs, vendor_ies, iov_elems);
-
-		if ((hs->mde[4] & 1)) {
-			ret = netdev_fast_transition_over_ds(station->netdev,
-					bss, station->connected_bss,
-					station_fast_transition_cb);
-			/* No action responses from this BSS, try over air */
-			if (ret == -ENOENT)
-				goto try_over_air;
-			else if (ret < 0) {
-				/*
-				 * If we are here FT-over-air will not work
-				 * either (identical checks) so try again later.
-				 */
-				station_roam_retry(station);
-				return;
-			}
-		} else {
-try_over_air:
-			if (netdev_fast_transition(station->netdev, bss,
-					station->connected_bss,
-					station_fast_transition_cb) < 0) {
-				station_roam_failed(station);
-				return;
-			}
-		}
-
-		station->connected_bss = bss;
-		station->preparing_roam = false;
-		station_enter_state(station, STATION_STATE_ROAMING);
-
-		return;
-	}
+	if (station_can_fast_transition(hs, bss))
+		return station_fast_transition(station, bss);
 
 	/* Non-FT transition */
 
@@ -2288,17 +2429,46 @@ try_over_air:
 		if (netdev_preauthenticate(station->netdev, bss,
 						station_preauthenticate_cb,
 						station) >= 0)
-			return;
+			return true;
 	}
 
 	new_hs = station_handshake_setup(station, connected, bss);
 	if (!new_hs) {
 		l_error("station_handshake_setup failed in reassociation");
-		station_roam_failed(station);
-		return;
+		return false;
 	}
 
-	station_transition_reassociate(station, bss, new_hs);
+	if (station_transition_reassociate(station, bss, new_hs) < 0) {
+		handshake_state_free(new_hs);
+		return false;
+	}
+
+	return true;
+}
+
+static void station_transition_start(struct station *station)
+{
+	struct roam_bss *rbss;
+	bool roaming = false;
+
+	/*
+	 * For each failed attempt pop the BSS leaving the head of the queue
+	 * with the current roam candidate.
+	 */
+	while ((rbss = l_queue_peek_head(station->roam_bss_list))) {
+		struct scan_bss *bss = network_bss_find_by_addr(
+					station->connected_network, rbss->addr);
+
+		roaming = station_try_next_transition(station, bss);
+		if (roaming)
+			break;
+
+		l_queue_pop_head(station->roam_bss_list);
+		l_free(rbss);
+	}
+
+	if (!roaming)
+		station_roam_failed(station);
 }
 
 static void station_roam_scan_triggered(int err, void *user_data)
@@ -2318,6 +2488,20 @@ static void station_roam_scan_triggered(int err, void *user_data)
 	 */
 }
 
+static void station_update_roam_bss(struct station *station,
+					struct scan_bss *bss)
+{
+	struct network *network = station->connected_network;
+	struct scan_bss *old =
+		l_queue_remove_if(station->bss_list, bss_match, bss);
+
+	network_bss_update(network, bss);
+	l_queue_push_tail(station->bss_list, bss);
+
+	if (old)
+		scan_bss_free(old);
+}
+
 static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 					const struct scan_freq_set *freqs,
 					void *userdata)
@@ -2327,12 +2511,10 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 	struct handshake_state *hs = netdev_get_handshake(station->netdev);
 	struct scan_bss *current_bss = station->connected_bss;
 	struct scan_bss *bss;
-	struct scan_bss *best_bss = NULL;
-	double best_bss_rank = 0.0;
+	double cur_bss_rank = 0.0;
 	static const double RANK_FT_FACTOR = 1.3;
 	uint16_t mdid;
 	enum security orig_security, security;
-	bool seen = false;
 
 	if (err) {
 		station_roam_failed(station);
@@ -2352,6 +2534,19 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 							&mdid, NULL, NULL);
 
 	/*
+	 * Find the current BSS rank, use the updated result if it exists. If
+	 * this is an AP roam keep the current rank as zero to force the roam
+	 * to occur.
+	 */
+	bss = l_queue_find(bss_list, bss_match_bssid, current_bss->addr);
+	if (bss && !station->ap_directed_roaming) {
+		cur_bss_rank = bss->rank;
+
+		if (hs->mde && bss->mde_present && l_get_le16(bss->mde) == mdid)
+			cur_bss_rank *= RANK_FT_FACTOR;
+	}
+
+	/*
 	 * BSSes in the bss_list come already ranked with their initial
 	 * association preference rank value.  We only need to add preference
 	 * for BSSes that are within the FT Mobility Domain so as to favor
@@ -2364,6 +2559,7 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 	while ((bss = l_queue_pop_head(bss_list))) {
 		double rank;
 		uint32_t kbps100 = DIV_ROUND_CLOSEST(bss->data_rate, 100000);
+		struct roam_bss *rbss;
 
 		l_debug("Processing BSS '%s' with SSID: %s, freq: %u, rank: %u,"
 				" strength: %i, data_rate: %u.%u",
@@ -2372,9 +2568,8 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 				bss->frequency, bss->rank, bss->signal_strength,
 				kbps100 / 10, kbps100 % 10);
 
-		/* Skip the BSS we are connected to if doing an AP roam */
-		if (station->ap_directed_roaming && !memcmp(bss->addr,
-				station->connected_bss->addr, 6))
+		/* Skip the BSS we are connected to */
+		if (!memcmp(bss->addr, station->connected_bss->addr, 6))
 			goto next;
 
 		/* Skip result if it is not part of the ESS */
@@ -2388,8 +2583,6 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 		if (security != orig_security)
 			goto next;
 
-		seen = true;
-
 		if (network_can_connect_bss(network, bss) < 0)
 			goto next;
 
@@ -2401,15 +2594,21 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 		if (hs->mde && bss->mde_present && l_get_le16(bss->mde) == mdid)
 			rank *= RANK_FT_FACTOR;
 
-		if (rank > best_bss_rank) {
-			if (best_bss)
-				scan_bss_free(best_bss);
+		if (rank <= cur_bss_rank)
+			goto next;
 
-			best_bss = bss;
-			best_bss_rank = rank;
+		/*
+		 * We need to update/add any potential roam candidate so
+		 * station/network know it exists.
+		 */
+		station_update_roam_bss(station, bss);
 
-			continue;
-		}
+		rbss = roam_bss_from_scan_bss(bss);
+
+		l_queue_insert(station->roam_bss_list, rbss,
+				roam_bss_rank_compare, NULL);
+
+		continue;
 
 next:
 		scan_bss_free(bss);
@@ -2417,36 +2616,17 @@ next:
 
 	l_queue_destroy(bss_list, NULL);
 
-	if (!seen)
-		goto fail_free_bss;
-
 	/* See if we have anywhere to roam to */
-	if (!best_bss || scan_bss_addr_eq(best_bss, station->connected_bss)) {
+	if (l_queue_isempty(station->roam_bss_list)) {
 		station_debug_event(station, "no-roam-candidates");
-		goto fail_free_bss;
+		goto fail;
 	}
 
-	bss = network_bss_find_by_addr(network, best_bss->addr);
-	if (bss) {
-		network_bss_update(network, best_bss);
-		l_queue_remove(station->bss_list, bss);
-		scan_bss_free(bss);
-
-		l_queue_insert(station->bss_list, best_bss,
-				scan_bss_rank_compare, NULL);
-	} else {
-		network_bss_add(network, best_bss);
-		l_queue_push_tail(station->bss_list, best_bss);
-	}
-
-	station_transition_start(station, best_bss);
+	station_transition_start(station);
 
 	return true;
 
-fail_free_bss:
-	if (best_bss)
-		scan_bss_free(best_bss);
-
+fail:
 	station_roam_failed(station);
 
 	return true;
@@ -2494,12 +2674,17 @@ static int station_roam_scan_known_freqs(struct station *station)
 						station->connected_network);
 	struct scan_freq_set *freqs = network_info_get_roam_frequencies(info,
 					station->connected_bss->frequency, 5);
-	int r;
+	int r = -ENODATA;
 
 	if (!freqs)
-		return -ENODATA;
+		return r;
+
+	if (!wiphy_constrain_freq_set(station->wiphy, freqs))
+		goto free_set;
 
 	r = station_roam_scan(station, freqs);
+
+free_set:
 	scan_freq_set_free(freqs);
 	return r;
 }
@@ -2638,10 +2823,12 @@ static bool station_cannot_roam(struct station *station)
 		disabled = false;
 
 	return disabled || station->preparing_roam ||
-					station->state == STATION_STATE_ROAMING;
+				station->state == STATION_STATE_ROAMING ||
+				station->state == STATION_STATE_FT_ROAMING;
 }
 
 #define WNM_REQUEST_MODE_PREFERRED_CANDIDATE_LIST	(1 << 0)
+#define WNM_REQUEST_MODE_DISASSOCIATION_IMMINENT	(1 << 2)
 #define WNM_REQUEST_MODE_TERMINATION_IMMINENT		(1 << 3)
 #define WNM_REQUEST_MODE_ESS_DISASSOCIATION_IMMINENT	(1 << 4)
 
@@ -2658,6 +2845,31 @@ static void station_ap_directed_roam(struct station *station,
 
 	if (station_cannot_roam(station))
 		return;
+
+	if (station->state != STATION_STATE_CONNECTED) {
+		l_debug("roam: unexpected AP directed roam -- ignore");
+		return;
+	}
+
+	/*
+	 * Sanitize the frame to check that it is from our current AP.
+	 *
+	 * 802.11-2020 Section 9.3.3.1 about Address2:
+	 * "If the STA is an AP with dot11MultiBSSDImplemented set to false,
+	 * then this address is the BSSID."
+	 *
+	 * Address3:
+	 * "If the STA is an AP or PCP, the Address 3 field is the same as the
+	 * Address 2 field."
+	 *
+	 * For now check that Address2 & Address3 is the same as the connected
+	 * BSS address.
+	 */
+	if (memcmp(hdr->address_2, station->connected_bss, ETH_ALEN) ||
+			memcmp(hdr->address_2, hdr->address_3, ETH_ALEN)) {
+		l_debug("roam: AP directed roam not from our AP -- ignore");
+		return;
+	}
 
 	if (body_len < 7)
 		goto format_error;
@@ -2689,7 +2901,20 @@ static void station_ap_directed_roam(struct station *station,
 			dtimer, valid_interval,
 			MAC_STR(hdr->address_3));
 
-	/* check req_mode for optional values */
+	/*
+	 * The ap_directed_roaming flag forces IWD to roam if there are any
+	 * candidates, even if they are worse than the current BSS. This isn't
+	 * always a good idea since we may be associated to the best BSS. Where
+	 * this does matter is if the AP indicates its going down or will be
+	 * disassociating us. If either of these bits are set, set the
+	 * ap_directed_roaming flag. Otherwise still try roaming but don't
+	 * treat it any different than a normal roam.
+	 */
+	if (req_mode & (WNM_REQUEST_MODE_DISASSOCIATION_IMMINENT |
+			WNM_REQUEST_MODE_TERMINATION_IMMINENT |
+			WNM_REQUEST_MODE_ESS_DISASSOCIATION_IMMINENT))
+		station->ap_directed_roaming = true;
+
 	if (req_mode & WNM_REQUEST_MODE_TERMINATION_IMMINENT) {
 		if (pos + 12 > body_len)
 			goto format_error;
@@ -2712,37 +2937,6 @@ static void station_ap_directed_roam(struct station *station,
 		pos += url_len;
 	}
 
-	if (station->state != STATION_STATE_CONNECTED) {
-		l_debug("roam: unexpected AP directed roam -- ignore");
-		return;
-	}
-
-	/*
-	 * Sanitize the frame to check that it is from our current AP.
-	 *
-	 * 802.11-2020 Section 9.3.3.1 about Address2:
-	 * "If the STA is an AP with dot11MultiBSSDImplemented set to false,
-	 * then this address is the BSSID."
-	 *
-	 * Address3:
-	 * "If the STA is an AP or PCP, the Address 3 field is the same as the
-	 * Address 2 field."
-	 *
-	 * For now check that Address2 & Address3 is the same as the connected
-	 * BSS address.
-	 */
-	if (memcmp(hdr->address_2, station->connected_bss, ETH_ALEN) ||
-			memcmp(hdr->address_2, hdr->address_3, ETH_ALEN)) {
-		l_debug("roam: AP directed roam not from our AP -- ignore");
-		return;
-	}
-
-	if (station->preparing_roam) {
-		l_debug("roam: roam attempt already in progress -- ignore");
-		return;
-	}
-
-	station->ap_directed_roaming = true;
 	station->preparing_roam = true;
 
 	l_timeout_remove(station->roam_trigger_timeout);
@@ -2794,8 +2988,7 @@ static void station_event_roamed(struct station *station, struct scan_bss *new)
 	network_bss_update(station->connected_network, new);
 
 	/* Remove new BSS if it exists in past scan results */
-	stale = l_queue_remove_if(station->bss_list, bss_match_bssid,
-					new->addr);
+	stale = l_queue_remove_if(station->bss_list, bss_match, new);
 	if (stale)
 		scan_bss_free(stale);
 
@@ -3069,6 +3262,8 @@ static void station_disconnect_event(struct station *station, void *event_data)
 					event_data, station);
 		return;
 	case STATION_STATE_CONNECTED:
+	case STATION_STATE_FT_ROAMING:
+	case STATION_STATE_FW_ROAMING:
 		station_disassociated(station);
 		return;
 	default:
@@ -3122,7 +3317,7 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 			station_signal_agent_notify(station);
 		break;
 	case NETDEV_EVENT_ROAMING:
-		station_enter_state(station, STATION_STATE_ROAMING);
+		station_enter_state(station, STATION_STATE_FW_ROAMING);
 		break;
 	case NETDEV_EVENT_ROAMED:
 		station_event_roamed(station, (struct scan_bss *) event_data);
@@ -3132,6 +3327,12 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 		break;
 	case NETDEV_EVENT_PACKET_LOSS_NOTIFY:
 		station_packets_lost(station, l_get_u32(event_data));
+		break;
+	case NETDEV_EVENT_FT_ROAMED:
+		if (L_WARN_ON(station->state != STATION_STATE_FT_ROAMING))
+			return;
+
+		station_roamed(station);
 		break;
 	}
 }
@@ -3965,6 +4166,8 @@ static bool station_property_get_state(struct l_dbus *dbus,
 		statestr = "disconnecting";
 		break;
 	case STATION_STATE_ROAMING:
+	case STATION_STATE_FT_ROAMING:
+	case STATION_STATE_FW_ROAMING:
 		statestr = "roaming";
 		break;
 	}
@@ -4180,6 +4383,8 @@ static struct station *station_create(struct netdev *netdev)
 
 	station_set_autoconnect(station, autoconnect);
 
+	station->roam_bss_list = l_queue_new();
+
 	return station;
 }
 
@@ -4269,6 +4474,8 @@ static void station_free(struct station *station)
 
 	wiphy_state_watch_remove(station->wiphy, station->wiphy_watch);
 
+	l_queue_destroy(station->roam_bss_list, l_free);
+
 	l_free(station);
 }
 
@@ -4339,6 +4546,21 @@ static void station_get_diagnostic_cb(
 				diagnostic_akm_suite_to_security(hs->akm_suite,
 								hs->wpa_ie));
 
+	if (hs->pairwise_cipher) {
+		const char *str;
+
+		if (hs->pairwise_cipher ==
+				IE_RSN_CIPHER_SUITE_USE_GROUP_CIPHER)
+			str = ie_rsn_cipher_suite_to_string(hs->group_cipher);
+		else
+			str = ie_rsn_cipher_suite_to_string(
+							hs->pairwise_cipher);
+
+		if (str)
+			dbus_append_dict_basic(builder, "PairwiseCipher",
+						's', str);
+	}
+
 	diagnostic_info_to_dict(info, builder);
 
 	l_dbus_message_builder_leave_array(builder);
@@ -4381,6 +4603,72 @@ static struct l_dbus_message *station_get_diagnostics(struct l_dbus *dbus,
 	return NULL;
 }
 
+struct station_roam_data {
+	struct station *station;
+	struct l_dbus_message *pending;
+	uint8_t bssid[6];
+};
+
+static void station_force_roam_scan_triggered(int err, void *user_data)
+{
+	struct station_roam_data *data = user_data;
+	struct station *station = data->station;
+
+	if (err)
+		station_roam_failed(station);
+}
+
+static bool station_force_roam_scan_notify(int err, struct l_queue *bss_list,
+					const struct scan_freq_set *freqs,
+					void *user_data)
+{
+	struct station_roam_data *data = user_data;
+	struct station *station = data->station;
+	struct scan_bss *target;
+	struct l_dbus_message *reply;
+
+	if (err) {
+		reply = dbus_error_from_errno(err, data->pending);
+		goto reply;
+	}
+
+	target = l_queue_remove_if(bss_list, bss_match_bssid, data->bssid);
+	if (!target) {
+		reply = dbus_error_not_found(data->pending);
+		goto reply;
+	}
+
+	l_debug("Attempting forced roam to BSS "MAC, MAC_STR(target->addr));
+
+	/* The various roam routines expect this to be set from scanning */
+	station->preparing_roam = true;
+	l_queue_push_tail(station->roam_bss_list,
+				roam_bss_from_scan_bss(target));
+
+	station_update_roam_bss(station, target);
+
+	station_transition_start(station);
+
+	reply = l_dbus_message_new_method_return(data->pending);
+
+reply:
+	dbus_pending_reply(&data->pending, reply);
+
+	return false;
+}
+
+static void station_force_roam_scan_destroy(void *user_data)
+{
+	struct station_roam_data *data = user_data;
+
+	data->station->roam_scan_id = 0;
+
+	if (data->pending)
+		l_dbus_message_unref(data->pending);
+
+	l_free(data);
+}
+
 static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 						struct l_dbus_message *message,
 						void *user_data)
@@ -4390,6 +4678,9 @@ static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 	struct l_dbus_message_iter iter;
 	uint8_t *mac;
 	uint32_t mac_len;
+	struct scan_parameters params = { 0 };
+	struct scan_freq_set *freqs = NULL;
+	struct station_roam_data *data;
 
 	if (!l_dbus_message_get_arguments(message, "ay", &iter))
 		goto invalid_args;
@@ -4404,8 +4695,11 @@ static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 		return dbus_error_not_connected(message);
 
 	target = network_bss_find_by_addr(station->connected_network, mac);
-	if (!target || target == station->connected_bss)
-		return dbus_error_invalid_args(message);
+	if (!target)
+		goto full_scan;
+
+	if (target && target == station->connected_bss)
+		return dbus_error_already_exists(message);
 
 	if (station->connected_bss->ssid_len != target->ssid_len)
 		goto invalid_args;
@@ -4414,14 +4708,45 @@ static struct l_dbus_message *station_force_roam(struct l_dbus *dbus,
 				target->ssid_len))
 		goto invalid_args;
 
-	l_debug("Attempting forced roam to BSS "MAC, MAC_STR(mac));
+	/*
+	 * Always scan before a roam to ensure the kernel has the BSS in its
+	 * cache. If we already see the BSS only scan that frequency
+	 */
+	freqs = scan_freq_set_new();
+	scan_freq_set_add(freqs, target->frequency);
 
-	/* The various roam routines expect this to be set from scanning */
-	station->preparing_roam = true;
+	params.freqs = freqs;
 
-	station_transition_start(station, target);
+full_scan:
+	params.flush = true;
 
-	return l_dbus_message_new_method_return(message);
+	data = l_new(struct station_roam_data, 1);
+	data->station = station;
+	data->pending = l_dbus_message_ref(message);
+	memcpy(data->bssid, mac, 6);
+
+	station->roam_scan_id = scan_active_full(
+					netdev_get_wdev_id(station->netdev),
+					&params,
+					station_force_roam_scan_triggered,
+					station_force_roam_scan_notify, data,
+					station_force_roam_scan_destroy);
+
+	if (freqs)
+		scan_freq_set_free(freqs);
+
+	if (!station->roam_scan_id) {
+		l_free(data);
+		return dbus_error_failed(message);
+	}
+
+	if (freqs)
+		l_debug("Scanning on %u for BSS "MAC, target->frequency,
+			MAC_STR(mac));
+	else
+		l_debug("Full scan for BSS "MAC, MAC_STR(mac));
+
+	return NULL;
 
 invalid_args:
 	return dbus_error_invalid_args(message);
@@ -4802,6 +5127,22 @@ static void station_netdev_watch(struct netdev *netdev,
 	}
 }
 
+static void station_known_networks_changed(enum known_networks_event event,
+						const struct network_info *info,
+						void *user_data)
+{
+	_auto_(l_free) char *network_id = NULL;
+
+	if (event != KNOWN_NETWORKS_EVENT_REMOVED)
+		return;
+
+	if (info->type != SECURITY_8021X)
+		return;
+
+	network_id = l_util_hexstring(info->ssid, strlen(info->ssid));
+	eap_tls_forget_peer(network_id);
+}
+
 static int station_init(void)
 {
 	station_list = l_queue_new();
@@ -4856,6 +5197,12 @@ static int station_init(void)
 
 	watchlist_init(&event_watches, NULL);
 
+	eap_tls_set_session_cache_ops(storage_eap_tls_cache_load,
+					storage_eap_tls_cache_sync);
+	known_networks_watch = known_networks_watch_add(
+						station_known_networks_changed,
+						NULL, NULL);
+
 	return 0;
 }
 
@@ -4873,9 +5220,12 @@ static void station_exit(void)
 	l_queue_destroy(station_list, NULL);
 	station_list = NULL;
 	watchlist_destroy(&event_watches);
+	known_networks_watch_remove(known_networks_watch);
+	known_networks_watch = 0;
 }
 
 IWD_MODULE(station, station_init, station_exit)
+IWD_MODULE_DEPENDS(station, known_networks)
 IWD_MODULE_DEPENDS(station, netdev);
 IWD_MODULE_DEPENDS(station, netconfig);
 IWD_MODULE_DEPENDS(station, frame_xchg);

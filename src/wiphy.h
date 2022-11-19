@@ -46,11 +46,12 @@ struct wiphy_radio_work_item {
 };
 
 enum {
-	WIPHY_WORK_PRIORITY_FRAME = 0,
-	WIPHY_WORK_PRIORITY_OFFCHANNEL = 0,
-	WIPHY_WORK_PRIORITY_CONNECT = 1,
-	WIPHY_WORK_PRIORITY_SCAN = 2,
-	WIPHY_WORK_PRIORITY_PERIODIC_SCAN = 3,
+	WIPHY_WORK_PRIORITY_FT = 0,
+	WIPHY_WORK_PRIORITY_FRAME = 1,
+	WIPHY_WORK_PRIORITY_OFFCHANNEL = 1,
+	WIPHY_WORK_PRIORITY_CONNECT = 2,
+	WIPHY_WORK_PRIORITY_SCAN = 3,
+	WIPHY_WORK_PRIORITY_PERIODIC_SCAN = 4,
 };
 
 enum wiphy_state_watch_event {
@@ -67,6 +68,8 @@ typedef void (*wiphy_destroy_func_t)(void *user_data);
 
 enum ie_rsn_cipher_suite wiphy_select_cipher(struct wiphy *wiphy,
 							uint16_t mask);
+uint16_t wiphy_get_supported_ciphers(struct wiphy *wiphy, uint16_t mask);
+
 enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 					const struct scan_bss *bss,
 					enum security security,
@@ -96,6 +99,7 @@ uint32_t wiphy_get_supported_bands(struct wiphy *wiphy);
 const struct scan_freq_set *wiphy_get_supported_freqs(
 						const struct wiphy *wiphy);
 const struct scan_freq_set *wiphy_get_disabled_freqs(const struct wiphy *wiphy);
+bool wiphy_supports_probe_resp_offload(struct wiphy *wiphy);
 bool wiphy_can_transition_disable(struct wiphy *wiphy);
 bool wiphy_can_offload(struct wiphy *wiphy);
 bool wiphy_supports_cmds_auth_assoc(struct wiphy *wiphy);

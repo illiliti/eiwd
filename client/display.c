@@ -30,6 +30,7 @@
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <wchar.h>
 
 #include <readline/history.h>
 #include <readline/readline.h>
@@ -387,39 +388,72 @@ static unsigned int color_end(char *s)
 }
 
 /*
- * Finds last space in 's' before 'max' characters, terminates at that index,
+ * Finds last space in 's' before 'width' characters, terminates at that index,
  * and returns a new string to be printed on the next line.
  *
- * 'max' should be set to the column width, but is also an out parameter since
- * this width can be updated if colored escapes are detected.
+ * 'new_width' will be updated to include extra bytes for color escapes or
+ * wide characters if found.
  *
  * Any colored escapes found are set to 'color_out' so they can be re-enabled
  * on the next line.
  */
-static char* next_line(char *s, unsigned int *max, char **color_out)
+static char* next_line(char *s, unsigned int width, unsigned int *new_width,
+			char **color_out)
 {
-	unsigned int i;
+	unsigned int i = 0;
 	int last_space = -1;
 	int last_color = -1;
+	unsigned int s_len = strlen(s);
+	unsigned int color_adjust = 0;
+	char *ret;
+
+	*new_width = width;
+	*color_out = NULL;
 
 	/* Find the last space before 'max', as well as any color */
-	for (i = 0; i <= *max && s[i] != '\0'; i++) {
-		if (s[i] == ' ')
-			last_space = i;
-		else if (s[i] == 0x1b) {
+	while (i <= *new_width && i < s_len) {
+		int sequence_len;
+		int sequence_columns;
+		wchar_t w;
+
+		if (s[i] == 0x1b) {
+			sequence_len = color_end(s + i);
 			/* color escape won't count for column width */
-			*max += color_end(s + i);
+			sequence_columns = 0;
 			last_color = i;
+
+			/*
+			 * Color after a space. If the line gets broken this
+			 * will need to be removed off new_width since it will
+			 * appear on the next line.
+			 */
+			if (last_space != -1)
+				color_adjust += sequence_len;
+
+		} else {
+			if (s[i] == ' ') {
+				last_space = i;
+				/* Any past colors will appear on this line */
+				color_adjust = 0;
+			}
+
+			sequence_len = l_utf8_get_codepoint(&s[i], s_len - i,
+									&w);
+			sequence_columns = wcwidth(w);
 		}
+
+		/* Compensate max bytes */
+		*new_width += sequence_len - sequence_columns;
+		i += sequence_len;
 	}
 
 	/* Reached the end of the string within the column bounds */
-	if (i <= *max)
+	if (i <= *new_width)
 		return NULL;
 
 	/* Not anywhere nice to split the line */
 	if (last_space == -1)
-		last_space = *max - 1;
+		last_space = *new_width;
 
 	/*
 	 * Only set the color if it occurred prior to the last space. If after,
@@ -428,12 +462,14 @@ static char* next_line(char *s, unsigned int *max, char **color_out)
 	if (last_color != -1 && last_space >= last_color)
 		*color_out = l_strndup(s + last_color,
 					color_end(s + last_color));
-	else
-		*color_out = NULL;
+	else if (last_color != -1 && last_space < last_color)
+		*new_width -= color_adjust;
 
-	s[last_space] = '\0';
+	ret = l_strdup(s + last_space + 1);
 
-	return l_strdup(s + last_space + 1);
+	s[last_space + 1] = '\0';
+
+	return ret;
 }
 
 struct table_entry {
@@ -450,7 +486,7 @@ static int entry_append(struct table_entry *e, char *line_buf)
 {
 	char *value = e->next;
 	unsigned int ret = 0;
-	unsigned int width = e->width;
+	unsigned int new_width;
 
 	/* Empty line */
 	if (!value)
@@ -464,10 +500,10 @@ static int entry_append(struct table_entry *e, char *line_buf)
 	}
 
 	/* Advance entry to next line, and terminate current */
-	e->next = next_line(value, &width, &e->color);
+	e->next = next_line(value, e->width, &new_width, &e->color);
 
 	/* Append current line */
-	ret += sprintf(line_buf + ret, "%-*s  ", width, value);
+	ret += sprintf(line_buf + ret, "%-*s  ", new_width, value);
 
 	l_free(value);
 
@@ -513,9 +549,17 @@ void display_table_row(const char *margin, unsigned int ncolumns, ...)
 
 	for (i = 0; i < ncolumns; i++) {
 		struct table_entry *e = &entries[i];
+		char *v;
 
 		e->width = va_arg(va, unsigned int);
-		e->next = l_strdup(va_arg(va, char*));
+		v = va_arg(va, char *);
+
+		if (!l_utf8_validate(v, strlen(v), NULL)) {
+			display_error("Invalid utf-8 string!");
+			goto done;
+		}
+
+		e->next = l_strdup(v);
 
 		str += entry_append(e, str);
 	}
@@ -546,9 +590,13 @@ void display_table_row(const char *margin, unsigned int ncolumns, ...)
 		str = buf;
 	}
 
+done:
 	for (i = 0; i < ncolumns; i++) {
 		if (entries[i].color)
 			l_free(entries[i].color);
+
+		if (entries[i].next)
+			l_free(entries[i].next);
 	}
 }
 
