@@ -5,6 +5,7 @@
 .deps
 .dirstamp
 .cache
+.ccls-cache
 compile_commands.json
 tags
 cscope.*
