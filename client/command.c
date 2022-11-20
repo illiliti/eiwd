@@ -753,7 +753,7 @@ options_parsed:
 	argv += optind;
 	argc -= optind;
 
-	if (argc < 2) {
+	if (argc < 1) {
 		interactive_mode = true;
 		return false;
 	}
