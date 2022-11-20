@@ -5,6 +5,7 @@
 .deps
 .dirstamp
 .cache
+compile_commands.json
 tags
 cscope.*
 Makefile
