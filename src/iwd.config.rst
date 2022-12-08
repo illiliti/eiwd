@@ -232,7 +232,7 @@ The group ``[Network]`` contains network configuration related settings.
 
        Sets the global default that tells **iwd** whether it should configure
        IPv6 addresses and routes (either provided via static settings,
-       Router Advertisements or DHCPv6 protocol).  This setting is disabled
+       Router Advertisements or DHCPv6 protocol).  This setting is enabled
        by default.  This setting can also be overridden on a per-network basis.
 
    * - NameResolvingService
