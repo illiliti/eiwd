@@ -3438,6 +3438,9 @@ struct ap_state *ap_start(struct netdev *netdev, struct l_settings *config,
 	uint64_t wdev_id = netdev_get_wdev_id(netdev);
 	int err;
 	bool cck_rates = true;
+	const uint8_t *rates;
+	unsigned int num_rates;
+	unsigned int i;
 
 	if (L_WARN_ON(!config)) {
 		if (err_out)
@@ -3463,22 +3466,17 @@ struct ap_state *ap_start(struct netdev *netdev, struct l_settings *config,
 
 	wsc_uuid_from_addr(netdev_get_address(netdev), ap->wsc_uuid_r);
 
+	rates = wiphy_get_supported_rates(wiphy, ap->band, &num_rates);
+	if (!rates)
+		goto error;
+
 	ap->rates = l_uintset_new(200);
 
-	/* TODO: Pick from actual supported rates */
-	if (!cck_rates) {
-		l_uintset_put(ap->rates, 12); /* 6 Mbps*/
-		l_uintset_put(ap->rates, 18); /* 9 Mbps*/
-		l_uintset_put(ap->rates, 24); /* 12 Mbps*/
-		l_uintset_put(ap->rates, 36); /* 18 Mbps*/
-		l_uintset_put(ap->rates, 48); /* 24 Mbps*/
-		l_uintset_put(ap->rates, 72); /* 36 Mbps*/
-		l_uintset_put(ap->rates, 96); /* 48 Mbps*/
-		l_uintset_put(ap->rates, 108); /* 54 Mbps*/
-	} else {
-		l_uintset_put(ap->rates, 2); /* 1 Mbps*/
-		l_uintset_put(ap->rates, 11); /* 5.5 Mbps*/
-		l_uintset_put(ap->rates, 22); /* 11 Mbps*/
+	for (i = 0; i < num_rates; i++) {
+		if (cck_rates && !L_IN_SET(rates[i], 2, 4, 11, 22))
+			continue;
+
+		l_uintset_put(ap->rates, rates[i]);
 	}
 
 	if (!frame_watch_add(wdev_id, 0, 0x0000 |
