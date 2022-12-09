@@ -70,6 +70,7 @@ struct ap_state {
 	char ssid[33];
 	char passphrase[64];
 	uint8_t psk[32];
+	enum band_freq band;
 	uint8_t channel;
 	uint8_t *authorized_macs;
 	unsigned int authorized_macs_num;
@@ -985,7 +986,7 @@ static uint32_t ap_send_mgmt_frame(struct ap_state *ap,
 					frame_xchg_cb_t callback,
 					void *user_data)
 {
-	uint32_t ch_freq = band_channel_to_freq(ap->channel, BAND_FREQ_2_4_GHZ);
+	uint32_t ch_freq = band_channel_to_freq(ap->channel, ap->band);
 	uint64_t wdev_id = netdev_get_wdev_id(ap->netdev);
 	struct iovec iov[2];
 
@@ -2408,7 +2409,7 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 	uint32_t nl_akm = CRYPTO_AKM_PSK;
 	uint32_t wpa_version = NL80211_WPA_VERSION_2;
 	uint32_t auth_type = NL80211_AUTHTYPE_OPEN_SYSTEM;
-	uint32_t ch_freq = band_channel_to_freq(ap->channel, BAND_FREQ_2_4_GHZ);
+	uint32_t ch_freq = band_channel_to_freq(ap->channel, ap->band);
 	uint32_t ch_width = NL80211_CHAN_WIDTH_20;
 	unsigned int i;
 
@@ -3170,6 +3171,42 @@ static char **ap_ciphers_to_strv(uint16_t ciphers)
 	return list;
 }
 
+static bool ap_validate_band_channel(struct ap_state *ap)
+{
+	struct wiphy *wiphy = netdev_get_wiphy(ap->netdev);
+	const struct scan_freq_set *supported;
+	const struct scan_freq_set *disabled;
+	uint32_t freq;
+
+	if (!(wiphy_get_supported_bands(wiphy) & ap->band)) {
+		l_error("AP hardware does not support band");
+		return -EINVAL;
+	}
+
+	freq = band_channel_to_freq(ap->channel, ap->band);
+	if (!freq) {
+		l_error("AP invalid band (%s) and channel (%u) combination",
+			(ap->band & BAND_FREQ_5_GHZ) ? "5Ghz" : "2.4GHz",
+			ap->channel);
+		return false;
+	}
+
+	supported = wiphy_get_supported_freqs(wiphy);
+	disabled = wiphy_get_disabled_freqs(wiphy);
+
+	if (!scan_freq_set_contains(supported, freq)) {
+		l_error("AP hardware does not support frequency %u", freq);
+		return false;
+	}
+
+	if (scan_freq_set_contains(disabled, freq)) {
+		l_error("AP hardware has frequency %u disabled", freq);
+		return false;
+	}
+
+	return true;
+}
+
 static int ap_load_config(struct ap_state *ap, const struct l_settings *config,
 				bool *out_cck_rates)
 {
@@ -3214,17 +3251,31 @@ static int ap_load_config(struct ap_state *ap, const struct l_settings *config,
 		unsigned int uintval;
 
 		if (!l_settings_get_uint(config, "General", "Channel",
-						&uintval) ||
-				!band_channel_to_freq(uintval,
-							BAND_FREQ_2_4_GHZ)) {
+						&uintval)) {
 			l_error("AP Channel value unsupported");
 			return -EINVAL;
 		}
 
 		ap->channel = uintval;
-	} else
+
+		/*
+		 * 6GHz is not supported so we can use only a channel number to
+		 * distinguish between 2.4 and 5GHz.
+		 */
+		if (ap->channel >= 36)
+			ap->band = BAND_FREQ_5_GHZ;
+		else
+			ap->band = BAND_FREQ_2_4_GHZ;
+	} else {
 		/* TODO: Start a Get Survey to decide the channel */
 		ap->channel = 6;
+		ap->band = BAND_FREQ_2_4_GHZ;
+	}
+
+	if (!ap_validate_band_channel(ap)) {
+		l_error("AP Band and Channel combination invalid");
+		return -EINVAL;
+	}
 
 	strval = l_settings_get_string(config, "WSC", "DeviceName");
 	if (strval) {
@@ -3290,7 +3341,13 @@ static int ap_load_config(struct ap_state *ap, const struct l_settings *config,
 		l_strfreev(strvval);
 	}
 
-	if (l_settings_get_value(config, "General", "NoCCKRates")) {
+	/*
+	 * Since 5GHz won't ever support only CCK rates we can ignore this
+	 * setting on that band.
+	 */
+	if (ap->band & BAND_FREQ_5_GHZ)
+		*out_cck_rates = false;
+	else if (l_settings_get_value(config, "General", "NoCCKRates")) {
 		bool boolval;
 
 		if (!l_settings_get_bool(config, "General", "NoCCKRates",
@@ -4080,7 +4137,7 @@ static bool ap_dbus_property_get_freq(struct l_dbus *dbus,
 	if (!ap_if->ap || !ap_if->ap->started)
 		return false;
 
-	freq = band_channel_to_freq(ap_if->ap->channel, BAND_FREQ_2_4_GHZ);
+	freq = band_channel_to_freq(ap_if->ap->channel, ap_if->ap->band);
 
 	l_dbus_message_builder_append_basic(builder, 'u', &freq);
 
