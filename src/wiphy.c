@@ -788,19 +788,20 @@ bool wiphy_supports_iftype(struct wiphy *wiphy, uint32_t iftype)
 	return wiphy->supported_iftypes & (1 << (iftype - 1));
 }
 
-const uint8_t *wiphy_get_supported_rates(struct wiphy *wiphy, unsigned int band,
+const uint8_t *wiphy_get_supported_rates(struct wiphy *wiphy,
+						enum band_freq band,
 						unsigned int *out_num)
 {
 	struct band *bandp;
 
 	switch (band) {
-	case NL80211_BAND_2GHZ:
+	case BAND_FREQ_2_4_GHZ:
 		bandp = wiphy->band_2g;
 		break;
-	case NL80211_BAND_5GHZ:
+	case BAND_FREQ_5_GHZ:
 		bandp = wiphy->band_5g;
 		break;
-	case NL80211_BAND_6GHZ:
+	case BAND_FREQ_6_GHZ:
 		bandp = wiphy->band_6g;
 		break;
 	default:

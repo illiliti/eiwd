@@ -29,6 +29,7 @@ struct scan_freq_set;
 struct wiphy_radio_work_item;
 struct ie_rsn_info;
 enum security;
+enum band_freq;
 
 typedef bool (*wiphy_radio_work_func_t)(struct wiphy_radio_work_item *item);
 typedef void (*wiphy_radio_work_destroy_func_t)(
@@ -112,7 +113,8 @@ uint8_t wiphy_get_max_num_ssids_per_scan(struct wiphy *wiphy);
 uint16_t wiphy_get_max_scan_ie_len(struct wiphy *wiphy);
 uint32_t wiphy_get_max_roc_duration(struct wiphy *wiphy);
 bool wiphy_supports_iftype(struct wiphy *wiphy, uint32_t iftype);
-const uint8_t *wiphy_get_supported_rates(struct wiphy *wiphy, unsigned int band,
+const uint8_t *wiphy_get_supported_rates(struct wiphy *wiphy,
+						enum band_freq band,
 						unsigned int *out_num);
 bool wiphy_supports_adhoc_rsn(struct wiphy *wiphy);
 bool wiphy_can_offchannel_tx(struct wiphy *wiphy);

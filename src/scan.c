@@ -426,7 +426,7 @@ static struct l_genl_msg *scan_build_cmd(struct scan_context *sc,
 		 * rates we don't want to advertise support for 802.11b rates.
 		 */
 		if (L_WARN_ON(!(supported = wiphy_get_supported_rates(sc->wiphy,
-							NL80211_BAND_2GHZ,
+							BAND_FREQ_2_4_GHZ,
 							&num_supported))))
 			goto done;
 
