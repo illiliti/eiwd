@@ -55,8 +55,17 @@ The group ``[General]`` contains general AP configuration.
    * - Channel
      - Channel number
 
-       Optional channel number for the access point to operate on.  Only the
-       2.4GHz-band channels are currently allowed.
+       Optional channel number for the access point to operate on. If omitted
+       the channel will be chosen automatically. Channels greater than or equal
+       to 36 will select the 5GHz band for the AP to operate on.
+
+       Note: Due to regulatory requirements the linux kernel does not allow or
+       strictly limits 5GHz use in AP mode while in world roaming. These
+       frequencies become available once the country is set, either via IWD's
+       main.conf option ``[General].Country`` (see ``man iwd.config``) or
+       externally (e.g. iw reg set <CC>). If you are having trouble using 5GHz
+       ensure the country is set, and that the desired frequency/channel is
+       unrestricted.
 
 Network Authentication Settings
 -------------------------------
