@@ -1925,12 +1925,9 @@ static void scan_wiphy_watch(struct wiphy *wiphy,
 	struct scan_freq_set *freqs_6ghz;
 	struct scan_freq_set *allowed;
 	bool allow_6g;
-	const struct scan_freq_set *supported =
-					wiphy_get_supported_freqs(wiphy);
 
-	/* Only care about regulatory events, and if 6GHz capable */
-	if (event != WIPHY_STATE_WATCH_EVENT_REGDOM_DONE ||
-			!(scan_freq_set_get_bands(supported) & BAND_FREQ_6_GHZ))
+	/* Only care about completed regulatory dumps */
+	if (event != WIPHY_STATE_WATCH_EVENT_REGDOM_DONE)
 		return;
 
 	if (!sc->sp.id)
