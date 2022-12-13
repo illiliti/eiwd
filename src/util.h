@@ -111,6 +111,7 @@ typedef void (*scan_freq_set_func_t)(uint32_t freq, void *userdata);
 struct scan_freq_set *scan_freq_set_new(void);
 void scan_freq_set_free(struct scan_freq_set *freqs);
 bool scan_freq_set_add(struct scan_freq_set *freqs, uint32_t freq);
+bool scan_freq_set_remove(struct scan_freq_set *freqs, uint32_t freq);
 bool scan_freq_set_contains(const struct scan_freq_set *freqs, uint32_t freq);
 uint32_t scan_freq_set_get_bands(const struct scan_freq_set *freqs);
 void scan_freq_set_foreach(const struct scan_freq_set *freqs,
