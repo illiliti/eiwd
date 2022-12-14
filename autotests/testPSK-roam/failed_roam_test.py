@@ -65,7 +65,7 @@ class Test(unittest.TestCase):
         device.roam(self.bss_hostapd[1].bssid)
 
         # Roam should fail...
-        device.wait_for_event('ft-over-air-roam-failed')
+        device.wait_for_event('ft-roam-failed')
         # ... but IWD should remain connected
         self.assertTrue(device.state == DeviceState.connected)
 
@@ -73,42 +73,6 @@ class Test(unittest.TestCase):
 
         # Try again once more
         device.roam(self.bss_hostapd[1].bssid)
-
-        self.verify_roam(wd, device, self.bss_hostapd[0], self.bss_hostapd[1])
-
-        self.bss_hostapd[1].deauthenticate(device.address)
-        condition = 'obj.state == DeviceState.disconnected'
-        wd.wait_for_object_condition(device, condition)
-
-    # Network sets over-DS bit, but fails to authenticate. IWD should still be
-    # able to roam using FT-over-Air.
-    def test_fallback_to_over_air(self):
-        self.bss_hostapd[0].set_value('wpa_key_mgmt', 'FT-PSK')
-        self.bss_hostapd[0].set_value('ft_over_ds', '1')
-        self.bss_hostapd[0].reload()
-        self.bss_hostapd[0].wait_for_event("AP-ENABLED")
-
-        self.bss_hostapd[1].set_value('wpa_key_mgmt', 'FT-PSK')
-        self.bss_hostapd[1].set_value('ft_over_ds', '1')
-        self.bss_hostapd[1].reload()
-        self.bss_hostapd[1].wait_for_event("AP-ENABLED")
-
-        wd = IWD(True)
-
-        device = wd.list_devices(1)[0]
-
-        # Drop action frames, this will prevent FT-over-DS authentication
-        self.rule1.enabled = True
-
-        self.connect(wd, device, self.bss_hostapd[0])
-
-        device.roam(self.bss_hostapd[1].bssid)
-
-        self.rule1.enabled = False
-
-        # FT-over-DS should fail, and over-Air should take over leading to a
-        # successful roam
-        device.wait_for_event('try-ft-over-air')
 
         self.verify_roam(wd, device, self.bss_hostapd[0], self.bss_hostapd[1])
 
