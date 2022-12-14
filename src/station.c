@@ -1973,47 +1973,6 @@ static bool station_can_fast_transition(struct handshake_state *hs,
 	return true;
 }
 
-static void station_ft_ds_action_start(struct station *station)
-{
-	struct handshake_state *hs = netdev_get_handshake(station->netdev);
-	uint16_t mdid;
-	const struct l_queue_entry *entry;
-	struct scan_bss *bss;
-	struct ie_rsn_info rsn_info;
-
-	if (!station_can_fast_transition(hs, station->connected_bss) ||
-						!(hs->mde[4] & 1))
-		return;
-
-	if (ie_parse_mobility_domain_from_data(hs->mde, hs->mde[1] + 2,
-						&mdid, NULL, NULL) < 0)
-		return;
-
-	for (entry = network_bss_list_get_entries(station->connected_network);
-						entry; entry = entry->next) {
-		bss = entry->data;
-
-		if (bss == station->connected_bss)
-			continue;
-
-		if (mdid != l_get_le16(bss->mde))
-			continue;
-
-		if (scan_bss_get_rsn_info(bss, &rsn_info) < 0)
-			continue;
-
-		if (!IE_AKM_IS_FT(rsn_info.akm_suites))
-			continue;
-
-		/*
-		 * Fire and forget. Netdev will maintain a cache of responses
-		 * and when the time comes these can be referenced for a roam
-		 */
-		ft_action(netdev_get_ifindex(station->netdev),
-				station->connected_bss->frequency, bss);
-	}
-}
-
 static void station_roamed(struct station *station)
 {
 	station->roam_scan_full = false;
@@ -2041,8 +2000,6 @@ static void station_roamed(struct station *station)
 	}
 
 	l_queue_clear(station->roam_bss_list, l_free);
-
-	station_ft_ds_action_start(station);
 
 	station_enter_state(station, STATION_STATE_CONNECTED);
 }
@@ -2297,7 +2254,7 @@ static bool station_ft_work_ready(struct wiphy_radio_work_item *item)
 
 	ret = ft_associate(netdev_get_ifindex(station->netdev), bss->addr);
 	if (ret == -ENOENT) {
-		station_debug_event(station, "ft-over-air-roam-failed");
+		station_debug_event(station, "ft-roam-failed");
 try_next:
 		station_transition_start(station);
 		return true;
@@ -2327,7 +2284,6 @@ static bool station_fast_transition(struct station *station,
 	const struct network_info *info = network_get_info(connected);
 	const struct iovec *vendor_ies;
 	size_t iov_elems = 0;
-	int ret;
 
 	/* Rebuild handshake RSN for target AP */
 	if (station_build_handshake_rsn(hs, station->wiphy,
@@ -2338,34 +2294,17 @@ static bool station_fast_transition(struct station *station,
 	vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
 	handshake_state_set_vendor_ies(hs, vendor_ies, iov_elems);
 
-	if ((hs->mde[4] & 1)) {
-		ret = ft_associate(netdev_get_ifindex(station->netdev),
-					bss->addr);
-		/* No action responses from this BSS, try over air */
-		if (ret == -ENOENT) {
-			station_debug_event(station, "try-ft-over-air");
-			goto try_over_air;
-		} else if (ret < 0)
-			return false;
-
-		station->connected_bss = bss;
-		station->preparing_roam = false;
-		station_enter_state(station, STATION_STATE_FT_ROAMING);
-
-		return true;
-	} else {
-try_over_air:
-		/*
-		 * Send FT-Authenticate and insert a work item which will be
-		 * gated until authentication completes
-		 */
+	/* Both ft_action/ft_authenticate will gate the associate work item */
+	if ((hs->mde[4] & 1))
+		ft_action(netdev_get_ifindex(station->netdev),
+				station->connected_bss->frequency, bss);
+	else
 		ft_authenticate(netdev_get_ifindex(station->netdev), bss);
 
-		wiphy_radio_work_insert(station->wiphy, &station->ft_work,
+	wiphy_radio_work_insert(station->wiphy, &station->ft_work,
 				WIPHY_WORK_PRIORITY_CONNECT, &ft_work_ops);
 
-		return true;
-	}
+	return true;
 }
 
 static bool station_try_next_transition(struct station *station,
@@ -3116,8 +3055,6 @@ static void station_connect_ok(struct station *station)
 					station_early_neighbor_report_cb) < 0)
 			l_warn("Could not request neighbor report");
 	}
-
-	station_ft_ds_action_start(station);
 
 	network_connected(station->connected_network);
 
