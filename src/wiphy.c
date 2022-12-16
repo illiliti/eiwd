@@ -2015,6 +2015,10 @@ static void wiphy_dump_callback(struct l_genl_msg *msg,
 	if (L_WARN_ON(!wiphy))
 		return;
 
+	/* Unregistered means the wiphy is blacklisted, don't bother parsing */
+	if (!wiphy->registered)
+		return;
+
 	while (l_genl_attr_next(&bands, &type, NULL, NULL)) {
 		switch (type) {
 		case NL80211_BAND_2GHZ:
