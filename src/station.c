@@ -1407,8 +1407,6 @@ static int station_quick_scan_trigger(struct station *station)
 {
 	_auto_(scan_freq_set_free) struct scan_freq_set *known_freq_set = NULL;
 	bool known_6ghz;
-	const struct scan_freq_set *disabled = wiphy_get_disabled_freqs(
-								station->wiphy);
 
 	if (wiphy_regdom_is_updating(station->wiphy)) {
 		l_debug("regdom is updating, delaying quick scan");
@@ -1430,9 +1428,11 @@ static int station_quick_scan_trigger(struct station *station)
 	 * this since its so limited, so return an error which will fall back to
 	 * full autoconnect.
 	 */
-	if ((scan_freq_set_get_bands(disabled) & BAND_FREQ_6_GHZ) &&
-				wiphy_country_is_unknown(station->wiphy) &&
-				known_6ghz)
+	if (wiphy_get_supported_bands(station->wiphy) & BAND_FREQ_6_GHZ &&
+			wiphy_band_is_disabled(station->wiphy,
+						BAND_FREQ_6_GHZ) &&
+			wiphy_country_is_unknown(station->wiphy) &&
+			known_6ghz)
 		return -ENOTSUP;
 
 	if (!wiphy_constrain_freq_set(station->wiphy, known_freq_set)) {
@@ -1812,10 +1812,6 @@ static void parse_neighbor_report(struct station *station,
 	struct scan_freq_set *freq_set_md, *freq_set_no_md;
 	uint32_t current_freq = 0;
 	struct handshake_state *hs = netdev_get_handshake(station->netdev);
-	const struct scan_freq_set *supported =
-				wiphy_get_supported_freqs(station->wiphy);
-	const struct scan_freq_set *disabled =
-				wiphy_get_disabled_freqs(station->wiphy);
 
 	freq_set_md = scan_freq_set_new();
 	freq_set_no_md = scan_freq_set_new();
@@ -1828,6 +1824,7 @@ static void parse_neighbor_report(struct station *station,
 		uint32_t freq;
 		enum band_freq band;
 		const uint8_t *cc = NULL;
+		const struct band_freq_attrs *attr;
 
 		if (ie_tlv_iter_get_tag(&iter) != IE_TYPE_NEIGHBOR_REPORT)
 			continue;
@@ -1853,8 +1850,8 @@ static void parse_neighbor_report(struct station *station,
 			continue;
 
 		/* Skip if frequency is not supported or disabled */
-		if (!scan_freq_set_contains(supported, freq) ||
-				scan_freq_set_contains(disabled, freq))
+		attr = wiphy_get_frequency_info(station->wiphy, freq);
+		if (!attr || attr->disabled)
 			continue;
 
 		if (!memcmp(info.addr,
