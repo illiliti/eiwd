@@ -496,6 +496,67 @@ const struct scan_freq_set *wiphy_get_disabled_freqs(const struct wiphy *wiphy)
 	return wiphy->disabled_freqs;
 }
 
+static struct band *wiphy_get_band(const struct wiphy *wiphy, enum band_freq band)
+{
+	switch (band) {
+	case BAND_FREQ_2_4_GHZ:
+		return wiphy->band_2g;
+	case BAND_FREQ_5_GHZ:
+		return wiphy->band_5g;
+	case BAND_FREQ_6_GHZ:
+		return wiphy->band_6g;
+	default:
+		return NULL;
+	}
+}
+
+const struct band_freq_attrs *wiphy_get_frequency_info(
+						const struct wiphy *wiphy,
+						uint32_t freq)
+{
+	struct band_freq_attrs *attr;
+	enum band_freq band;
+	uint8_t channel;
+	struct band *bandp;
+
+	channel = band_freq_to_channel(freq, &band);
+	if (!channel)
+		return NULL;
+
+	bandp = wiphy_get_band(wiphy, band);
+	if (!bandp)
+		return NULL;
+
+	attr = &bandp->freq_attrs[channel];
+	if (!attr->supported)
+		return NULL;
+
+	return attr;
+}
+
+bool wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band)
+{
+	struct band_freq_attrs attr;
+	unsigned int i;
+	struct band *bandp;
+
+	bandp = wiphy_get_band(wiphy, band);
+	if (!bandp)
+		return true;
+
+	for (i = 0; i < bandp->freqs_len; i++) {
+		attr = bandp->freq_attrs[i];
+
+		if (!attr.supported)
+			continue;
+
+		if (!attr.disabled)
+			return false;
+	}
+
+	return true;
+}
+
 bool wiphy_supports_probe_resp_offload(struct wiphy *wiphy)
 {
 	return wiphy->ap_probe_resp_offload;
@@ -819,21 +880,7 @@ const uint8_t *wiphy_get_supported_rates(struct wiphy *wiphy,
 						enum band_freq band,
 						unsigned int *out_num)
 {
-	struct band *bandp;
-
-	switch (band) {
-	case BAND_FREQ_2_4_GHZ:
-		bandp = wiphy->band_2g;
-		break;
-	case BAND_FREQ_5_GHZ:
-		bandp = wiphy->band_5g;
-		break;
-	case BAND_FREQ_6_GHZ:
-		bandp = wiphy->band_6g;
-		break;
-	default:
-		return NULL;
-	}
+	struct band *bandp = wiphy_get_band(wiphy, band);
 
 	if (!bandp)
 		return NULL;
@@ -891,19 +938,9 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 	if (band_freq_to_channel(bss->frequency, &band) == 0)
 		return -ENOTSUP;
 
-	switch (band) {
-	case BAND_FREQ_2_4_GHZ:
-		bandp = wiphy->band_2g;
-		break;
-	case BAND_FREQ_5_GHZ:
-		bandp = wiphy->band_5g;
-		break;
-	case BAND_FREQ_6_GHZ:
-		bandp = wiphy->band_6g;
-		break;
-	default:
+	bandp = wiphy_get_band(wiphy, band);
+	if (!bandp)
 		return -ENOTSUP;
-	}
 
 	ie_tlv_iter_init(&iter, ies, ies_len);
 
