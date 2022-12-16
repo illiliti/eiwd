@@ -3174,9 +3174,8 @@ static char **ap_ciphers_to_strv(uint16_t ciphers)
 static bool ap_validate_band_channel(struct ap_state *ap)
 {
 	struct wiphy *wiphy = netdev_get_wiphy(ap->netdev);
-	const struct scan_freq_set *supported;
-	const struct scan_freq_set *disabled;
 	uint32_t freq;
+	const struct band_freq_attrs *attr;
 
 	if (!(wiphy_get_supported_bands(wiphy) & ap->band)) {
 		l_error("AP hardware does not support band");
@@ -3191,19 +3190,11 @@ static bool ap_validate_band_channel(struct ap_state *ap)
 		return false;
 	}
 
-	supported = wiphy_get_supported_freqs(wiphy);
-	disabled = wiphy_get_disabled_freqs(wiphy);
-
-	if (!scan_freq_set_contains(supported, freq)) {
-		l_error("AP hardware does not support frequency %u", freq);
+	attr = wiphy_get_frequency_info(wiphy, freq);
+	if (!attr || attr->disabled) {
+		l_error("AP frequency %u disabled or unsupported", freq);
 		return false;
 	}
-
-	if (scan_freq_set_contains(disabled, freq)) {
-		l_error("AP hardware has frequency %u disabled", freq);
-		return false;
-	}
-
 	return true;
 }
 
