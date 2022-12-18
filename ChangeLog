@@ -1,3 +1,9 @@
+ver 2.1:
+	Fix issue with handling FT-over-DS action.
+	Fix issue with handling scan and 6 GHz support check.
+	Fix issue with handling when periodic scans get aborted.
+	Add support for using 5 GHz frequencies in AP mode.
+
 ver 2.0:
 	Fix issue with handling P2P and limiting ciphers to CCMP.
 	Fix issue with scanning before forced roaming action.
