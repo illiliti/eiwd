@@ -77,6 +77,7 @@ struct band {
 	bool vht_supported : 1;
 	uint8_t ht_mcs_set[16];
 	uint8_t ht_capabilities[2];
+	uint8_t ht_ampdu_params;
 	bool ht_supported : 1;
 	uint16_t supported_rates_len;
 	uint8_t supported_rates[];
