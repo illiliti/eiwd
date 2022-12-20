@@ -59,6 +59,11 @@ struct band_freq_attrs {
 	bool supported : 1;
 	bool disabled : 1;
 	bool no_ir : 1;
+	bool no_ht40_plus : 1;
+	bool no_ht40_minus : 1;
+	bool no_80mhz : 1;
+	bool no_160mhz : 1;
+	bool no_he : 1;
 } __attribute__ ((packed));
 
 struct band {

@@ -533,6 +533,21 @@ int nl80211_parse_supported_frequencies(struct l_genl_attr *band_freqs,
 			case NL80211_FREQUENCY_ATTR_NO_IR:
 				freq_attr.no_ir = true;
 				break;
+			case NL80211_FREQUENCY_ATTR_NO_HT40_MINUS:
+				freq_attr.no_ht40_minus = true;
+				break;
+			case NL80211_FREQUENCY_ATTR_NO_HT40_PLUS:
+				freq_attr.no_ht40_plus = true;
+				break;
+			case NL80211_FREQUENCY_ATTR_NO_80MHZ:
+				freq_attr.no_80mhz = true;
+				break;
+			case NL80211_FREQUENCY_ATTR_NO_160MHZ:
+				freq_attr.no_160mhz = true;
+				break;
+			case NL80211_FREQUENCY_ATTR_NO_HE:
+				freq_attr.no_he = true;
+				break;
 			}
 		}
 
