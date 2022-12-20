@@ -111,3 +111,4 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band);
 uint32_t band_channel_to_freq(uint8_t channel, enum band_freq band);
 enum band_freq band_oper_class_to_band(const uint8_t *country,
 					uint8_t oper_class);
+const char *band_chandef_width_to_string(enum band_chandef_width width);

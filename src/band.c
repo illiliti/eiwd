@@ -1422,3 +1422,23 @@ enum band_freq band_oper_class_to_band(const uint8_t *country,
 	else
 		return 0;
 }
+
+const char *band_chandef_width_to_string(enum band_chandef_width width)
+{
+	switch (width) {
+	case BAND_CHANDEF_WIDTH_20NOHT:
+		return "20MHz (no-HT)";
+	case BAND_CHANDEF_WIDTH_20:
+		return "20MHz";
+	case BAND_CHANDEF_WIDTH_40:
+		return "40MHz";
+	case BAND_CHANDEF_WIDTH_80:
+		return "80MHz";
+	case BAND_CHANDEF_WIDTH_80P80:
+		return "80+80MHz";
+	case BAND_CHANDEF_WIDTH_160:
+		return "160MHz";
+	}
+
+	return NULL;
+}
