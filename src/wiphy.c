@@ -137,6 +137,7 @@ struct wiphy {
 	bool registered : 1;
 	bool self_managed : 1;
 	bool ap_probe_resp_offload : 1;
+	bool supports_uapsd : 1;
 };
 
 static struct l_queue *wiphy_list = NULL;
@@ -908,6 +909,11 @@ bool wiphy_country_is_unknown(struct wiphy *wiphy)
 	 */
 	return ((cc[0] == 'O' && cc[1] == 'O') ||
 			(cc[0] == 'X' && cc[1] == 'X'));
+}
+
+bool wiphy_supports_uapsd(const struct wiphy *wiphy)
+{
+	return wiphy->supports_uapsd;
 }
 
 const uint8_t *wiphy_get_ht_capabilities(const struct wiphy *wiphy,
@@ -1829,6 +1835,9 @@ static void wiphy_parse_attributes(struct wiphy *wiphy,
 			break;
 		case NL80211_ATTR_PROBE_RESP_OFFLOAD:
 			wiphy->ap_probe_resp_offload = true;
+			break;
+		case NL80211_ATTR_SUPPORT_AP_UAPSD:
+			wiphy->supports_uapsd = true;
 			break;
 		}
 	}
