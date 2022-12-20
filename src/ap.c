@@ -802,6 +802,29 @@ static size_t ap_write_wsc_ie(struct ap_state *ap,
 	return len;
 }
 
+static size_t ap_build_supported_rates(struct ap_state *ap,
+					uint8_t *rates)
+{
+	uint32_t minr, maxr, count, r;
+
+	minr = l_uintset_find_min(ap->rates);
+	maxr = l_uintset_find_max(ap->rates);
+	count = 0;
+	for (r = minr; r <= maxr && count < 8; r++)
+		if (l_uintset_contains(ap->rates, r)) {
+			uint8_t flag = 0;
+
+			/* Mark only the lowest rate as Basic Rate */
+			if (count == 0)
+				flag = 0x80;
+
+			*rates++ = r | flag;
+			count++;
+		}
+
+	return count;
+}
+
 static size_t ap_get_extra_ies_len(struct ap_state *ap,
 					enum mpdu_management_subtype type,
 					const struct mmpdu_header *client_frame,
@@ -858,8 +881,7 @@ static size_t ap_build_beacon_pr_head(struct ap_state *ap,
 	struct mmpdu_header *mpdu = (void *) out_buf;
 	uint16_t capability = IE_BSS_CAP_ESS | IE_BSS_CAP_PRIVACY;
 	const uint8_t *bssid = netdev_get_address(ap->netdev);
-	uint32_t minr, maxr, count, r;
-	uint8_t *rates;
+	size_t len;
 	struct ie_tlv_builder builder;
 
 	memset(mpdu, 0, 36); /* Zero out header + non-IE fields */
@@ -884,24 +906,8 @@ static size_t ap_build_beacon_pr_head(struct ap_state *ap,
 
 	/* Supported Rates IE */
 	ie_tlv_builder_next(&builder, IE_TYPE_SUPPORTED_RATES);
-	rates = ie_tlv_builder_get_data(&builder);
-
-	minr = l_uintset_find_min(ap->rates);
-	maxr = l_uintset_find_max(ap->rates);
-	count = 0;
-	for (r = minr; r <= maxr && count < 8; r++)
-		if (l_uintset_contains(ap->rates, r)) {
-			uint8_t flag = 0;
-
-			/* Mark only the lowest rate as Basic Rate */
-			if (count == 0)
-				flag = 0x80;
-
-			*rates++ = r | flag;
-			count++;
-		}
-
-	ie_tlv_builder_set_length(&builder, count);
+	len = ap_build_supported_rates(ap, ie_tlv_builder_get_data(&builder));
+	ie_tlv_builder_set_length(&builder, len);
 
 	/* DSSS Parameter Set IE for DSSS, HR, ERP and HT PHY rates */
 	ie_tlv_builder_next(&builder, IE_TYPE_DSSS_PARAMETER_SET);
@@ -1540,8 +1546,8 @@ static uint32_t ap_assoc_resp(struct ap_state *ap, struct sta_state *sta,
 	struct mmpdu_header *mpdu = (void *) mpdu_buf;
 	struct mmpdu_association_response *resp;
 	size_t ies_len = 0;
+	size_t len;
 	uint16_t capability = IE_BSS_CAP_ESS | IE_BSS_CAP_PRIVACY;
-	uint32_t r, minr, maxr, count;
 
 	memset(mpdu, 0, sizeof(*mpdu));
 
@@ -1561,23 +1567,9 @@ static uint32_t ap_assoc_resp(struct ap_state *ap, struct sta_state *sta,
 
 	/* Supported Rates IE */
 	resp->ies[ies_len++] = IE_TYPE_SUPPORTED_RATES;
-
-	minr = l_uintset_find_min(ap->rates);
-	maxr = l_uintset_find_max(ap->rates);
-	count = 0;
-	for (r = minr; r <= maxr && count < 8; r++)
-		if (l_uintset_contains(ap->rates, r)) {
-			uint8_t flag = 0;
-
-			/* Mark only the lowest rate as Basic Rate */
-			if (count == 0)
-				flag = 0x80;
-
-			resp->ies[ies_len + 1 + count++] = r | flag;
-		}
-
-	resp->ies[ies_len++] = count;
-	ies_len += count;
+	len = ap_build_supported_rates(ap, resp->ies + ies_len + 1);
+	resp->ies[ies_len++] = len;
+	ies_len += len;
 
 	ies_len += ap_write_extra_ies(ap, stype, req, req_len,
 					resp->ies + ies_len);
