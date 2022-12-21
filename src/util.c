@@ -360,6 +360,28 @@ bool scan_freq_set_add(struct scan_freq_set *freqs, uint32_t freq)
 	return false;
 }
 
+bool scan_freq_set_remove(struct scan_freq_set *freqs, uint32_t freq)
+{
+	enum band_freq band;
+	uint8_t channel;
+
+	channel = band_freq_to_channel(freq, &band);
+	if (!channel)
+		return false;
+
+	switch (band) {
+	case BAND_FREQ_2_4_GHZ:
+		freqs->channels_2ghz &= ~(1 << (channel - 1));
+		return true;
+	case BAND_FREQ_5_GHZ:
+		return l_uintset_take(freqs->channels_5ghz, channel);
+	case BAND_FREQ_6_GHZ:
+		return l_uintset_take(freqs->channels_6ghz, channel);
+	}
+
+	return false;
+}
+
 bool scan_freq_set_contains(const struct scan_freq_set *freqs, uint32_t freq)
 {
 	enum band_freq band;

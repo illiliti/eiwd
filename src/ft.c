@@ -54,7 +54,11 @@ struct ft_info {
 	uint8_t *authenticator_ie;
 	uint8_t prev_bssid[6];
 	uint32_t frequency;
+	uint32_t ds_frequency;
 	uint32_t offchannel_id;
+
+	struct l_timeout *timeout;
+	struct wiphy_radio_work_item work;
 
 	struct ie_ft_info ft_info;
 
@@ -830,6 +834,11 @@ void __ft_rx_action(uint32_t ifindex, const uint8_t *frame, size_t frame_len)
 
 	info->parsed = true;
 
+	l_timeout_remove(info->timeout);
+	info->timeout = NULL;
+
+	wiphy_radio_work_done(netdev_get_wiphy(netdev), info->work.id);
+
 	return;
 
 ft_error:
@@ -868,6 +877,9 @@ static void ft_info_destroy(void *data)
 	if (info->authenticator_ie)
 		l_free(info->authenticator_ie);
 
+	if (info->timeout)
+		l_timeout_remove(info->timeout);
+
 	l_free(info);
 }
 
@@ -900,18 +912,16 @@ static void ft_prepare_handshake(struct ft_info *info,
 	handshake_state_derive_ptk(hs);
 }
 
-int ft_action(uint32_t ifindex, uint32_t freq, const struct scan_bss *target)
+static bool ft_send_action(struct wiphy_radio_work_item *work)
 {
-	struct netdev *netdev = netdev_find(ifindex);
+	struct ft_info *info = l_container_of(work, struct ft_info, work);
+	struct netdev *netdev = netdev_find(info->ifindex);
 	struct handshake_state *hs = netdev_get_handshake(netdev);
-	struct ft_info *info;
 	uint8_t ft_req[14];
 	struct iovec iov[5];
 	uint8_t ies[512];
 	size_t len;
 	int ret = -EINVAL;
-
-	info = ft_info_new(hs, target);
 
 	ft_req[0] = 6; /* FT category */
 	ft_req[1] = 1; /* FT Request action */
@@ -928,17 +938,47 @@ int ft_action(uint32_t ifindex, uint32_t freq, const struct scan_bss *target)
 	iov[1].iov_base = ies;
 	iov[1].iov_len = len;
 
-	ret = tx_frame(hs->ifindex, 0x00d0, freq, hs->aa, iov, 2);
+	ret = tx_frame(hs->ifindex, 0x00d0, info->ds_frequency, hs->aa, iov, 2);
 	if (ret < 0)
 		goto failed;
 
 	l_queue_push_tail(info_list, info);
 
-	return 0;
+	return false;
 
 failed:
-	l_free(info);
-	return ret;
+	l_debug("FT-over-DS action failed to "MAC, MAC_STR(hs->aa));
+
+	ft_info_destroy(info);
+	return true;
+}
+
+struct wiphy_radio_work_item_ops ft_ops = {
+	.do_work = ft_send_action,
+};
+
+static void ft_ds_timeout(struct l_timeout *timeout, void *user_data)
+{
+	struct ft_info *info = user_data;
+	struct netdev *netdev = netdev_find(info->ifindex);
+
+	wiphy_radio_work_done(netdev_get_wiphy(netdev), info->work.id);
+}
+
+int ft_action(uint32_t ifindex, uint32_t freq, const struct scan_bss *target)
+{
+	struct netdev *netdev = netdev_find(ifindex);
+	struct handshake_state *hs = netdev_get_handshake(netdev);
+	struct ft_info *info;
+
+	info = ft_info_new(hs, target);
+	info->ds_frequency = freq;
+	info->timeout = l_timeout_create_ms(200, ft_ds_timeout, info, NULL);
+
+	wiphy_radio_work_insert(netdev_get_wiphy(netdev), &info->work,
+				WIPHY_WORK_PRIORITY_FT, &ft_ops);
+
+	return 0;
 }
 
 void __ft_rx_authenticate(uint32_t ifindex, const uint8_t *frame,

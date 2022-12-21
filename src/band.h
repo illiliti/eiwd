@@ -55,8 +55,16 @@ struct band_he_capabilities {
 	uint8_t he_mcs_set[12];
 };
 
+struct band_freq_attrs {
+	bool supported : 1;
+	bool disabled : 1;
+	bool no_ir : 1;
+} __attribute__ ((packed));
+
 struct band {
 	enum band_freq freq;
+	struct band_freq_attrs *freq_attrs;
+	size_t freqs_len;
 	/* Each entry is type struct band_he_capabilities */
 	struct l_queue *he_capabilities;
 	uint8_t vht_mcs_set[8];

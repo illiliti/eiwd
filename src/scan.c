@@ -83,7 +83,6 @@ struct scan_request {
 	bool canceled : 1; /* Is scan_cancel being called on this request? */
 	bool passive:1; /* Active or Passive scan? */
 	bool started : 1; /* Has TRIGGER_SCAN succeeded at least once? */
-	bool periodic : 1; /* Started as a periodic scan? */
 	/*
 	 * Set to true if the TRIGGER_SCAN command at the head of the 'cmds'
 	 * queue was acked by the kernel indicating that the scan request was
@@ -426,7 +425,7 @@ static struct l_genl_msg *scan_build_cmd(struct scan_context *sc,
 		 * rates we don't want to advertise support for 802.11b rates.
 		 */
 		if (L_WARN_ON(!(supported = wiphy_get_supported_rates(sc->wiphy,
-							NL80211_BAND_2GHZ,
+							BAND_FREQ_2_4_GHZ,
 							&num_supported))))
 			goto done;
 
@@ -997,7 +996,6 @@ static void scan_periodic_destroy(void *user_data)
 static bool scan_periodic_queue(struct scan_context *sc)
 {
 	struct scan_parameters params = {};
-	struct scan_request *sr;
 
 	if (sc->sp.needs_active_scan && known_networks_has_hidden()) {
 		params.randomize_mac_addr_hint = true;
@@ -1015,13 +1013,7 @@ static bool scan_periodic_queue(struct scan_context *sc)
 					scan_periodic_notify, sc,
 					scan_periodic_destroy);
 
-	if (!sc->sp.id)
-		return false;
-
-	sr = l_queue_peek_tail(sc->requests);
-	sr->periodic = true;
-
-	return true;
+	return sc->sp.id != 0;
 }
 
 static bool scan_periodic_is_disabled(void)
@@ -1933,12 +1925,9 @@ static void scan_wiphy_watch(struct wiphy *wiphy,
 	struct scan_freq_set *freqs_6ghz;
 	struct scan_freq_set *allowed;
 	bool allow_6g;
-	const struct scan_freq_set *supported =
-					wiphy_get_supported_freqs(wiphy);
 
-	/* Only care about regulatory events, and if 6GHz capable */
-	if (event != WIPHY_STATE_WATCH_EVENT_REGDOM_DONE ||
-			!(scan_freq_set_get_bands(supported) & BAND_FREQ_6_GHZ))
+	/* Only care about completed regulatory dumps */
+	if (event != WIPHY_STATE_WATCH_EVENT_REGDOM_DONE)
 		return;
 
 	if (!sc->sp.id)
@@ -2242,13 +2231,7 @@ static void scan_notify(struct l_genl_msg *msg, void *user_data)
 
 		if (sr->triggered) {
 			sr->triggered = false;
-
-			/* If periodic scan, don't report the abort */
-			if (sr->periodic) {
-				l_queue_remove(sc->requests, sr);
-				wiphy_radio_work_done(sc->wiphy, sr->work.id);
-			} else
-				scan_finished(sc, -ECANCELED, NULL, NULL, sr);
+			scan_finished(sc, -ECANCELED, NULL, NULL, sr);
 		} else if (wiphy_radio_work_is_running(sc->wiphy,
 							sr->work.id)) {
 			/*
