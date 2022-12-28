@@ -101,6 +101,8 @@ int band_estimate_nonht_rate(const struct band *band,
 				const uint8_t *supported_rates,
 				const uint8_t *ext_supported_rates,
 				int32_t rssi, uint64_t *out_data_rate);
+int band_freq_to_ht_chandef(uint32_t freq, const struct band_freq_attrs *attr,
+				struct band_chandef *chandef);
 
 int oci_to_frequency(uint32_t operating_class, uint32_t channel);
 
