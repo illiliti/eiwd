@@ -111,6 +111,7 @@ struct ap_state {
 	bool in_event : 1;
 	bool free_pending : 1;
 	bool scanning : 1;
+	bool supports_ht : 1;
 };
 
 struct sta_state {
@@ -834,12 +835,76 @@ static size_t ap_get_extra_ies_len(struct ap_state *ap,
 
 	len += ap_get_wsc_ie_len(ap, type, client_frame, client_frame_len);
 
+	if (ap->supports_ht)
+		len += 26;
+
 	if (ap->ops->get_extra_ies_len)
 		len += ap->ops->get_extra_ies_len(type, client_frame,
 							client_frame_len,
 							ap->user_data);
 
 	return len;
+}
+
+/* WMM Specification 2.2.2 WMM Parameter Element */
+struct ap_wmm_ac_record {
+#if defined(__LITTLE_ENDIAN_BITFIELD)
+	uint8_t aifsn : 4;
+	uint8_t acm : 1;
+	uint8_t aci : 2;
+	uint8_t reserved : 1;
+	uint8_t ecw_min : 4;
+	uint8_t ecw_max : 4;
+#elif defined (__BIG_ENDIAN_BITFIELD)
+	uint8_t reserved : 1;
+	uint8_t aci : 2;
+	uint8_t acm : 1;
+	uint8_t aifsn : 4;
+	uint8_t acw_max : 4;
+	uint8_t acw_min : 4;
+#else
+#error "Please fix <asm/byteorder.h"
+#endif
+	__le16 txop_limit;
+} __attribute__((packed));
+
+static size_t ap_write_wmm_ies(struct ap_state *ap, uint8_t *out_buf)
+{
+	unsigned int i;
+	struct wiphy *wiphy = netdev_get_wiphy(ap->netdev);
+
+	/*
+	 * Linux kernel requires APs include WMM Information element if
+	 * supporting HT/VHT/etc.
+	 *
+	 * The only value we can actually get from the kernel is UAPSD. The
+	 * remaining values (AC parameter records) are made up or defaults
+	 * defined in the WMM spec are used.
+	 */
+	*out_buf++ = IE_TYPE_VENDOR_SPECIFIC;
+	*out_buf++ = 24;
+	memcpy(out_buf, microsoft_oui, sizeof(microsoft_oui));
+	out_buf += sizeof(microsoft_oui);
+	*out_buf++ = 2; /* WMM OUI Type */
+	*out_buf++ = 1; /* WMM Parameter subtype */
+	*out_buf++ = 1; /* WMM Version */
+	*out_buf++ = wiphy_supports_uapsd(wiphy) ? 1 << 7 : 0;
+	*out_buf++ = 0; /* reserved */
+
+	for (i = 0; i < 4; i++) {
+		struct ap_wmm_ac_record ac = { 0 };
+
+		ac.aifsn = 2;
+		ac.acm = 0;
+		ac.aci = i;
+		ac.ecw_min = 1;
+		ac.ecw_max = 15;
+		l_put_le16(0, &ac.txop_limit);
+
+		memcpy(out_buf + (i * 4), &ac, sizeof(struct ap_wmm_ac_record));
+	}
+
+	return 26;
 }
 
 static size_t ap_write_extra_ies(struct ap_state *ap,
@@ -852,6 +917,9 @@ static size_t ap_write_extra_ies(struct ap_state *ap,
 
 	len += ap_write_wsc_ie(ap, type, client_frame, client_frame_len,
 				out_buf + len);
+
+	if (ap->supports_ht)
+		len += ap_write_wmm_ies(ap, out_buf + len);
 
 	if (ap->ops->write_extra_ies)
 		len += ap->ops->write_extra_ies(type,
@@ -3254,6 +3322,9 @@ static int ap_load_config(struct ap_state *ap, const struct l_settings *config,
 		ap->channel = 6;
 		ap->band = BAND_FREQ_2_4_GHZ;
 	}
+
+	ap->supports_ht = wiphy_get_ht_capabilities(wiphy, ap->band,
+							NULL) != NULL;
 
 	if (!ap_validate_band_channel(ap)) {
 		l_error("AP Band and Channel combination invalid");
