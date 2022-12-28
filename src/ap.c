@@ -137,6 +137,9 @@ struct sta_state {
 	bool wsc_v2;
 	struct l_dhcp_lease *ip_alloc_lease;
 	bool ip_alloc_sent;
+
+	bool ht_support : 1;
+	bool ht_greenfield : 1;
 };
 
 struct ap_wsc_pbc_probe_record {
@@ -930,6 +933,66 @@ static size_t ap_write_extra_ies(struct ap_state *ap,
 	return len;
 }
 
+static size_t ap_build_ht_capability(struct ap_state *ap, uint8_t *buf)
+{
+	struct wiphy *wiphy = netdev_get_wiphy(ap->netdev);
+	size_t ht_capa_len;
+	const uint8_t *ht_capa = wiphy_get_ht_capabilities(wiphy, ap->band,
+								&ht_capa_len);
+
+	memcpy(buf, ht_capa, ht_capa_len);
+
+	return ht_capa_len;
+}
+
+static size_t ap_build_ht_operation(struct ap_state *ap, uint8_t *buf)
+{
+	const struct l_queue_entry *e;
+	unsigned int non_ht = false;
+	unsigned int non_greenfield = false;
+
+	memset(buf, 0, 22);
+	*buf++ = ap->channel;
+
+	/*
+	 * If 40MHz set 'Secondary Channel Offset' (bits 0-1) to above/below
+	 * and set 'STA Channel Width' (bit 2) to indicate non-20Mhz.
+	 */
+	if (ap->chandef.channel_width == BAND_CHANDEF_WIDTH_20)
+		goto check_stas;
+	else if (ap->chandef.frequency < ap->chandef.center1_frequency)
+		*buf |= 1 & 0x3;
+	else
+		*buf |= 3 & 0x3;
+
+	*buf |= 1 << 2;
+
+check_stas:
+	for (e = l_queue_get_entries(ap->sta_states); e; e = e->next) {
+		struct sta_state *sta = e->data;
+
+		if (!sta->associated)
+			continue;
+
+		if (!sta->ht_support)
+			non_ht = true;
+		else if (!sta->ht_greenfield)
+			non_greenfield = true;
+	}
+
+	if (non_greenfield)
+		set_bit(buf, 10);
+
+	if (non_ht)
+		set_bit(buf, 12);
+
+	/*
+	 * TODO: Basic MCS set for all associated STAs
+	 */
+
+	return 22;
+}
+
 /*
  * Build a Beacon frame or a Probe Response frame's header and body until
  * the TIM IE.  Except for the optional TIM IE which is inserted by the
@@ -981,6 +1044,18 @@ static size_t ap_build_beacon_pr_head(struct ap_state *ap,
 	/* DSSS Parameter Set IE for DSSS, HR, ERP and HT PHY rates */
 	ie_tlv_builder_next(&builder, IE_TYPE_DSSS_PARAMETER_SET);
 	ie_tlv_builder_set_data(&builder, &ap->channel, 1);
+
+	if (ap->supports_ht) {
+		ie_tlv_builder_next(&builder, IE_TYPE_HT_CAPABILITIES);
+		len = ap_build_ht_capability(ap,
+					ie_tlv_builder_get_data(&builder));
+		ie_tlv_builder_set_length(&builder, len);
+
+		ie_tlv_builder_next(&builder, IE_TYPE_HT_OPERATION);
+		len = ap_build_ht_operation(ap,
+					ie_tlv_builder_get_data(&builder));
+		ie_tlv_builder_set_length(&builder, len);
+	}
 
 	ie_tlv_builder_finalize(&builder, &out_len);
 	return 36 + out_len;
@@ -1640,6 +1715,18 @@ static uint32_t ap_assoc_resp(struct ap_state *ap, struct sta_state *sta,
 	resp->ies[ies_len++] = len;
 	ies_len += len;
 
+	if (ap->supports_ht) {
+		resp->ies[ies_len++] = IE_TYPE_HT_CAPABILITIES;
+		len = ap_build_ht_capability(ap, resp->ies + ies_len + 1);
+		resp->ies[ies_len++] = len;
+		ies_len += len;
+
+		resp->ies[ies_len++] = IE_TYPE_HT_OPERATION;
+		len = ap_build_ht_operation(ap, resp->ies + ies_len + 1);
+		resp->ies[ies_len++] = len;
+		ies_len += len;
+	}
+
 	ies_len += ap_write_extra_ies(ap, stype, req, req_len,
 					resp->ies + ies_len);
 
@@ -1844,6 +1931,17 @@ static void ap_assoc_reassoc(struct sta_state *sta, bool reassoc,
 			}
 
 			fils_ip_req = true;
+			break;
+		case IE_TYPE_HT_CAPABILITIES:
+			if (ie_tlv_iter_get_length(&iter) != 26) {
+				err = MMPDU_REASON_CODE_INVALID_IE;
+				goto bad_frame;
+			}
+
+			if (test_bit(ie_tlv_iter_get_data(&iter), 4))
+				sta->ht_greenfield = true;
+
+			sta->ht_support = true;
 			break;
 		}
 
@@ -2690,6 +2788,9 @@ static void ap_handle_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 		ap->sta_states = l_queue_new();
 
 	l_queue_push_tail(ap->sta_states, sta);
+
+	if (ap->supports_ht)
+		ap_update_beacon(ap);
 
 	msg = nl80211_build_set_station_unauthorized(
 					netdev_get_ifindex(ap->netdev), mac);
@@ -3752,6 +3853,9 @@ bool ap_station_disconnect(struct ap_state *ap, const uint8_t *mac,
 	sta = l_queue_remove_if(ap->sta_states, ap_sta_match_addr, mac);
 	if (!sta)
 		return false;
+
+	if (ap->supports_ht)
+		ap_update_beacon(ap);
 
 	ap_del_station(sta, reason, false);
 	ap_sta_free(sta);
