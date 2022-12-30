@@ -1061,22 +1061,123 @@ static size_t ap_build_beacon_pr_head(struct ap_state *ap,
 	return 36 + out_len;
 }
 
+static size_t ap_build_country_ie(struct ap_state *ap, uint8_t *out_buf,
+					size_t buf_len)
+{
+	size_t len;
+	size_t i;
+	int spacing;
+	uint8_t *pos = out_buf;
+	uint8_t nchans = 1;
+	struct wiphy *wiphy = netdev_get_wiphy(ap->netdev);
+	const struct band_freq_attrs *last = NULL;
+	const struct band_freq_attrs *list = wiphy_get_frequency_info_list(
+							wiphy, ap->band, &len);
+
+	if (!list || wiphy_country_is_unknown(wiphy))
+		return 0;
+
+	if (L_WARN_ON(buf_len < 5))
+		goto no_space;
+
+	*pos++ = IE_TYPE_COUNTRY;
+	/* length not yet known */
+	pos++;
+
+	wiphy_get_reg_domain_country(wiphy, (char *)pos);
+	pos += 2;
+	*pos++ = ' ';
+
+	buf_len -= 5;
+
+	if (ap->band == BAND_FREQ_2_4_GHZ)
+		spacing = 1;
+	else
+		spacing = 4;
+
+	/*
+	 * Construct a list of subband triplet entries. Each entry contains a
+	 * starting channel and a number of channels which are spaced evenly
+	 * and use the same TX power. Any deviation from this results in a new
+	 * channel group.
+	 *
+	 * TODO: 6Ghz requires operating triplets, not subband triplets.
+	 */
+	for (i = 0; i < len; i++) {
+		const struct band_freq_attrs *attr = &list[i];
+
+		if (!attr->supported || attr->disabled)
+			continue;
+
+		if (!last) {
+			/* Room for one complete triplet */
+			if (L_WARN_ON(buf_len < 3))
+				goto no_space;
+
+			*pos++ = i;
+			last = attr;
+			continue;
+		}
+
+		if (spacing != attr - last ||
+					attr->tx_power != last->tx_power) {
+			/* finish current group */
+			*pos++ = nchans;
+			*pos++ = last->tx_power;
+			buf_len -= 3;
+
+			/* start a new group */
+			if (L_WARN_ON(buf_len < 3))
+				goto no_space;
+
+			*pos++ = i;
+			nchans = 1;
+		} else
+			nchans++;
+
+		last = attr;
+	}
+
+	/* finish final group */
+	*pos++ = nchans;
+	*pos++ = last->tx_power;
+
+	len = pos - out_buf - 2;
+
+	/* Pad to even byte */
+	if (len & 1) {
+		if (L_WARN_ON(buf_len < 1))
+			goto no_space;
+
+		*pos++ = 0;
+		len++;
+	}
+
+	out_buf[1] = len;
+
+	return out_buf[1] + 2;
+
+no_space:
+	return 0;
+}
+
 /* Beacon / Probe Response frame portion after the TIM IE */
 static size_t ap_build_beacon_pr_tail(struct ap_state *ap,
 					enum mpdu_management_subtype stype,
 					const struct mmpdu_header *req,
-					size_t req_len, uint8_t *out_buf)
+					size_t req_len, uint8_t *out_buf,
+					size_t buf_len)
 {
 	size_t len;
 	struct ie_rsn_info rsn;
 
-	/* TODO: Country IE between TIM IE and RSNE */
+	len = ap_build_country_ie(ap, out_buf, buf_len);
 
 	/* RSNE */
 	ap_set_rsn_info(ap, &rsn);
-	if (!ie_build_rsne(&rsn, out_buf))
+	if (!ie_build_rsne(&rsn, out_buf + len))
 		return 0;
-	len = 2 + out_buf[1];
+	len += 2 + out_buf[len + 1];
 
 	len += ap_write_extra_ies(ap, stype, req, req_len, out_buf + len);
 	return len;
@@ -1094,11 +1195,11 @@ void ap_update_beacon(struct ap_state *ap)
 {
 	struct l_genl_msg *cmd;
 	uint8_t head[256];
-	L_AUTO_FREE_VAR(uint8_t *, tail) =
-		l_malloc(256 + ap_get_extra_ies_len(ap,
+	size_t tail_len = 256 + ap_get_extra_ies_len(ap,
 						MPDU_MANAGEMENT_SUBTYPE_BEACON,
-						NULL, 0));
-	size_t head_len, tail_len;
+						NULL, 0);
+	L_AUTO_FREE_VAR(uint8_t *, tail) = malloc(tail_len);
+	size_t head_len;
 	uint64_t wdev_id = netdev_get_wdev_id(ap->netdev);
 	static const uint8_t bcast_addr[6] = {
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff
@@ -1110,7 +1211,7 @@ void ap_update_beacon(struct ap_state *ap)
 	head_len = ap_build_beacon_pr_head(ap, MPDU_MANAGEMENT_SUBTYPE_BEACON,
 						bcast_addr, head, sizeof(head));
 	tail_len = ap_build_beacon_pr_tail(ap, MPDU_MANAGEMENT_SUBTYPE_BEACON,
-						NULL, 0, tail);
+						NULL, 0, tail, tail_len);
 	if (L_WARN_ON(!head_len || !tail_len))
 		return;
 
@@ -2294,7 +2395,7 @@ static void ap_probe_req_cb(const struct mmpdu_header *hdr, const void *body,
 	len += ap_build_beacon_pr_tail(ap,
 					MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE,
 					hdr, body + body_len - (void *) hdr,
-					resp + len);
+					resp + len, resp_len - len);
 
 	ap_send_mgmt_frame(ap, (struct mmpdu_header *) resp, len,
 				ap_probe_resp_cb, NULL);
@@ -2551,11 +2652,11 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 	struct l_genl_msg *cmd;
 
 	uint8_t head[256];
-	L_AUTO_FREE_VAR(uint8_t *, tail) =
-		l_malloc(256 + ap_get_extra_ies_len(ap,
+	size_t tail_len = 256 + ap_get_extra_ies_len(ap,
 						MPDU_MANAGEMENT_SUBTYPE_BEACON,
-						NULL, 0));
-	size_t head_len, tail_len;
+						NULL, 0);
+	L_AUTO_FREE_VAR(uint8_t *, tail) = l_malloc(tail_len);
+	size_t head_len;
 
 	uint32_t dtim_period = 3;
 	uint32_t ifindex = netdev_get_ifindex(ap->netdev);
@@ -2584,7 +2685,7 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 	head_len = ap_build_beacon_pr_head(ap, MPDU_MANAGEMENT_SUBTYPE_BEACON,
 						bcast_addr, head, sizeof(head));
 	tail_len = ap_build_beacon_pr_tail(ap, MPDU_MANAGEMENT_SUBTYPE_BEACON,
-						NULL, 0, tail);
+						NULL, 0, tail, tail_len);
 
 	if (!head_len || !tail_len)
 		return NULL;
@@ -2632,7 +2733,8 @@ static struct l_genl_msg *ap_build_cmd_start_ap(struct ap_state *ap)
 					zero_addr, ptr, sizeof(probe_resp));
 		ptr += ap_build_beacon_pr_tail(ap,
 					MPDU_MANAGEMENT_SUBTYPE_PROBE_RESPONSE,
-					NULL, 0, ptr);
+					NULL, 0, ptr, sizeof(probe_resp) -
+					(ptr - probe_resp));
 
 		l_genl_msg_append_attr(cmd, NL80211_ATTR_PROBE_RESP,
 					ptr - probe_resp, probe_resp);
