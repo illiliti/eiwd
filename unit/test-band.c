@@ -644,7 +644,7 @@ static void test_6ghz_freqs(const void *data)
 	uint32_t i;
 	enum band_freq band;
 
-	for (i = 5955; i < 7115; i += 5) {
+	for (i = 5955; i < 7115; i += 20) {
 		assert(band_freq_to_channel(i, &band) != 0);
 		assert(band == BAND_FREQ_6_GHZ);
 	}
