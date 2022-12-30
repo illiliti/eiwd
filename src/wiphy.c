@@ -526,6 +526,23 @@ const struct band_freq_attrs *wiphy_get_frequency_info(
 	return attr;
 }
 
+const struct band_freq_attrs *wiphy_get_frequency_info_list(
+						const struct wiphy *wiphy,
+						enum band_freq band,
+						size_t *size)
+{
+	struct band *bandp;
+
+	bandp = wiphy_get_band(wiphy, band);
+	if (!bandp)
+		return NULL;
+
+	if (size)
+		*size = bandp->freqs_len;
+
+	return bandp->freq_attrs;
+}
+
 bool wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band)
 {
 	struct band_freq_attrs attr;

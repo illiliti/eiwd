@@ -104,6 +104,11 @@ const struct scan_freq_set *wiphy_get_supported_freqs(
 const struct band_freq_attrs *wiphy_get_frequency_info(
 						const struct wiphy *wiphy,
 						uint32_t freq);
+const struct band_freq_attrs *wiphy_get_frequency_info_list(
+						const struct wiphy *wiphy,
+						enum band_freq band,
+						size_t *size);
+
 bool wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band);
 
 bool wiphy_supports_probe_resp_offload(struct wiphy *wiphy);
