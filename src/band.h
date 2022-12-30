@@ -56,6 +56,7 @@ struct band_he_capabilities {
 };
 
 struct band_freq_attrs {
+	uint8_t tx_power;
 	bool supported : 1;
 	bool disabled : 1;
 	bool no_ir : 1;
