@@ -548,6 +548,9 @@ int nl80211_parse_supported_frequencies(struct l_genl_attr *band_freqs,
 			case NL80211_FREQUENCY_ATTR_NO_HE:
 				freq_attr.no_he = true;
 				break;
+			case NL80211_FREQUENCY_ATTR_MAX_TX_POWER:
+				freq_attr.tx_power = *((uint32_t *) data) / 100;
+				break;
 			}
 		}
 
