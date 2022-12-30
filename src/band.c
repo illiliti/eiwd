@@ -1283,6 +1283,8 @@ int band_freq_to_ht_chandef(uint32_t freq, const struct band_freq_attrs *attr,
 
 uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 {
+	unsigned int i;
+	enum band_freq band = 0;
 	uint32_t channel = 0;
 
 	if (freq >= 2412 && freq <= 2484) {
@@ -1297,10 +1299,8 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 			channel /= 5;
 		}
 
-		if (out_band)
-			*out_band = BAND_FREQ_2_4_GHZ;
-
-		return channel;
+		band = BAND_FREQ_2_4_GHZ;
+		goto check_e4;
 	}
 
 	if (freq >= 5005 && freq < 5900) {
@@ -1309,10 +1309,9 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 
 		channel = (freq - 5000) / 5;
 
-		if (out_band)
-			*out_band = BAND_FREQ_5_GHZ;
+		band = BAND_FREQ_5_GHZ;
 
-		return channel;
+		goto check_e4;
 	}
 
 	if (freq >= 4905 && freq < 5000) {
@@ -1321,10 +1320,9 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 
 		channel = (freq - 4000) / 5;
 
-		if (out_band)
-			*out_band = BAND_FREQ_5_GHZ;
+		band = BAND_FREQ_5_GHZ;
 
-		return channel;
+		goto check_e4;
 	}
 
 	if (freq > 5950 && freq <= 7115) {
@@ -1333,17 +1331,31 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 
 		channel = (freq - 5950) / 5;
 
-		if (out_band)
-			*out_band = BAND_FREQ_6_GHZ;
+		band = BAND_FREQ_6_GHZ;
 
-		return channel;
+		goto check_e4;
 	}
 
 	if (freq == 5935) {
-		if (out_band)
-			*out_band = BAND_FREQ_6_GHZ;
+		band = BAND_FREQ_6_GHZ;
+		channel = 2;
+	}
 
-		return 2;
+	if (!band || !channel)
+		return 0;
+
+check_e4:
+	for (i = 0; i < L_ARRAY_SIZE(e4_operating_classes); i++) {
+		const struct operating_class_info *info =
+						&e4_operating_classes[i];
+
+		if (e4_has_frequency(info, freq) == 0 ||
+					e4_has_ccfi(info, freq) == 0) {
+			if (out_band)
+				*out_band = band;
+
+			return channel;
+		}
 	}
 
 	return 0;
@@ -1351,26 +1363,33 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 
 uint32_t band_channel_to_freq(uint8_t channel, enum band_freq band)
 {
+	unsigned int i;
+	uint32_t freq = 0;
+
 	if (band == BAND_FREQ_2_4_GHZ) {
 		if (channel >= 1 && channel <= 13)
-			return 2407 + 5 * channel;
+			freq = 2407 + 5 * channel;
+		else if (channel == 14)
+			freq = 2484;
 
-		if (channel == 14)
-			return 2484;
+		goto check_e4;
 	}
 
 	if (band == BAND_FREQ_5_GHZ) {
 		if (channel >= 1 && channel <= 179)
-			return 5000 + 5 * channel;
+			freq = 5000 + 5 * channel;
+		else if (channel >= 181 && channel <= 199)
+			freq = 4000 + 5 * channel;
 
-		if (channel >= 181 && channel <= 199)
-			return 4000 + 5 * channel;
+		goto check_e4;
 	}
 
 	if (band == BAND_FREQ_6_GHZ) {
 		/* operating class 136 */
-		if (channel == 2)
-			return 5935;
+		if (channel == 2) {
+			freq = 5935;
+			goto check_e4;
+		}
 
 		/* Channels increment by 4, starting with 1 */
 		if (channel % 4 != 1)
@@ -1380,7 +1399,17 @@ uint32_t band_channel_to_freq(uint8_t channel, enum band_freq band)
 			return 0;
 
 		/* operating classes 131, 132, 133, 134, 135 */
-		return 5950 + 5 * channel;
+		freq = 5950 + 5 * channel;
+	}
+
+check_e4:
+	for (i = 0; i < L_ARRAY_SIZE(e4_operating_classes); i++) {
+		const struct operating_class_info *info =
+						&e4_operating_classes[i];
+
+		if (e4_has_frequency(info, freq) == 0 ||
+					e4_has_ccfi(info, freq) == 0)
+			return freq;
 	}
 
 	return 0;
