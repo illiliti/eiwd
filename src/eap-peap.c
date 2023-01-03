@@ -468,7 +468,8 @@ static void eap_extensions_handle_request(struct eap_state *eap,
 }
 
 static bool eap_peap_tunnel_ready(struct eap_state *eap,
-						const char *peer_identity)
+						const char *peer_identity,
+						bool resumed)
 {
 	struct peap_state *peap_state = eap_tls_common_get_variant_data(eap);
 
@@ -479,6 +480,15 @@ static bool eap_peap_tunnel_ready(struct eap_state *eap,
 	 * TLS tunnel has been brought up.
 	*/
 	eap_discard_success_and_failure(eap, true);
+
+	/*
+	 * In case of a resumed session, the server will typically not run
+	 * phase2 methods at all, but will instead send a result TLV right
+	 * away.  Treat this like a successful phase2.  In case the server
+	 * does proceed with phase2, the success/failure state will be updated.
+	 */
+	if (resumed)
+		eap_method_success(peap_state->phase2);
 
 	/* MSK, EMSK and challenge derivation */
 	eap_tls_common_tunnel_prf_get_bytes(eap, true, "client EAP encryption",

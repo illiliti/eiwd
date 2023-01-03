@@ -33,7 +33,8 @@ enum eap_tls_version {
 struct eap_tls_variant_ops {
 	enum eap_tls_version version_max_supported;
 
-	bool (*tunnel_ready)(struct eap_state *eap, const char *peer_identity);
+	bool (*tunnel_ready)(struct eap_state *eap, const char *peer_identity,
+				bool resumed);
 	bool (*tunnel_handle_request)(struct eap_state *eap,
 					const uint8_t *data, size_t data_len);
 	void (*reset)(void *variant_data);
