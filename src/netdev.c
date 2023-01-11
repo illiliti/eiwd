@@ -2024,6 +2024,8 @@ static void netdev_set_tk(struct handshake_state *hs, uint8_t key_index,
 	const uint8_t *addr = netdev_choose_key_address(nhs);
 	int err;
 
+	nhs->ptk_installed = false;
+
 	/*
 	 * WPA1 does the group handshake after the 4-way finishes so we can't
 	 * rely on the gtk/igtk being set immediately after the ptk. Since
