@@ -766,11 +766,12 @@ struct eapol_key *eapol_create_ptk_2_of_4(
 				size_t extra_len,
 				const uint8_t *extra_data,
 				bool is_wpa,
-				size_t mic_len)
+				size_t mic_len,
+				bool secure)
 {
-	return eapol_create_common(protocol, version, false, key_replay_counter,
-					snonce, extra_len, extra_data, 1,
-					is_wpa, mic_len);
+	return eapol_create_common(protocol, version, secure,
+					key_replay_counter, snonce, extra_len,
+					extra_data, 1, is_wpa, mic_len);
 }
 
 struct eapol_key *eapol_create_ptk_4_of_4(
@@ -1326,7 +1327,8 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 					ek->key_descriptor_version,
 					L_BE64_TO_CPU(ek->key_replay_counter),
 					sm->handshake->snonce, ies_len, ies,
-					sm->handshake->wpa_ie, sm->mic_len);
+					sm->handshake->wpa_ie, sm->mic_len,
+					sm->rekey);
 
 	kck = handshake_state_get_kck(sm->handshake);
 
