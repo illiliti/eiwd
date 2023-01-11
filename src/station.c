@@ -1015,6 +1015,7 @@ static void station_handshake_event(struct handshake_state *hs,
 	case HANDSHAKE_EVENT_SETTING_KEYS_FAILED:
 	case HANDSHAKE_EVENT_EAP_NOTIFY:
 	case HANDSHAKE_EVENT_P2P_IP_REQUEST:
+	case HANDSHAKE_EVENT_REKEY_COMPLETE:
 		/*
 		 * currently we don't care about any other events. The
 		 * netdev_connect_cb will notify us when the connection is
