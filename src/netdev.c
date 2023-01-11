@@ -1469,8 +1469,13 @@ static void netdev_setting_keys_failed(struct netdev_handshake_state *nhs,
 
 static void try_handshake_complete(struct netdev_handshake_state *nhs)
 {
-	if (nhs->ptk_installed && nhs->gtk_installed && nhs->igtk_installed &&
-			!nhs->complete) {
+	if (nhs->ptk_installed && nhs->gtk_installed && nhs->igtk_installed) {
+		if (nhs->complete) {
+			handshake_event(&nhs->super,
+					HANDSHAKE_EVENT_REKEY_COMPLETE);
+			return;
+		}
+
 		nhs->complete = true;
 
 		if (handshake_event(&nhs->super, HANDSHAKE_EVENT_COMPLETE))
