@@ -512,8 +512,7 @@ bool eapol_verify_ptk_2_of_4(const struct eapol_key *ek, bool ptk_complete)
 	if (!ek->key_mic)
 		return false;
 
-	if (ek->secure != ptk_complete)
-		return false;
+	L_WARN_ON(ek->secure != ptk_complete);
 
 	if (ek->encrypted_key_data)
 		return false;
