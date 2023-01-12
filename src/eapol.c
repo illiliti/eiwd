@@ -1606,11 +1606,17 @@ static void eapol_handle_ptk_2_of_4(struct eapol_sm *sm,
 		sm->handshake->support_ip_allocation = ip_req_kde != NULL;
 	}
 
+	/*
+	 * If the snonce is already set don't reset the retry counter as this
+	 * is a rekey. To be safe take the most recent snonce (in this frame)
+	 * in case the station created a new one.
+	 */
+	if (!sm->handshake->have_snonce)
+		sm->frame_retry = 0;
+
 	memcpy(sm->handshake->snonce, ek->key_nonce,
 			sizeof(sm->handshake->snonce));
 	sm->handshake->have_snonce = true;
-
-	sm->frame_retry = 0;
 
 	eapol_ptk_3_of_4_retry(NULL, sm);
 }
