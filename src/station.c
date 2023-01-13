@@ -2713,7 +2713,8 @@ static bool station_cannot_roam(struct station *station)
 
 	return disabled || station->preparing_roam ||
 				station->state == STATION_STATE_ROAMING ||
-				station->state == STATION_STATE_FT_ROAMING;
+				station->state == STATION_STATE_FT_ROAMING ||
+				station->ft_work.id;
 }
 
 static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
