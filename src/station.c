@@ -2292,6 +2292,11 @@ static bool station_fast_transition(struct station *station,
 	vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
 	handshake_state_set_vendor_ies(hs, vendor_ies, iov_elems);
 
+	if (station->roam_trigger_timeout) {
+		l_timeout_remove(station->roam_trigger_timeout);
+		station->roam_trigger_timeout = NULL;
+	}
+
 	/* Both ft_action/ft_authenticate will gate the associate work item */
 	if ((hs->mde[4] & 1))
 		ft_action(netdev_get_ifindex(station->netdev),
