@@ -2324,6 +2324,15 @@ static void wiphy_get_reg_domain(struct wiphy *wiphy)
 
 void wiphy_create_complete(struct wiphy *wiphy)
 {
+	/*
+	 * With really bad timing two wiphy dumps can occur (initial and a
+	 * NEW_WIPHY event) and actually register twice. Ignoring/preventing the
+	 * second dump is problematic since it _could_ be a legitimate event so
+	 * instead just prevent it from registering twice.
+	 */
+	if (wiphy->registered)
+		return;
+
 	wiphy_register(wiphy);
 
 	if (l_memeqzero(wiphy->permanent_addr, 6)) {
