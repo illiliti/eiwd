@@ -106,6 +106,9 @@ struct ap_state {
 	struct l_dbus_message *scan_pending;
 	struct l_queue *networks;
 
+	struct l_timeout *rekey_timeout;
+	unsigned int rekey_time;
+
 	bool started : 1;
 	bool gtk_set : 1;
 	bool netconfig_set_addr4 : 1;
@@ -137,6 +140,7 @@ struct sta_state {
 	bool wsc_v2;
 	struct l_dhcp_lease *ip_alloc_lease;
 	bool ip_alloc_sent;
+	uint64_t rekey_time;
 
 	bool ht_support : 1;
 	bool ht_greenfield : 1;
@@ -345,6 +349,11 @@ static void ap_reset(struct ap_state *ap)
 		l_queue_destroy(ap->networks, l_free);
 		ap->networks = NULL;
 	}
+
+	if (ap->rekey_timeout) {
+		l_timeout_remove(ap->rekey_timeout);
+		ap->rekey_timeout = NULL;
+	}
 }
 
 static bool ap_event_done(struct ap_state *ap, bool prev_in_event)
@@ -376,6 +385,8 @@ static bool ap_event(struct ap_state *ap, enum ap_event_type event,
 	ap->ops->handle_event(event, event_data, ap->user_data);
 	return ap_event_done(ap, prev);
 }
+
+static void ap_check_rekeys(struct ap_state *ap);
 
 static void ap_del_station(struct sta_state *sta, uint16_t reason,
 				bool disassociate)
@@ -439,6 +450,93 @@ static void ap_del_station(struct sta_state *sta, uint16_t reason,
 
 		ap_event_done(ap, prev);
 	}
+
+	/*
+	 * Set the rekey time to zero which will skip this station when
+	 * determining the next rekey.
+	 */
+	sta->rekey_time = 0;
+	ap_check_rekeys(ap);
+}
+
+static void ap_start_rekey(struct ap_state *ap, struct sta_state *sta)
+{
+	l_debug("Rekey STA "MAC, MAC_STR(sta->addr));
+
+	eapol_start(sta->sm);
+}
+
+static void ap_rekey_timeout(struct l_timeout *timeout, void *user_data)
+{
+	struct ap_state *ap = user_data;
+
+	ap_check_rekeys(ap);
+}
+
+/*
+ * Used to check/start any rekeys which are due and reset the rekey timer to the
+ * next soonest station needing a rekey.
+ *
+ * TODO: Could adapt this to also take into account the next GTK rekey and
+ * service that as well. But GTK rekeys are not yet supported in AP mode.
+ */
+static void ap_check_rekeys(struct ap_state *ap)
+{
+	const struct l_queue_entry *e;
+	uint64_t now = l_time_now();
+	uint64_t next = 0;
+
+	if (!ap->rekey_time)
+		return;
+
+	/* Find the station(s) that need a rekey and start it */
+	for (e = l_queue_get_entries(ap->sta_states); e; e = e->next) {
+		struct sta_state *sta = e->data;
+
+		if (!sta->associated || !sta->rsna || sta->rekey_time == 0)
+			continue;
+
+		if (l_time_before(now, sta->rekey_time)) {
+			uint64_t diff = l_time_diff(now, sta->rekey_time);
+
+			/* Finding the next rekey time */
+			if (next < diff)
+				next = diff;
+
+			continue;
+		}
+
+		ap_start_rekey(ap, sta);
+	}
+
+	/*
+	 * Set the next rekey to the station needing it the soonest, or remove
+	 * if a single station and wait until the rekey is complete to reset
+	 * the timer.
+	 */
+	if (next)
+		l_timeout_modify(ap->rekey_timeout, l_time_to_secs(next));
+	else {
+		l_timeout_remove(ap->rekey_timeout);
+		ap->rekey_timeout = NULL;
+	}
+}
+
+static void ap_set_sta_rekey_timer(struct ap_state *ap, struct sta_state *sta)
+{
+	if (!ap->rekey_time)
+		return;
+
+	sta->rekey_time = l_time_now() + ap->rekey_time - 1;
+
+	/*
+	 * First/only station authenticated, set rekey timer. Any more stations
+	 * will just set their rekey time and be serviced by the single callback
+	 */
+	if (!ap->rekey_timeout)
+		ap->rekey_timeout = l_timeout_create(
+						l_time_to_secs(ap->rekey_time),
+						ap_rekey_timeout, ap, NULL);
 }
 
 static bool ap_sta_match_addr(const void *a, const void *b)
@@ -478,6 +576,8 @@ static void ap_new_rsna(struct sta_state *sta)
 	l_debug("STA "MAC" authenticated", MAC_STR(sta->addr));
 
 	sta->rsna = true;
+
+	ap_set_sta_rekey_timer(ap, sta);
 
 	event_data.mac = sta->addr;
 	event_data.assoc_ies = sta->assoc_ies;
@@ -1372,6 +1472,9 @@ static void ap_handshake_event(struct handshake_state *hs,
 		sta->hs->go_ip_addr = IP4_FROM_STR(own_addr_str);
 		break;
 	}
+	case HANDSHAKE_EVENT_REKEY_COMPLETE:
+		ap_set_sta_rekey_timer(ap, sta);
+		return;
 	default:
 		break;
 	}
@@ -3627,6 +3730,19 @@ static int ap_load_config(struct ap_state *ap, const struct l_settings *config,
 
 		l_strfreev(strvval);
 	}
+
+	if (l_settings_has_key(config, "General", "RekeyTimeout")) {
+		unsigned int uintval;
+
+		if (!l_settings_get_uint(config, "General",
+						"RekeyTimeout", &uintval)) {
+			l_error("AP [General].RekeyTimeout is not valid");
+			return -EINVAL;
+		}
+
+		ap->rekey_time = uintval * L_USEC_PER_SEC;
+	} else
+		ap->rekey_time = 0;
 
 	/*
 	 * Since 5GHz won't ever support only CCK rates we can ignore this
