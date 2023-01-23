@@ -964,8 +964,8 @@ struct ap_wmm_ac_record {
 	uint8_t aci : 2;
 	uint8_t acm : 1;
 	uint8_t aifsn : 4;
-	uint8_t acw_max : 4;
-	uint8_t acw_min : 4;
+	uint8_t ecw_max : 4;
+	uint8_t ecw_min : 4;
 #else
 #error "Please fix <asm/byteorder.h"
 #endif
