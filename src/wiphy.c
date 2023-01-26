@@ -1616,8 +1616,12 @@ static void parse_supported_bands(struct wiphy *wiphy,
 				continue;
 
 			band->freq = freq;
+			/*
+			 * Since channels start at 1, allocate one extra in
+			 * order to use channel indexes without arithmetic
+			 */
 			band->freq_attrs = l_new(struct band_freq_attrs,
-							num_channels);
+							num_channels + 1);
 			band->freqs_len = num_channels;
 
 			/* Reset iter to beginning */
