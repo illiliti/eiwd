@@ -939,8 +939,9 @@ static size_t ap_get_extra_ies_len(struct ap_state *ap,
 
 	len += ap_get_wsc_ie_len(ap, type, client_frame, client_frame_len);
 
+	/* WMM IE length */
 	if (ap->supports_ht)
-		len += 26;
+		len += 50;
 
 	if (ap->ops->get_extra_ies_len)
 		len += ap->ops->get_extra_ies_len(type, client_frame,
