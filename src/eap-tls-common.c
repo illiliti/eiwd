@@ -116,6 +116,7 @@ struct eap_tls_state {
 	bool expecting_frag_ack:1;
 	bool tunnel_ready:1;
 	bool tls_session_resumed:1;
+	bool tls_cache_disabled:1;
 
 	struct l_queue *ca_cert;
 	struct l_certchain *client_cert;
@@ -179,7 +180,9 @@ static void __eap_tls_common_state_reset(struct eap_state *eap)
 
 		if (eap_tls->tls_session_resumed)
 			l_warn("EAP: method did not finish after successful TLS"
-				" session resumption.");
+				" session resumption.  If this repeats consider"
+				" disabling [Security].EAP-%sFastReauthentication",
+				eap_get_method_name(eap));
 	}
 
 	eap_tls->tls_session_resumed = false;
@@ -691,7 +694,7 @@ static bool eap_tls_tunnel_init(struct eap_state *eap)
 	if (eap_tls->domain_mask)
 		l_tls_set_domain_mask(eap_tls->tunnel, eap_tls->domain_mask);
 
-	if (!eap_tls_session_cache_load)
+	if (!eap_tls_session_cache_load || eap_tls->tls_cache_disabled)
 		goto start;
 
 	if (!eap_tls_session_cache)
@@ -1040,6 +1043,16 @@ int eap_tls_common_settings_check(struct l_settings *settings,
 		return -EINVAL;
 	}
 
+	snprintf(setting_key, sizeof(setting_key),
+					"%sFastReauthentication", prefix);
+
+	if (l_settings_has_key(settings, "Security", setting_key) &&
+			!l_settings_get_bool(settings, "Security",
+						setting_key, NULL)) {
+		l_error("Can't parse %s", setting_key);
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
@@ -1051,6 +1064,7 @@ bool eap_tls_common_settings_load(struct eap_state *eap,
 	struct eap_tls_state *eap_tls;
 	char setting_key[72];
 	char *domain_mask_str;
+	bool bool_val;
 
 	L_AUTO_FREE_VAR(char *, value) = NULL;
 
@@ -1079,6 +1093,14 @@ bool eap_tls_common_settings_load(struct eap_state *eap,
 		eap_tls->domain_mask = l_strsplit(domain_mask_str, ';');
 		l_free(domain_mask_str);
 	}
+
+	snprintf(setting_key, sizeof(setting_key),
+					"%sFastReauthentication", prefix);
+
+	if (!l_settings_get_bool(settings, "Security", setting_key, &bool_val))
+		bool_val = true;
+
+	eap_tls->tls_cache_disabled = !bool_val;
 
 	eap_set_data(eap, eap_tls);
 
