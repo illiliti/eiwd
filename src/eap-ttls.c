@@ -902,7 +902,8 @@ static const struct phase2_method_ops phase2_eap_ops = {
 };
 
 static bool eap_ttls_tunnel_ready(struct eap_state *eap,
-						const char *peer_identity)
+						const char *peer_identity,
+						bool resumed)
 {
 	struct phase2_method *phase2 = eap_tls_common_get_variant_data(eap);
 	uint8_t msk_emsk[128];

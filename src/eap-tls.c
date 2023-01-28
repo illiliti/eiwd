@@ -35,7 +35,8 @@
 #include "src/eap-tls-common.h"
 
 static bool eap_tls_tunnel_ready(struct eap_state *eap,
-						const char *peer_identity)
+						const char *peer_identity,
+						bool resumed)
 {
 	uint8_t msk_emsk[128];
 	uint8_t iv[64];

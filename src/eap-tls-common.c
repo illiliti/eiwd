@@ -244,6 +244,7 @@ static void eap_tls_tunnel_ready(const char *peer_identity, void *user_data)
 {
 	struct eap_state *eap = user_data;
 	struct eap_tls_state *eap_tls = eap_get_data(eap);
+	bool resumed = l_tls_get_session_resumed(eap_tls->tunnel);
 
 	if (eap_tls->ca_cert && !peer_identity) {
 		l_error("%s: TLS did not verify AP identity",
@@ -264,7 +265,7 @@ static void eap_tls_tunnel_ready(const char *peer_identity, void *user_data)
 	if (!eap_tls->variant_ops->tunnel_ready)
 		return;
 
-	if (!eap_tls->variant_ops->tunnel_ready(eap, peer_identity))
+	if (!eap_tls->variant_ops->tunnel_ready(eap, peer_identity, resumed))
 		l_tls_close(eap_tls->tunnel);
 }
 

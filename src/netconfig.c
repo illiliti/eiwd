@@ -413,7 +413,7 @@ mdns:
 		}
 
 		if (!success)
-			goto check_config;
+			goto route_priority;
 	}
 
 	if (!mdns && mdns_global) {
@@ -426,7 +426,10 @@ mdns:
 		}
 	}
 
-check_config:
+route_priority:
+	l_netconfig_set_route_priority(netconfig->nc, ROUTE_PRIORITY_OFFSET);
+	l_netconfig_set_optimistic_dad_enabled(netconfig->nc, true);
+
 	if (!l_netconfig_check_config(netconfig->nc)) {
 		l_error("netconfig: Invalid configuration");
 		success = false;
@@ -733,9 +736,6 @@ struct netconfig *netconfig_new(uint32_t ifindex)
 		l_dhcp6_client_set_debug(dhcp6, do_debug, "[DHCPv6] ", NULL);
 		l_icmp6_client_set_debug(icmp6, do_debug, "[ICMPv6] ", NULL);
 	}
-
-	l_netconfig_set_route_priority(netconfig->nc, ROUTE_PRIORITY_OFFSET);
-	l_netconfig_set_optimistic_dad_enabled(netconfig->nc, true);
 
 	return netconfig;
 }

@@ -644,10 +644,30 @@ static void test_6ghz_freqs(const void *data)
 	uint32_t i;
 	enum band_freq band;
 
-	for (i = 5955; i < 7115; i += 5) {
+	for (i = 5955; i < 7115; i += 20) {
 		assert(band_freq_to_channel(i, &band) != 0);
 		assert(band == BAND_FREQ_6_GHZ);
 	}
+}
+
+static void test_conversions(const void *data)
+{
+	/*
+	 * Test a few invalid channels/frequencies that appear valid but are
+	 * not in the E-4 table. The checks in band.c seem to cover 2.4Ghz and
+	 * 6Ghz very well since there are no gaps, but the 5GHz band has some
+	 * segmentation.
+	 */
+
+	/* Gap in 5GHz channels between 68 and 96 */
+	assert(!band_channel_to_freq(72, BAND_FREQ_5_GHZ));
+	assert(!band_freq_to_channel(5360, NULL));
+
+	/* Invalid channel using 4000mhz starting frequency */
+	assert(!band_channel_to_freq(183, BAND_FREQ_5_GHZ));
+	assert(!band_freq_to_channel(4915, NULL));
+
+	assert(!band_channel_to_freq(192, BAND_FREQ_5_GHZ));
 }
 
 int main(int argc, char *argv[])
@@ -714,6 +734,8 @@ int main(int argc, char *argv[])
 
 	l_test_add("/band/6ghz/channels", test_6ghz_channels, NULL);
 	l_test_add("/band/6ghz/freq", test_6ghz_freqs, NULL);
+
+	l_test_add("/band/conversions", test_conversions, NULL);
 
 	return l_test_run();
 }

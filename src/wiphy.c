@@ -105,8 +105,6 @@ struct wiphy {
 	uint16_t supported_iftypes;
 	uint16_t supported_ciphers;
 	struct scan_freq_set *supported_freqs;
-	struct scan_freq_set *disabled_freqs;
-	struct scan_freq_set *pending_freqs;
 	struct band *band_2g;
 	struct band *band_5g;
 	struct band *band_6g;
@@ -139,6 +137,7 @@ struct wiphy {
 	bool registered : 1;
 	bool self_managed : 1;
 	bool ap_probe_resp_offload : 1;
+	bool supports_uapsd : 1;
 };
 
 static struct l_queue *wiphy_list = NULL;
@@ -345,7 +344,6 @@ static struct wiphy *wiphy_new(uint32_t id)
 
 	wiphy->id = id;
 	wiphy->supported_freqs = scan_freq_set_new();
-	wiphy->disabled_freqs = scan_freq_set_new();
 	watchlist_init(&wiphy->state_watches, NULL);
 	wiphy->extended_capabilities[0] = IE_TYPE_EXTENDED_CAPABILITIES;
 	wiphy->extended_capabilities[1] = EXT_CAP_LEN;
@@ -393,7 +391,6 @@ static void wiphy_free(void *data)
 	}
 
 	scan_freq_set_free(wiphy->supported_freqs);
-	scan_freq_set_free(wiphy->disabled_freqs);
 	watchlist_destroy(&wiphy->state_watches);
 	l_free(wiphy->model_str);
 	l_free(wiphy->vendor_str);
@@ -491,11 +488,6 @@ const struct scan_freq_set *wiphy_get_supported_freqs(
 	return wiphy->supported_freqs;
 }
 
-const struct scan_freq_set *wiphy_get_disabled_freqs(const struct wiphy *wiphy)
-{
-	return wiphy->disabled_freqs;
-}
-
 static struct band *wiphy_get_band(const struct wiphy *wiphy, enum band_freq band)
 {
 	switch (band) {
@@ -532,6 +524,23 @@ const struct band_freq_attrs *wiphy_get_frequency_info(
 		return NULL;
 
 	return attr;
+}
+
+const struct band_freq_attrs *wiphy_get_frequency_info_list(
+						const struct wiphy *wiphy,
+						enum band_freq band,
+						size_t *size)
+{
+	struct band *bandp;
+
+	bandp = wiphy_get_band(wiphy, band);
+	if (!bandp)
+		return NULL;
+
+	if (size)
+		*size = bandp->freqs_len;
+
+	return bandp->freq_attrs;
 }
 
 bool wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band)
@@ -917,6 +926,47 @@ bool wiphy_country_is_unknown(struct wiphy *wiphy)
 	 */
 	return ((cc[0] == 'O' && cc[1] == 'O') ||
 			(cc[0] == 'X' && cc[1] == 'X'));
+}
+
+bool wiphy_supports_uapsd(const struct wiphy *wiphy)
+{
+	return wiphy->supports_uapsd;
+}
+
+const uint8_t *wiphy_get_ht_capabilities(const struct wiphy *wiphy,
+						enum band_freq band,
+						size_t *size)
+{
+	static uint8_t ht_capa[26];
+	const struct band *bandp = wiphy_get_band(wiphy, band);
+
+	if (!bandp)
+		return NULL;
+
+	if (!bandp->ht_supported)
+		return NULL;
+
+	memset(ht_capa, 0, sizeof(ht_capa));
+
+	/*
+	 * The kernel segments the HT capabilities element into multiple
+	 * attributes. For convenience on the caller just combine them and
+	 * return the full IE rather than adding 3 separate getters. This also
+	 * provides a way to check if HT is supported.
+	 */
+	memcpy(ht_capa, bandp->ht_capabilities, 2);
+	ht_capa[2] = bandp->ht_ampdu_params;
+	memcpy(ht_capa + 3, bandp->ht_mcs_set, 16);
+
+	/*
+	 * TODO: HT Extended capabilities, beamforming, and ASEL capabilities
+	 * are not available to get from the kernel, leave as zero.
+	 */
+
+	if (size)
+		*size = sizeof(ht_capa);
+
+	return ht_capa;
 }
 
 int wiphy_estimate_data_rate(struct wiphy *wiphy,
@@ -1626,6 +1676,23 @@ static void parse_supported_bands(struct wiphy *wiphy,
 				memcpy(band->ht_capabilities, data, len);
 				band->ht_supported = true;
 				break;
+			/*
+			 * AMPDU factor/density are part of A-MPDU Parameters,
+			 * 802.11-2020 Section 9.4.2.55.3.
+			 */
+			case NL80211_BAND_ATTR_HT_AMPDU_FACTOR:
+				if (L_WARN_ON(len != 1))
+					continue;
+
+				band->ht_ampdu_params |= l_get_u8(data) & 0x3;
+				break;
+			case NL80211_BAND_ATTR_HT_AMPDU_DENSITY:
+				if (L_WARN_ON(len != 1))
+					continue;
+
+				band->ht_ampdu_params |=
+						(l_get_u8(data) & 0x7) << 2;
+				break;
 			case NL80211_BAND_ATTR_IFTYPE_DATA:
 				if (!l_genl_attr_recurse(&attr, &nested))
 					continue;
@@ -1785,6 +1852,9 @@ static void wiphy_parse_attributes(struct wiphy *wiphy,
 			break;
 		case NL80211_ATTR_PROBE_RESP_OFFLOAD:
 			wiphy->ap_probe_resp_offload = true;
+			break;
+		case NL80211_ATTR_SUPPORT_AP_UAPSD:
+			wiphy->supports_uapsd = true;
 			break;
 		}
 	}
@@ -2009,9 +2079,6 @@ static void wiphy_dump_done(void *user_data)
 
 	if (wiphy) {
 		wiphy->dump_id = 0;
-		scan_freq_set_free(wiphy->disabled_freqs);
-		wiphy->disabled_freqs = wiphy->pending_freqs;
-		wiphy->pending_freqs = NULL;
 
 		WATCHLIST_NOTIFY(&wiphy->state_watches,
 				wiphy_state_watch_func_t, wiphy,
@@ -2025,12 +2092,8 @@ static void wiphy_dump_done(void *user_data)
 	for (e = l_queue_get_entries(wiphy_list); e; e = e->next) {
 		wiphy = e->data;
 
-		if (!wiphy->pending_freqs || wiphy->self_managed)
+		if (wiphy->self_managed)
 			continue;
-
-		scan_freq_set_free(wiphy->disabled_freqs);
-		wiphy->disabled_freqs = wiphy->pending_freqs;
-		wiphy->pending_freqs = NULL;
 
 		WATCHLIST_NOTIFY(&wiphy->state_watches,
 				wiphy_state_watch_func_t, wiphy,
@@ -2101,33 +2164,18 @@ static void wiphy_dump_callback(struct l_genl_msg *msg,
 
 static bool wiphy_cancel_last_dump(struct wiphy *wiphy)
 {
-	const struct l_queue_entry *e;
 	unsigned int id = 0;
 
 	/*
 	 * Zero command ID to signal that wiphy_dump_done doesn't need to do
-	 * anything. For a self-managed wiphy just free/NULL pending_freqs. For
-	 * a global dump each wiphy needs to be checked and dealt with.
+	 * anything.
 	 */
 	if (wiphy && wiphy->dump_id) {
 		id = wiphy->dump_id;
 		wiphy->dump_id = 0;
-
-		scan_freq_set_free(wiphy->pending_freqs);
-		wiphy->pending_freqs = NULL;
 	} else if (!wiphy && wiphy_dump_id) {
 		id = wiphy_dump_id;
 		wiphy_dump_id = 0;
-
-		for (e = l_queue_get_entries(wiphy_list); e; e = e->next) {
-			struct wiphy *w = e->data;
-
-			if (!w->pending_freqs || w->self_managed)
-				continue;
-
-			scan_freq_set_free(w->pending_freqs);
-			w->pending_freqs = NULL;
-		}
 	}
 
 	if (id) {
@@ -2172,7 +2220,6 @@ static void wiphy_dump_after_regdom(struct wiphy *wiphy)
 	/* Limited dump so just emit the event for this wiphy */
 	if (wiphy) {
 		wiphy->dump_id = id;
-		wiphy->pending_freqs = scan_freq_set_new();
 
 		if (no_start_event)
 			return;
@@ -2191,8 +2238,6 @@ static void wiphy_dump_after_regdom(struct wiphy *wiphy)
 
 		if (w->self_managed)
 			continue;
-
-		w->pending_freqs = scan_freq_set_new();
 
 		if (no_start_event)
 			continue;
@@ -2285,6 +2330,15 @@ static void wiphy_get_reg_domain(struct wiphy *wiphy)
 
 void wiphy_create_complete(struct wiphy *wiphy)
 {
+	/*
+	 * With really bad timing two wiphy dumps can occur (initial and a
+	 * NEW_WIPHY event) and actually register twice. Ignoring/preventing the
+	 * second dump is problematic since it _could_ be a legitimate event so
+	 * instead just prevent it from registering twice.
+	 */
+	if (wiphy->registered)
+		return;
+
 	wiphy_register(wiphy);
 
 	if (l_memeqzero(wiphy->permanent_addr, 6)) {

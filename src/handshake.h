@@ -60,6 +60,7 @@ enum handshake_event {
 	HANDSHAKE_EVENT_EAP_NOTIFY,
 	HANDSHAKE_EVENT_TRANSITION_DISABLE,
 	HANDSHAKE_EVENT_P2P_IP_REQUEST,
+	HANDSHAKE_EVENT_REKEY_COMPLETE,
 };
 
 typedef void (*handshake_event_func_t)(struct handshake_state *hs,

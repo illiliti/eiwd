@@ -320,13 +320,18 @@ static void manager_setup_cmd_done(void *user_data)
 static void manager_del_interface_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct wiphy_setup_state *state = user_data;
+	int err;
 
 	l_debug("");
 
 	if (state->aborted)
 		return;
 
-	if (l_genl_msg_get_error(msg) < 0) {
+	err = l_genl_msg_get_error(msg);
+
+	if (err == -ENODEV)
+		return;
+	else if (err < 0) {
 		l_error("DEL_INTERFACE failed: %s",
 			strerror(-l_genl_msg_get_error(msg)));
 		state->use_default = true;

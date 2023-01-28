@@ -1017,6 +1017,7 @@ static void station_handshake_event(struct handshake_state *hs,
 	case HANDSHAKE_EVENT_SETTING_KEYS_FAILED:
 	case HANDSHAKE_EVENT_EAP_NOTIFY:
 	case HANDSHAKE_EVENT_P2P_IP_REQUEST:
+	case HANDSHAKE_EVENT_REKEY_COMPLETE:
 		/*
 		 * currently we don't care about any other events. The
 		 * netdev_connect_cb will notify us when the connection is
@@ -2305,6 +2306,11 @@ static bool station_fast_transition(struct station *station,
 	vendor_ies = network_info_get_extra_ies(info, bss, &iov_elems);
 	handshake_state_set_vendor_ies(hs, vendor_ies, iov_elems);
 
+	if (station->roam_trigger_timeout) {
+		l_timeout_remove(station->roam_trigger_timeout);
+		station->roam_trigger_timeout = NULL;
+	}
+
 	/* Both ft_action/ft_authenticate will gate the associate work item */
 	if ((hs->mde[4] & 1))
 		ft_action(netdev_get_ifindex(station->netdev),
@@ -2707,6 +2713,29 @@ static void station_start_roam(struct station *station)
 		station_roam_failed(station);
 }
 
+static bool station_cannot_roam(struct station *station)
+{
+	const struct l_settings *config = iwd_get_config();
+	bool disabled;
+
+	/*
+	 * Disable roaming with hardware that can roam automatically. Note this
+	 * is now required for recent kernels which have CQM event support on
+	 * this type of hardware (e.g. brcmfmac).
+	 */
+	if (wiphy_supports_firmware_roam(station->wiphy))
+		return true;
+
+	if (!l_settings_get_bool(config, "Scan", "DisableRoamingScan",
+								&disabled))
+		disabled = false;
+
+	return disabled || station->preparing_roam ||
+				station->state == STATION_STATE_ROAMING ||
+				station->state == STATION_STATE_FT_ROAMING ||
+				station->ft_work.id;
+}
+
 static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
 {
 	struct station *station = user_data;
@@ -2715,6 +2744,9 @@ static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
 
 	l_timeout_remove(station->roam_trigger_timeout);
 	station->roam_trigger_timeout = NULL;
+
+	if (station_cannot_roam(station))
+		return;
 
 	station_start_roam(station);
 }
@@ -2739,28 +2771,6 @@ static void station_roam_timeout_rearm(struct station *station, int seconds)
 	station->roam_trigger_timeout =
 		l_timeout_create(seconds, station_roam_trigger_cb,
 								station, NULL);
-}
-
-static bool station_cannot_roam(struct station *station)
-{
-	const struct l_settings *config = iwd_get_config();
-	bool disabled;
-
-	/*
-	 * Disable roaming with hardware that can roam automatically. Note this
-	 * is now required for recent kernels which have CQM event support on
-	 * this type of hardware (e.g. brcmfmac).
-	 */
-	if (wiphy_supports_firmware_roam(station->wiphy))
-		return true;
-
-	if (!l_settings_get_bool(config, "Scan", "DisableRoamingScan",
-								&disabled))
-		disabled = false;
-
-	return disabled || station->preparing_roam ||
-				station->state == STATION_STATE_ROAMING ||
-				station->state == STATION_STATE_FT_ROAMING;
 }
 
 #define WNM_REQUEST_MODE_PREFERRED_CANDIDATE_LIST	(1 << 0)

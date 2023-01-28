@@ -1469,8 +1469,13 @@ static void netdev_setting_keys_failed(struct netdev_handshake_state *nhs,
 
 static void try_handshake_complete(struct netdev_handshake_state *nhs)
 {
-	if (nhs->ptk_installed && nhs->gtk_installed && nhs->igtk_installed &&
-			!nhs->complete) {
+	if (nhs->ptk_installed && nhs->gtk_installed && nhs->igtk_installed) {
+		if (nhs->complete) {
+			handshake_event(&nhs->super,
+					HANDSHAKE_EVENT_REKEY_COMPLETE);
+			return;
+		}
+
 		nhs->complete = true;
 
 		if (handshake_event(&nhs->super, HANDSHAKE_EVENT_COMPLETE))
@@ -2023,6 +2028,8 @@ static void netdev_set_tk(struct handshake_state *hs, uint8_t key_index,
 	struct l_genl_msg *msg;
 	const uint8_t *addr = netdev_choose_key_address(nhs);
 	int err;
+
+	nhs->ptk_installed = false;
 
 	/*
 	 * WPA1 does the group handshake after the 4-way finishes so we can't

@@ -494,7 +494,7 @@ static void print_ie_country(unsigned int level, const char *label,
 			if (code[i + 2] < 32)
 				print_attr(level + 1, "%27c (air propagation "
 					"time %2d µs)", ' ', 3 * code[i + 2]);
-		} else {
+		} else if (code[i] != 0) {
 			print_attr(level + 1, "First channel %3d number of "
 				"channels %2d max tx power %2d dBm",
 				code[i], code[i + 1], code[i + 2]);

@@ -100,11 +100,15 @@ const char *wiphy_get_path(struct wiphy *wiphy);
 uint32_t wiphy_get_supported_bands(struct wiphy *wiphy);
 const struct scan_freq_set *wiphy_get_supported_freqs(
 						const struct wiphy *wiphy);
-const struct scan_freq_set *wiphy_get_disabled_freqs(const struct wiphy *wiphy);
 
 const struct band_freq_attrs *wiphy_get_frequency_info(
 						const struct wiphy *wiphy,
 						uint32_t freq);
+const struct band_freq_attrs *wiphy_get_frequency_info_list(
+						const struct wiphy *wiphy,
+						enum band_freq band,
+						size_t *size);
+
 bool wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band);
 
 bool wiphy_supports_probe_resp_offload(struct wiphy *wiphy);
@@ -138,7 +142,11 @@ const uint8_t *wiphy_get_rm_enabled_capabilities(struct wiphy *wiphy);
 bool wiphy_get_rsnxe(const struct wiphy *wiphy, uint8_t *buf, size_t len);
 void wiphy_get_reg_domain_country(struct wiphy *wiphy, char *out);
 bool wiphy_country_is_unknown(struct wiphy *wiphy);
+bool wiphy_supports_uapsd(const struct wiphy *wiphy);
 
+const uint8_t *wiphy_get_ht_capabilities(const struct wiphy *wiphy,
+						enum band_freq band,
+						size_t *size);
 void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6]);
 void wiphy_generate_address_from_ssid(struct wiphy *wiphy, const char *ssid,
 					uint8_t addr[static 6]);

@@ -1194,8 +1194,97 @@ int oci_from_chandef(const struct band_chandef *own, uint8_t oci[static 3])
 	return -ENOENT;
 }
 
+/* Find an HT chandef for the frequency */
+int band_freq_to_ht_chandef(uint32_t freq, const struct band_freq_attrs *attr,
+				struct band_chandef *chandef)
+{
+	enum band_freq band;
+	enum band_chandef_width width;
+	unsigned int i;
+	const struct operating_class_info *best = NULL;
+
+	if (attr->disabled || !attr->supported)
+		return -EINVAL;
+
+	if (!band_freq_to_channel(freq, &band))
+		return -EINVAL;
+
+	for (i = 0; i < L_ARRAY_SIZE(e4_operating_classes); i++) {
+		const struct operating_class_info *info =
+						&e4_operating_classes[i];
+		enum band_chandef_width w;
+
+		if (e4_has_frequency(info, freq) < 0)
+			continue;
+
+		/* Any restrictions for this channel width? */
+		switch (info->channel_spacing) {
+		case 20:
+			w = BAND_CHANDEF_WIDTH_20;
+			break;
+		case 40:
+			w = BAND_CHANDEF_WIDTH_40;
+
+			/* 6GHz remove the upper/lower 40mhz channel concept */
+			if (band == BAND_FREQ_6_GHZ)
+				break;
+
+			if (info->flags & PRIMARY_CHANNEL_UPPER &&
+						attr->no_ht40_plus)
+				continue;
+
+			if (info->flags & PRIMARY_CHANNEL_LOWER &&
+						attr->no_ht40_minus)
+				continue;
+
+			break;
+		default:
+			continue;
+		}
+
+		if (!best || best->channel_spacing < info->channel_spacing) {
+			best = info;
+			width = w;
+		}
+	}
+
+	if (!best)
+		return -ENOENT;
+
+	chandef->frequency = freq;
+	chandef->channel_width = width;
+
+	/*
+	 * Choose a secondary channel frequency:
+	 * - 20mhz no secondary
+	 * - 40mhz we can base the selection off the channel flags, either
+	 *   higher or lower.
+	 */
+	switch (width) {
+	case BAND_CHANDEF_WIDTH_20:
+		return 0;
+	case BAND_CHANDEF_WIDTH_40:
+		if (band == BAND_FREQ_6_GHZ)
+			return 0;
+
+		if (best->flags & PRIMARY_CHANNEL_UPPER)
+			chandef->center1_frequency = freq - 10;
+		else
+			chandef->center1_frequency = freq + 10;
+
+		return 0;
+	default:
+		/* Should never happen */
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 {
+	unsigned int i;
+	enum band_freq band = 0;
 	uint32_t channel = 0;
 
 	if (freq >= 2412 && freq <= 2484) {
@@ -1210,10 +1299,8 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 			channel /= 5;
 		}
 
-		if (out_band)
-			*out_band = BAND_FREQ_2_4_GHZ;
-
-		return channel;
+		band = BAND_FREQ_2_4_GHZ;
+		goto check_e4;
 	}
 
 	if (freq >= 5005 && freq < 5900) {
@@ -1222,10 +1309,9 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 
 		channel = (freq - 5000) / 5;
 
-		if (out_band)
-			*out_band = BAND_FREQ_5_GHZ;
+		band = BAND_FREQ_5_GHZ;
 
-		return channel;
+		goto check_e4;
 	}
 
 	if (freq >= 4905 && freq < 5000) {
@@ -1234,10 +1320,9 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 
 		channel = (freq - 4000) / 5;
 
-		if (out_band)
-			*out_band = BAND_FREQ_5_GHZ;
+		band = BAND_FREQ_5_GHZ;
 
-		return channel;
+		goto check_e4;
 	}
 
 	if (freq > 5950 && freq <= 7115) {
@@ -1246,17 +1331,31 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 
 		channel = (freq - 5950) / 5;
 
-		if (out_band)
-			*out_band = BAND_FREQ_6_GHZ;
+		band = BAND_FREQ_6_GHZ;
 
-		return channel;
+		goto check_e4;
 	}
 
 	if (freq == 5935) {
-		if (out_band)
-			*out_band = BAND_FREQ_6_GHZ;
+		band = BAND_FREQ_6_GHZ;
+		channel = 2;
+	}
 
-		return 2;
+	if (!band || !channel)
+		return 0;
+
+check_e4:
+	for (i = 0; i < L_ARRAY_SIZE(e4_operating_classes); i++) {
+		const struct operating_class_info *info =
+						&e4_operating_classes[i];
+
+		if (e4_has_frequency(info, freq) == 0 ||
+					e4_has_ccfi(info, freq) == 0) {
+			if (out_band)
+				*out_band = band;
+
+			return channel;
+		}
 	}
 
 	return 0;
@@ -1264,26 +1363,33 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band)
 
 uint32_t band_channel_to_freq(uint8_t channel, enum band_freq band)
 {
+	unsigned int i;
+	uint32_t freq = 0;
+
 	if (band == BAND_FREQ_2_4_GHZ) {
 		if (channel >= 1 && channel <= 13)
-			return 2407 + 5 * channel;
+			freq = 2407 + 5 * channel;
+		else if (channel == 14)
+			freq = 2484;
 
-		if (channel == 14)
-			return 2484;
+		goto check_e4;
 	}
 
 	if (band == BAND_FREQ_5_GHZ) {
 		if (channel >= 1 && channel <= 179)
-			return 5000 + 5 * channel;
+			freq = 5000 + 5 * channel;
+		else if (channel >= 181 && channel <= 199)
+			freq = 4000 + 5 * channel;
 
-		if (channel >= 181 && channel <= 199)
-			return 4000 + 5 * channel;
+		goto check_e4;
 	}
 
 	if (band == BAND_FREQ_6_GHZ) {
 		/* operating class 136 */
-		if (channel == 2)
-			return 5935;
+		if (channel == 2) {
+			freq = 5935;
+			goto check_e4;
+		}
 
 		/* Channels increment by 4, starting with 1 */
 		if (channel % 4 != 1)
@@ -1293,7 +1399,17 @@ uint32_t band_channel_to_freq(uint8_t channel, enum band_freq band)
 			return 0;
 
 		/* operating classes 131, 132, 133, 134, 135 */
-		return 5950 + 5 * channel;
+		freq = 5950 + 5 * channel;
+	}
+
+check_e4:
+	for (i = 0; i < L_ARRAY_SIZE(e4_operating_classes); i++) {
+		const struct operating_class_info *info =
+						&e4_operating_classes[i];
+
+		if (e4_has_frequency(info, freq) == 0 ||
+					e4_has_ccfi(info, freq) == 0)
+			return freq;
 	}
 
 	return 0;
@@ -1421,4 +1537,24 @@ enum band_freq band_oper_class_to_band(const uint8_t *country,
 		return oper_class_to_band_global[oper_class];
 	else
 		return 0;
+}
+
+const char *band_chandef_width_to_string(enum band_chandef_width width)
+{
+	switch (width) {
+	case BAND_CHANDEF_WIDTH_20NOHT:
+		return "20MHz (no-HT)";
+	case BAND_CHANDEF_WIDTH_20:
+		return "20MHz";
+	case BAND_CHANDEF_WIDTH_40:
+		return "40MHz";
+	case BAND_CHANDEF_WIDTH_80:
+		return "80MHz";
+	case BAND_CHANDEF_WIDTH_80P80:
+		return "80+80MHz";
+	case BAND_CHANDEF_WIDTH_160:
+		return "160MHz";
+	}
+
+	return NULL;
 }

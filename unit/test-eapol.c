@@ -1793,7 +1793,7 @@ static void eapol_4way_test(const void *data)
 				eapol_key_test_4.key_replay_counter,
 				snonce, eapol_key_test_4.key_data_len,
 				eapol_key_data_4 + EAPOL_FRAME_LEN(16),
-				false, 16);
+				false, 16, false);
 	assert(frame);
 	assert(eapol_calculate_mic(IE_RSN_AKM_SUITE_PSK, ptk, frame,
 					mic, 16));
@@ -1878,7 +1878,7 @@ static void eapol_wpa2_handshake_test(const void *data)
 				eapol_key_test_8.key_replay_counter,
 				snonce, eapol_key_test_8.key_data_len,
 				eapol_key_data_8 + EAPOL_FRAME_LEN(16),
-				false, 16);
+				false, 16, false);
 	assert(frame);
 	assert(eapol_calculate_mic(IE_RSN_AKM_SUITE_PSK, ptk, frame,
 					mic, 16));
@@ -2008,7 +2008,7 @@ static void eapol_wpa_handshake_test(const void *data)
 				eapol_key_test_14.key_replay_counter,
 				snonce, eapol_key_test_14.key_data_len,
 				eapol_key_data_14 + EAPOL_FRAME_LEN(16),
-				true, 16);
+				true, 16, false);
 	assert(frame);
 	assert(eapol_calculate_mic(IE_RSN_AKM_SUITE_PSK, ptk, frame,
 					mic, 16));

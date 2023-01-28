@@ -56,9 +56,15 @@ struct band_he_capabilities {
 };
 
 struct band_freq_attrs {
+	uint8_t tx_power;
 	bool supported : 1;
 	bool disabled : 1;
 	bool no_ir : 1;
+	bool no_ht40_plus : 1;
+	bool no_ht40_minus : 1;
+	bool no_80mhz : 1;
+	bool no_160mhz : 1;
+	bool no_he : 1;
 } __attribute__ ((packed));
 
 struct band {
@@ -72,6 +78,7 @@ struct band {
 	bool vht_supported : 1;
 	uint8_t ht_mcs_set[16];
 	uint8_t ht_capabilities[2];
+	uint8_t ht_ampdu_params;
 	bool ht_supported : 1;
 	uint16_t supported_rates_len;
 	uint8_t supported_rates[];
@@ -95,6 +102,8 @@ int band_estimate_nonht_rate(const struct band *band,
 				const uint8_t *supported_rates,
 				const uint8_t *ext_supported_rates,
 				int32_t rssi, uint64_t *out_data_rate);
+int band_freq_to_ht_chandef(uint32_t freq, const struct band_freq_attrs *attr,
+				struct band_chandef *chandef);
 
 int oci_to_frequency(uint32_t operating_class, uint32_t channel);
 
@@ -105,3 +114,4 @@ uint8_t band_freq_to_channel(uint32_t freq, enum band_freq *out_band);
 uint32_t band_channel_to_freq(uint8_t channel, enum band_freq band);
 enum band_freq band_oper_class_to_band(const uint8_t *country,
 					uint8_t oper_class);
+const char *band_chandef_width_to_string(enum band_chandef_width width);

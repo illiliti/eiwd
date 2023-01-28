@@ -83,7 +83,8 @@ struct eapol_key *eapol_create_ptk_2_of_4(
 				size_t extra_len,
 				const uint8_t *extra_data,
 				bool is_wpa,
-				size_t mic_len);
+				size_t mic_len,
+				bool secure);
 
 struct eapol_key *eapol_create_ptk_4_of_4(
 				enum eapol_protocol_version protocol,

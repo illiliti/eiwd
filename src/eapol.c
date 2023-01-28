@@ -512,8 +512,7 @@ bool eapol_verify_ptk_2_of_4(const struct eapol_key *ek, bool ptk_complete)
 	if (!ek->key_mic)
 		return false;
 
-	if (ek->secure != ptk_complete)
-		return false;
+	L_WARN_ON(ek->secure != ptk_complete);
 
 	if (ek->encrypted_key_data)
 		return false;
@@ -766,11 +765,12 @@ struct eapol_key *eapol_create_ptk_2_of_4(
 				size_t extra_len,
 				const uint8_t *extra_data,
 				bool is_wpa,
-				size_t mic_len)
+				size_t mic_len,
+				bool secure)
 {
-	return eapol_create_common(protocol, version, false, key_replay_counter,
-					snonce, extra_len, extra_data, 1,
-					is_wpa, mic_len);
+	return eapol_create_common(protocol, version, secure,
+					key_replay_counter, snonce, extra_len,
+					extra_data, 1, is_wpa, mic_len);
 }
 
 struct eapol_key *eapol_create_ptk_4_of_4(
@@ -1086,8 +1086,6 @@ static void eapol_send_ptk_1_of_4(struct eapol_sm *sm)
 
 	handshake_state_new_anonce(sm->handshake);
 
-	sm->handshake->ptk_complete = false;
-
 	sm->replay_counter++;
 
 	memset(ek, 0, EAPOL_FRAME_LEN(sm->mic_len));
@@ -1110,6 +1108,13 @@ static void eapol_send_ptk_1_of_4(struct eapol_sm *sm)
 			pmkid, false);
 
 	eapol_key_data_append(ek, sm->mic_len, HANDSHAKE_KDE_PMKID, pmkid, 16);
+
+	if (sm->handshake->ptk_complete) {
+		sm->rekey = true;
+		sm->handshake->ptk_complete = false;
+	}
+
+	ek->secure = sm->rekey;
 
 	ek->header.packet_len = L_CPU_TO_BE16(EAPOL_FRAME_LEN(sm->mic_len) +
 				EAPOL_KEY_DATA_LEN(ek, sm->mic_len) - 4);
@@ -1326,7 +1331,8 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 					ek->key_descriptor_version,
 					L_BE64_TO_CPU(ek->key_replay_counter),
 					sm->handshake->snonce, ies_len, ies,
-					sm->handshake->wpa_ie, sm->mic_len);
+					sm->handshake->wpa_ie, sm->mic_len,
+					sm->rekey);
 
 	kck = handshake_state_get_kck(sm->handshake);
 
@@ -1553,7 +1559,7 @@ static void eapol_handle_ptk_2_of_4(struct eapol_sm *sm,
 
 	l_debug("ifindex=%u", sm->handshake->ifindex);
 
-	if (!eapol_verify_ptk_2_of_4(ek, sm->handshake->ptk_complete))
+	if (!eapol_verify_ptk_2_of_4(ek, sm->rekey))
 		return;
 
 	if (L_BE64_TO_CPU(ek->key_replay_counter) != sm->replay_counter)
@@ -1605,11 +1611,17 @@ static void eapol_handle_ptk_2_of_4(struct eapol_sm *sm,
 		sm->handshake->support_ip_allocation = ip_req_kde != NULL;
 	}
 
+	/*
+	 * If the snonce is already set don't reset the retry counter as this
+	 * is a rekey. To be safe take the most recent snonce (in this frame)
+	 * in case the station created a new one.
+	 */
+	if (!sm->handshake->have_snonce)
+		sm->frame_retry = 0;
+
 	memcpy(sm->handshake->snonce, ek->key_nonce,
 			sizeof(sm->handshake->snonce));
 	sm->handshake->have_snonce = true;
-
-	sm->frame_retry = 0;
 
 	eapol_ptk_3_of_4_retry(NULL, sm);
 }
@@ -2444,6 +2456,8 @@ static void eapol_eap_complete_cb(enum eap_result result, void *user_data)
 
 		/* sm->mic_len will have been set in eapol_eap_results_cb */
 
+		sm->frame_retry = 0;
+
 		/* Kick off 4-Way Handshake */
 		eapol_ptk_1_of_4_retry(NULL, sm);
 	}
@@ -2834,6 +2848,8 @@ bool eapol_start(struct eapol_sm *sm)
 		} else {
 			if (L_WARN_ON(!sm->handshake->have_pmk))
 				return false;
+
+			sm->frame_retry = 0;
 
 			/* Kick off handshake */
 			eapol_ptk_1_of_4_retry(NULL, sm);
