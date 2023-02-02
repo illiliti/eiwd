@@ -1,3 +1,9 @@
+ver 2.3:
+	Fix issue with length calculation for WMM IE.
+	Fix issue with channel number allocation off-by-one.
+	Fix issue with cached session when TLS phase2 fails.
+	Add support for FastReauthentication setting for EAP-TLS.
+
 ver 2.2:
 	Fix issue with handling FT and multiple roaming scans.
 	Fix issue with handling multiple wiphy registrations.
