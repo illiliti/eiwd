@@ -4530,6 +4530,7 @@ static void print_authentication_mgmt_frame(unsigned int level,
 {
 	const char *str;
 	const struct mmpdu_authentication *body;
+	uint16_t alg;
 
 	if (!mmpdu)
 		return;
@@ -4540,8 +4541,9 @@ static void print_authentication_mgmt_frame(unsigned int level,
 
 	print_mpdu_frame_control(level + 1, &mmpdu->fc);
 	print_mmpdu_header(level + 1, mmpdu);
+	alg = L_LE16_TO_CPU(body->algorithm);
 
-	switch (L_LE16_TO_CPU(body->algorithm)) {
+	switch (alg) {
 	case MMPDU_AUTH_ALGO_OPEN_SYSTEM:
 		str = "Open";
 		break;
@@ -4563,7 +4565,8 @@ static void print_authentication_mgmt_frame(unsigned int level,
 				L_LE16_TO_CPU(body->transaction_sequence),
 				L_LE16_TO_CPU(body->status));
 
-	if (L_LE16_TO_CPU(body->algorithm) != MMPDU_AUTH_ALGO_SHARED_KEY)
+	if (!L_IN_SET(alg, MMPDU_AUTH_ALGO_SHARED_KEY,
+				MMPDU_AUTH_ALGO_FT, MMPDU_AUTH_ALGO_SAE))
 		return;
 
 	if (L_LE16_TO_CPU(body->transaction_sequence) < 2 ||

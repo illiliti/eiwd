@@ -115,6 +115,8 @@ struct eap_tls_state {
 
 	bool expecting_frag_ack:1;
 	bool tunnel_ready:1;
+	bool tls_session_resumed:1;
+	bool tls_cache_disabled:1;
 
 	struct l_queue *ca_cert;
 	struct l_certchain *client_cert;
@@ -129,8 +131,11 @@ static struct l_settings *eap_tls_session_cache;
 static eap_tls_session_cache_load_func_t eap_tls_session_cache_load;
 static eap_tls_session_cache_sync_func_t eap_tls_session_cache_sync;
 
-static void __eap_tls_common_state_reset(struct eap_tls_state *eap_tls)
+static void __eap_tls_common_state_reset(struct eap_state *eap)
 {
+	struct eap_tls_state *eap_tls = eap_get_data(eap);
+	const char *peer_id;
+
 	eap_tls->version_negotiated = EAP_TLS_VERSION_NOT_NEGOTIATED;
 	eap_tls->method_completed = false;
 	eap_tls->phase2_failed = false;
@@ -144,6 +149,43 @@ static void __eap_tls_common_state_reset(struct eap_tls_state *eap_tls)
 	 */
 	if (eap_tls->tunnel)
 		l_tls_reset(eap_tls->tunnel);
+
+	/*
+	 * Drop the TLS session cache for this peer if the overall EAP
+	 * method didn't succeed.
+	 *
+	 * Additionally if the session was cached previously, meaning
+	 * that we've had a successful authentication at least once before,
+	 * and we now used session resumption successfully and the method
+	 * failed, become suspicious of this server's TLS session
+	 * resumption support.  Some authenticators strangely allow
+	 * resumption but can't handle it all the way to EAP method
+	 * success.  This improves the chances that authentication
+	 * succeeds on the next attempt.
+	 *
+	 * Drop the cache even if we have no indication that the
+	 * method failed but it just didn't succeed, to handle cases like
+	 * the server getting stuck and a timout occuring at a higher
+	 * layer.  The risk is that we may occasionally flush the session
+	 * data when there was only a momentary radio issue, invalid
+	 * phase2 credentials or decision to abort.  Those are not hot
+	 * paths.
+	 *
+	 * Note: TLS errors before the ready callback are handled in l_tls.
+	 */
+	peer_id = eap_get_peer_id(eap);
+	if (peer_id && eap_tls_session_cache && !eap_method_is_success(eap) &&
+			l_settings_has_group(eap_tls_session_cache, peer_id)) {
+		eap_tls_forget_peer(peer_id);
+
+		if (eap_tls->tls_session_resumed)
+			l_warn("EAP: method did not finish after successful TLS"
+				" session resumption.  If this repeats consider"
+				" disabling [Security].EAP-%sFastReauthentication",
+				eap_get_method_name(eap));
+	}
+
+	eap_tls->tls_session_resumed = false;
 
 	eap_tls->tx_frag_offset = 0;
 	eap_tls->tx_frag_last_len = 0;
@@ -187,7 +229,7 @@ bool eap_tls_common_state_reset(struct eap_state *eap)
 {
 	struct eap_tls_state *eap_tls = eap_get_data(eap);
 
-	__eap_tls_common_state_reset(eap_tls);
+	__eap_tls_common_state_reset(eap);
 
 	if (eap_tls->variant_ops->reset)
 		eap_tls->variant_ops->reset(eap_tls->variant_data);
@@ -199,7 +241,7 @@ void eap_tls_common_state_free(struct eap_state *eap)
 {
 	struct eap_tls_state *eap_tls = eap_get_data(eap);
 
-	__eap_tls_common_state_reset(eap_tls);
+	__eap_tls_common_state_reset(eap);
 
 	eap_set_data(eap, NULL);
 
@@ -244,7 +286,9 @@ static void eap_tls_tunnel_ready(const char *peer_identity, void *user_data)
 {
 	struct eap_state *eap = user_data;
 	struct eap_tls_state *eap_tls = eap_get_data(eap);
-	bool resumed = l_tls_get_session_resumed(eap_tls->tunnel);
+
+	eap_tls->tls_session_resumed =
+		l_tls_get_session_resumed(eap_tls->tunnel);
 
 	if (eap_tls->ca_cert && !peer_identity) {
 		l_error("%s: TLS did not verify AP identity",
@@ -265,7 +309,8 @@ static void eap_tls_tunnel_ready(const char *peer_identity, void *user_data)
 	if (!eap_tls->variant_ops->tunnel_ready)
 		return;
 
-	if (!eap_tls->variant_ops->tunnel_ready(eap, peer_identity, resumed))
+	if (!eap_tls->variant_ops->tunnel_ready(eap, peer_identity,
+						eap_tls->tls_session_resumed))
 		l_tls_close(eap_tls->tunnel);
 }
 
@@ -649,7 +694,7 @@ static bool eap_tls_tunnel_init(struct eap_state *eap)
 	if (eap_tls->domain_mask)
 		l_tls_set_domain_mask(eap_tls->tunnel, eap_tls->domain_mask);
 
-	if (!eap_tls_session_cache_load)
+	if (!eap_tls_session_cache_load || eap_tls->tls_cache_disabled)
 		goto start;
 
 	if (!eap_tls_session_cache)
@@ -998,6 +1043,16 @@ int eap_tls_common_settings_check(struct l_settings *settings,
 		return -EINVAL;
 	}
 
+	snprintf(setting_key, sizeof(setting_key),
+					"%sFastReauthentication", prefix);
+
+	if (l_settings_has_key(settings, "Security", setting_key) &&
+			!l_settings_get_bool(settings, "Security",
+						setting_key, NULL)) {
+		l_error("Can't parse %s", setting_key);
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
@@ -1009,6 +1064,7 @@ bool eap_tls_common_settings_load(struct eap_state *eap,
 	struct eap_tls_state *eap_tls;
 	char setting_key[72];
 	char *domain_mask_str;
+	bool bool_val;
 
 	L_AUTO_FREE_VAR(char *, value) = NULL;
 
@@ -1037,6 +1093,14 @@ bool eap_tls_common_settings_load(struct eap_state *eap,
 		eap_tls->domain_mask = l_strsplit(domain_mask_str, ';');
 		l_free(domain_mask_str);
 	}
+
+	snprintf(setting_key, sizeof(setting_key),
+					"%sFastReauthentication", prefix);
+
+	if (!l_settings_get_bool(settings, "Security", setting_key, &bool_val))
+		bool_val = true;
+
+	eap_tls->tls_cache_disabled = !bool_val;
 
 	eap_set_data(eap, eap_tls);
 

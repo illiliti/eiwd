@@ -281,6 +281,21 @@ connect to that network.
        domain name. An asterisk segment in the mask matches any label.  An
        asterisk segment at the beginning of the mask matches one or more
        consecutive labels from the beginning of the domain string.
+   * - | EAP-TLS-FastReauthentication,
+       | EAP-TTLS-FastReauthentication,
+       | EAP-PEAP-FastReauthentication,
+     - Values: **true**, false
+
+       Controls whether TLS session caching for EAP-TLS, EAP-TTLS and EAP-PEAP
+       is used.  This allows for faster re-connections to EAP-Enterprise based
+       networks.
+
+       Some network authenticators may be misconfigured in a way that TLS
+       session resumption is allowed but actually attempting it will cause
+       the EAP method to fail or time out.  In that case, assuming the
+       credentials and other settings are correct, every other connection
+       attempt will fail as sessions are cached and forgotten in alternating
+       attempts.  Use this setting to disable caching for this network.
    * - | EAP-TTLS-Phase2-Method
      - | The following values are allowed:
        |    Tunneled-CHAP,
