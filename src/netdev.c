@@ -5170,8 +5170,12 @@ static void netdev_send_sa_query_delay(struct l_timeout *timeout,
 static void netdev_channel_switch_event(struct l_genl_msg *msg,
 					struct netdev *netdev)
 {
-	_auto_(l_free) struct band_chandef *chandef =
-						l_new(struct band_chandef, 1);
+	_auto_(l_free) struct band_chandef *chandef = NULL;
+
+	if (netdev->type != NL80211_IFTYPE_STATION)
+		return;
+
+	chandef = l_new(struct band_chandef, 1);
 
 	if (nl80211_parse_chandef(msg, chandef) < 0) {
 		l_debug("Couldn't parse operating channel info.");
