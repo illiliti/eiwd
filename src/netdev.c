@@ -1370,6 +1370,8 @@ static void netdev_operstate_cb(int error, uint16_t type,
 
 static void netdev_connect_ok(struct netdev *netdev)
 {
+	l_debug("");
+
 	l_rtnl_set_linkmode_and_operstate(rtnl, netdev->index,
 					IF_LINK_MODE_DORMANT, IF_OPER_UP,
 					netdev_operstate_cb,
@@ -1469,7 +1471,14 @@ static void netdev_setting_keys_failed(struct netdev_handshake_state *nhs,
 
 static void try_handshake_complete(struct netdev_handshake_state *nhs)
 {
+	l_debug("ptk_installed: %u, gtk_installed: %u, igtk_installed: %u",
+			nhs->ptk_installed,
+			nhs->gtk_installed,
+			nhs->igtk_installed);
+
 	if (nhs->ptk_installed && nhs->gtk_installed && nhs->igtk_installed) {
+		l_debug("nhs->complete: %u", nhs->complete);
+
 		if (nhs->complete) {
 			handshake_event(&nhs->super,
 					HANDSHAKE_EVENT_REKEY_COMPLETE);
@@ -1477,6 +1486,8 @@ static void try_handshake_complete(struct netdev_handshake_state *nhs)
 		}
 
 		nhs->complete = true;
+
+		l_debug("Invoking handshake_event()");
 
 		if (handshake_event(&nhs->super, HANDSHAKE_EVENT_COMPLETE))
 			return;
@@ -1492,6 +1503,8 @@ static void netdev_set_station_cb(struct l_genl_msg *msg, void *user_data)
 	struct netdev_handshake_state *nhs = user_data;
 	struct netdev *netdev = nhs->netdev;
 	int err;
+
+	l_debug("");
 
 	nhs->set_station_cmd_id = 0;
 	nhs->ptk_installed = true;
@@ -1523,6 +1536,7 @@ static void netdev_new_group_key_cb(struct l_genl_msg *msg, void *data)
 	struct netdev *netdev = nhs->netdev;
 	int err = l_genl_msg_get_error(msg);
 
+	l_debug("ifindex: %u, err: %d", netdev->index, err);
 	nhs->group_new_key_cmd_id = 0;
 
 	if (err < 0) {
@@ -1547,6 +1561,7 @@ static void netdev_new_group_management_key_cb(struct l_genl_msg *msg,
 	struct netdev *netdev = nhs->netdev;
 	int err = l_genl_msg_get_error(msg);
 
+	l_debug("ifindex: %u, err: %d", netdev->index, err);
 	nhs->group_management_new_key_cmd_id = 0;
 
 	if (err < 0) {
@@ -2413,6 +2428,8 @@ static int netdev_get_oci(void *user_data)
 	struct l_genl_msg *msg =
 			l_genl_msg_new_sized(NL80211_CMD_GET_INTERFACE, 64);
 
+	l_debug("");
+
 	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
 
 	netdev->get_oci_cmd_id = l_genl_family_send(nl80211, msg,
@@ -2432,6 +2449,8 @@ static void parse_request_ies(struct netdev *netdev, const uint8_t *ies,
 	struct ie_tlv_iter iter;
 	const void *data;
 	const uint8_t *rsnxe = NULL;
+
+	l_debug("");
 
 	/*
 	 * The driver may have modified the IEs we passed to CMD_CONNECT
@@ -2735,6 +2754,8 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 	if (netdev->ignore_connect_event)
 		return;
 
+	l_debug("aborting and ignore_connect_event not set, proceed");
+
 	/* Work around mwifiex which sends a Connect Event prior to the Ack */
 	if (netdev->connect_cmd_id)
 		netdev_driver_connected(netdev);
@@ -2793,6 +2814,8 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 		else
 			goto error;
 	}
+
+	l_debug("expect_connect_failure not set, proceed");
 
 	if (netdev->owe_sm && status_code && *status_code ==
 				MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP) {
@@ -2920,6 +2943,8 @@ process_resp_ies:
 		if (qos_set)
 			netdev_send_qos_map_set(netdev, qos_set, qos_len);
 	}
+
+	l_debug("Request / Response IEs parsed");
 
 	if (netdev->sm) {
 		if (!hs->chandef) {
