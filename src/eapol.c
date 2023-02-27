@@ -2783,6 +2783,8 @@ void eapol_register(struct eapol_sm *sm)
 
 bool eapol_start(struct eapol_sm *sm)
 {
+	l_debug("");
+
 	if (sm->handshake->settings_8021x) {
 		_auto_(l_free) char *network_id = NULL;
 
