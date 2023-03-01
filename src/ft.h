@@ -43,3 +43,4 @@ void ft_clear_authentications(uint32_t ifindex);
 int ft_action(uint32_t ifindex, uint32_t freq, const struct scan_bss *target);
 int ft_associate(uint32_t ifindex, const uint8_t *addr);
 int ft_authenticate(uint32_t ifindex, const struct scan_bss *target);
+int ft_authenticate_onchannel(uint32_t ifindex, const struct scan_bss *target);

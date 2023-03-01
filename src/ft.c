@@ -40,6 +40,8 @@
 #include "src/offchannel.h"
 #include "src/wiphy.h"
 
+static const unsigned int FT_ONCHANNEL_TIME = 300u; /* ms */
+
 static ft_tx_frame_func_t tx_frame = NULL;
 static ft_tx_associate_func_t tx_assoc = NULL;
 static struct l_queue *info_list = NULL;
@@ -63,6 +65,7 @@ struct ft_info {
 	struct ie_ft_info ft_info;
 
 	bool parsed : 1;
+	bool onchannel : 1;
 };
 
 /*
@@ -1009,8 +1012,17 @@ void __ft_rx_authenticate(uint32_t ifindex, const uint8_t *frame,
 	info->parsed = true;
 
 cancel:
-	/* Verified to be expected target, offchannel can be canceled */
-	offchannel_cancel(netdev_get_wdev_id(netdev), info->offchannel_id);
+	/*
+	 * Verified to be expected target, offchannel or onchannel work can
+	 * now be canceled
+	 */
+	if (info->onchannel) {
+		l_timeout_remove(info->timeout);
+		info->timeout = NULL;
+		wiphy_radio_work_done(netdev_get_wiphy(netdev), info->work.id);
+	} else
+		offchannel_cancel(netdev_get_wdev_id(netdev),
+							info->offchannel_id);
 }
 
 static void ft_send_authenticate(void *user_data)
@@ -1022,6 +1034,8 @@ static void ft_send_authenticate(void *user_data)
 	size_t len;
 	struct iovec iov[2];
 	struct mmpdu_authentication auth;
+
+	l_debug("");
 
 	/* Authentication body */
 	auth.algorithm = L_CPU_TO_LE16(MMPDU_AUTH_ALGO_FT);
@@ -1074,6 +1088,45 @@ int ft_authenticate(uint32_t ifindex, const struct scan_bss *target)
 						200, ft_send_authenticate, info,
 						ft_authenticate_destroy);
 
+	l_queue_push_tail(info_list, info);
+
+	return 0;
+}
+
+static void ft_onchannel_timeout(struct l_timeout *timeout, void *user_data)
+{
+	struct ft_info *info = user_data;
+	struct netdev *netdev = netdev_find(info->ifindex);
+
+	wiphy_radio_work_done(netdev_get_wiphy(netdev), info->work.id);
+}
+
+static bool ft_send_authenticate_onchannel(struct wiphy_radio_work_item *work)
+{
+	struct ft_info *info = l_container_of(work, struct ft_info, work);
+
+	ft_send_authenticate(info);
+
+	info->timeout = l_timeout_create_ms(FT_ONCHANNEL_TIME,
+						ft_onchannel_timeout,
+						info, NULL);
+	return false;
+}
+
+struct wiphy_radio_work_item_ops ft_onchannel_ops = {
+	.do_work = ft_send_authenticate_onchannel,
+};
+
+int ft_authenticate_onchannel(uint32_t ifindex, const struct scan_bss *target)
+{
+	struct netdev *netdev = netdev_find(ifindex);
+	struct handshake_state *hs = netdev_get_handshake(netdev);
+	struct ft_info *info = ft_info_new(hs, target);
+
+	info->onchannel = true;
+
+	wiphy_radio_work_insert(netdev_get_wiphy(netdev), &info->work,
+				WIPHY_WORK_PRIORITY_FT, &ft_onchannel_ops);
 	l_queue_push_tail(info_list, info);
 
 	return 0;
