@@ -2298,12 +2298,21 @@ static bool station_fast_transition(struct station *station,
 	}
 
 	/* Both ft_action/ft_authenticate will gate the associate work item */
-	if ((hs->mde[4] & 1))
+	if ((hs->mde[4] & 1)) {
 		ft_action(netdev_get_ifindex(station->netdev),
 				station->connected_bss->frequency, bss);
-	else
-		ft_authenticate(netdev_get_ifindex(station->netdev), bss);
+		goto done;
+	}
 
+	if (station->connected_bss->frequency == bss->frequency) {
+		ft_authenticate_onchannel(netdev_get_ifindex(station->netdev),
+						bss);
+		goto done;
+	}
+
+	ft_authenticate(netdev_get_ifindex(station->netdev), bss);
+
+done:
 	wiphy_radio_work_insert(station->wiphy, &station->ft_work,
 				WIPHY_WORK_PRIORITY_CONNECT, &ft_work_ops);
 
