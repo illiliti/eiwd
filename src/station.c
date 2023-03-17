@@ -368,8 +368,8 @@ static const char *iwd_network_get_path(struct station *station,
 					netdev_get_path(station->netdev));
 
 	for (i = 0; ssid[i] && pos < sizeof(path); i++)
-		pos += snprintf(path + pos, sizeof(path) - pos, "%02x",
-								ssid[i]);
+		pos += snprintf(path + pos, sizeof(path) - pos, "%02hhx",
+					ssid[i]);
 
 	snprintf(path + pos, sizeof(path) - pos, "_%s",
 				security_to_str(security));
