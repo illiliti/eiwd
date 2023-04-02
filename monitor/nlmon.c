@@ -5068,6 +5068,16 @@ static void print_probe_response(unsigned int level,
 			(const uint8_t *) mmpdu + len - resp->ies);
 }
 
+static void print_beacon(unsigned int level,
+				const struct mmpdu_header *mmpdu, size_t len)
+{
+	const struct mmpdu_beacon *beacon = mmpdu_body(mmpdu);
+
+	print_attr(level, "Subtype: Beacon");
+	print_ie(level + 1, "Beacon IEs", beacon->ies,
+			(const uint8_t *) mmpdu + len - beacon->ies);
+}
+
 static void print_frame_type(unsigned int level, const char *label,
 					const void *data, uint16_t size)
 {
@@ -5122,7 +5132,10 @@ static void print_frame_type(unsigned int level, const char *label,
 		str = "Timing Advertisement";
 		break;
 	case 0x08:
-		str = "Beacon";
+		if (mpdu)
+			print_beacon(level + 1, mpdu, size);
+		else
+			str = "Beacon";
 		break;
 	case 0x09:
 		str = "ATIM";
@@ -6240,9 +6253,10 @@ static const struct attr_entry attr_table[] = {
 	{ NL80211_ATTR_DTIM_PERIOD,
 			"DTIM Period", ATTR_U32 },
 	{ NL80211_ATTR_BEACON_HEAD,
-			"Beacon Head", ATTR_BINARY },
+			"Beacon Head",  ATTR_CUSTOM, { .function = print_frame } },
 	{ NL80211_ATTR_BEACON_TAIL,
-			"Beacon Tail", ATTR_BINARY },
+			"Beacon Tail", ATTR_CUSTOM,
+				{ .function = print_management_ies } },
 	{ NL80211_ATTR_STA_AID,
 			"Station AID", ATTR_U16 },
 	{ NL80211_ATTR_STA_FLAGS,
@@ -6520,7 +6534,8 @@ static const struct attr_entry attr_table[] = {
 	{ NL80211_ATTR_PROBE_RESP_OFFLOAD,
 			"Probe Response Offload" },
 	{ NL80211_ATTR_PROBE_RESP,
-			"Probe Response" },
+			"Probe Response", ATTR_CUSTOM,
+					{ .function = print_frame} },
 	{ NL80211_ATTR_DFS_REGION,
 			"DFS Region", ATTR_U8 },
 	{ NL80211_ATTR_DISABLE_HT,

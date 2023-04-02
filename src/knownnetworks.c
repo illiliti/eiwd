@@ -174,9 +174,10 @@ static const char *known_network_get_path(const struct network_info *network)
 
 	for (i = 0; network->ssid[i] && pos < sizeof(path); i++)
 		pos += snprintf(path + pos, sizeof(path) - pos, "%02x",
-				network->ssid[i]);
+				(unsigned char)network->ssid[i]);
 
-	snprintf(path + pos, sizeof(path) - pos, "_%s",
+	if (pos < sizeof(path))
+		snprintf(path + pos, sizeof(path) - pos, "_%s",
 			security_to_str(network->type));
 	path[sizeof(path) - 1] = '\0';
 

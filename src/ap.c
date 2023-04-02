@@ -1499,14 +1499,19 @@ static void ap_gtk_query_cb(struct l_genl_msg *msg, void *user_data)
 	struct sta_state *sta = user_data;
 	const void *gtk_rsc;
 	uint8_t zero_gtk_rsc[6];
+	int err;
 
 	sta->gtk_query_cmd_id = 0;
 
-	if (l_genl_msg_get_error(msg) < 0)
+	err = l_genl_msg_get_error(msg);
+	if (err == -ENOTSUP)
+		goto zero_rsc;
+	else if (err < 0)
 		goto error;
 
 	gtk_rsc = nl80211_parse_get_key_seq(msg);
 	if (!gtk_rsc) {
+zero_rsc:
 		memset(zero_gtk_rsc, 0, 6);
 		gtk_rsc = zero_gtk_rsc;
 	}
@@ -1643,18 +1648,21 @@ static struct l_genl_msg *ap_build_cmd_new_station(struct sta_state *sta)
 {
 	struct l_genl_msg *msg;
 	uint32_t ifindex = netdev_get_ifindex(sta->ap->netdev);
-	/*
-	 * This should hopefully work both with and without
-	 * NL80211_FEATURE_FULL_AP_CLIENT_STATE.
-	 */
 	struct nl80211_sta_flag_update flags = {
-		.mask = (1 << NL80211_STA_FLAG_AUTHENTICATED) |
-			(1 << NL80211_STA_FLAG_ASSOCIATED) |
-			(1 << NL80211_STA_FLAG_AUTHORIZED) |
+		.mask = (1 << NL80211_STA_FLAG_AUTHORIZED) |
 			(1 << NL80211_STA_FLAG_MFP),
 		.set = (1 << NL80211_STA_FLAG_AUTHENTICATED) |
 			(1 << NL80211_STA_FLAG_ASSOCIATED),
 	};
+
+	/*
+	 * Without this feature nl80211 rejects NEW_STATION if the mask contains
+	 * auth/assoc flags
+	 */
+	if (wiphy_has_feature(netdev_get_wiphy(sta->ap->netdev),
+				NL80211_FEATURE_FULL_AP_CLIENT_STATE))
+		flags.mask |= (1 << NL80211_STA_FLAG_ASSOCIATED) |
+				(1 << NL80211_STA_FLAG_AUTHENTICATED);
 
 	msg = l_genl_msg_new_sized(NL80211_CMD_NEW_STATION, 300);
 
@@ -3660,7 +3668,18 @@ static int ap_load_config(struct ap_state *ap, const struct l_settings *config,
 		ap->band = BAND_FREQ_2_4_GHZ;
 	}
 
-	ap->supports_ht = wiphy_get_ht_capabilities(wiphy, ap->band,
+	if (l_settings_has_key(config, "General", "DisableHT")) {
+		bool boolval;
+
+		if (!l_settings_get_bool(config, "General", "DisableHT",
+						&boolval)) {
+			l_error("AP [General].DisableHT not a valid boolean");
+			return -EINVAL;
+		}
+
+		ap->supports_ht = !boolval;
+	} else
+		ap->supports_ht = wiphy_get_ht_capabilities(wiphy, ap->band,
 							NULL) != NULL;
 
 	if (!ap_validate_band_channel(ap)) {
