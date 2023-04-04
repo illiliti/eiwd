@@ -1229,11 +1229,11 @@ int band_freq_to_ht_chandef(uint32_t freq, const struct band_freq_attrs *attr,
 			if (band == BAND_FREQ_6_GHZ)
 				break;
 
-			if (info->flags & PRIMARY_CHANNEL_UPPER &&
+			if (info->flags & PRIMARY_CHANNEL_LOWER &&
 						attr->no_ht40_plus)
 				continue;
 
-			if (info->flags & PRIMARY_CHANNEL_LOWER &&
+			if (info->flags & PRIMARY_CHANNEL_UPPER &&
 						attr->no_ht40_minus)
 				continue;
 
