@@ -1004,7 +1004,7 @@ bool handshake_decode_fte_key(struct handshake_state *s, const uint8_t *wrapped,
 				size_t key_len, uint8_t *key_out)
 {
 	const uint8_t *kek;
-	size_t kek_len = 16;
+	size_t kek_len = handshake_state_get_kek_len(s);
 	size_t padded_len = key_len < 16 ? 16 : align_len(key_len, 8);
 
 	if (s->akm_suite & (IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |
