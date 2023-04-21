@@ -24,8 +24,7 @@
 #include <config.h>
 #endif
 
-#define _XOPEN_SOURCE 700
-
+#define _XOPEN_SOURCE
 #include <time.h>
 #include <ell/ell.h>
 
