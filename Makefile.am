@@ -150,6 +150,14 @@ ell_shared = ell/useful.h ell/asn1-private.h
 ell_libell_internal_la_SOURCES = $(ell_headers) $(ell_sources) $(ell_shared)
 endif
 
+if LIBEDIT
+client_cflags = $(LIBEDIT_CFLAGS)
+client_ldadd = $(LIBEDIT_LIBS)
+else
+client_cflags =
+client_ldadd = $(READLINE_LIBS)
+endif
+
 bin_PROGRAMS =
 libexec_PROGRAMS =
 noinst_PROGRAMS =
@@ -308,7 +316,7 @@ client_iwctl_SOURCES = client/main.c \
 			src/util.c src/util.h \
 			src/band.c src/band.h
 
-client_iwctl_LDADD = $(ell_ldadd) $(READLINE_LIBS)
+client_iwctl_LDADD = $(ell_ldadd) $(client_ldadd)
 
 if MANUAL_PAGES
 man_MANS += client/iwctl.1
@@ -544,7 +552,7 @@ unit_test_client_SOURCES = unit/test-client.c \
 				client/display.h client/display.c \
 				client/network.h client/network.c \
 				client/properties.h client/properties.c
-unit_test_client_LDADD = $(ell_ldadd) $(READLINE_LIBS)
+unit_test_client_LDADD = $(ell_ldadd) $(client_ldadd)
 endif
 
 unit_test_sae_SOURCES = unit/test-sae.c \
@@ -586,7 +594,7 @@ EXTRA_DIST = src/genbuiltin src/iwd.service.in src/net.connman.iwd.service \
 					$(patsubst %.5,%.rst, \
 					$(patsubst %.8,%.rst,$(manual_pages))))
 
-AM_CFLAGS = $(ell_cflags) -fvisibility=hidden \
+AM_CFLAGS = $(ell_cflags) $(client_cflags) -fvisibility=hidden \
 				-DUNITDIR=\""$(top_srcdir)/unit/"\" \
 				-DCERTDIR=\""$(top_builddir)/unit/"\"
 

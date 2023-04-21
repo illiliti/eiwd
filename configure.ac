@@ -153,11 +153,17 @@ AC_ARG_ENABLE([client], AS_HELP_STRING([--disable-client],
 				[don't install iwctl client utility]),
 					[enable_client=${enableval}])
 if (test "${enable_client}" != "no"); then
-	AC_CHECK_HEADERS(readline/readline.h, enable_readline=yes,
-			AC_MSG_ERROR(readline header files are required))
-	PKG_CHECK_MODULES(READLINE, readline, dummy=yes, READLINE_LIBS=-lreadline)
-	AC_SUBST(READLINE_CFLAGS)
-	AC_SUBST(READLINE_LIBS)
+	if (test "${enable_libedit}" = "yes"); then
+		PKG_CHECK_MODULES(LIBEDIT, libedit, dummy=yes,
+				AC_MSG_ERROR(Editline library is required))
+		AC_SUBST(LIBEDIT_CFLAGS)
+		AC_SUBST(LIBEDIT_LIBS)
+	else
+		PKG_CHECK_MODULES(READLINE, readline, dummy=yes,
+				AC_MSG_ERROR(Readline library is required))
+		AC_SUBST(READLINE_CFLAGS)
+		AC_SUBST(READLINE_LIBS)
+	fi
 fi
 AM_CONDITIONAL(CLIENT, test "${enable_client}" != "no")
 
@@ -274,6 +280,10 @@ if (test "${enable_external_ell}" = "yes"); then
 fi
 AM_CONDITIONAL(EXTERNAL_ELL, test "${enable_external_ell}" = "yes")
 
+AC_ARG_ENABLE([libedit], AS_HELP_STRING([--enable-libedit],
+				[enable Editline library instead of Readline]),
+					[enable_libedit=${enableval}])
+AM_CONDITIONAL(LIBEDIT, test "${enable_libedit}" = "yes")
 
 AC_ARG_ENABLE([wired], AS_HELP_STRING([--enable-wired],
 				[enable Ethernet authentication support]),
