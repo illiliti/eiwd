@@ -154,7 +154,7 @@ AC_ARG_ENABLE([client], AS_HELP_STRING([--disable-client],
 					[enable_client=${enableval}])
 if (test "${enable_client}" != "no"); then
 	if (test "${enable_libedit}" = "yes"); then
-		PKG_CHECK_MODULES(LIBEDIT, libedit, dummy=yes,
+		PKG_CHECK_MODULES(LIBEDIT, libedit >= 3.1, dummy=yes,
 				AC_MSG_ERROR(Editline library is required))
 		AC_SUBST(LIBEDIT_CFLAGS)
 		AC_SUBST(LIBEDIT_LIBS)
