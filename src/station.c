@@ -2330,8 +2330,12 @@ static bool station_fast_transition(struct station *station,
 	ft_authenticate(netdev_get_ifindex(station->netdev), bss);
 
 done:
-	wiphy_radio_work_insert(station->wiphy, &station->ft_work,
-				WIPHY_WORK_PRIORITY_CONNECT, &ft_work_ops);
+	if (station->ft_work.id)
+		wiphy_radio_work_reschedule(station->wiphy, &station->ft_work);
+	else
+		wiphy_radio_work_insert(station->wiphy, &station->ft_work,
+					WIPHY_WORK_PRIORITY_CONNECT,
+					&ft_work_ops);
 
 	return true;
 }
