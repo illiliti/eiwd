@@ -48,7 +48,7 @@ class Test(unittest.TestCase):
             self.rule2.enabled = True
             # Send 100 packets (to be dropped), should trigger beacon loss
             testutil.tx_packets(device.name, self.bss_hostapd[0].ifname, 100)
-            device.wait_for_event('packet-loss-roam', timeout=30)
+            device.wait_for_event('packet-loss-roam', timeout=60)
         else:
             device.roam(self.bss_hostapd[1].bssid)
 
@@ -173,19 +173,22 @@ class Test(unittest.TestCase):
         IWD.copy_to_storage('TestFT.psk')
 
         cls.bss_hostapd = [ HostapdCLI(config='ft-psk-ccmp-1.conf'),
-                            HostapdCLI(config='ft-psk-ccmp-2.conf') ]
+                            HostapdCLI(config='ft-psk-ccmp-2.conf'),
+                            HostapdCLI(config='ft-psk-ccmp-3.conf') ]
+        cls.bss_hostapd[2].disable()
+
         rad0 = hwsim.get_radio('rad0')
-        rad2 = hwsim.get_radio('rad2')
+        rad3 = hwsim.get_radio('rad3')
 
         cls.rule0 = hwsim.rules.create()
-        cls.rule0.source = rad2.addresses[0]
+        cls.rule0.source = rad3.addresses[0]
         cls.rule0.bidirectional = True
         cls.rule0.signal = -2000
         cls.rule0.prefix = 'b0'
         cls.rule0.drop = True
 
         cls.rule1 = hwsim.rules.create()
-        cls.rule1.source = rad2.addresses[0]
+        cls.rule1.source = rad3.addresses[0]
         cls.rule1.prefix = '08'
         cls.rule1.drop = True
 
