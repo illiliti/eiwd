@@ -62,21 +62,17 @@ class Test(unittest.TestCase):
 
         self.rule0.enabled = True
 
-        device.roam(self.bss_hostapd[1].bssid)
-
-        # Roam should fail...
-        device.wait_for_event('ft-roam-failed')
+        # IWD should connect, then attempt a roam to BSS 1, which should fail...
+        device.wait_for_event('ft-roam-failed', timeout=60)
         # ... but IWD should remain connected
         self.assertTrue(device.state == DeviceState.connected)
 
         self.rule0.enabled = False
 
-        # Try again once more
-        device.roam(self.bss_hostapd[1].bssid)
+        # IWD should then try BSS 2, and succeed
+        self.verify_roam(wd, device, self.bss_hostapd[0], self.bss_hostapd[2])
 
-        self.verify_roam(wd, device, self.bss_hostapd[0], self.bss_hostapd[1])
-
-        self.bss_hostapd[1].deauthenticate(device.address)
+        self.bss_hostapd[2].deauthenticate(device.address)
         condition = 'obj.state == DeviceState.disconnected'
         wd.wait_for_object_condition(device, condition)
 
@@ -88,6 +84,7 @@ class Test(unittest.TestCase):
 
         self.rule0.enabled = False
         self.rule1.enabled = False
+        self.rule2.enabled = False
 
     @classmethod
     def setUpClass(cls):
@@ -96,14 +93,16 @@ class Test(unittest.TestCase):
         IWD.copy_to_storage('TestFT.psk')
 
         cls.bss_hostapd = [ HostapdCLI(config='ft-psk-ccmp-1.conf'),
-                            HostapdCLI(config='ft-psk-ccmp-2.conf') ]
+                            HostapdCLI(config='ft-psk-ccmp-2.conf'),
+                            HostapdCLI(config='ft-psk-ccmp-3.conf') ]
 
         cls.bss_hostapd[0].set_address('12:00:00:00:00:01')
         cls.bss_hostapd[1].set_address('12:00:00:00:00:02')
+        cls.bss_hostapd[2].set_address('12:00:00:00:00:03')
 
         # Drop Authenticate frames
         cls.rule0 = hwsim.rules.create()
-        cls.rule0.bidirectional = True
+        cls.rule0.source = hwsim.get_radio('rad1').addresses[0]
         cls.rule0.prefix = 'b0'
         cls.rule0.drop = True
 
@@ -112,6 +111,18 @@ class Test(unittest.TestCase):
         cls.rule1.bidirectional = True
         cls.rule1.prefix = 'd0'
         cls.rule1.drop = True
+
+        # Causes IWD to immediately roam away from BSS 0
+        cls.rule2 = hwsim.rules.create()
+        cls.rule2.source = hwsim.get_radio('rad0').addresses[0]
+        cls.rule2.signal = -8000
+        cls.rule2.enabled = True
+
+        # Causes IWD to first prefer BSS 1 to roam, then BSS 2.
+        cls.rule3 = hwsim.rules.create()
+        cls.rule3.source = hwsim.get_radio('rad2').addresses[0]
+        cls.rule3.signal = -7000
+        cls.rule3.enabled = True
 
     @classmethod
     def tearDownClass(cls):

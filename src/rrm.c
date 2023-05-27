@@ -138,7 +138,7 @@ struct rrm_beacon_report {
 	uint8_t bssid[6];
 	uint8_t antenna_id;
 	__le32 parent_tsf;
-	uint8_t subelements[0];
+	uint8_t subelements[];
 } __attribute__ ((packed));
 
 static struct l_queue *states;

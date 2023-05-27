@@ -2092,6 +2092,19 @@ static void setup_rule_manager_interface(struct l_dbus_interface *interface)
 				rule_add, "o", "", "path");
 }
 
+static void destroy_rule(void *user_data)
+{
+	struct hwsim_rule *rule = user_data;
+
+	if (rule->prefix)
+		l_free(rule->prefix);
+
+	if (rule->match)
+		l_free(rule->match);
+
+	l_free(rule);
+}
+
 static struct l_dbus_message *rule_remove(struct l_dbus *dbus,
 						struct l_dbus_message *message,
 						void *user_data)
@@ -2102,13 +2115,8 @@ static struct l_dbus_message *rule_remove(struct l_dbus *dbus,
 	path = rule_get_path(rule);
 	l_queue_remove(rules, rule);
 
-	if (rule->prefix)
-		l_free(rule->prefix);
+	destroy_rule(rule);
 
-	if (rule->match)
-		l_free(rule->match);
-
-	l_free(rule);
 	l_dbus_unregister_object(dbus, path);
 
 	return l_dbus_message_new_method_return(message);
@@ -3131,7 +3139,7 @@ int main(int argc, char *argv[])
 
 	l_dbus_destroy(dbus);
 	hwsim_radio_cache_cleanup();
-	l_queue_destroy(rules, l_free);
+	l_queue_destroy(rules, destroy_rule);
 
 	l_netlink_destroy(rtnl);
 

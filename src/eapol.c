@@ -110,6 +110,9 @@ bool eapol_calculate_mic(enum ie_rsn_akm_suite akm, const uint8_t *kck,
 		case IE_RSN_AKM_SUITE_OSEN:
 			return cmac_aes(kck, 16, frame, frame_len,
 						mic, mic_len);
+		case IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384:
+			return hmac_sha384(kck, 24, frame, frame_len,
+						mic, mic_len);
 		case IE_RSN_AKM_SUITE_OWE:
 			switch (mic_len) {
 			case 16:
@@ -163,6 +166,10 @@ bool eapol_verify_mic(enum ie_rsn_akm_suite akm, const uint8_t *kck,
 		case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
 		case IE_RSN_AKM_SUITE_OSEN:
 			checksum = l_checksum_new_cmac_aes(kck, 16);
+			break;
+		case IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384:
+			checksum = l_checksum_new_hmac(L_CHECKSUM_SHA384,
+							kck, 24);
 			break;
 		case IE_RSN_AKM_SUITE_OWE:
 			switch (mic_len) {
@@ -270,6 +277,7 @@ uint8_t *eapol_decrypt_key_data(enum ie_rsn_akm_suite akm, const uint8_t *kek,
 		case IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256:
 		case IE_RSN_AKM_SUITE_OWE:
 		case IE_RSN_AKM_SUITE_OSEN:
+		case IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384:
 			if (key_data_len < 24 || key_data_len % 8)
 				return NULL;
 
@@ -315,6 +323,7 @@ uint8_t *eapol_decrypt_key_data(enum ie_rsn_akm_suite akm, const uint8_t *kek,
 	case EAPOL_KEY_DESCRIPTOR_VERSION_AKM_DEFINED:
 		switch (akm) {
 		case IE_RSN_AKM_SUITE_OWE:
+		case IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384:
 			switch (mic_len) {
 			case 16:
 				kek_len = 16;
@@ -478,8 +487,7 @@ bool eapol_verify_ptk_1_of_4(const struct eapol_key *ek, size_t mic_len,
 	if (ek->key_mic)
 		return false;
 
-	if (ek->secure != ptk_complete)
-		return false;
+	L_WARN_ON(ek->secure != ptk_complete);
 
 	if (ek->encrypted_key_data)
 		return false;

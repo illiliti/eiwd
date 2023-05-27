@@ -99,7 +99,7 @@ struct netdev_handshake_state {
 struct netdev_ext_key_info {
 	uint16_t proto;
 	bool noencrypt;
-	struct eapol_frame frame[0];
+	struct eapol_frame frame[];
 };
 
 struct netdev {

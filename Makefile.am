@@ -150,6 +150,14 @@ ell_shared = ell/useful.h ell/asn1-private.h
 ell_libell_internal_la_SOURCES = $(ell_headers) $(ell_sources) $(ell_shared)
 endif
 
+if LIBEDIT
+client_cflags = $(LIBEDIT_CFLAGS)
+client_ldadd = $(LIBEDIT_LIBS)
+else
+client_cflags =
+client_ldadd = $(READLINE_LIBS)
+endif
+
 bin_PROGRAMS =
 libexec_PROGRAMS =
 noinst_PROGRAMS =
@@ -309,7 +317,7 @@ client_iwctl_SOURCES = client/main.c \
 			src/util.c src/util.h \
 			src/band.c src/band.h
 
-client_iwctl_LDADD = $(ell_ldadd) $(READLINE_LIBS)
+client_iwctl_LDADD = $(ell_ldadd) $(client_ldadd)
 
 if MANUAL_PAGES
 man_MANS += client/iwctl.1
@@ -370,6 +378,7 @@ endif
 endif
 
 if TOOLS
+if DAEMON
 noinst_PROGRAMS += tools/probe-req tools/iwd-decrypt-profile
 
 tools_probe_req_SOURCES = tools/probe-req.c src/mpdu.h src/mpdu.c \
@@ -379,13 +388,14 @@ tools_probe_req_SOURCES = tools/probe-req.c src/mpdu.h src/mpdu.c \
 					src/common.h src/common.c \
 					src/band.h src/band.c
 tools_probe_req_LDADD = $(ell_ldadd)
-endif
 
 tools_iwd_decrypt_profile_SOURCES = tools/iwd-decrypt-profile.c \
 					src/common.h src/common.c \
 					src/crypto.h src/crypto.c \
 					src/storage.h src/storage.c
 tools_iwd_decrypt_profile_LDADD = ${ell_ldadd}
+endif
+endif
 
 if HWSIM
 bin_PROGRAMS += tools/hwsim
@@ -409,7 +419,10 @@ man_MANS += tools/hwsim.1
 endif
 endif
 
-unit_tests = unit/test-cmac-aes \
+unit_tests =
+
+if DAEMON
+unit_tests += unit/test-cmac-aes \
 		unit/test-hmac-md5 unit/test-hmac-sha1 unit/test-hmac-sha256 \
 		unit/test-prf-sha1 unit/test-kdf-sha256 \
 		unit/test-crypto unit/test-eapol unit/test-mpdu \
@@ -417,6 +430,7 @@ unit_tests = unit/test-cmac-aes \
 		unit/test-arc4 unit/test-wsc unit/test-eap-mschapv2 \
 		unit/test-eap-sim unit/test-sae unit/test-p2p unit/test-band \
 		unit/test-dpp unit/test-json
+endif
 
 if CLIENT
 unit_tests += unit/test-client
@@ -426,6 +440,7 @@ if MAINTAINER_MODE
 noinst_PROGRAMS += $(unit_tests)
 endif
 
+if DAEMON
 unit_test_eap_sim_SOURCES = unit/test-eap-sim.c \
 		src/crypto.h src/crypto.c src/simutil.h src/simutil.c \
 		src/ie.h src/ie.c \
@@ -439,7 +454,6 @@ unit_test_eap_sim_SOURCES = unit/test-eap-sim.c \
 		src/erp.h src/erp.c \
 		src/band.h src/band.c \
 		src/eap-sim.c
-
 unit_test_eap_sim_LDADD = $(ell_ldadd)
 
 unit_test_cmac_aes_SOURCES = unit/test-cmac-aes.c \
@@ -448,7 +462,6 @@ unit_test_cmac_aes_LDADD = $(ell_ldadd)
 
 unit_test_arc4_SOURCES = unit/test-arc4.c \
 					src/crypto.h src/crypto.c
-
 unit_test_arc4_LDADD = $(ell_ldadd)
 
 unit_test_hmac_md5_SOURCES = unit/test-hmac-md5.c \
@@ -537,19 +550,6 @@ unit_test_eap_mschapv2_SOURCES = src/eap-mschapv2.h src/eap-mschapv2.c \
 				unit/test-eap-mschapv2.c
 unit_test_eap_mschapv2_LDADD = $(ell_ldadd)
 
-if CLIENT
-unit_test_client_SOURCES = unit/test-client.c \
-				client/adapter.c \
-				client/agent.h client/agent.c \
-				client/agent-manager.h client/agent-manager.c \
-				client/command.h client/command.c \
-				client/dbus-proxy.h client/dbus-proxy.c \
-				client/display.h client/display.c \
-				client/network.h client/network.c \
-				client/properties.h client/properties.c
-unit_test_client_LDADD = $(ell_ldadd) $(READLINE_LIBS)
-endif
-
 unit_test_sae_SOURCES = unit/test-sae.c \
 				src/sae.h src/sae.c \
 				src/crypto.h src/crypto.c \
@@ -578,6 +578,20 @@ unit_test_dpp_LDADD = $(ell_ldadd)
 
 unit_test_json_SOURCES = unit/test-json.c src/json.h src/json.c shared/jsmn.h
 unit_test_json_LDADD = $(ell_ldadd)
+endif
+
+if CLIENT
+unit_test_client_SOURCES = unit/test-client.c \
+				client/adapter.c \
+				client/agent.h client/agent.c \
+				client/agent-manager.h client/agent-manager.c \
+				client/command.h client/command.c \
+				client/dbus-proxy.h client/dbus-proxy.c \
+				client/display.h client/display.c \
+				client/network.h client/network.c \
+				client/properties.h client/properties.c
+unit_test_client_LDADD = $(ell_ldadd) $(client_ldadd)
+endif
 
 TESTS = $(unit_tests)
 
@@ -589,7 +603,7 @@ EXTRA_DIST = src/genbuiltin src/iwd.service.in src/net.connman.iwd.service \
 					$(patsubst %.5,%.rst, \
 					$(patsubst %.8,%.rst,$(manual_pages))))
 
-AM_CFLAGS = $(ell_cflags) -fvisibility=hidden \
+AM_CFLAGS = $(ell_cflags) $(client_cflags) -fvisibility=hidden \
 				-DUNITDIR=\""$(top_srcdir)/unit/"\" \
 				-DCERTDIR=\""$(top_builddir)/unit/"\"
 

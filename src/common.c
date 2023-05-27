@@ -78,6 +78,7 @@ bool security_from_str(const char *str, enum security *security)
 	akm & (IE_RSN_AKM_SUITE_8021X |					\
 		IE_RSN_AKM_SUITE_8021X_SHA256 |				\
 		IE_RSN_AKM_SUITE_FT_OVER_8021X |			\
+		IE_RSN_AKM_SUITE_FT_OVER_8021X_SHA384 |			\
 		IE_RSN_AKM_SUITE_FILS_SHA256 |				\
 		IE_RSN_AKM_SUITE_FILS_SHA384 |				\
 		IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |			\

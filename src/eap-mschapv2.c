@@ -73,7 +73,7 @@ struct mschapv2_response {
 	/* This will always be sizeof(value) */
 	uint8_t val_length;
 	struct mschapv2_value value;
-	char name[0];
+	char name[];
 } __attribute__((packed));
 
 /**

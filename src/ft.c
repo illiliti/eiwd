@@ -1060,11 +1060,6 @@ static void ft_authenticate_destroy(int error, void *user_data)
 	struct ft_info *info = user_data;
 
 	info->offchannel_id = 0;
-
-	if (!info->parsed) {
-		l_queue_remove(info_list, info);
-		ft_info_destroy(info);
-	}
 }
 
 /*

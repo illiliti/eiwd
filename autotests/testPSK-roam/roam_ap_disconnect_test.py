@@ -33,7 +33,7 @@ class Test(unittest.TestCase):
         # Since both BSS's have low signal, the roam should fail and trigger
         # another roam scan.
         device.wait_for_event('roam-scan-triggered', timeout=30)
-        device.wait_for_event('no-roam-candidates', timeout=30)
+        device.wait_for_event('no-roam-candidates', timeout=60)
 
         # Hostapd sends disconnect
         self.bss_hostapd[0].disable()
@@ -70,8 +70,10 @@ class Test(unittest.TestCase):
         IWD.copy_to_storage('TestFT.psk')
 
         cls.bss_hostapd = [ HostapdCLI(config='ft-psk-ccmp-1.conf'),
-                            HostapdCLI(config='ft-psk-ccmp-2.conf') ]
+                            HostapdCLI(config='ft-psk-ccmp-2.conf'),
+                            HostapdCLI(config='ft-psk-ccmp-3.conf') ]
         cls.bss_hostapd[1].disable()
+        cls.bss_hostapd[2].disable()
 
         cls.bss_hostapd[0].set_value('ocv', '0')
         cls.bss_hostapd[0].set_value('ieee80211w', '0')

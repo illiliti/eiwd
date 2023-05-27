@@ -2586,16 +2586,13 @@ static void wiphy_radio_work_next(struct wiphy *wiphy)
 {
 	struct wiphy_radio_work_item *work;
 	bool done;
+	uint32_t id;
 
-	work = l_queue_peek_head(wiphy->work);
+	work = l_queue_pop_head(wiphy->work);
 	if (!work)
 		return;
 
-	/*
-	 * Ensures no other work item will get inserted before this one while
-	 * the work is being done.
-	 */
-	work->priority = INT_MIN;
+	id = work->id;
 
 	l_debug("Starting work item %u", work->id);
 
@@ -2604,15 +2601,25 @@ static void wiphy_radio_work_next(struct wiphy *wiphy)
 	wiphy->work_in_callback = false;
 
 	if (done) {
-		work->id = 0;
+		/* Item was rescheduled, don't destroy */
+		if (work->id != id)
+			goto next;
 
-		l_queue_remove(wiphy->work, work);
+		work->id = 0;
 
 		wiphy->work_in_callback = true;
 		destroy_work(work);
 		wiphy->work_in_callback = false;
 
+next:
 		wiphy_radio_work_next(wiphy);
+	} else {
+		/*
+		 * Ensures no other work item will get inserted before this one
+		 * while the work is being done.
+		 */
+		work->priority = INT_MIN;
+		l_queue_push_head(wiphy->work, work);
 	}
 }
 
@@ -2694,6 +2701,28 @@ int wiphy_radio_work_is_running(struct wiphy *wiphy, uint32_t id)
 		return -ENOENT;
 
 	return item == l_queue_peek_head(wiphy->work) ? 1 : 0;
+}
+
+uint32_t wiphy_radio_work_reschedule(struct wiphy *wiphy,
+					struct wiphy_radio_work_item *item)
+{
+	/*
+	 * This should only be called from within the do_work callback, meaning
+	 * the item should not be in the queue. Any re-insertion on a running
+	 * item after do_work is not allowed.
+	 */
+	if (L_WARN_ON(wiphy_radio_work_is_running(wiphy, item->id) != -ENOENT))
+		return 0;
+
+	work_ids++;
+
+	l_debug("Rescheduling work item %u, new id %u", item->id, work_ids);
+
+	item->id = work_ids;
+
+	l_queue_insert(wiphy->work, item, insert_by_priority, NULL);
+
+	return item->id;
 }
 
 static int wiphy_init(void)

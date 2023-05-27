@@ -129,6 +129,7 @@ struct station {
 	bool scanning : 1;
 	bool autoconnect : 1;
 	bool autoconnect_can_start : 1;
+	bool netconfig_after_roam : 1;
 };
 
 struct anqp_entry {
@@ -1693,6 +1694,7 @@ static void station_roam_state_clear(struct station *station)
 	station->roam_scan_full = false;
 	station->signal_low = false;
 	station->roam_min_time.tv_sec = 0;
+	station->netconfig_after_roam = false;
 
 	if (station->roam_scan_id)
 		scan_cancel(netdev_get_wdev_id(station->netdev),
@@ -1985,95 +1987,6 @@ static bool station_can_fast_transition(struct handshake_state *hs,
 	return true;
 }
 
-static void station_roamed(struct station *station)
-{
-	station->roam_scan_full = false;
-
-	/*
-	 * Schedule another roaming attempt in case the signal continues to
-	 * remain low. A subsequent high signal notification will cancel it.
-	 */
-	if (station->signal_low)
-		station_roam_timeout_rearm(station, roam_retry_interval);
-
-	if (station->netconfig)
-		netconfig_reconfigure(station->netconfig,
-					!supports_arp_evict_nocarrier);
-
-	if (station->roam_freqs) {
-		scan_freq_set_free(station->roam_freqs);
-		station->roam_freqs = NULL;
-	}
-
-	if (station->connected_bss->cap_rm_neighbor_report) {
-		if (netdev_neighbor_report_req(station->netdev,
-					station_early_neighbor_report_cb) < 0)
-			l_warn("Could not request neighbor report");
-	}
-
-	l_queue_clear(station->roam_bss_list, l_free);
-
-	station_enter_state(station, STATION_STATE_CONNECTED);
-}
-
-static void station_roam_retry(struct station *station)
-{
-	/*
-	 * If we're still connected to the old BSS, only clear preparing_roam
-	 * and reattempt in 60 seconds if signal level is still low at that
-	 * time.
-	 */
-	station->preparing_roam = false;
-	station->roam_scan_full = false;
-	station->ap_directed_roaming = false;
-
-	if (station->signal_low)
-		station_roam_timeout_rearm(station, roam_retry_interval);
-}
-
-static void station_roam_failed(struct station *station)
-{
-	l_debug("%u", netdev_get_ifindex(station->netdev));
-
-	l_queue_clear(station->roam_bss_list, l_free);
-
-	/*
-	 * If we attempted a reassociation or a fast transition, and ended up
-	 * here then we are now disconnected.
-	 */
-	if (station_is_roaming(station)) {
-		station_disassociated(station);
-		return;
-	}
-
-	/*
-	 * We were told by the AP to roam, but failed.  Try ourselves or
-	 * wait for the AP to tell us to roam again
-	 */
-	if (station->ap_directed_roaming)
-		goto delayed_retry;
-
-	/*
-	 * If we tried a limited scan, failed and the signal is still low,
-	 * repeat with a full scan right away
-	 */
-	if (station->signal_low && !station->roam_scan_full) {
-		/*
-		 * Since we're re-using roam_scan_id, explicitly cancel
-		 * the scan here, so that the destroy callback is not called
-		 * after the return of this function
-		 */
-		scan_cancel(netdev_get_wdev_id(station->netdev),
-						station->roam_scan_id);
-
-		if (!station_roam_scan(station, NULL))
-			return;
-	}
-
-delayed_retry:
-	station_roam_retry(station);
-}
-
 static void station_disconnect_on_error_cb(struct netdev *netdev, bool success,
 					void *user_data)
 {
@@ -2131,6 +2044,110 @@ static void station_netconfig_event_handler(enum netconfig_event event,
 		l_error("station: Unsupported netconfig event: %d.", event);
 		break;
 	}
+}
+
+static void station_roamed(struct station *station)
+{
+	station->roam_scan_full = false;
+
+	/*
+	 * Schedule another roaming attempt in case the signal continues to
+	 * remain low. A subsequent high signal notification will cancel it.
+	 */
+	if (station->signal_low)
+		station_roam_timeout_rearm(station, roam_retry_interval);
+
+	if (station->netconfig)
+		netconfig_reconfigure(station->netconfig,
+					!supports_arp_evict_nocarrier);
+
+	if (station->roam_freqs) {
+		scan_freq_set_free(station->roam_freqs);
+		station->roam_freqs = NULL;
+	}
+
+	if (station->connected_bss->cap_rm_neighbor_report) {
+		if (netdev_neighbor_report_req(station->netdev,
+					station_early_neighbor_report_cb) < 0)
+			l_warn("Could not request neighbor report");
+	}
+
+	l_queue_clear(station->roam_bss_list, l_free);
+
+	/* Re-enable netconfig if it never finished on the last BSS */
+	if (station->netconfig_after_roam) {
+		station->netconfig_after_roam = false;
+		L_WARN_ON(!netconfig_configure(station->netconfig,
+						station_netconfig_event_handler,
+						station));
+	} else
+		station_enter_state(station, STATION_STATE_CONNECTED);
+}
+
+static void station_roam_retry(struct station *station)
+{
+	/*
+	 * If we're still connected to the old BSS, only clear preparing_roam
+	 * and reattempt in 60 seconds if signal level is still low at that
+	 * time.
+	 */
+	station->preparing_roam = false;
+	station->roam_scan_full = false;
+	station->ap_directed_roaming = false;
+
+	if (station->signal_low)
+		station_roam_timeout_rearm(station, roam_retry_interval);
+}
+
+static void station_roam_failed(struct station *station)
+{
+	l_debug("%u", netdev_get_ifindex(station->netdev));
+
+	l_queue_clear(station->roam_bss_list, l_free);
+
+	/*
+	 * If we attempted a reassociation or a fast transition, and ended up
+	 * here then we are now disconnected.
+	 */
+	if (station_is_roaming(station)) {
+		station_disassociated(station);
+		return;
+	}
+
+	/* Re-enable netconfig if needed, even on a failed roam */
+	if (station->netconfig_after_roam) {
+		station->netconfig_after_roam = false;
+		L_WARN_ON(!netconfig_configure(station->netconfig,
+						station_netconfig_event_handler,
+						station));
+	}
+
+	/*
+	 * We were told by the AP to roam, but failed.  Try ourselves or
+	 * wait for the AP to tell us to roam again
+	 */
+	if (station->ap_directed_roaming)
+		goto delayed_retry;
+
+	/*
+	 * If we tried a limited scan, failed and the signal is still low,
+	 * repeat with a full scan right away
+	 */
+	if (station->signal_low && !station->roam_scan_full) {
+		/*
+		 * Since we're re-using roam_scan_id, explicitly cancel
+		 * the scan here, so that the destroy callback is not called
+		 * after the return of this function
+		 */
+		scan_cancel(netdev_get_wdev_id(station->netdev),
+						station->roam_scan_id);
+
+		if (!station_roam_scan(station, NULL))
+			return;
+	}
+
+delayed_retry:
+	station_roam_retry(station);
 }
 
 static void station_reassociate_cb(struct netdev *netdev,
@@ -2327,8 +2344,12 @@ static bool station_fast_transition(struct station *station,
 	ft_authenticate(netdev_get_ifindex(station->netdev), bss);
 
 done:
-	wiphy_radio_work_insert(station->wiphy, &station->ft_work,
-				WIPHY_WORK_PRIORITY_CONNECT, &ft_work_ops);
+	if (station->ft_work.id)
+		wiphy_radio_work_reschedule(station->wiphy, &station->ft_work);
+	else
+		wiphy_radio_work_insert(station->wiphy, &station->ft_work,
+					WIPHY_WORK_PRIORITY_CONNECT,
+					&ft_work_ops);
 
 	return true;
 }
@@ -2418,8 +2439,20 @@ static void station_transition_start(struct station *station)
 		l_free(rbss);
 	}
 
-	if (!roaming)
+	if (!roaming) {
 		station_roam_failed(station);
+		return;
+	}
+
+	/*
+	 * Netconfig could potentially be running and not completed yet. We
+	 * still should roam in this case but need to restart netconfig once the
+	 * roam is finished.
+	 */
+	if (station->netconfig && station->state != STATION_STATE_CONNECTED) {
+		netconfig_reset(station->netconfig);
+		station->netconfig_after_roam = true;
+	}
 }
 
 static void station_roam_scan_triggered(int err, void *user_data)

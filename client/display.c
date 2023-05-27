@@ -890,7 +890,8 @@ void display_agent_prompt_release(const char *label)
 
 void display_quit(void)
 {
-	rl_crlf();
+	if (command_is_interactive_mode())
+		rl_crlf();
 }
 
 static void window_change_signal_handler(void *user_data)

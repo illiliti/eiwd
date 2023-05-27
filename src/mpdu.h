@@ -334,7 +334,7 @@ struct mmpdu_field_capability {
 struct mmpdu_association_request {
 	struct mmpdu_field_capability capability;
 	__le16 listen_interval;
-	uint8_t ies[0];
+	uint8_t ies[];
 } __attribute__ ((packed));
 
 /* 802.11, Section 8.3.3.6 */
@@ -342,7 +342,7 @@ struct mmpdu_association_response {
 	struct mmpdu_field_capability capability;
 	__le16 status_code;
 	__le16 aid;
-	uint8_t ies[0];
+	uint8_t ies[];
 } __attribute__ ((packed));
 
 /* 802.11, Section 8.3.3.7 */
@@ -350,7 +350,7 @@ struct mmpdu_reassociation_request {
 	struct mmpdu_field_capability capability;
 	__le16 listen_interval;
 	unsigned char current_ap_address[6];
-	uint8_t ies[0];
+	uint8_t ies[];
 } __attribute__ ((packed));
 
 /* 802.11, Section 8.3.3.8 */
@@ -358,13 +358,13 @@ struct mmpdu_reassociation_response {
 	struct mmpdu_field_capability capability;
 	__le16 status_code;
 	__le16 aid;
-	uint8_t ies[0];
+	uint8_t ies[];
 } __attribute__ ((packed));
 
 /* 802.11, Section 8.3.3.4 */
 struct mmpdu_disassociation {
 	__le16 reason_code;
-	uint8_t ies[0];
+	uint8_t ies[];
 } __attribute__ ((packed));
 
 /* 802.11, Section 8.3.3.9 */
@@ -377,14 +377,14 @@ struct mmpdu_probe_response {
 	__le64 timestamp;
 	__le16 beacon_interval;
 	struct mmpdu_field_capability capability;
-	uint8_t ies[0];
+	uint8_t ies[];
 } __attribute__ ((packed));
 
 /* 802.11, Section 8.3.3.15 */
 struct mmpdu_timing_advertisement {
 	__le64 timestamp;
 	struct mmpdu_field_capability capability;
-	uint8_t ies[0];
+	uint8_t ies[];
 } __attribute__ ((packed));
 
 /* 802.11, Section 8.3.3.2 */
@@ -392,7 +392,7 @@ struct mmpdu_beacon {
 	__le64 timestamp;
 	__le16 beacon_interval;
 	struct mmpdu_field_capability capability;
-	uint8_t ies[0];
+	uint8_t ies[];
 } __attribute__ ((packed));
 
 /* 802.11, Section 8.3.3.11 */
@@ -406,7 +406,7 @@ struct mmpdu_authentication {
 /* 802.11, Section 8.3.3.12 */
 struct mmpdu_deauthentication {
 	__le16 reason_code;
-	uint8_t ies[0];
+	uint8_t ies[];
 } __attribute__ ((packed));
 
 const struct mmpdu_header *mpdu_validate(const uint8_t *frame, int len);

@@ -1,3 +1,10 @@
+ver 2.5:
+	Fix issue with HT40+/- checks when creating chandef.
+	Fix issue with handling support for FT-8021X-SHA384.
+	Fix issue with handling secure bit check in handshake 1/4.
+	Fix issue with allowing roaming before netconfig finishes.
+	Fix issue with double free when disconnecting during FT.
+
 ver 2.4:
 	Fix issue with FT-over-Air and same channel operation.
 	Fix issue with AP mode and missing support for GTK.

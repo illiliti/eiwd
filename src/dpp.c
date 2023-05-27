@@ -147,6 +147,7 @@ struct dpp_sm {
 
 	bool mcast_support : 1;
 	bool roc_started : 1;
+	bool channel_switch : 1;
 };
 
 static bool dpp_get_started(struct l_dbus *dbus,
@@ -2032,6 +2033,7 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 		return;
 	}
 
+	dpp->channel_switch = false;
 	dpp->current_freq = dpp->new_freq;
 
 	dpp_send_authenticate_confirm(dpp);
@@ -2112,10 +2114,14 @@ static void dpp_handle_presence_announcement(struct dpp_sm *dpp,
 		return;
 
 	/*
-	 * Should we wait for an ACK then go offchannel?
+	 * Requested the peer to move to another channel for the remainder of
+	 * the protocol. IWD's current logic prohibits a configurator from
+	 * running while not connected, so we can assume here that the new
+	 * frequency is the same of the connected BSS. Wait until an ACK is
+	 * received for the auth request then cancel the offchannel request.
 	 */
 	if (dpp->current_freq != dpp->new_freq)
-		dpp_start_offchannel(dpp, dpp->new_freq);
+		dpp->channel_switch = true;
 }
 
 static void dpp_handle_frame(struct dpp_sm *dpp,
@@ -2211,13 +2217,34 @@ static void dpp_mlme_notify(struct l_genl_msg *msg, void *user_data)
 	if (dpp->state <= DPP_STATE_PRESENCE)
 		return;
 
+
+	if (dpp->frame_cookie != cookie)
+		return;
+
 	/*
 	 * Only want to handle the no-ACK case. Re-transmitting an ACKed
 	 * frame likely wont do any good, at least in the case of DPP.
 	 */
-	if (dpp->frame_cookie != cookie || ack)
-		return;
+	if (!ack)
+		goto retransmit;
 
+	/*
+	 * Special handling for a channel transition when acting as a
+	 * configurator. The auth request was sent offchannel so we need to
+	 * wait for the ACK before going back to the connected channel.
+	 */
+	if (dpp->channel_switch) {
+		if (dpp->offchannel_id) {
+			offchannel_cancel(dpp->wdev_id, dpp->offchannel_id);
+			dpp->offchannel_id = 0;
+		}
+
+		dpp->channel_switch = false;
+	}
+
+	return;
+
+retransmit:
 	if (dpp->frame_retry > DPP_FRAME_MAX_RETRIES) {
 		dpp_reset(dpp);
 		return;

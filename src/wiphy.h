@@ -168,3 +168,5 @@ uint32_t wiphy_radio_work_insert(struct wiphy *wiphy,
 				const struct wiphy_radio_work_item_ops *ops);
 void wiphy_radio_work_done(struct wiphy *wiphy, uint32_t id);
 int wiphy_radio_work_is_running(struct wiphy *wiphy, uint32_t id);
+uint32_t wiphy_radio_work_reschedule(struct wiphy *wiphy,
+					struct wiphy_radio_work_item *item);
