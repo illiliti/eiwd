@@ -1000,14 +1000,21 @@ void __ft_rx_authenticate(uint32_t ifindex, const uint8_t *frame,
 
 	if (!ft_parse_authentication_resp_frame(frame, frame_len,
 					info->spa, info->aa, info->aa, 2,
-					&status, &ies, &ies_len))
+					&status, &ies, &ies_len)) {
+		l_debug("Could not parse auth response");
 		return;
+	}
 
-	if (status != 0)
+	if (status != 0) {
+		l_debug("BSS "MAC" rejected FT auth with status=%u",
+				MAC_STR(info->aa), status);
 		goto cancel;
+	}
 
-	if (!ft_parse_ies(info, hs, ies, ies_len))
+	if (!ft_parse_ies(info, hs, ies, ies_len)) {
+		l_debug("Could not parse auth response IEs");
 		goto cancel;
+	}
 
 	info->parsed = true;
 
