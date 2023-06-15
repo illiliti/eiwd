@@ -111,7 +111,7 @@ struct wiphy {
 	char *model_str;
 	char *vendor_str;
 	char *driver_str;
-	const struct driver_info *driver_info;
+	uint32_t driver_flags;
 	struct watchlist state_watches;
 	uint8_t extended_capabilities[EXT_CAP_LEN + 2]; /* max bitmap size + IE header */
 	uint8_t *iftype_extended_capabilities[NUM_NL80211_IFTYPES];
@@ -685,8 +685,7 @@ bool wiphy_uses_default_if(struct wiphy *wiphy)
 	if (!wiphy_get_driver(wiphy))
 		return true;
 
-	if (wiphy->driver_info &&
-			wiphy->driver_info->flags & DEFAULT_IF)
+	if (wiphy->driver_flags & DEFAULT_IF)
 		return true;
 
 	return false;
@@ -697,8 +696,7 @@ bool wiphy_control_port_enabled(struct wiphy *wiphy)
 	const struct l_settings *settings = iwd_get_config();
 	bool enabled;
 
-	if (wiphy->driver_info &&
-			wiphy->driver_info->flags & FORCE_PAE) {
+	if (wiphy->driver_flags & FORCE_PAE) {
 		l_info("Not using Control Port due to driver quirks: %s",
 				wiphy_get_driver(wiphy));
 		return false;
@@ -1885,7 +1883,7 @@ static bool wiphy_get_driver_name(struct wiphy *wiphy)
 
 	for (i = 0; i < L_ARRAY_SIZE(driver_infos); i++)
 		if (!fnmatch(driver_infos[i].prefix, wiphy->driver_str, 0))
-			wiphy->driver_info = &driver_infos[i];
+			wiphy->driver_flags |= driver_infos[i].flags;
 
 	return true;
 }
