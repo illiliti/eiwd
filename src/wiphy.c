@@ -71,6 +71,7 @@ static unsigned int wiphy_dump_id;
 enum driver_flag {
 	DEFAULT_IF = 0x1,
 	FORCE_PAE = 0x2,
+	POWER_SAVE_DISABLE = 0x4,
 };
 
 struct driver_flag_name {
@@ -101,6 +102,7 @@ static const struct driver_info driver_infos[] = {
 static const struct driver_flag_name driver_flag_names[] = {
 	{ "DefaultInterface", DEFAULT_IF },
 	{ "ForcePae",         FORCE_PAE },
+	{ "PowerSaveDisable", POWER_SAVE_DISABLE },
 };
 
 struct wiphy {
@@ -721,6 +723,17 @@ bool wiphy_control_port_enabled(struct wiphy *wiphy)
 		enabled = true;
 
 	return enabled;
+}
+
+bool wiphy_power_save_disabled(struct wiphy *wiphy)
+{
+	if (wiphy->driver_flags & POWER_SAVE_DISABLE) {
+		l_info("Disabling power save due to driver quirks: %s",
+				wiphy_get_driver(wiphy));
+		return true;
+	}
+
+	return false;
 }
 
 const uint8_t *wiphy_get_permanent_address(struct wiphy *wiphy)
