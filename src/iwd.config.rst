@@ -403,6 +403,10 @@ are buggy or just don't behave similar enough to the majority of other drivers.
        not be used, and PAE will be used instead. Some drivers do not properly
        support ControlPortOverNL80211 even though they advertise support for it.
 
+   * - PowerSaveDisable
+     - Values: comma-separated list of drivers or glob matches
+
+       If a driver in user matches one in this list power save will be disabled.
 
 SEE ALSO
 ========
