@@ -73,6 +73,11 @@ enum driver_flag {
 	FORCE_PAE = 0x2,
 };
 
+struct driver_flag_name {
+	const char *name;
+	enum driver_flag flag;
+};
+
 struct driver_info {
 	const char *prefix;
 	unsigned int flags;
@@ -91,6 +96,11 @@ static const struct driver_info driver_infos[] = {
 	{ "rtw_*",           DEFAULT_IF },
 	{ "brcmfmac",        DEFAULT_IF },
 	{ "bcmsdh_sdmmc",    DEFAULT_IF },
+};
+
+static const struct driver_flag_name driver_flag_names[] = {
+	{ "DefaultInterface", DEFAULT_IF },
+	{ "ForcePae",         FORCE_PAE },
 };
 
 struct wiphy {
@@ -1868,6 +1878,9 @@ static bool wiphy_get_driver_name(struct wiphy *wiphy)
 	char driver_path[256];
 	ssize_t len;
 	unsigned int i;
+	unsigned int j;
+	const struct l_settings *config = iwd_get_config();
+	char **flag_list;
 
 	driver_link = l_strdup_printf("/sys/class/ieee80211/%s/device/driver",
 					wiphy->name);
@@ -1884,6 +1897,24 @@ static bool wiphy_get_driver_name(struct wiphy *wiphy)
 	for (i = 0; i < L_ARRAY_SIZE(driver_infos); i++)
 		if (!fnmatch(driver_infos[i].prefix, wiphy->driver_str, 0))
 			wiphy->driver_flags |= driver_infos[i].flags;
+
+	/* Check for any user-defined driver flags */
+	if (!l_settings_has_group(config, "DriverQuirks"))
+		return true;
+
+	for (i = 0; i < L_ARRAY_SIZE(driver_flag_names); i++) {
+		flag_list = l_settings_get_string_list(config, "DriverQuirks",
+						driver_flag_names[i].name, ',');
+		if (!flag_list)
+			continue;
+
+		for (j = 0; flag_list[j]; j++)
+			if (!fnmatch(flag_list[j], wiphy->driver_str, 0))
+				wiphy->driver_flags |=
+						driver_flag_names[i].flag;
+
+		l_strv_free(flag_list);
+	}
 
 	return true;
 }
