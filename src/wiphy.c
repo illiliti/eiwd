@@ -1333,6 +1333,27 @@ static void wiphy_print_basic_info(struct wiphy *wiphy)
 		l_free(joined);
 		l_strfreev(iftypes);
 	}
+
+	if (wiphy->driver_flags) {
+		char **flags = l_strv_new();
+		char *joined;
+
+		if (wiphy->driver_flags & DEFAULT_IF)
+			flags = l_strv_append(flags, "DefaultInterface");
+
+		if (wiphy->driver_flags & FORCE_PAE)
+			flags = l_strv_append(flags, "ForcePae");
+
+		if (wiphy->driver_flags & POWER_SAVE_DISABLE)
+			flags = l_strv_append(flags, "PowerSaveDisable");
+
+		joined = l_strjoinv(flags, ' ');
+
+		l_info("\tDriver Flags: %s", joined);
+
+		l_free(joined);
+		l_strfreev(flags);
+	}
 }
 
 static void parse_supported_commands(struct wiphy *wiphy,
