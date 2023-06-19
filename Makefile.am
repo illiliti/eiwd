@@ -749,11 +749,24 @@ if WIRED
 endif
 endif
 
-clean-local:
+gcov-clean:
+if GCOV
+	-$(LCOV) --quiet --directory $(builddir) -z
+	-rm -rf "$(builddir)/iwd-coverage.info" "$(builddir)/gcov"
+	-find . -name "*.gcda" -o -name "*.gcov" -o -name "*.gcno" -delete
+endif
+
+clean-local: gcov-clean
 	-rm -f unit/cert-*.pem unit/cert-*.csr unit/cert-*.srl unit/*-settings.8021x
 
 maintainer-clean-local:
 	-rm -rf build-aux ell
+
+gcov-report:
+if GCOV
+	$(LCOV) --quiet --directory $(builddir) --capture --output-file "iwd-coverage.info"
+	LANG=C $(GENHTML) --quiet --prefix $(builddir) --output-directory "$(builddir)/gcov" --title "iwd Code Coverage" --legend "$(builddir)/iwd-coverage.info"
+endif
 
 src/builtin.h: src/genbuiltin config.status
 	$(AM_V_at)$(MKDIR_P) $(@D)

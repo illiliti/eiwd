@@ -25,6 +25,7 @@ AC_PROG_CC_PIE
 AC_PROG_CC_ASAN
 AC_PROG_CC_LSAN
 AC_PROG_CC_UBSAN
+AC_PROG_CC_GCOV
 AC_PROG_INSTALL
 AC_PROG_MKDIR_P
 AC_PROG_LN_S
@@ -53,6 +54,28 @@ AC_ARG_ENABLE(debug, AS_HELP_STRING([--enable-debug],
 		CFLAGS="$CFLAGS -g"
 	fi
 ])
+
+AC_ARG_ENABLE(gcov, AS_HELP_STRING([--enable-gcov],
+			[enable compiling with code coverage information]), [
+	if (test "${enableval}" = "yes" &&
+			test "${ac_cv_prog_cc_profile_arcs}" = "yes" &&
+			test "${ac_cv_prog_cc_test_coverage}" = "yes"); then
+		CFLAGS="$CFLAGS -fprofile-arcs -ftest-coverage"
+	fi
+])
+
+if (test "${enable_gcov}" = "yes"); then
+	AC_CHECK_PROGS(LCOV, [lcov], "no")
+	AC_CHECK_PROGS(GENHTML, [genhtml], "no")
+	if (test "${LCOV}" == "no"); then
+		AC_MSG_ERROR([lcov is required])
+	fi
+	if (test "${GENHTML}" == "no"); then
+		AC_MSG_ERROR([genhtml is required])
+	fi
+fi
+
+AM_CONDITIONAL(GCOV, test "${enable_gcov}" != "no")
 
 AC_ARG_ENABLE(pie, AS_HELP_STRING([--enable-pie],
 			[enable position independent executables flag]), [

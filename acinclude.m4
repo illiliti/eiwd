@@ -46,6 +46,27 @@ AC_DEFUN([AC_PROG_CC_UBSAN], [
 	])
 ])
 
+AC_DEFUN([AC_PROG_CC_GCOV], [
+	AC_CACHE_CHECK([whether ${CC-cc} accepts -fprofile-arcs], ac_cv_prog_cc_profile_arcs, [
+		echo 'void f(){}' > conftest.c
+		if test -z "`${CC-cc} -fprofile-arcs -c conftest.c 2>&1`"; then
+			ac_cv_prog_cc_profile_arcs=yes
+		else
+			ac_cv_prog_cc_profile_arcs=no
+		fi
+		rm -rf conftest*
+	])
+	AC_CACHE_CHECK([whether ${CC-cc} accepts -ftest_coverage], ac_cv_prog_cc_test_coverage, [
+		echo 'void f(){}' > conftest.c
+		if test -z "`${CC-cc} -ftest-coverage -c conftest.c 2>&1`"; then
+			ac_cv_prog_cc_test_coverage=yes
+		else
+			ac_cv_prog_cc_test_coverage=no
+		fi
+		rm -rf conftest*
+	])
+])
+
 AC_DEFUN([COMPILER_FLAGS], [
 	if (test "${CFLAGS}" = ""); then
 		CFLAGS="-Wall -fsigned-char -fno-exceptions"
