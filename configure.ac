@@ -37,9 +37,14 @@ LT_INIT([disable-static])
 AC_ARG_ENABLE(optimization, AS_HELP_STRING([--disable-optimization],
 			[disable code optimization through compiler]), [
 	if (test "${enableval}" = "no"); then
-		CFLAGS="$CFLAGS -U_FORTIFY_SOURCE -O0"
+		CFLAGS="$CFLAGS -O0"
 	fi
 ])
+
+if (test "${enable_optimization}" != "no"); then
+	CFLAGS="$CFLAGS -O2"
+	CFLAGS+=" -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
+fi
 
 AC_ARG_ENABLE(debug, AS_HELP_STRING([--enable-debug],
 			[enable compiling with debugging information]), [
