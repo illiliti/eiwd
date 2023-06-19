@@ -55,6 +55,10 @@ class Test(unittest.TestCase):
         testutil.test_iface_operstate()
         testutil.test_ifaces_connected(device.name, hapd.ifname)
 
+        #
+        # TODO: If this is failing its likely due to an older hostapd version
+        #       not containing commit 7ee814201b72
+        #
         hapd.rekey(device.address)
 
         device.disconnect()
