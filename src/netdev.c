@@ -132,6 +132,7 @@ struct netdev {
 	uint32_t mac_change_cmd_id;
 	uint32_t get_oci_cmd_id;
 	uint32_t get_link_cmd_id;
+	uint32_t power_save_cmd_id;
 	enum netdev_result result;
 	uint16_t last_code; /* reason or status, depending on result */
 	struct l_timeout *neighbor_report_timeout;
@@ -6240,6 +6241,42 @@ static void netdev_get_link(struct netdev *netdev)
 	l_free(rtmmsg);
 }
 
+static void netdev_disable_ps_cb(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev = user_data;
+	int err = l_genl_msg_get_error(msg);
+
+	netdev->power_save_cmd_id = 0;
+
+	/* Can't do anything about it but inform the user */
+	if (err < 0)
+		l_error("Failed to disable power save for ifindex %u (%s: %d)",
+				netdev->index, strerror(-err), err);
+	else
+		l_debug("Disabled power save for ifindex %u", netdev->index);
+
+	netdev_get_link(netdev);
+}
+
+static bool netdev_disable_power_save(struct netdev *netdev)
+{
+	struct l_genl_msg *msg = l_genl_msg_new(NL80211_CMD_SET_POWER_SAVE);
+	uint32_t disabled = NL80211_PS_DISABLED;
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_PS_STATE, 4, &disabled);
+
+	netdev->power_save_cmd_id = l_genl_family_send(nl80211, msg,
+							netdev_disable_ps_cb,
+							netdev, NULL);
+	if (!netdev->power_save_cmd_id) {
+		l_error("Failed to send SET_POWER_SAVE (-EIO)");
+		return false;
+	}
+
+	return true;
+}
+
 struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 					const uint8_t *set_mac)
 {
@@ -6310,6 +6347,12 @@ struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 		netdev->index, netdev->wdev_id);
 
 	netdev_setup_interface(netdev);
+
+	if (wiphy_power_save_disabled(wiphy)) {
+		/* Wait to issue GET_LINK until PS is disabled */
+		if (netdev_disable_power_save(netdev))
+			return netdev;
+	}
 
 	netdev_get_link(netdev);
 
