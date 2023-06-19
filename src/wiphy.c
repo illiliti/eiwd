@@ -708,11 +708,8 @@ bool wiphy_control_port_enabled(struct wiphy *wiphy)
 	const struct l_settings *settings = iwd_get_config();
 	bool enabled;
 
-	if (wiphy->driver_flags & FORCE_PAE) {
-		l_info("Not using Control Port due to driver quirks: %s",
-				wiphy_get_driver(wiphy));
+	if (wiphy->driver_flags & FORCE_PAE)
 		return false;
-	}
 
 	if (!wiphy_has_ext_feature(wiphy,
 			NL80211_EXT_FEATURE_CONTROL_PORT_OVER_NL80211))
@@ -727,11 +724,8 @@ bool wiphy_control_port_enabled(struct wiphy *wiphy)
 
 bool wiphy_power_save_disabled(struct wiphy *wiphy)
 {
-	if (wiphy->driver_flags & POWER_SAVE_DISABLE) {
-		l_info("Disabling power save due to driver quirks: %s",
-				wiphy_get_driver(wiphy));
+	if (wiphy->driver_flags & POWER_SAVE_DISABLE)
 		return true;
-	}
 
 	return false;
 }
