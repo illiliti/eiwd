@@ -131,6 +131,7 @@ struct netdev {
 	uint32_t qos_map_cmd_id;
 	uint32_t mac_change_cmd_id;
 	uint32_t get_oci_cmd_id;
+	uint32_t get_link_cmd_id;
 	enum netdev_result result;
 	uint16_t last_code; /* reason or status, depending on result */
 	struct l_timeout *neighbor_report_timeout;
@@ -939,6 +940,11 @@ static void netdev_free(void *data)
 
 	if (netdev->fw_roam_bss)
 		scan_bss_free(netdev->fw_roam_bss);
+
+	if (netdev->get_link_cmd_id) {
+		l_netlink_cancel(rtnl, netdev->get_link_cmd_id);
+		netdev->get_link_cmd_id = 0;
+	}
 
 	scan_wdev_remove(netdev->wdev_id);
 
@@ -6116,11 +6122,13 @@ static void netdev_initial_down_cb(int error, uint16_t type, const void *data,
 static void netdev_getlink_cb(int error, uint16_t type, const void *data,
 			uint32_t len, void *user_data)
 {
+	struct netdev *netdev = user_data;
 	const struct ifinfomsg *ifi = data;
 	unsigned int bytes;
-	struct netdev *netdev;
 	l_netlink_command_func_t cb;
 	bool powered;
+
+	netdev->get_link_cmd_id = 0;
 
 	if (error != 0) {
 		l_error("RTM_GETLINK error %i: %s", error, strerror(-error));
@@ -6133,8 +6141,7 @@ static void netdev_getlink_cb(int error, uint16_t type, const void *data,
 		return;
 	}
 
-	netdev = netdev_find(ifi->ifi_index);
-	if (!netdev)
+	if (L_WARN_ON((uint32_t)ifi->ifi_index != netdev->index))
 		return;
 
 	bytes = len - NLMSG_ALIGN(sizeof(struct ifinfomsg));
@@ -6212,6 +6219,27 @@ error:
 	return NULL;
 }
 
+static void netdev_get_link(struct netdev *netdev)
+{
+	struct ifinfomsg *rtmmsg;
+	size_t bufsize;
+
+	/* Query interface flags */
+	bufsize = NLMSG_ALIGN(sizeof(struct ifinfomsg));
+	rtmmsg = l_malloc(bufsize);
+	memset(rtmmsg, 0, bufsize);
+
+	rtmmsg->ifi_family = AF_UNSPEC;
+	rtmmsg->ifi_index = netdev->index;
+
+	netdev->get_link_cmd_id = l_netlink_send(rtnl, RTM_GETLINK, 0, rtmmsg,
+						bufsize, netdev_getlink_cb,
+						netdev, NULL);
+	L_WARN_ON(netdev->get_link_cmd_id == 0);
+
+	l_free(rtmmsg);
+}
+
 struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 					const uint8_t *set_mac)
 {
@@ -6223,8 +6251,6 @@ struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 	uint32_t wiphy_id;
 	struct netdev *netdev;
 	struct wiphy *wiphy = NULL;
-	struct ifinfomsg *rtmmsg;
-	size_t bufsize;
 	struct l_io *pae_io = NULL;
 
 	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFINDEX, &ifindex,
@@ -6283,20 +6309,9 @@ struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 	l_debug("Created interface %s[%d %" PRIx64 "]", netdev->name,
 		netdev->index, netdev->wdev_id);
 
-	/* Query interface flags */
-	bufsize = NLMSG_ALIGN(sizeof(struct ifinfomsg));
-	rtmmsg = l_malloc(bufsize);
-	memset(rtmmsg, 0, bufsize);
-
-	rtmmsg->ifi_family = AF_UNSPEC;
-	rtmmsg->ifi_index = ifindex;
-
-	l_netlink_send(rtnl, RTM_GETLINK, 0, rtmmsg, bufsize,
-					netdev_getlink_cb, NULL, NULL);
-
-	l_free(rtmmsg);
-
 	netdev_setup_interface(netdev);
+
+	netdev_get_link(netdev);
 
 	return netdev;
 }
