@@ -1,0 +1,28 @@
+Code Coverage Testing
+=====================
+
+To enable code coverage testing, the following steps should be performed.
+
+1. Configure iwd with --enable-gcov --disable-optimization --enable-debug:
+	cd iwd
+	./bootstrap-configure --enable-gcov --disable-optimization
+	make
+
+2. To check unit test coverage, run unit tests:
+	make check
+
+3. If you want to perform manual testing and see code coverage of the manual
+   tests, simply run iwd:
+	src/iwd -d
+
+3. Optionally run test runner.  If you only care about a certain test and how
+  it affects code coveage, you can pass the autotest to run to test runner
+  using the '--autotests' command line argument, like so:
+	tools/test-runner --autotests=testWPA2 --kernel=tools/linux
+
+4. Obtain the results:
+	make gcov-report
+	Open 'gcov/index.html'
+
+5. Remove gcov output:
+	make gcov-clean
