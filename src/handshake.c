@@ -756,8 +756,26 @@ bool handshake_state_pmkid_matches(struct handshake_state *s,
 	uint8_t own_pmkid[16];
 	enum l_checksum_type sha;
 
+	/*
+	 * 802.11-2020 Table 9-151 defines the hashing algorithm to use
+	 * for various AKM's. Note some AKMs are omitted here because they
+	 * export the PMKID individually (SAE/FILS/FT-PSK)
+	 *
+	 * SHA1:
+	 * 	00-0F-AC:1 (8021X)
+	 * 	00-0F-AC:2 (PSK)
+	 *
+	 * SHA256:
+	 * 	00-0F-AC:3 (FT-8021X)
+	 * 	00-0F-AC:5 (8021X-SHA256)
+	 * 	00-0F-AC:6 (PSK-SHA256)
+	 *
+	 * SHA384:
+	 * 	00-0F-AC:13 (FT-8021X-SHA384)
+	 */
 	if (s->akm_suite & (IE_RSN_AKM_SUITE_8021X_SHA256 |
-			IE_RSN_AKM_SUITE_PSK_SHA256))
+			IE_RSN_AKM_SUITE_PSK_SHA256 |
+			IE_RSN_AKM_SUITE_FT_OVER_8021X))
 		sha = L_CHECKSUM_SHA256;
 	else
 		sha = L_CHECKSUM_SHA1;
@@ -765,7 +783,19 @@ bool handshake_state_pmkid_matches(struct handshake_state *s,
 	if (!handshake_state_get_pmkid(s, own_pmkid, sha))
 		return false;
 
-	return l_secure_memcmp(own_pmkid, check, 16) == 0;
+	if (l_secure_memcmp(own_pmkid, check, 16)) {
+		if (s->akm_suite != IE_RSN_AKM_SUITE_FT_OVER_8021X)
+			return false;
+
+		l_debug("PMKID did not match, trying SHA1 derivation");
+
+		if (!handshake_state_get_pmkid(s, own_pmkid, L_CHECKSUM_SHA1))
+			return false;
+
+		return l_secure_memcmp(own_pmkid, check, 16) == 0;
+	}
+
+	return true;
 }
 
 void handshake_state_set_gtk(struct handshake_state *s, const uint8_t *key,
