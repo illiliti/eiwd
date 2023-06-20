@@ -269,8 +269,10 @@ void handshake_state_install_igtk(struct handshake_state *s,
 void handshake_state_override_pairwise_cipher(struct handshake_state *s,
 					enum ie_rsn_cipher_suite pairwise);
 
-bool handshake_state_get_pmkid(struct handshake_state *s, uint8_t *out_pmkid);
-
+bool handshake_state_get_pmkid(struct handshake_state *s, uint8_t *out_pmkid,
+				enum l_checksum_type sha);
+bool handshake_state_pmkid_matches(struct handshake_state *s,
+					const uint8_t *check);
 bool handshake_decode_fte_key(struct handshake_state *s, const uint8_t *wrapped,
 				size_t key_len, uint8_t *key_out);
 

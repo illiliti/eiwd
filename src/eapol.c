@@ -1234,12 +1234,7 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 		if (!found)
 			goto error_unspecified;
 	} else if (pmkid) {
-		uint8_t own_pmkid[16];
-
-		if (!handshake_state_get_pmkid(sm->handshake, own_pmkid))
-			goto error_unspecified;
-
-		if (l_secure_memcmp(pmkid, own_pmkid, 16)) {
+		if (!handshake_state_pmkid_matches(sm->handshake, pmkid)) {
 			l_debug("Authenticator sent a PMKID that didn't match");
 
 			/*

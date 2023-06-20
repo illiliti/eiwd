@@ -734,10 +734,9 @@ void handshake_state_set_pmkid(struct handshake_state *s, const uint8_t *pmkid)
 	s->have_pmkid = true;
 }
 
-bool handshake_state_get_pmkid(struct handshake_state *s, uint8_t *out_pmkid)
+bool handshake_state_get_pmkid(struct handshake_state *s, uint8_t *out_pmkid,
+				enum l_checksum_type sha)
 {
-	enum l_checksum_type sha;
-
 	/* SAE exports pmkid */
 	if (s->have_pmkid) {
 		memcpy(out_pmkid, s->pmkid, 16);
@@ -747,13 +746,15 @@ bool handshake_state_get_pmkid(struct handshake_state *s, uint8_t *out_pmkid)
 	if (!s->have_pmk)
 		return false;
 
-	/*
-	 * Note 802.11 section 11.6.1.3:
-	 * "When the PMKID is calculated for the PMKSA as part of RSN
-	 * preauthentication, the AKM has not yet been negotiated. In this
-	 * case, the HMAC-SHA1-128 based derivation is used for the PMKID
-	 * calculation."
-	 */
+	return crypto_derive_pmkid(s->pmk, 32, s->spa, s->aa, out_pmkid,
+					sha);
+}
+
+bool handshake_state_pmkid_matches(struct handshake_state *s,
+					const uint8_t *check)
+{
+	uint8_t own_pmkid[16];
+	enum l_checksum_type sha;
 
 	if (s->akm_suite & (IE_RSN_AKM_SUITE_8021X_SHA256 |
 			IE_RSN_AKM_SUITE_PSK_SHA256))
@@ -761,7 +762,10 @@ bool handshake_state_get_pmkid(struct handshake_state *s, uint8_t *out_pmkid)
 	else
 		sha = L_CHECKSUM_SHA1;
 
-	return crypto_derive_pmkid(s->pmk, 32, s->spa, s->aa, out_pmkid, sha);
+	if (!handshake_state_get_pmkid(s, own_pmkid, sha))
+		return false;
+
+	return l_secure_memcmp(own_pmkid, check, 16) == 0;
 }
 
 void handshake_state_set_gtk(struct handshake_state *s, const uint8_t *key,
