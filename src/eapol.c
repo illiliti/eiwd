@@ -1112,8 +1112,8 @@ static void eapol_send_ptk_1_of_4(struct eapol_sm *sm)
 	memcpy(ek->key_nonce, sm->handshake->anonce, sizeof(ek->key_nonce));
 
 	/* Write the PMKID KDE into Key Data field unencrypted */
-	crypto_derive_pmkid(sm->handshake->pmk, sm->handshake->spa, aa,
-			pmkid, false);
+	crypto_derive_pmkid(sm->handshake->pmk, 32, sm->handshake->spa, aa,
+			pmkid, L_CHECKSUM_SHA1);
 
 	eapol_key_data_append(ek, sm->mic_len, HANDSHAKE_KDE_PMKID, pmkid, 16);
 

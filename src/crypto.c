@@ -1116,9 +1116,10 @@ exit:
 }
 
 /* Defined in 802.11-2012, Section 11.6.1.3 Pairwise Key Hierarchy */
-bool crypto_derive_pmkid(const uint8_t *pmk,
+bool crypto_derive_pmkid(const uint8_t *pmk, size_t key_len,
 				const uint8_t *addr1, const uint8_t *addr2,
-				uint8_t *out_pmkid, bool use_sha256)
+				uint8_t *out_pmkid,
+				enum l_checksum_type checksum)
 {
 	uint8_t data[20];
 
@@ -1126,10 +1127,7 @@ bool crypto_derive_pmkid(const uint8_t *pmk,
 	memcpy(data + 8, addr2, 6);
 	memcpy(data + 14, addr1, 6);
 
-	if (use_sha256)
-		return hmac_sha256(pmk, 32, data, 20, out_pmkid, 16);
-	else
-		return hmac_sha1(pmk, 32, data, 20, out_pmkid, 16);
+	return hmac_common(checksum, pmk, key_len, data, 20, out_pmkid, 16);
 }
 
 enum l_checksum_type crypto_sae_hash_from_ecc_prime_len(enum crypto_sae type,

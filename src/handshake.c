@@ -736,7 +736,7 @@ void handshake_state_set_pmkid(struct handshake_state *s, const uint8_t *pmkid)
 
 bool handshake_state_get_pmkid(struct handshake_state *s, uint8_t *out_pmkid)
 {
-	bool use_sha256;
+	enum l_checksum_type sha;
 
 	/* SAE exports pmkid */
 	if (s->have_pmkid) {
@@ -757,12 +757,11 @@ bool handshake_state_get_pmkid(struct handshake_state *s, uint8_t *out_pmkid)
 
 	if (s->akm_suite & (IE_RSN_AKM_SUITE_8021X_SHA256 |
 			IE_RSN_AKM_SUITE_PSK_SHA256))
-		use_sha256 = true;
+		sha = L_CHECKSUM_SHA256;
 	else
-		use_sha256 = false;
+		sha = L_CHECKSUM_SHA1;
 
-	return crypto_derive_pmkid(s->pmk, s->spa, s->aa, out_pmkid,
-					use_sha256);
+	return crypto_derive_pmkid(s->pmk, 32, s->spa, s->aa, out_pmkid, sha);
 }
 
 void handshake_state_set_gtk(struct handshake_state *s, const uint8_t *key,
