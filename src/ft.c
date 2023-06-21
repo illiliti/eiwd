@@ -825,15 +825,21 @@ void __ft_rx_action(uint32_t ifindex, const uint8_t *frame, size_t frame_len)
 
 	ret = ft_over_ds_parse_action_response(frame, frame_len, &spa, &aa,
 						&ies, &ies_len);
-	if (ret != 0)
+	if (ret != 0) {
+		l_debug("Could not parse action response");
 		return;
+	}
 
 	info = ft_info_find(ifindex, aa);
-	if (!info)
+	if (!info) {
+		l_debug("No FT info found for BSS "MAC, MAC_STR(aa));
 		return;
+	}
 
-	if (!ft_parse_ies(info, hs, ies, ies_len))
+	if (!ft_parse_ies(info, hs, ies, ies_len)) {
+		l_debug("Could not parse action response IEs");
 		goto ft_error;
+	}
 
 	info->parsed = true;
 
@@ -930,6 +936,8 @@ static bool ft_send_action(struct wiphy_radio_work_item *work)
 	ft_req[1] = 1; /* FT Request action */
 	memcpy(ft_req + 2, info->spa, 6);
 	memcpy(ft_req + 8, info->aa, 6);
+
+	l_debug("");
 
 	if (!ft_build_authenticate_ies(hs, hs->supplicant_ocvc, info->snonce,
 					ies, &len))
