@@ -1,3 +1,7 @@
+ver 2.6:
+	Add support for setting driver specific quirks.
+	Add support for disabling power saving mode.
+
 ver 2.5:
 	Fix issue with HT40+/- checks when creating chandef.
 	Fix issue with handling support for FT-8021X-SHA384.

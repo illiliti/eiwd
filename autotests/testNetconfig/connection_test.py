@@ -276,7 +276,7 @@ class Test(unittest.TestCase):
                 elif quote or ch not in ' \t\r\n;{}#':
                     token += ch
                 if ch == '#':
-                    break
+                    continue
                 elif ch == '{':
                     stack.append([])
                 elif ch == '}':

@@ -1,6 +1,8 @@
 *.o
 *.lo
 *.la
+*.gcno
+*.gcda
 .libs
 .deps
 .dirstamp
@@ -73,3 +75,5 @@ unit/*.trs
 test-suite.log
 src/builtin.h
 autotests/*/__pycache__
+iwd-coverage.info
+gcov

@@ -378,6 +378,36 @@ The group ``[IPv4]`` contains settings related to IPv4 network configuration.
        will limit the number of access points that can be running
        simultaneously on different interfaces.
 
+DriverQuirks
+------------
+
+The group ``[DriverQuirks]`` contains special flags associated with drivers that
+are buggy or just don't behave similar enough to the majority of other drivers.
+
+.. list-table::
+   :header-rows: 0
+   :stub-columns: 0
+   :widths: 20 80
+   :align: left
+
+   * - DefaultInterface
+     - Values: comma-separated list of drivers or glob matches
+
+       If a driver in use matches one in this list IWD will not attempt to
+       remove and re-create the default interface.
+
+   * - ForcePae
+     - Values: comma-separated list of drivers or glob matches
+
+       If a driver in use matches one in this list ControlPortOverNL80211 will
+       not be used, and PAE will be used instead. Some drivers do not properly
+       support ControlPortOverNL80211 even though they advertise support for it.
+
+   * - PowerSaveDisable
+     - Values: comma-separated list of drivers or glob matches
+
+       If a driver in user matches one in this list power save will be disabled.
+
 SEE ALSO
 ========
 

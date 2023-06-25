@@ -71,6 +71,12 @@ static unsigned int wiphy_dump_id;
 enum driver_flag {
 	DEFAULT_IF = 0x1,
 	FORCE_PAE = 0x2,
+	POWER_SAVE_DISABLE = 0x4,
+};
+
+struct driver_flag_name {
+	const char *name;
+	enum driver_flag flag;
 };
 
 struct driver_info {
@@ -93,6 +99,12 @@ static const struct driver_info driver_infos[] = {
 	{ "bcmsdh_sdmmc",    DEFAULT_IF },
 };
 
+static const struct driver_flag_name driver_flag_names[] = {
+	{ "DefaultInterface", DEFAULT_IF },
+	{ "ForcePae",         FORCE_PAE },
+	{ "PowerSaveDisable", POWER_SAVE_DISABLE },
+};
+
 struct wiphy {
 	uint32_t id;
 	char name[20];
@@ -111,7 +123,7 @@ struct wiphy {
 	char *model_str;
 	char *vendor_str;
 	char *driver_str;
-	const struct driver_info *driver_info;
+	uint32_t driver_flags;
 	struct watchlist state_watches;
 	uint8_t extended_capabilities[EXT_CAP_LEN + 2]; /* max bitmap size + IE header */
 	uint8_t *iftype_extended_capabilities[NUM_NL80211_IFTYPES];
@@ -685,8 +697,7 @@ bool wiphy_uses_default_if(struct wiphy *wiphy)
 	if (!wiphy_get_driver(wiphy))
 		return true;
 
-	if (wiphy->driver_info &&
-			wiphy->driver_info->flags & DEFAULT_IF)
+	if (wiphy->driver_flags & DEFAULT_IF)
 		return true;
 
 	return false;
@@ -697,12 +708,8 @@ bool wiphy_control_port_enabled(struct wiphy *wiphy)
 	const struct l_settings *settings = iwd_get_config();
 	bool enabled;
 
-	if (wiphy->driver_info &&
-			wiphy->driver_info->flags & FORCE_PAE) {
-		l_info("Not using Control Port due to driver quirks: %s",
-				wiphy_get_driver(wiphy));
+	if (wiphy->driver_flags & FORCE_PAE)
 		return false;
-	}
 
 	if (!wiphy_has_ext_feature(wiphy,
 			NL80211_EXT_FEATURE_CONTROL_PORT_OVER_NL80211))
@@ -713,6 +720,14 @@ bool wiphy_control_port_enabled(struct wiphy *wiphy)
 		enabled = true;
 
 	return enabled;
+}
+
+bool wiphy_power_save_disabled(struct wiphy *wiphy)
+{
+	if (wiphy->driver_flags & POWER_SAVE_DISABLE)
+		return true;
+
+	return false;
 }
 
 const uint8_t *wiphy_get_permanent_address(struct wiphy *wiphy)
@@ -1312,6 +1327,27 @@ static void wiphy_print_basic_info(struct wiphy *wiphy)
 		l_free(joined);
 		l_strfreev(iftypes);
 	}
+
+	if (wiphy->driver_flags) {
+		char **flags = l_strv_new();
+		char *joined;
+
+		if (wiphy->driver_flags & DEFAULT_IF)
+			flags = l_strv_append(flags, "DefaultInterface");
+
+		if (wiphy->driver_flags & FORCE_PAE)
+			flags = l_strv_append(flags, "ForcePae");
+
+		if (wiphy->driver_flags & POWER_SAVE_DISABLE)
+			flags = l_strv_append(flags, "PowerSaveDisable");
+
+		joined = l_strjoinv(flags, ' ');
+
+		l_info("\tDriver Flags: %s", joined);
+
+		l_free(joined);
+		l_strfreev(flags);
+	}
 }
 
 static void parse_supported_commands(struct wiphy *wiphy,
@@ -1870,6 +1906,9 @@ static bool wiphy_get_driver_name(struct wiphy *wiphy)
 	char driver_path[256];
 	ssize_t len;
 	unsigned int i;
+	unsigned int j;
+	const struct l_settings *config = iwd_get_config();
+	char **flag_list;
 
 	driver_link = l_strdup_printf("/sys/class/ieee80211/%s/device/driver",
 					wiphy->name);
@@ -1885,7 +1924,25 @@ static bool wiphy_get_driver_name(struct wiphy *wiphy)
 
 	for (i = 0; i < L_ARRAY_SIZE(driver_infos); i++)
 		if (!fnmatch(driver_infos[i].prefix, wiphy->driver_str, 0))
-			wiphy->driver_info = &driver_infos[i];
+			wiphy->driver_flags |= driver_infos[i].flags;
+
+	/* Check for any user-defined driver flags */
+	if (!l_settings_has_group(config, "DriverQuirks"))
+		return true;
+
+	for (i = 0; i < L_ARRAY_SIZE(driver_flag_names); i++) {
+		flag_list = l_settings_get_string_list(config, "DriverQuirks",
+						driver_flag_names[i].name, ',');
+		if (!flag_list)
+			continue;
+
+		for (j = 0; flag_list[j]; j++)
+			if (!fnmatch(flag_list[j], wiphy->driver_str, 0))
+				wiphy->driver_flags |=
+						driver_flag_names[i].flag;
+
+		l_strv_free(flag_list);
+	}
 
 	return true;
 }

@@ -131,6 +131,8 @@ struct netdev {
 	uint32_t qos_map_cmd_id;
 	uint32_t mac_change_cmd_id;
 	uint32_t get_oci_cmd_id;
+	uint32_t get_link_cmd_id;
+	uint32_t power_save_cmd_id;
 	enum netdev_result result;
 	uint16_t last_code; /* reason or status, depending on result */
 	struct l_timeout *neighbor_report_timeout;
@@ -939,6 +941,11 @@ static void netdev_free(void *data)
 
 	if (netdev->fw_roam_bss)
 		scan_bss_free(netdev->fw_roam_bss);
+
+	if (netdev->get_link_cmd_id) {
+		l_netlink_cancel(rtnl, netdev->get_link_cmd_id);
+		netdev->get_link_cmd_id = 0;
+	}
 
 	scan_wdev_remove(netdev->wdev_id);
 
@@ -6116,11 +6123,13 @@ static void netdev_initial_down_cb(int error, uint16_t type, const void *data,
 static void netdev_getlink_cb(int error, uint16_t type, const void *data,
 			uint32_t len, void *user_data)
 {
+	struct netdev *netdev = user_data;
 	const struct ifinfomsg *ifi = data;
 	unsigned int bytes;
-	struct netdev *netdev;
 	l_netlink_command_func_t cb;
 	bool powered;
+
+	netdev->get_link_cmd_id = 0;
 
 	if (error != 0) {
 		l_error("RTM_GETLINK error %i: %s", error, strerror(-error));
@@ -6133,8 +6142,7 @@ static void netdev_getlink_cb(int error, uint16_t type, const void *data,
 		return;
 	}
 
-	netdev = netdev_find(ifi->ifi_index);
-	if (!netdev)
+	if (L_WARN_ON((uint32_t)ifi->ifi_index != netdev->index))
 		return;
 
 	bytes = len - NLMSG_ALIGN(sizeof(struct ifinfomsg));
@@ -6212,6 +6220,63 @@ error:
 	return NULL;
 }
 
+static void netdev_get_link(struct netdev *netdev)
+{
+	struct ifinfomsg *rtmmsg;
+	size_t bufsize;
+
+	/* Query interface flags */
+	bufsize = NLMSG_ALIGN(sizeof(struct ifinfomsg));
+	rtmmsg = l_malloc(bufsize);
+	memset(rtmmsg, 0, bufsize);
+
+	rtmmsg->ifi_family = AF_UNSPEC;
+	rtmmsg->ifi_index = netdev->index;
+
+	netdev->get_link_cmd_id = l_netlink_send(rtnl, RTM_GETLINK, 0, rtmmsg,
+						bufsize, netdev_getlink_cb,
+						netdev, NULL);
+	L_WARN_ON(netdev->get_link_cmd_id == 0);
+
+	l_free(rtmmsg);
+}
+
+static void netdev_disable_ps_cb(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev = user_data;
+	int err = l_genl_msg_get_error(msg);
+
+	netdev->power_save_cmd_id = 0;
+
+	/* Can't do anything about it but inform the user */
+	if (err < 0)
+		l_error("Failed to disable power save for ifindex %u (%s: %d)",
+				netdev->index, strerror(-err), err);
+	else
+		l_debug("Disabled power save for ifindex %u", netdev->index);
+
+	netdev_get_link(netdev);
+}
+
+static bool netdev_disable_power_save(struct netdev *netdev)
+{
+	struct l_genl_msg *msg = l_genl_msg_new(NL80211_CMD_SET_POWER_SAVE);
+	uint32_t disabled = NL80211_PS_DISABLED;
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_PS_STATE, 4, &disabled);
+
+	netdev->power_save_cmd_id = l_genl_family_send(nl80211, msg,
+							netdev_disable_ps_cb,
+							netdev, NULL);
+	if (!netdev->power_save_cmd_id) {
+		l_error("Failed to send SET_POWER_SAVE (-EIO)");
+		return false;
+	}
+
+	return true;
+}
+
 struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 					const uint8_t *set_mac)
 {
@@ -6223,8 +6288,6 @@ struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 	uint32_t wiphy_id;
 	struct netdev *netdev;
 	struct wiphy *wiphy = NULL;
-	struct ifinfomsg *rtmmsg;
-	size_t bufsize;
 	struct l_io *pae_io = NULL;
 
 	if (nl80211_parse_attrs(msg, NL80211_ATTR_IFINDEX, &ifindex,
@@ -6283,20 +6346,15 @@ struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 	l_debug("Created interface %s[%d %" PRIx64 "]", netdev->name,
 		netdev->index, netdev->wdev_id);
 
-	/* Query interface flags */
-	bufsize = NLMSG_ALIGN(sizeof(struct ifinfomsg));
-	rtmmsg = l_malloc(bufsize);
-	memset(rtmmsg, 0, bufsize);
-
-	rtmmsg->ifi_family = AF_UNSPEC;
-	rtmmsg->ifi_index = ifindex;
-
-	l_netlink_send(rtnl, RTM_GETLINK, 0, rtmmsg, bufsize,
-					netdev_getlink_cb, NULL, NULL);
-
-	l_free(rtmmsg);
-
 	netdev_setup_interface(netdev);
+
+	if (wiphy_power_save_disabled(wiphy)) {
+		/* Wait to issue GET_LINK until PS is disabled */
+		if (netdev_disable_power_save(netdev))
+			return netdev;
+	}
+
+	netdev_get_link(netdev);
 
 	return netdev;
 }
