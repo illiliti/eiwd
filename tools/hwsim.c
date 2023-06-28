@@ -1572,7 +1572,9 @@ static void process_frame(struct hwsim_frame *frame)
 	hwsim_frame_unref(frame);
 }
 
-static void unicast_handler(struct l_genl_msg *msg, void *user_data)
+
+
+static void hwsim_frame_event(struct l_genl_msg *msg)
 {
 	struct hwsim_frame *frame;
 	const struct mmpdu_header *mpdu;
@@ -1580,9 +1582,6 @@ static void unicast_handler(struct l_genl_msg *msg, void *user_data)
 	uint16_t type, len;
 	const void *data;
 	const uint8_t *transmitter = NULL, *freq = NULL, *flags = NULL;
-
-	if (l_genl_msg_get_command(msg) != HWSIM_CMD_FRAME)
-		return;
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
@@ -1681,6 +1680,24 @@ static void unicast_handler(struct l_genl_msg *msg, void *user_data)
 	memcpy(frame->dst_ether_addr, mpdu->address_1, ETH_ALEN);
 
 	process_frame(frame);
+}
+
+static void hwsim_unicast_handler(struct l_genl_msg *msg, void *user_data)
+{
+	uint8_t cmd;
+
+	if (l_genl_msg_get_error(msg) < 0)
+		return;
+
+	cmd = l_genl_msg_get_command(msg);
+
+	switch (cmd) {
+	case HWSIM_CMD_FRAME:
+		hwsim_frame_event(msg);
+		break;
+	default:
+		break;
+	}
 }
 
 static void radio_manager_create_callback(struct l_genl_msg *msg,
@@ -2939,8 +2956,9 @@ static void hwsim_ready(void)
 		}
 
 		if (!l_genl_add_unicast_watch(genl, "MAC80211_HWSIM",
-						unicast_handler, NULL, NULL)) {
-			l_error("Failed to set unicast handler");
+						hwsim_unicast_handler,
+						NULL, NULL)) {
+			l_error("Failed to set hwsim unicast handler");
 			goto error;
 		}
 
