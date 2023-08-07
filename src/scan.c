@@ -1230,8 +1230,6 @@ static bool scan_parse_advertisement_protocol(struct scan_bss *bss,
 {
 	const uint8_t *ptr = data;
 
-	l_debug("");
-
 	while (len) {
 		/*
 		 * TODO: Store query info for GAS response length verification
@@ -1304,8 +1302,6 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 						NULL) < 0)
 				l_warn("Unable to parse BSS Load IE for "
 					MAC, MAC_STR(bss->addr));
-			else
-				l_debug("Load: %u/255", bss->utilization);
 
 			break;
 		case IE_TYPE_VENDOR_SPECIFIC:
@@ -1795,8 +1791,6 @@ static void get_scan_callback(struct l_genl_msg *msg, void *user_data)
 	uint64_t wdev_id;
 	uint32_t seen_ms_ago = 0;
 
-	l_debug("get_scan_callback");
-
 	if (nl80211_parse_attrs(msg, NL80211_ATTR_WDEV, &wdev_id,
 					NL80211_ATTR_UNSPEC) < 0)
 		return;
@@ -1874,8 +1868,6 @@ static void get_scan_done(void *user)
 {
 	struct scan_results *results = user;
 	struct scan_context *sc = results->sc;
-
-	l_debug("get_scan_done");
 
 	sc->get_scan_cmd_id = 0;
 
