@@ -2250,7 +2250,15 @@ static void station_preauthenticate_cb(struct netdev *netdev,
 					new_hs->supplicant_ie[1] + 2,
 					&rsn_info);
 
-		handshake_state_get_pmkid(new_hs, pmkid);
+		/*
+		 * IEEE 802.11 Section 12.7.1.3:
+		 *
+		 * "When the PMKID is calculated for the PMKSA as part of
+		 * preauthentication, the AKM has not yet been negotiated.
+		 * In this case, the HMAC-SHA-1 based derivation is used for
+		 * the PMKID calculation."
+		 */
+		handshake_state_get_pmkid(new_hs, pmkid, L_CHECKSUM_SHA1);
 
 		rsn_info.num_pmkids = 1;
 		rsn_info.pmkids = pmkid;

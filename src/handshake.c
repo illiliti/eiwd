@@ -734,10 +734,9 @@ void handshake_state_set_pmkid(struct handshake_state *s, const uint8_t *pmkid)
 	s->have_pmkid = true;
 }
 
-bool handshake_state_get_pmkid(struct handshake_state *s, uint8_t *out_pmkid)
+bool handshake_state_get_pmkid(struct handshake_state *s, uint8_t *out_pmkid,
+				enum l_checksum_type sha)
 {
-	bool use_sha256;
-
 	/* SAE exports pmkid */
 	if (s->have_pmkid) {
 		memcpy(out_pmkid, s->pmkid, 16);
@@ -747,22 +746,56 @@ bool handshake_state_get_pmkid(struct handshake_state *s, uint8_t *out_pmkid)
 	if (!s->have_pmk)
 		return false;
 
+	return crypto_derive_pmkid(s->pmk, 32, s->spa, s->aa, out_pmkid,
+					sha);
+}
+
+bool handshake_state_pmkid_matches(struct handshake_state *s,
+					const uint8_t *check)
+{
+	uint8_t own_pmkid[16];
+	enum l_checksum_type sha;
+
 	/*
-	 * Note 802.11 section 11.6.1.3:
-	 * "When the PMKID is calculated for the PMKSA as part of RSN
-	 * preauthentication, the AKM has not yet been negotiated. In this
-	 * case, the HMAC-SHA1-128 based derivation is used for the PMKID
-	 * calculation."
+	 * 802.11-2020 Table 9-151 defines the hashing algorithm to use
+	 * for various AKM's. Note some AKMs are omitted here because they
+	 * export the PMKID individually (SAE/FILS/FT-PSK)
+	 *
+	 * SHA1:
+	 * 	00-0F-AC:1 (8021X)
+	 * 	00-0F-AC:2 (PSK)
+	 *
+	 * SHA256:
+	 * 	00-0F-AC:3 (FT-8021X)
+	 * 	00-0F-AC:5 (8021X-SHA256)
+	 * 	00-0F-AC:6 (PSK-SHA256)
+	 *
+	 * SHA384:
+	 * 	00-0F-AC:13 (FT-8021X-SHA384)
 	 */
-
 	if (s->akm_suite & (IE_RSN_AKM_SUITE_8021X_SHA256 |
-			IE_RSN_AKM_SUITE_PSK_SHA256))
-		use_sha256 = true;
+			IE_RSN_AKM_SUITE_PSK_SHA256 |
+			IE_RSN_AKM_SUITE_FT_OVER_8021X))
+		sha = L_CHECKSUM_SHA256;
 	else
-		use_sha256 = false;
+		sha = L_CHECKSUM_SHA1;
 
-	return crypto_derive_pmkid(s->pmk, s->spa, s->aa, out_pmkid,
-					use_sha256);
+	if (!handshake_state_get_pmkid(s, own_pmkid, sha))
+		return false;
+
+	if (l_secure_memcmp(own_pmkid, check, 16)) {
+		if (s->akm_suite != IE_RSN_AKM_SUITE_FT_OVER_8021X)
+			return false;
+
+		l_debug("PMKID did not match, trying SHA1 derivation");
+
+		if (!handshake_state_get_pmkid(s, own_pmkid, L_CHECKSUM_SHA1))
+			return false;
+
+		return l_secure_memcmp(own_pmkid, check, 16) == 0;
+	}
+
+	return true;
 }
 
 void handshake_state_set_gtk(struct handshake_state *s, const uint8_t *key,

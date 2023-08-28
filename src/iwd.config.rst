@@ -74,16 +74,6 @@ The group ``[General]`` contains general settings.
        ``[Network]`` settings for additional settings related to network
        configuration.
 
-   * - APRanges
-     - Values: <IP in prefix notation>
-
-       Sets the range of IP's used for DHCP server (AP mode). The IP should be
-       in prefix notation e.g. 192.168.1.0/24. AP's which are started in a
-       profile-less configuration will use this pool of IP's to set the AP's
-       interface address as well as default DHCP server options. Each AP will
-       get a new subnet from the range and clients will be addressed in that
-       subnet to avoid IP conflicts if multiple AP's are started.
-
    * - UseDefaultInterface
      - Values: true, **false**
 

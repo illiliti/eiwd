@@ -2911,10 +2911,14 @@ process_resp_ies:
 		}
 
 		if (netdev->owe_sm) {
-			if (!owe_dh || !owe_akm_found) {
-				l_error("OWE DH element/RSN not found");
+			if (!owe_dh) {
+				l_error("OWE DH element not found");
 				goto deauth;
 			}
+
+			if (!owe_akm_found)
+				l_warn("OWE AKM was not included in the RSNE. "
+					"This AP is out of spec!");
 
 			if (L_WARN_ON(owe_process_dh_ie(netdev->owe_sm, owe_dh,
 							owe_dh_len) != 0))

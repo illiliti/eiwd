@@ -62,6 +62,8 @@ enum {
 	HWSIM_CMD_NEW_RADIO,
 	HWSIM_CMD_DEL_RADIO,
 	HWSIM_CMD_GET_RADIO,
+	HWSIM_CMD_ADD_MAC_ADDR,
+	HWSIM_CMD_DEL_MAC_ADDR,
 	__HWSIM_CMD_MAX,
 };
 #define HWSIM_CMD_MAX (__HWSIM_CMD_MAX - 1)
@@ -438,6 +440,7 @@ struct interface_info_rec {
 	uint8_t addr[ETH_ALEN];
 	char *name;
 	uint32_t iftype;
+	int ref;
 };
 
 static struct l_queue *radio_info;
@@ -511,6 +514,14 @@ static bool interface_info_match_id(const void *a, const void *b)
 	uint32_t id = L_PTR_TO_UINT(b);
 
 	return rec->id == id;
+}
+
+static bool interface_info_match_addr(const void *a, const void *b)
+{
+	const struct interface_info_rec *rec = a;
+	const uint8_t *addr = b;
+
+	return memcmp(rec->addr, addr, ETH_ALEN) == 0;
 }
 
 static const char *radio_get_path(const struct radio_info_rec *rec)
@@ -1570,7 +1581,9 @@ static void process_frame(struct hwsim_frame *frame)
 	hwsim_frame_unref(frame);
 }
 
-static void unicast_handler(struct l_genl_msg *msg, void *user_data)
+
+
+static void hwsim_frame_event(struct l_genl_msg *msg)
 {
 	struct hwsim_frame *frame;
 	const struct mmpdu_header *mpdu;
@@ -1578,9 +1591,6 @@ static void unicast_handler(struct l_genl_msg *msg, void *user_data)
 	uint16_t type, len;
 	const void *data;
 	const uint8_t *transmitter = NULL, *freq = NULL, *flags = NULL;
-
-	if (l_genl_msg_get_command(msg) != HWSIM_CMD_FRAME)
-		return;
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
@@ -1679,6 +1689,146 @@ static void unicast_handler(struct l_genl_msg *msg, void *user_data)
 	memcpy(frame->dst_ether_addr, mpdu->address_1, ETH_ALEN);
 
 	process_frame(frame);
+}
+
+static bool get_tx_rx_addrs(struct l_genl_msg *msg, const uint8_t **tx_out,
+				const uint8_t **rx_out)
+{
+	struct l_genl_attr attr;
+	uint16_t type, len;
+	const void *data;
+	const uint8_t *tx = NULL, *rx = NULL;
+
+	if (!l_genl_attr_init(&attr, msg))
+		return false;
+
+	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+		switch (type) {
+		case HWSIM_ATTR_ADDR_TRANSMITTER:
+			if (len != ETH_ALEN)
+				return false;
+
+			tx = data;
+			break;
+		case HWSIM_ATTR_ADDR_RECEIVER:
+			if (len != ETH_ALEN)
+				return false;
+
+			rx = data;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (!tx || !rx)
+		return false;
+
+	*tx_out = tx;
+	*rx_out = rx;
+
+	return true;
+}
+
+static void hwsim_add_mac_event(struct l_genl_msg *msg)
+{
+	const uint8_t *tx = NULL, *rx = NULL;
+	struct radio_info_rec *radio_rec;
+	struct interface_info_rec *interface_rec;
+
+	if (!get_tx_rx_addrs(msg, &tx, &rx))
+		return;
+
+	/* No radio matches the TX address, hwsim must not have created it */
+	radio_rec = l_queue_find(radio_info, radio_info_match_addr1, tx);
+	if (!radio_rec)
+		return;
+
+	interface_rec = l_queue_find(interface_info,
+					interface_info_match_addr, rx);
+	if (interface_rec) {
+		/* Existing interface, address changes handled via nl80211 */
+		if (interface_rec->name)
+			return;
+
+		/*
+		 * Transient/dummy interface we already know about. This likely
+		 * was created, then a scan changed the address temporarily.
+		 * Reflect this change and increment the ref so the following
+		 * DEL event doesn't destroy it
+		 */
+		__atomic_fetch_add(&interface_rec->ref, 1, __ATOMIC_SEQ_CST);
+		return;
+	}
+
+	/*
+	 * Create a dummy interface entry for this address that only contains
+	 * the radio and address. This is either a transient entry due to scan
+	 * randomization or an interface created outside this namespace.
+	 */
+	interface_rec = l_new(struct interface_info_rec, 1);
+	interface_rec->radio_rec = radio_rec;
+	interface_rec->ref = 1;
+	memcpy(interface_rec->addr, rx, ETH_ALEN);
+
+	l_queue_push_tail(interface_info, interface_rec);
+}
+
+static void hwsim_del_mac_event(struct l_genl_msg *msg)
+{
+	const uint8_t *tx = NULL, *rx = NULL;
+	struct radio_info_rec *radio_rec;
+	struct interface_info_rec *interface_rec;
+
+	if (!get_tx_rx_addrs(msg, &tx, &rx))
+		return;
+
+	/* No radio matches the TX address, hwsim must not have created it */
+	radio_rec = l_queue_find(radio_info, radio_info_match_addr1, tx);
+	if (!radio_rec)
+		return;
+
+	interface_rec = l_queue_find(interface_info,
+						interface_info_match_addr, rx);
+	if (!interface_rec)
+		return;
+
+	/*
+	 * This change is handled via nl80211 so we don't want to touch this
+	 * interface here.
+	 */
+	if (interface_rec->name)
+		return;
+
+	if (__atomic_sub_fetch(&interface_rec->ref, 1, __ATOMIC_SEQ_CST))
+		return;
+
+	l_queue_remove(interface_info, interface_rec);
+	l_free(interface_rec);
+}
+
+static void hwsim_unicast_handler(struct l_genl_msg *msg, void *user_data)
+{
+	uint8_t cmd;
+
+	if (l_genl_msg_get_error(msg) < 0)
+		return;
+
+	cmd = l_genl_msg_get_command(msg);
+
+	switch (cmd) {
+	case HWSIM_CMD_FRAME:
+		hwsim_frame_event(msg);
+		break;
+	case HWSIM_CMD_ADD_MAC_ADDR:
+		hwsim_add_mac_event(msg);
+		break;
+	case HWSIM_CMD_DEL_MAC_ADDR:
+		hwsim_del_mac_event(msg);
+		break;
+	default:
+		break;
+	}
 }
 
 static void radio_manager_create_callback(struct l_genl_msg *msg,
@@ -2937,8 +3087,9 @@ static void hwsim_ready(void)
 		}
 
 		if (!l_genl_add_unicast_watch(genl, "MAC80211_HWSIM",
-						unicast_handler, NULL, NULL)) {
-			l_error("Failed to set unicast handler");
+						hwsim_unicast_handler,
+						NULL, NULL)) {
+			l_error("Failed to set hwsim unicast handler");
 			goto error;
 		}
 

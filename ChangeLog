@@ -1,3 +1,9 @@
+ver 2.8:
+	Fix issue with handling OWE AKM in association reply.
+
+ver 2.7:
+	Fix issue with handling FT-8021X and SHA256 PMKID derivation.
+
 ver 2.6:
 	Add support for setting driver specific quirks.
 	Add support for disabling power saving mode.
