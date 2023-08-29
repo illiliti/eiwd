@@ -44,16 +44,6 @@ class Test(unittest.TestCase):
 
     # FT-over-Air failure, should stay connected
     def test_ft_over_air_failure(self):
-        self.bss_hostapd[0].set_value('wpa_key_mgmt', 'FT-PSK')
-        self.bss_hostapd[0].set_value('ft_over_ds', '0')
-        self.bss_hostapd[0].reload()
-        self.bss_hostapd[0].wait_for_event("AP-ENABLED")
-
-        self.bss_hostapd[1].set_value('wpa_key_mgmt', 'FT-PSK')
-        self.bss_hostapd[1].set_value('ft_over_ds', '0')
-        self.bss_hostapd[1].reload()
-        self.bss_hostapd[1].wait_for_event("AP-ENABLED")
-
         wd = IWD(True)
 
         device = wd.list_devices(1)[0]
@@ -85,6 +75,9 @@ class Test(unittest.TestCase):
         self.rule0.enabled = False
         self.rule1.enabled = False
         self.rule2.enabled = False
+
+        for hapd in self.bss_hostapd:
+            hapd.default()
 
     @classmethod
     def setUpClass(cls):

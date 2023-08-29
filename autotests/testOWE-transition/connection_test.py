@@ -47,11 +47,6 @@ class Test(unittest.TestCase):
 
     # Normal success case
     def test_owe_transition(self):
-        self.hapd_open.set_value('vendor_elements', 'dd15506f9a1c02000000f1000a6f77652d68696464656e')
-        self.hapd_open.reload()
-        self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000f0000a7472616e736974696f6e')
-        self.hapd_owe.reload()
-
         self.hapd_owe2.disable()
         self.hapd_open2.disable()
 
@@ -59,15 +54,8 @@ class Test(unittest.TestCase):
 
     # Normal success case
     def test_owe_transition_multi_network(self):
-        self.hapd_open.set_value('vendor_elements', 'dd15506f9a1c02000000f1000a6f77652d68696464656e')
-        self.hapd_open.reload()
-        self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000f0000a7472616e736974696f6e')
-        self.hapd_owe.reload()
-
-        self.hapd_open2.set_value('vendor_elements', 'dd17506f9a1c02000000f1000c6f77652d68696464656e2d32')
         self.hapd_open2.set_value('ssid', 'transition-2')
         self.hapd_open2.reload()
-        self.hapd_owe2.set_value('vendor_elements', 'dd17506f9a1c02000000f0000c7472616e736974696f6e2d32')
         self.hapd_owe2.set_value('ssid', 'owe-hidden-2')
         self.hapd_owe2.reload()
 
@@ -75,11 +63,6 @@ class Test(unittest.TestCase):
 
     # Two pairs of open/OWE BSS's (OWE BSS's have different SSIDs) */
     def test_owe_transition_multi_bss(self):
-        self.hapd_open.set_value('vendor_elements', 'dd15506f9a1c02000000f1000a6f77652d68696464656e')
-        self.hapd_open.reload()
-        self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000f0000a7472616e736974696f6e')
-        self.hapd_owe.reload()
-
         self.hapd_open2.set_value('vendor_elements', 'dd17506f9a1c02000000f3000c6f77652d68696464656e2d32')
         self.hapd_open2.set_value('ssid', 'transition')
         self.hapd_open2.reload()
@@ -91,11 +74,6 @@ class Test(unittest.TestCase):
 
     # Two pairs of open/OWE BSS's (OWE BSS's have same SSID) */
     def test_owe_transition_multi_bss_same_ssid(self):
-        self.hapd_open.set_value('vendor_elements', 'dd15506f9a1c02000000f1000a6f77652d68696464656e')
-        self.hapd_open.reload()
-        self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000f0000a7472616e736974696f6e')
-        self.hapd_owe.reload()
-
         self.hapd_open2.set_value('vendor_elements', 'dd15506f9a1c02000000f3000a6f77652d68696464656e')
         self.hapd_open2.set_value('ssid', 'transition')
         self.hapd_open2.reload()
@@ -107,11 +85,6 @@ class Test(unittest.TestCase):
 
     # Normal success autoconnect case
     def test_owe_transition_autoconnect(self):
-        self.hapd_open.set_value('vendor_elements', 'dd15506f9a1c02000000f1000a6f77652d68696464656e')
-        self.hapd_open.reload()
-        self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000f0000a7472616e736974696f6e')
-        self.hapd_owe.reload()
-
         self.hapd_owe2.disable()
         self.hapd_open2.disable()
 
@@ -124,8 +97,6 @@ class Test(unittest.TestCase):
     def test_owe_transition_invalid_open_bssid(self):
         self.hapd_open.set_value('vendor_elements', 'dd15506f9a1c02000000ff000a6f77652d68696464656e')
         self.hapd_open.reload()
-        self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000f0000a7472616e736974696f6e')
-        self.hapd_owe.reload()
 
         self.hapd_owe2.disable()
         self.hapd_open2.disable()
@@ -135,8 +106,6 @@ class Test(unittest.TestCase):
     # OWE BSS has invalid BSSID in OWE transition element
     # Expected connection to Open BSS
     def test_owe_transition_invalid_owe_bssid(self):
-        self.hapd_open.set_value('vendor_elements', 'dd15506f9a1c02000000f1000a6f77652d68696464656e')
-        self.hapd_open.reload()
         self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000ff000a7472616e736974696f6e')
         self.hapd_owe.reload()
 
@@ -148,8 +117,6 @@ class Test(unittest.TestCase):
     # No OWE hidden network exists
     # Expected connection to Open BSS
     def test_owe_transition_no_hidden_found(self):
-        self.hapd_open.set_value('vendor_elements', 'dd15506f9a1c02000000f1000a6f77652d68696464656e')
-        self.hapd_open.reload()
         self.hapd_owe.disable()
 
         self.hapd_owe2.disable()
@@ -160,11 +127,6 @@ class Test(unittest.TestCase):
     # Directly connect to valid OWE hidden network
     # Expected connection failure
     def test_owe_transition_connect_hidden_valid(self):
-        self.hapd_open.set_value('vendor_elements', 'dd15506f9a1c02000000f1000a6f77652d68696464656e')
-        self.hapd_open.reload()
-        self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000f0000a7472616e736974696f6e')
-        self.hapd_owe.reload()
-
         self.hapd_owe2.disable()
         self.hapd_open2.disable()
 
@@ -189,7 +151,6 @@ class Test(unittest.TestCase):
     def test_owe_transition_band_info(self):
         self.hapd_open.set_value('vendor_elements', 'dd17506f9a1c02000000f1000a6f77652d68696464656e5103')
         self.hapd_open.reload()
-        self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000f0000a7472616e736974696f6e')
         self.hapd_owe.set_value('channel', '3')
         self.hapd_owe.reload()
 
@@ -201,7 +162,6 @@ class Test(unittest.TestCase):
     def test_owe_transition_wrong_band_info(self):
         self.hapd_open.set_value('vendor_elements', 'dd17506f9a1c02000000f1000a6f77652d68696464656e5102')
         self.hapd_open.reload()
-        self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000f0000a7472616e736974696f6e')
         self.hapd_owe.set_value('channel', '3')
         self.hapd_owe.reload()
 
@@ -212,11 +172,6 @@ class Test(unittest.TestCase):
 
     # OWE Transition pair + additional open network with the same SSID
     def test_owe_transition_extra_open(self):
-        self.hapd_open.set_value('vendor_elements', 'dd15506f9a1c02000000f1000a6f77652d68696464656e')
-        self.hapd_open.reload()
-        self.hapd_owe.set_value('vendor_elements', 'dd15506f9a1c02000000f0000a7472616e736974696f6e')
-        self.hapd_owe.reload()
-
         self.hapd_open2.set_value('ssid', 'transition')
         self.hapd_open2.reload()
 
@@ -235,16 +190,18 @@ class Test(unittest.TestCase):
     def setUp(self):
         self.wd = IWD(True)
         self.hapd_owe = HostapdCLI(config='ssidOWE.conf')
+        self.hapd_owe.default()
         self.hapd_open = HostapdCLI(config='ssidOpen.conf')
+        self.hapd_open.default()
         self.hapd_owe2 = HostapdCLI(config='ssidOWE-2.conf')
+        self.hapd_owe2.default()
         self.hapd_open2 = HostapdCLI(config='ssidOpen-2.conf')
+        self.hapd_open2.default()
 
         self.hwsim = Hwsim()
 
     def tearDown(self):
         IWD.clear_storage()
-
-        self.hapd_owe.set_value('channel', '1')
 
         self.wd = None
         self.hapd_open = None

@@ -43,9 +43,6 @@ class Test(unittest.TestCase):
         wd.unregister_psk_agent(psk_agent)
 
     def test_ccmp(self):
-        self.hostapd.set_value('rsn_pairwise', 'CCMP')
-        self.hostapd.reload()
-        self.hostapd.wait_for_event("AP-ENABLED")
         self.validate_connection_success(self.wd)
 
     def test_gcmp(self):
@@ -67,6 +64,7 @@ class Test(unittest.TestCase):
         self.validate_connection_success(self.wd)
 
     def setUp(self):
+        self.hostapd.default()
         self.wd = IWD(True)
 
     def tearDown(self):

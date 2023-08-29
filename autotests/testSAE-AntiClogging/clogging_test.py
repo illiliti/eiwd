@@ -55,13 +55,12 @@ class Test(unittest.TestCase):
         wd.clear_storage()
 
     def test_SAE(self):
-        self.hostapd.set_value('sae_pwe', '0');
-        self.hostapd.set_value('sae_groups', '19');
-        self.hostapd.reload()
-        self.hostapd.wait_for_event("AP-ENABLED")
         wd = IWD(True)
         self.validate_connection(wd)
         wd.clear_storage()
+
+    def setUp(self):
+        self.hostapd.default()
 
     @classmethod
     def setUpClass(cls):

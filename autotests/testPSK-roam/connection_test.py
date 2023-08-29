@@ -93,32 +93,16 @@ class Test(unittest.TestCase):
     def test_ft_psk(self):
         wd = IWD(True)
 
-        self.bss_hostapd[0].set_value('wpa_key_mgmt', 'FT-PSK')
-        self.bss_hostapd[0].set_value('ft_over_ds', '0')
-        self.bss_hostapd[0].set_value('ocv', '1')
-        self.bss_hostapd[0].reload()
-        self.bss_hostapd[0].wait_for_event("AP-ENABLED")
-
-        self.bss_hostapd[1].set_value('wpa_key_mgmt', 'FT-PSK')
-        self.bss_hostapd[1].set_value('ft_over_ds', '0')
-        self.bss_hostapd[0].set_value('ocv', '1')
-        self.bss_hostapd[1].reload()
-        self.bss_hostapd[1].wait_for_event("AP-ENABLED")
-
         self.validate_connection(wd)
 
     def test_ft_psk_over_ds(self):
         wd = IWD(True)
 
-        self.bss_hostapd[0].set_value('wpa_key_mgmt', 'FT-PSK')
         self.bss_hostapd[0].set_value('ft_over_ds', '1')
-        self.bss_hostapd[0].set_value('ocv', '1')
         self.bss_hostapd[0].reload()
         self.bss_hostapd[0].wait_for_event("AP-ENABLED")
 
-        self.bss_hostapd[1].set_value('wpa_key_mgmt', 'FT-PSK')
         self.bss_hostapd[1].set_value('ft_over_ds', '1')
-        self.bss_hostapd[1].set_value('ocv', '1')
         self.bss_hostapd[1].reload()
         self.bss_hostapd[1].wait_for_event("AP-ENABLED")
 
@@ -128,12 +112,10 @@ class Test(unittest.TestCase):
         wd = IWD(True)
 
         self.bss_hostapd[0].set_value('wpa_key_mgmt', 'WPA-PSK')
-        self.bss_hostapd[0].set_value('ft_over_ds', '0')
         self.bss_hostapd[0].reload()
         self.bss_hostapd[0].wait_for_event("AP-ENABLED")
 
         self.bss_hostapd[1].set_value('wpa_key_mgmt', 'WPA-PSK')
-        self.bss_hostapd[1].set_value('ft_over_ds', '0')
         self.bss_hostapd[1].reload()
         self.bss_hostapd[1].wait_for_event("AP-ENABLED")
 
@@ -141,18 +123,6 @@ class Test(unittest.TestCase):
 
     def test_roam_packet_loss(self):
         wd = IWD(True)
-
-        self.bss_hostapd[0].set_value('wpa_key_mgmt', 'FT-PSK')
-        self.bss_hostapd[0].set_value('ft_over_ds', '0')
-        self.bss_hostapd[0].set_value('ocv', '1')
-        self.bss_hostapd[0].reload()
-        self.bss_hostapd[0].wait_for_event("AP-ENABLED")
-
-        self.bss_hostapd[1].set_value('wpa_key_mgmt', 'FT-PSK')
-        self.bss_hostapd[1].set_value('ft_over_ds', '0')
-        self.bss_hostapd[0].set_value('ocv', '1')
-        self.bss_hostapd[1].reload()
-        self.bss_hostapd[1].wait_for_event("AP-ENABLED")
 
         self.validate_connection(wd, pkt_loss=True)
 
@@ -165,6 +135,9 @@ class Test(unittest.TestCase):
         self.rule0.enabled = False
         self.rule1.enabled = False
         self.rule2.enabled = False
+
+        for hapd in self.bss_hostapd:
+            hapd.default()
 
     @classmethod
     def setUpClass(cls):
