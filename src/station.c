@@ -5068,8 +5068,6 @@ static void add_frame_watches(struct netdev *netdev)
 			L_UINT_TO_PTR(netdev_get_ifindex(netdev)), NULL);
 }
 
-// FIND_FUNC(find_station, struct station);
-
 static void station_netdev_watch(struct netdev *netdev,
 				enum netdev_watch_event event, void *userdata)
 {
@@ -5089,8 +5087,6 @@ static void station_netdev_watch(struct netdev *netdev,
 		break;
 	case NETDEV_WATCH_EVENT_DOWN:
 	case NETDEV_WATCH_EVENT_DEL:
-    	// FIND_AND_REMOVE(find_station, station_list, station_free);
-
 		l_dbus_object_remove_interface(dbus_get_bus(),
 						netdev_get_path(netdev),
 						IWD_STATION_INTERFACE);

@@ -42,19 +42,3 @@ const char *iwd_get_iface_blacklist(void);
 const char *iwd_get_phy_whitelist(void);
 const char *iwd_get_phy_blacklist(void);
 bool iwd_is_developer_mode(void);
-
-#define FIND_FUNC(FUNC, T) \
-   bool FUNC(const void *obj_t, const void *netdev) { \
-       const T *obj = obj_t; \
-       return obj->netdev == netdev; \
-   }
-
-#define FIND_AND_REMOVE(FUNC, LIST, FREE_FUNC) \
-   do { \
-      void *obj = l_queue_find(LIST, &FUNC, netdev); \
-      if (obj) { \
-          l_queue_remove(LIST, obj); \
-          FREE_FUNC(obj); \
-      } \
-      return; \
-   } while(0)
