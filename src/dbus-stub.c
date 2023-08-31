@@ -1,8 +1,7 @@
-#include <assert.h>
+#include "ell/dbus.h"
+#include "ell/ell.h"
 #include <stdbool.h>
 #include <stddef.h>
-#include "ell/ell.h"
-#include "ell/dbus.h"
 
 #define INTERFACES_LEN 256
 
@@ -31,17 +30,17 @@ bool fake_dbus_register_interface(const char *interface,
   size_t *len;
   struct interface *interfaces = get_interfaces(&len);
 
+  l_info("Registering interface '%s'", interface);
+
   if (*len < INTERFACES_LEN) {
     interfaces[(*len)++] = (struct interface){.interface = l_strdup(interface),
                                               .setup_func = setup_func,
                                               .destroy = destroy};
 
-    l_info("Registered interface '%s'", interface);
-
     return true;
   }
 
-  assert(false);
+  L_WARN_ON(true);
   return false;
 }
 
@@ -51,6 +50,8 @@ bool fake_dbus_object_add_interface(const char *object, const char *interface,
                                     void *user_data) {
   size_t *len;
   struct interface *interfaces = get_interfaces(&len);
+
+  l_info("Adding object '%s' for interface '%s'", object, interface);
 
   for (size_t i = 0; i < *len; i++) {
     struct interface *iface = &interfaces[i];
@@ -63,13 +64,11 @@ bool fake_dbus_object_add_interface(const char *object, const char *interface,
 
       iface->setup_func(NULL);
 
-      l_info("Added object '%s' for interface '%s'", object, interface);
-
       return true;
     }
   }
 
-  assert(false);
+  L_WARN_ON(true);
   return false;
 }
 
@@ -78,25 +77,27 @@ bool fake_dbus_object_remove_interface(const char *object,
   size_t *len;
   struct interface *interfaces = get_interfaces(&len);
 
+  l_info("Removing object '%s' for interface '%s'", object, interface);
+
   for (size_t i = 0; i < *len; i++) {
     struct interface *iface = &interfaces[i];
 
     if (!strcmp(interface, iface->interface)) {
+      l_info("Found interface '%s', removing object '%s'", interface, object);
+
       for (size_t j = 0; j < iface->objects_len; j++) {
         if (!strcmp(object, iface->objects[j].object)) {
           iface->destroy(iface->objects[j].user_data);
-
-          l_info("Removed object '%s' for interface '%s'", object, interface);
 
           return true;
         }
       }
 
-      assert(false);
-      break;
+      L_WARN_ON(true);
+      return false;
     }
   }
 
-  assert(false);
+  L_WARN_ON(true);
   return false;
 }
