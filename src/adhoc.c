@@ -752,7 +752,6 @@ static void adhoc_netdev_watch(struct netdev *netdev,
 {
 	switch (event) {
 	case NETDEV_WATCH_EVENT_UP:
-#ifdef HAVE_DBUS
 	case NETDEV_WATCH_EVENT_NEW:
 		if (netdev_get_iftype(netdev) == NETDEV_IFTYPE_ADHOC &&
 				netdev_get_is_up(netdev))
@@ -762,7 +761,6 @@ static void adhoc_netdev_watch(struct netdev *netdev,
 	case NETDEV_WATCH_EVENT_DEL:
 		adhoc_remove_interface(netdev);
 		break;
-#endif
 	default:
 		break;
 	}
@@ -771,10 +769,8 @@ static void adhoc_netdev_watch(struct netdev *netdev,
 static int adhoc_init(void)
 {
 	netdev_watch = netdev_watch_add(adhoc_netdev_watch, NULL, NULL);
-#ifdef HAVE_DBUS
 	l_dbus_register_interface(dbus_get_bus(), IWD_ADHOC_INTERFACE,
 			adhoc_setup_interface, adhoc_destroy_interface, false);
-#endif
 
 	return 0;
 }
@@ -782,9 +778,7 @@ static int adhoc_init(void)
 static void adhoc_exit(void)
 {
 	netdev_watch_remove(netdev_watch);
-#ifdef HAVE_DBUS
 	l_dbus_unregister_interface(dbus_get_bus(), IWD_ADHOC_INTERFACE);
-#endif
 }
 
 IWD_MODULE(adhoc, adhoc_init, adhoc_exit)

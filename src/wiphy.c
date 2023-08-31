@@ -1972,9 +1972,7 @@ static int wiphy_get_permanent_addr_from_sysfs(struct wiphy *wiphy)
 
 static void wiphy_register(struct wiphy *wiphy)
 {
-#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
-#endif
 
 	wiphy->soft_rfkill = rfkill_get_soft_state(wiphy->id);
 	wiphy->hard_rfkill = rfkill_get_hard_state(wiphy->id);
@@ -2014,12 +2012,12 @@ static void wiphy_register(struct wiphy *wiphy)
 
 	wiphy_get_driver_name(wiphy);
 
-#ifdef HAVE_DBUS
 	if (!l_dbus_object_add_interface(dbus, wiphy_get_path(wiphy),
 					IWD_WIPHY_INTERFACE, wiphy))
 		l_info("Unable to add the %s interface to %s",
 				IWD_WIPHY_INTERFACE, wiphy_get_path(wiphy));
 
+#ifdef HAVE_DBUS
 	if (!l_dbus_object_add_interface(dbus, wiphy_get_path(wiphy),
 					L_DBUS_INTERFACE_PROPERTIES, NULL))
 		l_info("Unable to add the %s interface to %s",
@@ -2065,14 +2063,12 @@ void wiphy_update_name(struct wiphy *wiphy, const char *name)
 		updated = true;
 	}
 
-#ifdef HAVE_DBUS
 	if (updated && wiphy->registered) {
 		struct l_dbus *dbus = dbus_get_bus();
 
 		l_dbus_property_changed(dbus, wiphy_get_path(wiphy),
 					IWD_WIPHY_INTERFACE, "Name");
 	}
-#endif
 }
 
 static void wiphy_set_station_capability_bits(struct wiphy *wiphy)
@@ -2424,10 +2420,8 @@ bool wiphy_destroy(struct wiphy *wiphy)
 	if (!l_queue_remove(wiphy_list, wiphy))
 		return false;
 
-#ifdef HAVE_DBUS
 	if (wiphy->registered)
 		l_dbus_unregister_object(dbus_get_bus(), wiphy_get_path(wiphy));
-#endif
 
 	wiphy_free(wiphy);
 	return true;
@@ -2437,9 +2431,7 @@ static void wiphy_rfkill_cb(unsigned int wiphy_id, bool soft, bool hard,
 				void *user_data)
 {
 	struct wiphy *wiphy = wiphy_find(wiphy_id);
-#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
-#endif
 	bool old_powered, new_powered;
 	enum wiphy_state_watch_event event;
 
@@ -2461,10 +2453,8 @@ static void wiphy_rfkill_cb(unsigned int wiphy_id, bool soft, bool hard,
 	WATCHLIST_NOTIFY(&wiphy->state_watches, wiphy_state_watch_func_t,
 				wiphy, event);
 
-#ifdef HAVE_DBUS
 	l_dbus_property_changed(dbus, wiphy_get_path(wiphy),
 					IWD_WIPHY_INTERFACE, "Powered");
-#endif
 }
 
 static bool wiphy_property_get_powered(struct l_dbus *dbus,
@@ -2805,14 +2795,12 @@ static int wiphy_init(void)
 
 	rfkill_watch_add(wiphy_rfkill_cb, NULL);
 
-#ifdef HAVE_DBUS
 	if (!l_dbus_register_interface(dbus_get_bus(),
 					IWD_WIPHY_INTERFACE,
 					setup_wiphy_interface,
 					NULL, false))
 		l_error("Unable to register the %s interface",
 				IWD_WIPHY_INTERFACE);
-#endif
 
 	hwdb = l_hwdb_new_default();
 
@@ -2858,9 +2846,7 @@ static void wiphy_exit(void)
 	nl80211 = NULL;
 	mac_randomize_bytes = 6;
 
-#ifdef HAVE_DBUS
 	l_dbus_unregister_interface(dbus_get_bus(), IWD_WIPHY_INTERFACE);
-#endif
 
 	l_hwdb_unref(hwdb);
 }

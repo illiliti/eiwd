@@ -84,11 +84,8 @@ static void iwd_shutdown(void)
 		return;
 	}
 
-#ifdef HAVE_DBUS
 	dbus_shutdown();
-#else
-    agent_shutdown();
-#endif
+
 	netdev_shutdown();
 
 	timeout = l_timeout_create(1, main_loop_quit, NULL, NULL);
