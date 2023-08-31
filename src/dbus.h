@@ -19,9 +19,9 @@
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  *
  */
-#ifndef IWD_DBUS_H
-#define IWD_DBUS_H
 #include <stdbool.h>
+#include "ell/dbus.h"
+#include "ell/dbus-service.h"
 
 #define IWD_SERVICE "net.connman.iwd"
 
@@ -107,5 +107,4 @@ bool fake_dbus_object_remove_interface(const char *object, const char *interface
 #define l_dbus_interface_signal(...) (false)
 #define l_dbus_interface_property(...) (false)
 #define l_dbus_property_changed(...) (false)
-#endif
 #endif

@@ -39,11 +39,11 @@
 
 #include "linux/nl80211.h"
 
+#include "src/dbus.h"
 #include "src/agent.h"
 #include "src/iwd.h"
 #include "src/module.h"
 #include "src/wiphy.h"
-#include "src/dbus.h"
 #include "src/eap.h"
 #include "src/eapol.h"
 #include "src/rfkill.h"

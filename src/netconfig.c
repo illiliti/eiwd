@@ -41,6 +41,7 @@
 #include "src/iwd.h"
 #include "src/module.h"
 #include "src/netdev.h"
+#include "src/dbus.h"
 #include "src/station.h"
 #include "src/common.h"
 #include "src/network.h"

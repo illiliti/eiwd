@@ -30,9 +30,9 @@
 
 #include <ell/ell.h>
 
+#include "src/dbus.h"
 #include "src/agent.h"
 #include "src/iwd.h"
-#include "src/dbus.h"
 
 static struct l_dbus *g_dbus = NULL;
 
