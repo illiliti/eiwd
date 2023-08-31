@@ -202,10 +202,14 @@ static bool dpp_get_uri(struct l_dbus *dbus,
 	l_dbus_message_builder_append_basic(builder, 's', dpp->uri);
 	return true;
 }
-
+#include <stdio.h>
 static void dpp_property_changed_notify(struct dpp_sm *dpp)
 {
 	const char *path = netdev_get_path(dpp->netdev);
+
+    printf("PATH: %s\n", path);
+
+    return;
 
 	l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
 				"Started");
@@ -2398,10 +2402,13 @@ static void dpp_create(struct netdev *netdev)
 				dpp_handle_config_request_frame, dpp, NULL);
 
 	l_queue_push_tail(dpp_list, dpp);
+
 }
 
+// FIND_FUNC(find_dpp, struct dpp_sm);
+
 static void dpp_netdev_watch(struct netdev *netdev,
-				enum netdev_watch_event event, void *userdata)
+enum netdev_watch_event event, void *userdata)
 {
 	switch (event) {
 	case NETDEV_WATCH_EVENT_NEW:
@@ -2412,6 +2419,8 @@ static void dpp_netdev_watch(struct netdev *netdev,
 		break;
 	case NETDEV_WATCH_EVENT_DEL:
 	case NETDEV_WATCH_EVENT_DOWN:
+		// FIND_AND_REMOVE(find_dpp, dpp_list, dpp_free);
+
 		l_dbus_object_remove_interface(dbus_get_bus(),
 						netdev_get_path(netdev),
 						IWD_DPP_INTERFACE);

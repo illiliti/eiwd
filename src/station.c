@@ -4328,9 +4328,7 @@ static void station_wiphy_watch(struct wiphy *wiphy,
 static struct station *station_create(struct netdev *netdev)
 {
 	struct station *station;
-#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
-#endif
 	bool autoconnect = true;
 
 	station = l_new(struct station, 1);
@@ -4353,10 +4351,8 @@ static struct station *station_create(struct netdev *netdev)
 
 	l_queue_push_head(station_list, station);
 
-#ifdef HAVE_DBUS
 	l_dbus_object_add_interface(dbus, netdev_get_path(netdev),
 					IWD_STATION_INTERFACE, station);
-#endif
 
 	if (netconfig_enabled())
 		station->netconfig = netconfig_new(netdev_get_ifindex(netdev));
@@ -4389,6 +4385,7 @@ static void station_free(struct station *station)
 	if (!l_queue_remove(station_list, station))
 		return;
 
+#ifdef HAVE_DBUS
 	l_dbus_object_remove_interface(dbus_get_bus(),
 					netdev_get_path(station->netdev),
 					IWD_STATION_DIAGNOSTIC_INTERFACE);
@@ -4396,6 +4393,7 @@ static void station_free(struct station *station)
 		l_dbus_object_remove_interface(dbus_get_bus(),
 					netdev_get_path(station->netdev),
 					IWD_STATION_DEBUG_INTERFACE);
+#endif
 
 	if (station->netconfig) {
 		netconfig_destroy(station->netconfig);
@@ -5086,6 +5084,8 @@ static void add_frame_watches(struct netdev *netdev)
 			L_UINT_TO_PTR(netdev_get_ifindex(netdev)), NULL);
 }
 
+// FIND_FUNC(find_station, struct station);
+
 static void station_netdev_watch(struct netdev *netdev,
 				enum netdev_watch_event event, void *userdata)
 {
@@ -5103,14 +5103,14 @@ static void station_netdev_watch(struct netdev *netdev,
 			station_create(netdev);
 
 		break;
-#ifdef HAVE_DBUS
 	case NETDEV_WATCH_EVENT_DOWN:
 	case NETDEV_WATCH_EVENT_DEL:
+    	// FIND_AND_REMOVE(find_station, station_list, station_free);
+
 		l_dbus_object_remove_interface(dbus_get_bus(),
 						netdev_get_path(netdev),
 						IWD_STATION_INTERFACE);
 		break;
-#endif
 	case NETDEV_WATCH_EVENT_IFTYPE_CHANGE:
 		if (netdev_get_iftype(netdev) == NETDEV_IFTYPE_STATION)
 			add_frame_watches(netdev);
@@ -5141,10 +5141,10 @@ static int station_init(void)
 {
 	station_list = l_queue_new();
 	netdev_watch = netdev_watch_add(station_netdev_watch, NULL, NULL);
-#ifdef HAVE_DBUS
 	l_dbus_register_interface(dbus_get_bus(), IWD_STATION_INTERFACE,
 					station_setup_interface,
 					station_destroy_interface, false);
+#ifdef HAVE_DBUS
 	l_dbus_register_interface(dbus_get_bus(),
 					IWD_STATION_DIAGNOSTIC_INTERFACE,
 					station_setup_diagnostic_interface,
@@ -5208,8 +5208,8 @@ static void station_exit(void)
 	if (iwd_is_developer_mode())
 		l_dbus_unregister_interface(dbus_get_bus(),
 					IWD_STATION_DEBUG_INTERFACE);
-	l_dbus_unregister_interface(dbus_get_bus(), IWD_STATION_INTERFACE);
 #endif
+	l_dbus_unregister_interface(dbus_get_bus(), IWD_STATION_INTERFACE);
 	netdev_watch_remove(netdev_watch);
 	l_queue_destroy(station_list, NULL);
 	station_list = NULL;

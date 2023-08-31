@@ -39,6 +39,7 @@
 
 #include "linux/nl80211.h"
 
+#include "src/agent.h"
 #include "src/iwd.h"
 #include "src/module.h"
 #include "src/wiphy.h"
@@ -85,6 +86,8 @@ static void iwd_shutdown(void)
 
 #ifdef HAVE_DBUS
 	dbus_shutdown();
+#else
+    agent_shutdown();
 #endif
 	netdev_shutdown();
 
