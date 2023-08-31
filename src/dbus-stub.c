@@ -88,6 +88,7 @@ bool fake_dbus_object_remove_interface(const char *object,
       for (size_t j = 0; j < iface->objects_len; j++) {
         if (!strcmp(object, iface->objects[j].object)) {
           iface->destroy(iface->objects[j].user_data);
+          iface->objects[j].object[0] = '\0';
 
           return true;
         }
