@@ -107,4 +107,9 @@ bool fake_dbus_object_remove_interface(const char *object, const char *interface
 #define l_dbus_interface_signal(...) (false)
 #define l_dbus_interface_property(...) (false)
 #define l_dbus_property_changed(...) (false)
+
+#undef L_DBUS_INTERFACE_DBUS
+#undef L_DBUS_INTERFACE_INTROSPECTABLE
+#undef L_DBUS_INTERFACE_PROPERTIES
+#undef L_DBUS_INTERFACE_OBJECT_MANAGER
 #endif

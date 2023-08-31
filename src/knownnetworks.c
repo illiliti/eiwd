@@ -220,14 +220,16 @@ static void known_network_register_dbus(struct network_info *network)
 		l_info("Unable to register %s interface",
 						IWD_KNOWN_NETWORK_INTERFACE);
 
+#ifdef HAVE_DBUS
 	if (!l_dbus_object_add_interface(dbus_get_bus(), path,
 					L_DBUS_INTERFACE_PROPERTIES, network))
 		l_info("Unable to register %s interface",
 						L_DBUS_INTERFACE_PROPERTIES);
+#endif
 }
 
 static void known_network_set_autoconnect(struct network_info *network,
-							bool autoconnect)
+bool autoconnect)
 {
 	if (network->config.is_autoconnectable == autoconnect)
 		return;

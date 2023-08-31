@@ -3584,6 +3584,7 @@ static bool p2p_device_peer_add(struct p2p_device *dev, struct p2p_peer *peer)
 		return false;
 	}
 
+#ifdef HAVE_DBUS
 	if (!l_dbus_object_add_interface(dbus_get_bus(),
 						p2p_peer_get_path(peer),
 						L_DBUS_INTERFACE_PROPERTIES,
@@ -3594,6 +3595,7 @@ static bool p2p_device_peer_add(struct p2p_device *dev, struct p2p_peer *peer)
 			L_DBUS_INTERFACE_PROPERTIES, p2p_peer_get_path(peer));
 		return false;
 	}
+#endif
 
 	peer->wsc.get_path = p2p_peer_wsc_get_path;
 	peer->wsc.connect = p2p_peer_wsc_connect;
