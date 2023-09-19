@@ -843,7 +843,7 @@ bool wiphy_constrain_freq_set(const struct wiphy *wiphy,
 		if (!band)
 			continue;
 
-		for (i = 0; i < band->freqs_len; i++) {
+		for (i = 1; i <= band->freqs_len; i++) {
 			uint32_t freq;
 
 			if (!band->freq_attrs[i].supported)
