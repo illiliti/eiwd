@@ -291,6 +291,12 @@ autoconnect purposes.
    :widths: 20 80
    :align: left
 
+   * - BandModifier2_4Ghz
+     - Values: floating point value (default: **1.0**)
+
+       Increase or decrease the preference for 2.4GHz access points by
+       increasing or decreasing the value of this modifier.
+
    * - BandModifier5Ghz
      - Values: floating point value (default: **1.0**)
 
