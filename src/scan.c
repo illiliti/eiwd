@@ -2310,6 +2310,33 @@ bool scan_get_firmware_scan(uint64_t wdev_id, scan_notify_func_t notify,
 	return true;
 }
 
+double scan_get_band_rank_modifier(enum band_freq band)
+{
+	const struct l_settings *config = iwd_get_config();
+	double modifier;
+	char *str;
+
+	switch (band) {
+	case BAND_FREQ_2_4_GHZ:
+		str = "BandModifier2_4Ghz";
+		break;
+	case BAND_FREQ_5_GHZ:
+		str = "BandModifier5Ghz";
+		break;
+	case BAND_FREQ_6_GHZ:
+		str = "BandModifier6Ghz";
+		break;
+	default:
+		l_warn("Unhandled band %u", band);
+		return 0.0;
+	}
+
+	if (!l_settings_get_double(config, "Rank", str, &modifier))
+		modifier = 1.0;
+
+	return modifier;
+}
+
 bool scan_wdev_add(uint64_t wdev_id)
 {
 	struct scan_context *sc;
@@ -2359,17 +2386,9 @@ static int scan_init(void)
 
 	scan_contexts = l_queue_new();
 
-	if (!l_settings_get_double(config, "Rank", "BandModifier2_4Ghz",
-					&RANK_2G_FACTOR))
-		RANK_2G_FACTOR = 1.0;
-
-	if (!l_settings_get_double(config, "Rank", "BandModifier5Ghz",
-					&RANK_5G_FACTOR))
-		RANK_5G_FACTOR = 1.0;
-
-	if (!l_settings_get_double(config, "Rank", "BandModifier6Ghz",
-					&RANK_6G_FACTOR))
-		RANK_6G_FACTOR = 1.0;
+	RANK_2G_FACTOR = scan_get_band_rank_modifier(BAND_FREQ_2_4_GHZ);
+	RANK_5G_FACTOR = scan_get_band_rank_modifier(BAND_FREQ_5_GHZ);
+	RANK_6G_FACTOR = scan_get_band_rank_modifier(BAND_FREQ_6_GHZ);
 
 	if (!l_settings_get_uint(config, "Scan", "InitialPeriodicScanInterval",
 					&SCAN_INIT_INTERVAL))

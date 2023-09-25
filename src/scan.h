@@ -29,6 +29,7 @@ struct p2p_beacon;
 struct mmpdu_header;
 struct wiphy;
 enum security;
+enum band_freq;
 
 enum scan_state {
 	SCAN_STATE_NOT_RUNNING,
@@ -169,6 +170,8 @@ struct scan_bss *scan_bss_new_from_probe_req(const struct mmpdu_header *mpdu,
 						const uint8_t *body,
 						size_t body_len,
 						uint32_t frequency, int rssi);
+
+double scan_get_band_rank_modifier(enum band_freq band);
 
 bool scan_wdev_add(uint64_t wdev_id);
 bool scan_wdev_remove(uint64_t wdev_id);
