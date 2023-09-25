@@ -53,6 +53,7 @@
 #include "src/scan.h"
 
 /* User configurable options */
+static double RANK_2G_FACTOR;
 static double RANK_5G_FACTOR;
 static double RANK_6G_FACTOR;
 static uint32_t SCAN_MAX_INTERVAL;
@@ -1634,6 +1635,9 @@ static void scan_bss_compute_rank(struct scan_bss *bss)
 
 	rank = (double)bss->data_rate / max_rate * USHRT_MAX;
 
+	if (bss->frequency < 3000)
+		rank *= RANK_2G_FACTOR;
+
 	/* Prefer 5G networks over 2.4G and 6G */
 	if (bss->frequency >= 4900 && bss->frequency < 5900)
 		rank *= RANK_5G_FACTOR;
@@ -2354,6 +2358,10 @@ static int scan_init(void)
 	const struct l_settings *config = iwd_get_config();
 
 	scan_contexts = l_queue_new();
+
+	if (!l_settings_get_double(config, "Rank", "BandModifier2_4Ghz",
+					&RANK_2G_FACTOR))
+		RANK_2G_FACTOR = 1.0;
 
 	if (!l_settings_get_double(config, "Rank", "BandModifier5Ghz",
 					&RANK_5G_FACTOR))
