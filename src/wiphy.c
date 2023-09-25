@@ -500,6 +500,21 @@ const struct scan_freq_set *wiphy_get_supported_freqs(
 	return wiphy->supported_freqs;
 }
 
+struct scan_freq_set *wiphy_get_allowed_freqs(const struct wiphy *wiphy,
+						uint32_t band_mask)
+{
+	struct scan_freq_set *allowed = scan_freq_set_clone(
+						wiphy->supported_freqs,
+						band_mask);
+
+	if (!wiphy_constrain_freq_set(wiphy, allowed)) {
+		scan_freq_set_free(allowed);
+		allowed = NULL;
+	}
+
+	return allowed;
+}
+
 static struct band *wiphy_get_band(const struct wiphy *wiphy, enum band_freq band)
 {
 	switch (band) {
