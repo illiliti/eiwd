@@ -297,6 +297,9 @@ autoconnect purposes.
        Increase or decrease the preference for 2.4GHz access points by
        increasing or decreasing the value of this modifier.
 
+       A value of 0.0 will disable the 2.4GHz band and prevent scanning or
+       connecting on those frequencies.
+
    * - BandModifier5Ghz
      - Values: floating point value (default: **1.0**)
 
@@ -306,12 +309,18 @@ autoconnect purposes.
        networks are highly RSSI sensitive, so it is still possible for IWD to
        prefer 2.4Ghz APs in certain circumstances.
 
+       A value of 0.0 will disable the 5GHz band and prevent scanning or
+       connecting on those frequencies.
+
    * - BandModifier6Ghz
      - Values: floating point value (default: **1.0**)
 
        Increase or decrease the preference for 6GHz access points by increasing
        or decreasing the value of this modifier.  Since 6GHz networks are highly
        RSSI sensitive, this gives an option to prefer 6GHz APs over 5GHz APs.
+
+       A value of 0.0 will disable the 6GHz band and prevent scanning or
+       connecting on those frequencies.
 
 Scan
 ----
