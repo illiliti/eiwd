@@ -987,9 +987,43 @@ static void scan_periodic_destroy(void *user_data)
 	sc->sp.id = 0;
 }
 
+static struct scan_freq_set *scan_periodic_get_freqs(struct scan_context *sc)
+{
+	uint32_t band_mask = 0;
+	struct scan_freq_set *freqs;
+	const struct scan_freq_set *supported =
+					wiphy_get_supported_freqs(sc->wiphy);
+
+	if (RANK_2G_FACTOR)
+		band_mask |= BAND_FREQ_2_4_GHZ;
+	if (RANK_5G_FACTOR)
+		band_mask |= BAND_FREQ_5_GHZ;
+	if (RANK_6G_FACTOR)
+		band_mask |= BAND_FREQ_6_GHZ;
+
+	freqs = scan_freq_set_clone(supported, band_mask);
+	if (scan_freq_set_isempty(freqs)) {
+		scan_freq_set_free(freqs);
+		freqs = NULL;
+	}
+
+	return freqs;
+}
+
 static bool scan_periodic_queue(struct scan_context *sc)
 {
 	struct scan_parameters params = {};
+	struct scan_freq_set *freqs = scan_periodic_get_freqs(sc);
+
+	/*
+	 * If this happens its due to the user disabling all bands. This will
+	 * cause IWD to never issue another periodic scan so warn the user of
+	 * this.
+	 */
+	if (L_WARN_ON(!freqs))
+		return false;
+
+	params.freqs = freqs;
 
 	if (sc->sp.needs_active_scan && known_networks_has_hidden()) {
 		params.randomize_mac_addr_hint = true;
@@ -1006,6 +1040,8 @@ static bool scan_periodic_queue(struct scan_context *sc)
 					scan_periodic_triggered,
 					scan_periodic_notify, sc,
 					scan_periodic_destroy);
+
+	scan_freq_set_free(freqs);
 
 	return sc->sp.id != 0;
 }
