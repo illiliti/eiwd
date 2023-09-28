@@ -73,6 +73,7 @@ static bool supports_arp_evict_nocarrier;
 static bool supports_ndisc_evict_nocarrier;
 static struct watchlist event_watches;
 static uint32_t known_networks_watch;
+static uint32_t allowed_bands;
 
 struct station {
 	enum station_state state;
@@ -1326,6 +1327,21 @@ static bool station_needs_hidden_network_scan(struct station *station)
 	return !l_queue_isempty(station->hidden_bss_list_sorted);
 }
 
+static struct scan_freq_set *station_get_allowed_freqs(struct station *station)
+{
+	const struct scan_freq_set *supported =
+				wiphy_get_supported_freqs(station->wiphy);
+	struct scan_freq_set *allowed = scan_freq_set_clone(supported,
+							allowed_bands);
+
+	if (scan_freq_set_isempty(allowed)) {
+		scan_freq_set_free(allowed);
+		allowed = NULL;
+	}
+
+	return allowed;
+}
+
 static uint32_t station_scan_trigger(struct station *station,
 					struct scan_freq_set *freqs,
 					scan_trigger_func_t triggered,
@@ -1411,6 +1427,7 @@ static void station_quick_scan_destroy(void *userdata)
 static int station_quick_scan_trigger(struct station *station)
 {
 	_auto_(scan_freq_set_free) struct scan_freq_set *known_freq_set = NULL;
+	_auto_(scan_freq_set_free) struct scan_freq_set *allowed = NULL;
 	bool known_6ghz;
 
 	if (wiphy_regdom_is_updating(station->wiphy)) {
@@ -1440,9 +1457,14 @@ static int station_quick_scan_trigger(struct station *station)
 			known_6ghz)
 		return -ENOTSUP;
 
-	if (!wiphy_constrain_freq_set(station->wiphy, known_freq_set)) {
+	allowed = station_get_allowed_freqs(station);
+	if (L_WARN_ON(!allowed))
 		return -ENOTSUP;
-	}
+
+	scan_freq_set_constrain(known_freq_set, allowed);
+
+	if (scan_freq_set_isempty(known_freq_set))
+		return -ENOTSUP;
 
 	station->quick_scan_id = station_scan_trigger(station,
 						known_freq_set,
@@ -2656,6 +2678,11 @@ static int station_roam_scan(struct station *station,
 				struct scan_freq_set *freq_set)
 {
 	struct scan_parameters params = { .freqs = freq_set, .flush = true };
+	_auto_(scan_freq_set_free) struct scan_freq_set *allowed =
+					station_get_allowed_freqs(station);
+
+	if (L_WARN_ON(!allowed))
+		return -ENOTSUP;
 
 	l_debug("ifindex: %u", netdev_get_ifindex(station->netdev));
 
@@ -2666,8 +2693,14 @@ static int station_roam_scan(struct station *station,
 		params.ssid_len = strlen(ssid);
 	}
 
-	if (!freq_set)
+	if (!freq_set) {
 		station->roam_scan_full = true;
+		params.freqs = allowed;
+	} else
+		scan_freq_set_constrain(freq_set, allowed);
+
+	if (L_WARN_ON(scan_freq_set_isempty(params.freqs)))
+		return -ENOTSUP;
 
 	station->roam_scan_id =
 		scan_active_full(netdev_get_wdev_id(station->netdev), &params,
@@ -3597,6 +3630,7 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 	};
 	const char *ssid;
 	struct network *network;
+	_auto_(scan_freq_set_free) struct scan_freq_set *allowed = NULL;
 
 	l_debug("");
 
@@ -3647,6 +3681,11 @@ not_hidden:
 		return dbus_error_not_hidden(message);
 	}
 
+	allowed = station_get_allowed_freqs(station);
+	if (L_WARN_ON(!allowed))
+		return dbus_error_not_supported(message);
+
+	params.freqs = allowed;
 	params.ssid = (const uint8_t *)ssid;
 	params.ssid_len = strlen(ssid);
 
@@ -4268,39 +4307,67 @@ int station_hide_network(struct station *station, struct network *network)
 	return 0;
 }
 
-static void station_add_one_freq(uint32_t freq, void *user_data)
+static void station_add_2_4ghz_freq(uint32_t freq, void *user_data)
 {
-	struct station *station = user_data;
+	struct scan_freq_set *set = user_data;
 
-	if (freq > 3000)
-		scan_freq_set_add(station->scan_freqs_order[1], freq);
-	else if (!scan_freq_set_contains(station->scan_freqs_order[0], freq))
-		scan_freq_set_add(station->scan_freqs_order[2], freq);
+	/* exclude social channels added in initial scan request */
+	if (freq < 3000 && freq != 2412 && freq != 2437 && freq != 2462)
+		scan_freq_set_add(set, freq);
 }
 
 static void station_fill_scan_freq_subsets(struct station *station)
 {
 	const struct scan_freq_set *supported =
-		wiphy_get_supported_freqs(station->wiphy);
+				wiphy_get_supported_freqs(station->wiphy);
+	unsigned int subset_idx = 0;
 
 	/*
 	 * Scan the 2.4GHz "social channels" first, 5GHz second, if supported,
 	 * all other 2.4GHz channels last.  To be refined as needed.
 	 */
-	station->scan_freqs_order[0] = scan_freq_set_new();
-	scan_freq_set_add(station->scan_freqs_order[0], 2412);
-	scan_freq_set_add(station->scan_freqs_order[0], 2437);
-	scan_freq_set_add(station->scan_freqs_order[0], 2462);
-
-	station->scan_freqs_order[1] = scan_freq_set_new();
-	station->scan_freqs_order[2] = scan_freq_set_new();
-	scan_freq_set_foreach(supported, station_add_one_freq, station);
-
-	if (scan_freq_set_isempty(station->scan_freqs_order[1])) {
-		scan_freq_set_free(station->scan_freqs_order[1]);
-		station->scan_freqs_order[1] = station->scan_freqs_order[2];
-		station->scan_freqs_order[2] = NULL;
+	if (allowed_bands & BAND_FREQ_2_4_GHZ) {
+		station->scan_freqs_order[subset_idx] = scan_freq_set_new();
+		scan_freq_set_add(station->scan_freqs_order[subset_idx], 2412);
+		scan_freq_set_add(station->scan_freqs_order[subset_idx], 2437);
+		scan_freq_set_add(station->scan_freqs_order[subset_idx], 2462);
+		subset_idx++;
 	}
+
+	/*
+	 * TODO: It may might sense to split up 5 and 6ghz into separate subsets
+	 *       since the channel set is so large.
+	 */
+	if (allowed_bands & (BAND_FREQ_5_GHZ | BAND_FREQ_6_GHZ)) {
+		uint32_t mask = allowed_bands &
+					(BAND_FREQ_5_GHZ | BAND_FREQ_6_GHZ);
+		struct scan_freq_set *set = scan_freq_set_clone(supported,
+								mask);
+
+		/* 5/6ghz didn't add any frequencies */
+		if (scan_freq_set_isempty(set)) {
+			scan_freq_set_free(set);
+		} else
+			station->scan_freqs_order[subset_idx++] = set;
+	}
+
+	/* Add remaining 2.4ghz channels to subset */
+	if (allowed_bands & BAND_FREQ_2_4_GHZ) {
+		station->scan_freqs_order[subset_idx] = scan_freq_set_new();
+		scan_freq_set_foreach(supported, station_add_2_4ghz_freq,
+					station->scan_freqs_order[subset_idx]);
+	}
+
+	/*
+	 * This has the unintended consequence of allowing DBus scans to
+	 * scan the entire spectrum rather than cause IWD to be completely
+	 * non-functional. Rather than prevent DBus scans from working at all
+	 * print a warning here.
+	 */
+	if (station->scan_freqs_order[0] == NULL)
+		l_warn("All supported bands were disabled by user! IWD will not"
+			" function as expected");
+
 }
 
 static void station_wiphy_watch(struct wiphy *wiphy,
@@ -5193,6 +5260,13 @@ static int station_init(void)
 	known_networks_watch = known_networks_watch_add(
 						station_known_networks_changed,
 						NULL, NULL);
+
+	if (scan_get_band_rank_modifier(BAND_FREQ_2_4_GHZ))
+		allowed_bands |= BAND_FREQ_2_4_GHZ;
+	if (scan_get_band_rank_modifier(BAND_FREQ_5_GHZ))
+		allowed_bands |= BAND_FREQ_5_GHZ;
+	if (scan_get_band_rank_modifier(BAND_FREQ_6_GHZ))
+		allowed_bands |= BAND_FREQ_6_GHZ;
 
 	return 0;
 }
