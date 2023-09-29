@@ -1450,9 +1450,7 @@ static int station_quick_scan_trigger(struct station *station)
 	 * this since its so limited, so return an error which will fall back to
 	 * full autoconnect.
 	 */
-	if (wiphy_get_supported_bands(station->wiphy) & BAND_FREQ_6_GHZ &&
-			wiphy_band_is_disabled(station->wiphy,
-						BAND_FREQ_6_GHZ) &&
+	if (wiphy_band_is_disabled(station->wiphy, BAND_FREQ_6_GHZ) == 1 &&
 			wiphy_country_is_unknown(station->wiphy) &&
 			known_6ghz)
 		return -ENOTSUP;

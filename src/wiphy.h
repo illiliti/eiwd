@@ -111,7 +111,7 @@ const struct band_freq_attrs *wiphy_get_frequency_info_list(
 						enum band_freq band,
 						size_t *size);
 
-bool wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band);
+int wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band);
 
 bool wiphy_supports_probe_resp_offload(struct wiphy *wiphy);
 bool wiphy_can_transition_disable(struct wiphy *wiphy);

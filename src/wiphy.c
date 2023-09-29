@@ -570,7 +570,7 @@ const struct band_freq_attrs *wiphy_get_frequency_info_list(
 	return bandp->freq_attrs;
 }
 
-bool wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band)
+int wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band)
 {
 	struct band_freq_attrs attr;
 	unsigned int i;
@@ -578,7 +578,7 @@ bool wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band)
 
 	bandp = wiphy_get_band(wiphy, band);
 	if (!bandp)
-		return true;
+		return -ENOTSUP;
 
 	for (i = 0; i < bandp->freqs_len; i++) {
 		attr = bandp->freq_attrs[i];
@@ -587,10 +587,10 @@ bool wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band)
 			continue;
 
 		if (!attr.disabled)
-			return false;
+			return 0;
 	}
 
-	return true;
+	return 1;
 }
 
 bool wiphy_supports_probe_resp_offload(struct wiphy *wiphy)
