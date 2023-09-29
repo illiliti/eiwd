@@ -574,8 +574,6 @@ static void scan_cmds_add(struct scan_request *sr, struct scan_context *sc,
 	uint32_t bands = BAND_FREQ_2_4_GHZ | BAND_FREQ_5_GHZ | BAND_FREQ_6_GHZ;
 	unsigned int i;
 	struct scan_freq_set *subsets[2] = { 0 };
-	_auto_(scan_freq_set_free) struct scan_freq_set *allowed =
-				wiphy_get_allowed_freqs(sc->wiphy, bands);
 	const struct scan_freq_set *supported =
 					wiphy_get_supported_freqs(sc->wiphy);
 
@@ -589,8 +587,7 @@ static void scan_cmds_add(struct scan_request *sr, struct scan_context *sc,
 		sr->scan_freqs = scan_freq_set_clone(params->freqs, bands);
 
 	/* If 6GHz is not possible or already allowed don't split the request */
-	if (!(scan_freq_set_get_bands(supported) & BAND_FREQ_6_GHZ) ||
-			(scan_freq_set_get_bands(allowed) & BAND_FREQ_6_GHZ)) {
+	if (wiphy_band_is_disabled(sc->wiphy, BAND_FREQ_6_GHZ) != 1) {
 		scan_build_next_cmd(sr->cmds, sc, passive,
 						params, sr->scan_freqs);
 		return;
@@ -1947,8 +1944,8 @@ static void scan_wiphy_watch(struct wiphy *wiphy,
 	struct scan_request *sr = NULL;
 	struct l_genl_msg *msg = NULL;
 	struct scan_parameters params = { 0 };
-	struct scan_freq_set *allowed;
 	_auto_(scan_freq_set_free) struct scan_freq_set *freqs_6ghz = NULL;
+	int disabled;
 
 	/* Only care about completed regulatory dumps */
 	if (event != WIPHY_STATE_WATCH_EVENT_REGDOM_DONE)
@@ -1962,17 +1959,18 @@ static void scan_wiphy_watch(struct wiphy *wiphy,
 	if (!sr)
 		return;
 
-	allowed = wiphy_get_allowed_freqs(sc->wiphy, BAND_FREQ_6_GHZ);
-	freqs_6ghz = scan_freq_set_clone(sr->scan_freqs, BAND_FREQ_6_GHZ);
-
 	/*
 	 * This update did not allow 6GHz, or the original request was
 	 * not expecting 6GHz. The periodic scan should now be ended.
 	 */
-	if (!allowed || scan_freq_set_isempty(freqs_6ghz) || !sr->split) {
+	disabled = wiphy_band_is_disabled(wiphy, BAND_FREQ_6_GHZ);
+	if (scan_freq_set_get_bands(sr->freqs_scanned) & BAND_FREQ_6_GHZ ||
+			disabled == 1 || !sr->split) {
 		scan_get_results(sc, sr, sr->freqs_scanned);
-		goto free_allowed;
+		return;
 	}
+
+	freqs_6ghz = scan_freq_set_clone(sr->scan_freqs, BAND_FREQ_6_GHZ);
 
 	/*
 	 * At this point we know there is an ongoing periodic scan.
@@ -1988,9 +1986,6 @@ static void scan_wiphy_watch(struct wiphy *wiphy,
 	 */
 	if (l_queue_peek_head(sc->requests) == sr)
 		start_next_scan_request(&sr->work);
-
-free_allowed:
-	scan_freq_set_free(allowed);
 }
 
 static struct scan_context *scan_context_new(uint64_t wdev_id)
