@@ -136,7 +136,6 @@ const char *wiphy_get_name(struct wiphy *wiphy);
 bool wiphy_uses_default_if(struct wiphy *wiphy);
 bool wiphy_control_port_enabled(struct wiphy *wiphy);
 bool wiphy_power_save_disabled(struct wiphy *wiphy);
-const uint8_t *wiphy_get_permanent_address(struct wiphy *wiphy);
 const uint8_t *wiphy_get_extended_capabilities(struct wiphy *wiphy,
 							uint32_t iftype);
 const uint8_t *wiphy_get_rm_enabled_capabilities(struct wiphy *wiphy);

@@ -730,11 +730,6 @@ bool wiphy_power_save_disabled(struct wiphy *wiphy)
 	return false;
 }
 
-const uint8_t *wiphy_get_permanent_address(struct wiphy *wiphy)
-{
-	return wiphy->permanent_addr;
-}
-
 const uint8_t *wiphy_get_extended_capabilities(struct wiphy *wiphy,
 							uint32_t iftype)
 {
