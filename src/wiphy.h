@@ -127,7 +127,6 @@ bool wiphy_supports_iftype(struct wiphy *wiphy, uint32_t iftype);
 const uint8_t *wiphy_get_supported_rates(struct wiphy *wiphy,
 						enum band_freq band,
 						unsigned int *out_num);
-bool wiphy_supports_adhoc_rsn(struct wiphy *wiphy);
 bool wiphy_supports_qos_set_map(struct wiphy *wiphy);
 bool wiphy_supports_firmware_roam(struct wiphy *wiphy);
 const char *wiphy_get_driver(struct wiphy *wiphy);

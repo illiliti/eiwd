@@ -138,7 +138,6 @@ struct wiphy {
 
 	bool support_scheduled_scan:1;
 	bool support_rekey_offload:1;
-	bool support_adhoc_rsn:1;
 	bool support_qos_set_map:1;
 	bool support_cmds_auth_assoc:1;
 	bool support_fw_roam:1;
@@ -660,11 +659,6 @@ uint16_t wiphy_get_max_scan_ie_len(struct wiphy *wiphy)
 uint32_t wiphy_get_max_roc_duration(struct wiphy *wiphy)
 {
 	return wiphy->max_roc_duration;
-}
-
-bool wiphy_supports_adhoc_rsn(struct wiphy *wiphy)
-{
-	return wiphy->support_adhoc_rsn;
 }
 
 bool wiphy_supports_qos_set_map(struct wiphy *wiphy)
@@ -1847,9 +1841,6 @@ static void wiphy_parse_attributes(struct wiphy *wiphy,
 				l_warn("Invalid MAX_SCAN_IE_LEN attribute");
 			else
 				wiphy->max_scan_ie_len = *((uint16_t *) data);
-			break;
-		case NL80211_ATTR_SUPPORT_IBSS_RSN:
-			wiphy->support_adhoc_rsn = true;
 			break;
 		case NL80211_ATTR_SUPPORTED_IFTYPES:
 			if (l_genl_attr_recurse(&attr, &nested))
