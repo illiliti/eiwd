@@ -667,11 +667,6 @@ bool wiphy_supports_adhoc_rsn(struct wiphy *wiphy)
 	return wiphy->support_adhoc_rsn;
 }
 
-bool wiphy_can_offchannel_tx(struct wiphy *wiphy)
-{
-	return wiphy->offchannel_tx_ok;
-}
-
 bool wiphy_supports_qos_set_map(struct wiphy *wiphy)
 {
 	return wiphy->support_qos_set_map;
