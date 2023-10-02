@@ -5203,6 +5203,19 @@ static void station_known_networks_changed(enum known_networks_event event,
 
 static int station_init(void)
 {
+	if (scan_get_band_rank_modifier(BAND_FREQ_2_4_GHZ))
+		allowed_bands |= BAND_FREQ_2_4_GHZ;
+	if (scan_get_band_rank_modifier(BAND_FREQ_5_GHZ))
+		allowed_bands |= BAND_FREQ_5_GHZ;
+	if (scan_get_band_rank_modifier(BAND_FREQ_6_GHZ))
+		allowed_bands |= BAND_FREQ_6_GHZ;
+
+	if (!(allowed_bands & (BAND_FREQ_2_4_GHZ | BAND_FREQ_5_GHZ))) {
+		l_error("At least 2.4GHz and 5GHz bands must be enabled for "
+			"IWD to start, check [Rank].BandModifier* setting");
+		return -ENOTSUP;
+	}
+
 	station_list = l_queue_new();
 	netdev_watch = netdev_watch_add(station_netdev_watch, NULL, NULL);
 	l_dbus_register_interface(dbus_get_bus(), IWD_STATION_INTERFACE,
@@ -5258,13 +5271,6 @@ static int station_init(void)
 	known_networks_watch = known_networks_watch_add(
 						station_known_networks_changed,
 						NULL, NULL);
-
-	if (scan_get_band_rank_modifier(BAND_FREQ_2_4_GHZ))
-		allowed_bands |= BAND_FREQ_2_4_GHZ;
-	if (scan_get_band_rank_modifier(BAND_FREQ_5_GHZ))
-		allowed_bands |= BAND_FREQ_5_GHZ;
-	if (scan_get_band_rank_modifier(BAND_FREQ_6_GHZ))
-		allowed_bands |= BAND_FREQ_6_GHZ;
 
 	return 0;
 }
