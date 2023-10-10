@@ -751,11 +751,11 @@ uint8_t *dpp_point_to_asn1(const struct l_ecc_point *p, size_t *len_out)
 
 	/*
 	 * Set the type to whatever avoids doing p - y when reading in the
-	 * key. Working backwards from l_ecc_point_from_data if Y is odd and
-	 * the type is BIT0 there is no subtraction. Similarly if Y is even
+	 * key. Working backwards from l_ecc_point_from_data if Y is even and
+	 * the type is BIT0 there is no subtraction. Similarly if Y is odd
 	 * and the type is BIT1.
 	 */
-	if (l_ecc_point_y_isodd(p))
+	if (!l_ecc_point_y_isodd(p))
 		point_type = L_ECC_POINT_TYPE_COMPRESSED_BIT0;
 	else
 		point_type = L_ECC_POINT_TYPE_COMPRESSED_BIT1;
