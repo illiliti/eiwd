@@ -162,11 +162,14 @@ static void test_bad_channels(const void *data)
  * B.2 Test Vectors for DPP Authentication Using P-256 for
  * Responder-only Authentication
  */
-const char *i_proto_public_bytes = "50a532ae2a07207276418d2fa630295d45569be425aa634f02014d00a7d1f61a";
-const char *r_boot_public_bytes = "09c585a91b4df9fd25a045201885c39cc5cfae397ddaeda957dec57fa0e3503f";
+const char *i_proto_public_bytes = "50a532ae2a07207276418d2fa630295d45569be425aa634f02014d00a7d1f61a"
+				"e14f35a5a858bccad90d126c46594c49ef82655e78888e15a32d916ac2172491";
+const char *r_boot_public_bytes = "09c585a91b4df9fd25a045201885c39cc5cfae397ddaeda957dec57fa0e3503f"
+				"52bf05968198a2f92883e96a386d767579883302dbf292105c90a43694c2fd5c";
 const char *r_boot_private_bytes = "54ce181a98525f217216f59b245f60e9df30ac7f6b26c939418cfc3c42d1afa0";
 const char *r_proto_private_bytes = "f798ed2e19286f6a6efe210b1863badb99af2a14b497634dbfd2a97394fb5aa5";
-const char *r_proto_public_bytes = "5e3fb3576884887f17c3203d8a3a6c2fac722ef0e2201b61ac73bc655c709a90";
+const char *r_proto_public_bytes = "5e3fb3576884887f17c3203d8a3a6c2fac722ef0e2201b61ac73bc655c709a90"
+				"2d4b030669fb9eff8b0a79fa7c1a172ac2a92c626256963f9274dc90682c81e5";
 const char *k1_bytes = "3d832a02ed6d7fc1dc96d2eceab738cf01c0028eb256be33d5a21a720bfcf949";
 const char *k2_bytes = "ca08bdeeef838ddf897a5f01f20bb93dc5a895cb86788ca8c00a7664899bc310";
 const char *ke_bytes = "c8882a8ab30c878467822534138c704ede0ab1e873fe03b601a7908463fec87a";
@@ -176,6 +179,8 @@ const char *i_nonce_bytes = "13f4602a16daeb69712263b9c46cba31";
 const char *r_nonce_bytes = "3d0cfb011ca916d796f7029ff0b43393";
 const char *i_auth_bytes = "787d1189b526448d2901e7f6c22775ce514fce52fc886c1e924f2fbb8d97b210";
 const char *r_auth_bytes = "43509ef7137d8c2fbe66d802ae09dedd94d41b8cbfafb4954782014ff4a3f91c";
+const char *r_asn1 = "3039301306072a8648ce3d020106082a8648ce3d0301070322000209c585a91b"
+			"4df9fd25a045201885c39cc5cfae397ddaeda957dec57fa0e3503f";
 
 #define HEX2BUF(s, buf, _len) { \
 	unsigned char *_tmp = l_util_from_hexstring(s, NULL); \
@@ -192,7 +197,7 @@ const char *r_auth_bytes = "43509ef7137d8c2fbe66d802ae09dedd94d41b8cbfafb4954782
 
 static void test_key_derivation(const void *data)
 {
-	uint64_t tmp[L_ECC_MAX_DIGITS];
+	uint64_t tmp[L_ECC_MAX_DIGITS * 2];
 	const struct l_ecc_curve *curve = l_ecc_curve_from_ike_group(19);
 	_auto_(l_ecc_point_free) struct l_ecc_point *i_proto_public = NULL;
 	_auto_(l_ecc_point_free) struct l_ecc_point *r_boot_public = NULL;
@@ -201,6 +206,7 @@ static void test_key_derivation(const void *data)
 	_auto_(l_ecc_point_free) struct l_ecc_point *r_proto_public = NULL;
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *m = NULL;
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *n = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *from_asn1 = NULL;
 	uint64_t k1[L_ECC_MAX_DIGITS];
 	uint64_t k2[L_ECC_MAX_DIGITS];
 	uint64_t ke[L_ECC_MAX_DIGITS];
@@ -208,23 +214,35 @@ static void test_key_derivation(const void *data)
 	uint8_t r_nonce[16];
 	uint64_t r_auth[L_ECC_MAX_DIGITS];
 	uint64_t i_auth[L_ECC_MAX_DIGITS];
+	_auto_(l_free) uint8_t *asn1 = NULL;
+	size_t asn1_len;
 
-	HEX2BUF(i_proto_public_bytes, tmp, 32);
+	HEX2BUF(i_proto_public_bytes, tmp, 64);
 	i_proto_public = l_ecc_point_from_data(curve,
-						L_ECC_POINT_TYPE_COMPLIANT,
-						tmp, 32);
+						L_ECC_POINT_TYPE_FULL,
+						tmp, 64);
 	assert(i_proto_public);
 
-	HEX2BUF(r_boot_public_bytes, tmp, 32);
+	HEX2BUF(r_boot_public_bytes, tmp, 64);
 	r_boot_public = l_ecc_point_from_data(curve,
-						L_ECC_POINT_TYPE_COMPLIANT,
-						tmp, 32);
+						L_ECC_POINT_TYPE_FULL,
+						tmp, 64);
 	assert(r_boot_public);
 
-	HEX2BUF(r_proto_public_bytes, tmp, 32);
+	HEX2BUF(r_asn1, tmp, sizeof(tmp));
+	asn1 = dpp_point_to_asn1(r_boot_public, &asn1_len);
+
+	from_asn1 = dpp_point_from_asn1(asn1, asn1_len);
+
+	assert(l_ecc_points_are_equal(from_asn1, r_boot_public));
+
+	assert(asn1_len == 59);
+	assert(memcmp(tmp, asn1, asn1_len) == 0);
+
+	HEX2BUF(r_proto_public_bytes, tmp, 64);
 	r_proto_public = l_ecc_point_from_data(curve,
-						L_ECC_POINT_TYPE_COMPLIANT,
-						tmp, 32);
+						L_ECC_POINT_TYPE_FULL,
+						tmp, 64);
 	assert(r_proto_public);
 
 	HEX2BUF(r_boot_private_bytes, tmp, 32);
