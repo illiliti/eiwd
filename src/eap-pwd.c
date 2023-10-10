@@ -320,7 +320,27 @@ static void eap_pwd_handle_id(struct eap_state *eap,
 				strlen("EAP-pwd Hunting And Pecking"),
 				pwd_value, nbytes);
 
-		if (!(pwd_seed[31] & 1))
+		/*
+		 * The RFC requires the point be solved unambiguously (since
+		 * solving for Y results in two solutions). The correct Y value
+		 * is chosen based on the LSB of the pwd-seed:
+		 *
+		 *     if (LSB(y) == LSB(pwd-seed))
+		 *     then
+		 *         PWE = (x, y)
+		 *     else
+		 *         PWE = (x, p-y)
+		 *
+		 * The ELL API (somewhat hidden from view here) automatically
+		 * performs a subtraction (P - Y) when:
+		 *     - Y is even and BIT1
+		 *     - Y is odd and BIT0
+		 *
+		 * So we choose the point type which matches the parity of
+		 * pwd-seed. This means a subtraction will be performed (P - Y)
+		 * if the parity of pwd-seed and the computed Y do not match.
+		 */
+		if (pwd_seed[31] & 1)
 			pwe = l_ecc_point_from_data(pwd->curve,
 					L_ECC_POINT_TYPE_COMPRESSED_BIT1,
 					pwd_value, nbytes);
