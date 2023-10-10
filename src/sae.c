@@ -511,7 +511,29 @@ static struct l_ecc_point *sae_compute_pwe(const struct l_ecc_curve *curve,
 		return NULL;
 	}
 
-	pwe = l_ecc_point_from_data(curve, !is_odd + 2, x, bytes);
+	/*
+	 * The 802.11 spec requires the point be solved unambiguously (since
+	 * solving for Y results in two solutions). The correct Y value
+	 * is chosen based on the LSB of the pwd-seed:
+	 *
+	 *     if (LSB(y) == LSB(pwd-seed))
+	 *     then
+	 *         PWE = (x, y)
+	 *     else
+	 *         PWE = (x, p-y)
+	 *
+	 * The ELL API (somewhat hidden from view here) automatically
+	 * performs a subtraction (P - Y) when:
+	 *     - Y is even and BIT1
+	 *     - Y is odd and BIT0
+	 *
+	 * So we choose the point type which matches the parity of
+	 * pwd-seed. This means a subtraction will be performed (P - Y)
+	 * if the parity of pwd-seed and the computed Y do not match.
+	 */
+	pwe = l_ecc_point_from_data(curve,
+				is_odd ? L_ECC_POINT_TYPE_COMPRESSED_BIT1 :
+				L_ECC_POINT_TYPE_COMPRESSED_BIT0, x, bytes);
 	if (!pwe)
 		l_error("computing y failed, was x quadratic residue?");
 
