@@ -439,8 +439,6 @@ free_ctr:
 	return false;
 }
 
-#define SWAP(a, b) do { int _t = a; a = b; b = _t; } while (0)
-
 static void arc4_set_key(struct arc4_ctx *ctx, unsigned int length,
 			 const uint8_t *key)
 {
