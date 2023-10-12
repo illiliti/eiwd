@@ -269,16 +269,16 @@ static void test_key_derivation(const void *data)
 
 	HEX2BUF(i_nonce_bytes, i_nonce, 16);
 	HEX2BUF(r_nonce_bytes, r_nonce, 16);
-	dpp_derive_ke(i_nonce, r_nonce, m, n, ke);
+	dpp_derive_ke(i_nonce, r_nonce, m, n, NULL, ke);
 
 	CHECK_FROM_STR(ke_bytes, ke, 32);
 
 	dpp_derive_r_auth(i_nonce, r_nonce, 16, i_proto_public, r_proto_public,
-				r_boot_public, r_auth);
+				NULL, r_boot_public, r_auth);
 	CHECK_FROM_STR(r_auth_bytes, r_auth, 32);
 
 	dpp_derive_i_auth(r_nonce, i_nonce, 16, r_proto_public, i_proto_public,
-				r_boot_public, i_auth);
+				r_boot_public, NULL, i_auth);
 	CHECK_FROM_STR(i_auth_bytes, i_auth, 32);
 }
 
