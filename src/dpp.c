@@ -111,6 +111,7 @@ struct dpp_sm {
 	uint32_t current_freq;
 	uint32_t new_freq;
 	struct scan_freq_set *presence_list;
+	uint32_t max_roc;
 
 	uint32_t offchannel_id;
 
@@ -2364,13 +2365,15 @@ static void dpp_create(struct netdev *netdev)
 	struct dpp_sm *dpp = l_new(struct dpp_sm, 1);
 	uint8_t dpp_conf_response_prefix[] = { 0x04, 0x0b };
 	uint8_t dpp_conf_request_prefix[] = { 0x04, 0x0a };
+	uint64_t wdev_id = netdev_get_wdev_id(netdev);
 
 	dpp->netdev = netdev;
 	dpp->state = DPP_STATE_NOTHING;
-	dpp->wdev_id = netdev_get_wdev_id(netdev);
+	dpp->wdev_id = wdev_id;
 	dpp->curve = l_ecc_curve_from_ike_group(19);
 	dpp->key_len = l_ecc_curve_get_scalar_bytes(dpp->curve);
 	dpp->nonce_len = dpp_nonce_len_from_key_len(dpp->key_len);
+	dpp->max_roc = wiphy_get_max_roc_duration(wiphy_find_by_wdev(wdev_id));
 	dpp->mcast_support = wiphy_has_ext_feature(
 				wiphy_find_by_wdev(dpp->wdev_id),
 				NL80211_EXT_FEATURE_MULTICAST_REGISTRATIONS);
@@ -2464,19 +2467,13 @@ static uint32_t *dpp_add_default_channels(struct dpp_sm *dpp, size_t *len_out)
 static void dpp_start_presence(struct dpp_sm *dpp, uint32_t *limit_freqs,
 					size_t limit_len)
 {
-	uint32_t max_roc = wiphy_get_max_roc_duration(
-					wiphy_find_by_wdev(dpp->wdev_id));
-
-	if (2000 < max_roc)
-		max_roc = 2000;
-
 	if (limit_freqs) {
 		dpp->freqs = l_memdup(limit_freqs, sizeof(uint32_t) * limit_len);
 		dpp->freqs_len = limit_len;
 	} else
 		dpp->freqs = dpp_add_default_channels(dpp, &dpp->freqs_len);
 
-	dpp->dwell = max_roc;
+	dpp->dwell = (dpp->max_roc < 2000) ? dpp->max_roc : 2000;
 	dpp->freqs_idx = 0;
 	dpp->current_freq = dpp->freqs[0];
 
