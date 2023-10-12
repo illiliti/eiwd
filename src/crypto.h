@@ -122,7 +122,7 @@ bool prf_plus_sha1(const void *key, size_t key_len,
 		const void *data, size_t data_len, void *output, size_t size);
 
 bool prf_plus(enum l_checksum_type type, const void *key, size_t key_len,
-		const char *label, void *out, size_t out_len,
+		void *out, size_t out_len,
 		size_t n_extra, ...);
 
 bool hkdf_extract(enum l_checksum_type type, const void *key, size_t key_len,
