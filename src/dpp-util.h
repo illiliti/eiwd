@@ -160,12 +160,14 @@ bool dpp_hash(enum l_checksum_type type, uint8_t *out, unsigned int num, ...);
 bool dpp_derive_r_auth(const void *i_nonce, const void *r_nonce,
 				size_t nonce_len, struct l_ecc_point *i_proto,
 				struct l_ecc_point *r_proto,
+				struct l_ecc_point *i_boot,
 				struct l_ecc_point *r_boot,
 				void *r_auth);
 bool dpp_derive_i_auth(const void *r_nonce, const void *i_nonce,
 				size_t nonce_len, struct l_ecc_point *r_proto,
 				struct l_ecc_point *i_proto,
-				struct l_ecc_point *r_boot, void *i_auth);
+				struct l_ecc_point *r_boot,
+				struct l_ecc_point *i_boot, void *i_auth);
 struct l_ecc_scalar *dpp_derive_k1(const struct l_ecc_point *i_proto_public,
 				const struct l_ecc_scalar *boot_private,
 				void *k1);

@@ -1336,7 +1336,7 @@ static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
 
 	dpp_derive_i_auth(dpp->r_nonce, dpp->i_nonce, dpp->nonce_len,
 				dpp->own_proto_public, dpp->peer_proto_public,
-				dpp->boot_public, i_auth_check);
+				dpp->boot_public, NULL, i_auth_check);
 
 	if (memcmp(i_auth, i_auth_check, i_auth_len)) {
 		l_error("I-Auth did not verify");
@@ -1812,7 +1812,7 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 
 	if (!dpp_derive_r_auth(dpp->i_nonce, dpp->r_nonce, dpp->nonce_len,
 				dpp->peer_proto_public, dpp->own_proto_public,
-				dpp->boot_public, dpp->auth_tag))
+				NULL, dpp->boot_public, dpp->auth_tag))
 		goto auth_request_failed;
 
 	memcpy(dpp->peer_addr, from, 6);
@@ -2016,7 +2016,7 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 	}
 
 	if (!dpp_derive_r_auth(i_nonce, r_nonce, dpp->nonce_len,
-				dpp->own_proto_public, r_proto_key,
+				dpp->own_proto_public, r_proto_key, NULL,
 				dpp->peer_boot_public, r_auth_derived)) {
 		l_debug("Failed to derive r_auth");
 		return;
@@ -2029,7 +2029,7 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 
 	if (!dpp_derive_i_auth(r_nonce, i_nonce, dpp->nonce_len,
 				r_proto_key, dpp->own_proto_public,
-				dpp->peer_boot_public, dpp->auth_tag)) {
+				dpp->peer_boot_public, NULL, dpp->auth_tag)) {
 		l_debug("Could not derive I-Auth");
 		return;
 	}

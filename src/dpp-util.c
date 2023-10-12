@@ -551,12 +551,14 @@ static bool dpp_hkdf(enum l_checksum_type sha, const void *salt,
 bool dpp_derive_r_auth(const void *i_nonce, const void *r_nonce,
 				size_t nonce_len, struct l_ecc_point *i_proto,
 				struct l_ecc_point *r_proto,
+				struct l_ecc_point *i_boot,
 				struct l_ecc_point *r_boot,
 				void *r_auth)
 {
 	uint64_t pix[L_ECC_MAX_DIGITS];
 	uint64_t prx[L_ECC_MAX_DIGITS];
 	uint64_t brx[L_ECC_MAX_DIGITS];
+	uint64_t bix[L_ECC_MAX_DIGITS];
 	size_t keys_len;
 	uint8_t zero = 0;
 	enum l_checksum_type type;
@@ -565,24 +567,30 @@ bool dpp_derive_r_auth(const void *i_nonce, const void *r_nonce,
 	l_ecc_point_get_x(r_proto, prx, sizeof(prx));
 	l_ecc_point_get_x(r_boot, brx, sizeof(brx));
 
+	if (i_boot)
+		l_ecc_point_get_x(i_boot, bix, sizeof(bix));
+
 	type = dpp_sha_from_key_len(keys_len);
 
 	/*
 	 * R-auth = H(I-nonce | R-nonce | PI.x | PR.x | [ BI.x | ] BR.x | 0)
 	 */
-	return dpp_hash(type, r_auth, 6, i_nonce, nonce_len, r_nonce, nonce_len,
-			pix, keys_len, prx, keys_len, brx, keys_len,
+	return dpp_hash(type, r_auth, 7, i_nonce, nonce_len, r_nonce, nonce_len,
+			pix, keys_len, prx, keys_len,
+			bix, i_boot ? keys_len : 0, brx, keys_len,
 			&zero, (size_t) 1);
 }
 
 bool dpp_derive_i_auth(const void *r_nonce, const void *i_nonce,
 				size_t nonce_len, struct l_ecc_point *r_proto,
 				struct l_ecc_point *i_proto,
-				struct l_ecc_point *r_boot, void *i_auth)
+				struct l_ecc_point *r_boot,
+				struct l_ecc_point *i_boot, void *i_auth)
 {
 	uint64_t prx[L_ECC_MAX_DIGITS];
 	uint64_t pix[L_ECC_MAX_DIGITS];
 	uint64_t brx[L_ECC_MAX_DIGITS];
+	uint64_t bix[L_ECC_MAX_DIGITS];
 	size_t keys_len;
 	uint8_t one = 1;
 	enum l_checksum_type type;
@@ -591,13 +599,17 @@ bool dpp_derive_i_auth(const void *r_nonce, const void *i_nonce,
 	l_ecc_point_get_x(i_proto, pix, sizeof(pix));
 	l_ecc_point_get_x(r_boot, brx, sizeof(brx));
 
+	if (i_boot)
+		l_ecc_point_get_x(i_boot, bix, sizeof(bix));
+
 	type = dpp_sha_from_key_len(keys_len);
 
 	/*
 	 * I-auth = H(R-nonce | I-nonce | PR.x | PI.x | BR.x | [ BI.x | ] 1)
 	 */
-	return dpp_hash(type, i_auth, 6, r_nonce, nonce_len, i_nonce, nonce_len,
+	return dpp_hash(type, i_auth, 7, r_nonce, nonce_len, i_nonce, nonce_len,
 			prx, keys_len, pix, keys_len, brx, keys_len,
+			bix, i_boot ? keys_len : 0,
 			&one, (size_t) 1);
 }
 
