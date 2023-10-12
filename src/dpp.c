@@ -1555,7 +1555,7 @@ static void dpp_roc_started(void *user_data)
 
 static void dpp_start_offchannel(struct dpp_sm *dpp, uint32_t freq);
 
-static void dpp_presence_timeout(int error, void *user_data)
+static void dpp_offchannel_timeout(int error, void *user_data)
 {
 	struct dpp_sm *dpp = user_data;
 
@@ -1588,13 +1588,13 @@ static void dpp_presence_timeout(int error, void *user_data)
 	dpp->freqs_idx++;
 
 	if (dpp->freqs_idx >= dpp->freqs_len) {
-		l_debug("Max retries on presence announcements");
+		l_debug("Max retries offchannel");
 		dpp->freqs_idx = 0;
 	}
 
 	dpp->current_freq = dpp->freqs[dpp->freqs_idx];
 
-	l_debug("Presence timeout, moving to next frequency %u, duration %u",
+	l_debug("Offchannel timeout, moving to next frequency %u, duration %u",
 			dpp->current_freq, dpp->dwell);
 
 next_roc:
@@ -1617,15 +1617,15 @@ static void dpp_start_offchannel(struct dpp_sm *dpp, uint32_t freq)
 	 * between canceling and starting the next (e.g. if a scan request is
 	 * sitting in the queue).
 	 *
-	 * Second, dpp_presence_timeout resets dpp->offchannel_id to zero which
-	 * is why the new ID is saved and only set to dpp->offchannel_id once
-	 * the previous offchannel work is cancelled (i.e. destroy() has been
-	 * called).
+	 * Second, dpp_offchannel_timeout resets dpp->offchannel_id to zero
+	 * which is why the new ID is saved and only set to dpp->offchannel_id
+	 * once the previous offchannel work is cancelled (i.e. destroy() has
+	 * been called).
 	 */
 	uint32_t id = offchannel_start(netdev_get_wdev_id(dpp->netdev),
 				WIPHY_WORK_PRIORITY_OFFCHANNEL,
 				freq, dpp->dwell, dpp_roc_started,
-				dpp, dpp_presence_timeout);
+				dpp, dpp_offchannel_timeout);
 
 	if (dpp->offchannel_id)
 		offchannel_cancel(dpp->wdev_id, dpp->offchannel_id);
