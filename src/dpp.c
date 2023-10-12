@@ -114,7 +114,7 @@ struct dpp_sm {
 
 	uint32_t offchannel_id;
 
-	uint8_t auth_addr[6];
+	uint8_t peer_addr[6];
 	uint8_t r_nonce[32];
 	uint8_t i_nonce[32];
 	uint8_t e_nonce[32];
@@ -694,7 +694,7 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	 * Can a configuration request come from someone other than who you
 	 * authenticated to?
 	 */
-	if (memcmp(dpp->auth_addr, frame->address_2, 6))
+	if (memcmp(dpp->peer_addr, frame->address_2, 6))
 		return;
 
 	if (body_len < 19)
@@ -825,7 +825,7 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	dpp_write_config(config, network);
 	dpp_configuration_free(config);
 
-	send_config_result(dpp, dpp->auth_addr);
+	send_config_result(dpp, dpp->peer_addr);
 
 	offchannel_cancel(dpp->wdev_id, dpp->offchannel_id);
 
@@ -855,7 +855,7 @@ static void dpp_send_config_response(struct dpp_sm *dpp, uint8_t status)
 	memset(hdr, 0, sizeof(hdr));
 
 	l_put_le16(0x00d0, hdr);
-	memcpy(hdr + 4, dpp->auth_addr, 6);
+	memcpy(hdr + 4, dpp->peer_addr, 6);
 	memcpy(hdr + 10, netdev_get_address(dpp->netdev), 6);
 	memcpy(hdr + 16, broadcast, 6);
 
@@ -945,7 +945,7 @@ static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
 		return;
 	}
 
-	if (memcmp(dpp->auth_addr, frame->address_2, 6)) {
+	if (memcmp(dpp->peer_addr, frame->address_2, 6)) {
 		l_debug("Configuration request not from authenticated peer");
 		return;
 	}
@@ -1181,7 +1181,7 @@ static void send_authenticate_response(struct dpp_sm *dpp)
 				sizeof(r_proto_key));
 
 	iov[0].iov_len = dpp_build_header(netdev_get_address(dpp->netdev),
-				dpp->auth_addr,
+				dpp->peer_addr,
 				DPP_FRAME_AUTHENTICATION_RESPONSE, hdr);
 	iov[0].iov_base = hdr;
 
@@ -1245,7 +1245,7 @@ static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
 	if (dpp->state != DPP_STATE_AUTHENTICATING)
 		return;
 
-	if (memcmp(from, dpp->auth_addr, 6))
+	if (memcmp(from, dpp->peer_addr, 6))
 		return;
 
 	l_debug("authenticate confirm");
@@ -1368,7 +1368,7 @@ static void dpp_auth_request_failed(struct dpp_sm *dpp,
 	struct iovec iov[2];
 
 	iov[0].iov_len = dpp_build_header(netdev_get_address(dpp->netdev),
-				dpp->auth_addr,
+				dpp->peer_addr,
 				DPP_FRAME_AUTHENTICATION_RESPONSE, hdr);
 	iov[0].iov_base = hdr;
 
@@ -1451,7 +1451,7 @@ static bool dpp_send_authenticate_request(struct dpp_sm *dpp)
 				sizeof(i_proto_key));
 
 	iov[0].iov_len = dpp_build_header(netdev_get_address(dpp->netdev),
-				dpp->auth_addr,
+				dpp->peer_addr,
 				DPP_FRAME_AUTHENTICATION_REQUEST, hdr);
 	iov[0].iov_base = hdr;
 
@@ -1814,7 +1814,7 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 				dpp->boot_public, dpp->auth_tag))
 		goto auth_request_failed;
 
-	memcpy(dpp->auth_addr, from, 6);
+	memcpy(dpp->peer_addr, from, 6);
 
 	dpp->state = DPP_STATE_AUTHENTICATING;
 	dpp_reset_protocol_timer(dpp);
@@ -1839,7 +1839,7 @@ static void dpp_send_authenticate_confirm(struct dpp_sm *dpp)
 	uint8_t zero = 0;
 
 	iov[0].iov_len = dpp_build_header(netdev_get_address(dpp->netdev),
-					dpp->auth_addr,
+					dpp->peer_addr,
 					DPP_FRAME_AUTHENTICATION_CONFIRM, hdr);
 	iov[0].iov_base = hdr;
 
@@ -1893,7 +1893,7 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 	if (!dpp->freqs)
 		return;
 
-	if (memcmp(from, dpp->auth_addr, 6))
+	if (memcmp(from, dpp->peer_addr, 6))
 		return;
 
 	dpp_attr_iter_init(&iter, body + 8, body_len - 8);
@@ -2066,12 +2066,12 @@ static void dpp_handle_presence_announcement(struct dpp_sm *dpp,
 
 	/*
 	 * The URI may not have contained a MAC address, if this announcement
-	 * verifies set auth_addr then.
+	 * verifies set peer_addr then.
 	 */
-	if (!l_memeqzero(dpp->auth_addr, 6) &&
-				memcmp(from, dpp->auth_addr, 6)) {
+	if (!l_memeqzero(dpp->peer_addr, 6) &&
+				memcmp(from, dpp->peer_addr, 6)) {
 		l_debug("Unexpected source "MAC" expected "MAC, MAC_STR(from),
-						MAC_STR(dpp->auth_addr));
+						MAC_STR(dpp->peer_addr));
 		return;
 	}
 
@@ -2106,7 +2106,7 @@ static void dpp_handle_presence_announcement(struct dpp_sm *dpp,
 	 * This is the peer we expected, save away the address and derive the
 	 * initial keys.
 	 */
-	memcpy(dpp->auth_addr, from, 6);
+	memcpy(dpp->peer_addr, from, 6);
 
 	dpp->state = DPP_STATE_AUTHENTICATING;
 
@@ -2563,7 +2563,7 @@ static bool dpp_configurator_start_presence(struct dpp_sm *dpp, const char *uri)
 	}
 
 	if (!l_memeqzero(info->mac, 6))
-		memcpy(dpp->auth_addr, info->mac, 6);
+		memcpy(dpp->peer_addr, info->mac, 6);
 
 	if (info->freqs)
 		freqs = scan_freq_set_to_fixed_array(info->freqs, &freqs_len);
