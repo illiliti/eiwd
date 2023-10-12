@@ -681,12 +681,13 @@ free_n:
 
 bool dpp_derive_ke(const uint8_t *i_nonce, const uint8_t *r_nonce,
 				struct l_ecc_scalar *m, struct l_ecc_scalar *n,
-				void *ke)
+				struct l_ecc_point *l, void *ke)
 {
 	uint8_t nonces[32 + 32];
 	size_t nonce_len;
 	uint64_t mx_bytes[L_ECC_MAX_DIGITS];
 	uint64_t nx_bytes[L_ECC_MAX_DIGITS];
+	uint64_t lx_bytes[L_ECC_MAX_DIGITS];
 	uint64_t bk[L_ECC_MAX_DIGITS];
 	ssize_t key_len;
 	enum l_checksum_type sha;
@@ -697,12 +698,15 @@ bool dpp_derive_ke(const uint8_t *i_nonce, const uint8_t *r_nonce,
 	nonce_len = dpp_nonce_len_from_key_len(key_len);
 	sha = dpp_sha_from_key_len(key_len);
 
+	if (l)
+		l_ecc_point_get_x(l, lx_bytes, key_len * 2);
+
 	memcpy(nonces, i_nonce, nonce_len);
 	memcpy(nonces + nonce_len, r_nonce, nonce_len);
 
 	/* bk = HKDF-Extract(I-nonce | R-nonce, M.x | N.x [ | L.x]) */
-	if (!hkdf_extract(sha, nonces, nonce_len * 2, 2, bk, mx_bytes,
-			key_len, nx_bytes, key_len))
+	if (!hkdf_extract(sha, nonces, nonce_len * 2, 3, bk, mx_bytes,
+			key_len, nx_bytes, key_len, lx_bytes, l ? key_len : 0))
 		return false;
 
 	/* ke = HKDF-Expand(bk, "DPP Key", length) */

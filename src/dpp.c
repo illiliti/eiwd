@@ -1807,7 +1807,7 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 
 	l_getrandom(dpp->r_nonce, dpp->nonce_len);
 
-	if (!dpp_derive_ke(dpp->i_nonce, dpp->r_nonce, m, n, dpp->ke))
+	if (!dpp_derive_ke(dpp->i_nonce, dpp->r_nonce, m, n, NULL, dpp->ke))
 		goto auth_request_failed;
 
 	if (!dpp_derive_r_auth(dpp->i_nonce, dpp->r_nonce, dpp->nonce_len,
@@ -1983,7 +1983,7 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 		return;
 	}
 
-	if (!dpp_derive_ke(i_nonce, r_nonce, dpp->m, n, dpp->ke)) {
+	if (!dpp_derive_ke(i_nonce, r_nonce, dpp->m, n, NULL, dpp->ke)) {
 		l_debug("Failed to derive ke");
 		return;
 	}
