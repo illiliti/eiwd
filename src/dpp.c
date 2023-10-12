@@ -2186,7 +2186,7 @@ static void dpp_frame_timeout(struct l_timeout *timeout, void *user_data)
 	 * send. Just bail out now and the roc_started callback will take care
 	 * of sending this out.
 	 */
-	if (!dpp->roc_started)
+	if (dpp->offchannel_id && !dpp->roc_started)
 		return;
 
 	dpp_frame_retry(dpp);
