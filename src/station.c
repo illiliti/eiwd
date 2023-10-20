@@ -2055,6 +2055,20 @@ static void station_netconfig_event_handler(enum netconfig_event event,
 	}
 }
 
+static bool netconfig_after_roam(struct station *station)
+{
+	const struct network *network = station_get_connected_network(station);
+
+	/* Netconfig was reset which frees all settings, reload now */
+	if (!netconfig_load_settings(station->netconfig,
+					network_get_settings(network)))
+		return false;
+
+	return netconfig_configure(station->netconfig,
+					station_netconfig_event_handler,
+					station);
+}
+
 static void station_roamed(struct station *station)
 {
 	station->roam_scan_full = false;
@@ -2086,9 +2100,7 @@ static void station_roamed(struct station *station)
 	/* Re-enable netconfig if it never finished on the last BSS */
 	if (station->netconfig_after_roam) {
 		station->netconfig_after_roam = false;
-		L_WARN_ON(!netconfig_configure(station->netconfig,
-						station_netconfig_event_handler,
-						station));
+		L_WARN_ON(!netconfig_after_roam(station));
 	} else
 		station_enter_state(station, STATION_STATE_CONNECTED);
 }
@@ -2126,9 +2138,7 @@ static void station_roam_failed(struct station *station)
 	/* Re-enable netconfig if needed, even on a failed roam */
 	if (station->netconfig_after_roam) {
 		station->netconfig_after_roam = false;
-		L_WARN_ON(!netconfig_configure(station->netconfig,
-						station_netconfig_event_handler,
-						station));
+		L_WARN_ON(!netconfig_after_roam(station));
 	}
 
 	/*
