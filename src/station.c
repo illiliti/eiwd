@@ -2470,6 +2470,7 @@ static void station_transition_start(struct station *station)
 {
 	struct roam_bss *rbss;
 	bool roaming = false;
+	bool connected = (station->state == STATION_STATE_CONNECTED);
 
 	/*
 	 * For each failed attempt pop the BSS leaving the head of the queue
@@ -2498,7 +2499,7 @@ static void station_transition_start(struct station *station)
 	 * still should roam in this case but need to restart netconfig once the
 	 * roam is finished.
 	 */
-	if (station->netconfig && station->state != STATION_STATE_CONNECTED) {
+	if (station->netconfig && !connected) {
 		netconfig_reset(station->netconfig);
 		station->netconfig_after_roam = true;
 	}
