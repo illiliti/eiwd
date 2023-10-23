@@ -65,6 +65,14 @@ static bool match_wdev(const void *a, const void *user_data)
 	return info->wdev_id == *wdev_id;
 }
 
+static bool match_id(const void *a, const void *user_data)
+{
+	const struct offchannel_info *info = a;
+	uint32_t id = L_PTR_TO_UINT(user_data);
+
+	return id == info->work.id;
+}
+
 static void offchannel_cancel_roc(struct offchannel_info *info)
 {
 	struct l_genl_msg *msg;
@@ -191,7 +199,8 @@ void offchannel_cancel(uint64_t wdev_id, uint32_t id)
 	else if (ret == false)
 		goto work_done;
 
-	info = l_queue_find(offchannel_list, match_wdev, &wdev_id);
+
+	info = l_queue_find(offchannel_list, match_id, L_UINT_TO_PTR(id));
 	if (!info)
 		return;
 
