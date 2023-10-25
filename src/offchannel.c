@@ -43,6 +43,7 @@ struct offchannel_info {
 
 	uint32_t roc_cmd_id;
 	uint64_t roc_cookie;
+	uint64_t early_cookie;
 
 	offchannel_started_cb_t started;
 	offchannel_destroy_cb_t destroy;
@@ -56,14 +57,6 @@ struct offchannel_info {
 
 static struct l_genl_family *nl80211;
 static struct l_queue *offchannel_list;
-
-static bool match_wdev(const void *a, const void *user_data)
-{
-	const struct offchannel_info *info = a;
-	const uint64_t *wdev_id = user_data;
-
-	return info->wdev_id == *wdev_id;
-}
 
 static bool match_id(const void *a, const void *user_data)
 {
@@ -106,9 +99,20 @@ static void offchannel_roc_cb(struct l_genl_msg *msg, void *user_data)
 		goto work_done;
 	}
 
-	/* This request was cancelled, and ROC needs to be cancelled */
+	/*
+	 * If the request was cancelled prior to kernel sending the ACK,
+	 * cancel now.
+	 *
+	 * If the ROC event came before the ACK, call back now since the
+	 * callback was skipped in the notify event. There is the potential that
+	 * an external process issued the ROC, but if the cookies don't match
+	 * here we can be sure it wasn't for us. In this case the notify event
+	 * will behave as normal and call started().
+	 */
 	if (info->needs_cancel)
 		offchannel_cancel_roc(info);
+	else if (info->early_cookie == info->roc_cookie && info->started)
+		info->started(info->user_data);
 
 	return;
 
@@ -254,7 +258,8 @@ work_done:
 
 static void offchannel_mlme_notify(struct l_genl_msg *msg, void *user_data)
 {
-	struct offchannel_info *info;
+	struct offchannel_info *info = NULL;
+	const struct l_queue_entry *e;
 	uint64_t wdev_id;
 	uint64_t cookie;
 	uint8_t cmd;
@@ -270,12 +275,35 @@ static void offchannel_mlme_notify(struct l_genl_msg *msg, void *user_data)
 					NL80211_ATTR_UNSPEC) < 0)
 		return;
 
-	info = l_queue_find(offchannel_list, match_wdev, &wdev_id);
-	if (!info)
-		return;
+	for (e = l_queue_get_entries(offchannel_list); e; e = e->next) {
+		struct offchannel_info *i = e->data;
 
-	/* ROC must have been started elsewhere, not by IWD */
-	if (info->roc_cookie != cookie)
+		if (i->wdev_id != wdev_id)
+			continue;
+
+		/* Normal case, kernel has ACK'ed */
+		if (i->roc_cookie == cookie) {
+			info = i;
+			break;
+		}
+
+		/*
+		 * If there is a pending request and no ACK yet this could be:
+		 *  - an early event coming prior to the ACK
+		 *  - an event coming from an external ROC request (we just
+		 *    happened to have also sent an ROC request).
+		 *
+		 * We can't tell where the event originated until we recieve our
+		 * ACK so set early_cookie to track it.
+		 */
+		if (i->roc_cmd_id != 0 && l_genl_family_request_sent(nl80211,
+							i->roc_cmd_id)) {
+			i->early_cookie = cookie;
+			return;
+		}
+	}
+
+	if (!info)
 		return;
 
 	switch (cmd) {
