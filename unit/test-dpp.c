@@ -183,8 +183,9 @@ const char *r_asn1 = "3039301306072a8648ce3d020106082a8648ce3d0301070322000209c5
 			"4df9fd25a045201885c39cc5cfae397ddaeda957dec57fa0e3503f";
 
 #define HEX2BUF(s, buf, _len) { \
-	unsigned char *_tmp = l_util_from_hexstring(s, NULL); \
-	memcpy(buf, _tmp, _len); \
+	size_t _len_out; \
+	unsigned char *_tmp = l_util_from_hexstring(s, &_len_out); \
+	memcpy(buf, _tmp, _len_out); \
 	l_free(_tmp); \
 }
 
