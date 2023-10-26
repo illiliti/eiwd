@@ -183,3 +183,38 @@ struct l_ecc_point *dpp_point_from_asn1(const uint8_t *asn1, size_t len);
 
 struct dpp_uri_info *dpp_parse_uri(const char *uri);
 void dpp_free_uri_info(struct dpp_uri_info *info);
+
+struct l_ecc_point *dpp_derive_qi(const struct l_ecc_curve *curve,
+					const char *key,
+					const char *identifier,
+					const uint8_t *mac_initiator);
+struct l_ecc_point *dpp_derive_qr(const struct l_ecc_curve *curve,
+					const char *key,
+					const char *identifier,
+					const uint8_t *mac_responder);
+struct l_ecc_point *dpp_derive_li(
+				const struct l_ecc_point *boot_public,
+				const struct l_ecc_point *proto_public,
+				const struct l_ecc_scalar *boot_private);
+struct l_ecc_point *dpp_derive_lr(
+				const struct l_ecc_scalar *boot_private,
+				const struct l_ecc_scalar *proto_private,
+				const struct l_ecc_point *peer_public);
+bool dpp_derive_z(const uint8_t *mac_i, const uint8_t *mac_r,
+				const struct l_ecc_point *n,
+				const struct l_ecc_point *m,
+				const struct l_ecc_point *k,
+				const char *key,
+				const char *identifier,
+				void *z_out, size_t *z_len);
+bool dpp_derive_u(const struct l_ecc_point *j,
+			const uint8_t *mac_i,
+			const struct l_ecc_point *a,
+			const struct l_ecc_point *y,
+			const struct l_ecc_point *x,
+			void *u_out, size_t *u_len);
+bool dpp_derive_v(const struct l_ecc_point *l, const uint8_t *mac,
+			const struct l_ecc_point *b,
+			const struct l_ecc_point *x,
+			const struct l_ecc_point *y,
+			void *v_out, size_t *v_len);

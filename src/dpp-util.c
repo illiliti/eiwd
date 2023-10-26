@@ -39,6 +39,33 @@
 #include "ell/asn1-private.h"
 #include "src/ie.h"
 
+/* WFA Easy Connect v3.0 C.1 Role-specific Elements for NIST p256 */
+static const uint8_t dpp_pkex_initiator_p256[64] = {
+	/* X */
+	0x56, 0x26, 0x12, 0xcf, 0x36, 0x48, 0xfe, 0x0b,
+	0x07, 0x04, 0xbb, 0x12, 0x22, 0x50, 0xb2, 0x54,
+	0xb1, 0x94, 0x64, 0x7e, 0x54, 0xce, 0x08, 0x07,
+	0x2e, 0xec, 0xca, 0x74, 0x5b, 0x61, 0x2d, 0x25,
+	/* Y */
+	0x3e, 0x44, 0xc7, 0xc9, 0x8c, 0x1c, 0xa1, 0x0b,
+	0x20, 0x09, 0x93, 0xb2, 0xfd, 0xe5, 0x69, 0xdc,
+	0x75, 0xbc, 0xad, 0x33, 0xc1, 0xe7, 0xc6, 0x45,
+	0x4d, 0x10, 0x1e, 0x6a, 0x3d, 0x84, 0x3c, 0xa4
+};
+
+static const uint8_t dpp_pkex_responder_p256[64] = {
+	/* X */
+	0x1e, 0xa4, 0x8a, 0xb1, 0xa4, 0xe8, 0x42, 0x39,
+	0xad, 0x73, 0x07, 0xf2, 0x34, 0xdf, 0x57, 0x4f,
+	0xc0, 0x9d, 0x54, 0xbe, 0x36, 0x1b, 0x31, 0x0f,
+	0x59, 0x91, 0x52, 0x33, 0xac, 0x19, 0x9d, 0x76,
+	/* Y */
+	0xd9, 0xfb, 0xf6, 0xb9, 0xf5, 0xfa, 0xdf, 0x19,
+	0x58, 0xd8, 0x3e, 0xc9, 0x89, 0x7a, 0x35, 0xc1,
+	0xbd, 0xe9, 0x0b, 0x77, 0x7a, 0xcb, 0x91, 0x2a,
+	0xe8, 0x21, 0x3f, 0x47, 0x52, 0x02, 0x4d, 0x67
+};
+
 static void append_freqs(struct l_string *uri,
 					const uint32_t *freqs, size_t len)
 {
@@ -1133,4 +1160,252 @@ void dpp_free_uri_info(struct dpp_uri_info *info)
 		l_free(info->host);
 
 	l_free(info);
+}
+
+/*
+ * 6.3.4 DPP Authentication Confirm
+ *
+ * L = bI * (BR + PR)
+ */
+struct l_ecc_point *dpp_derive_li(const struct l_ecc_point *boot_public,
+				const struct l_ecc_point *proto_public,
+				const struct l_ecc_scalar *boot_private)
+{
+	const struct l_ecc_curve *curve = l_ecc_point_get_curve(boot_public);
+	struct l_ecc_point *ret = l_ecc_point_new(curve);
+
+	l_ecc_point_add(ret, boot_public, proto_public);
+	l_ecc_point_multiply(ret, boot_private, ret);
+
+	return ret;
+}
+
+/*
+ * 6.3.3 DPP Authentication Response
+ *
+ * L = ((bR + pR) modulo q) * BI
+ */
+struct l_ecc_point *dpp_derive_lr(const struct l_ecc_scalar *boot_private,
+				const struct l_ecc_scalar *proto_private,
+				const struct l_ecc_point *peer_public)
+{
+	const struct l_ecc_curve *curve = l_ecc_point_get_curve(peer_public);
+	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *order =
+					l_ecc_curve_get_order(curve);
+	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *sum =
+					l_ecc_scalar_new(curve, NULL, 0);
+	_auto_(l_ecc_point_free) struct l_ecc_point *ret =
+					l_ecc_point_new(curve);
+
+	if (!l_ecc_scalar_add(sum, boot_private, proto_private, order))
+		return NULL;
+
+	if (!l_ecc_point_multiply(ret, sum, peer_public))
+		return NULL;
+
+	return l_steal_ptr(ret);
+}
+
+
+static struct l_ecc_point *dpp_derive_q(const struct l_ecc_curve *curve,
+					const uint8_t *p_data,
+					const char *key,
+					const char *identifier,
+					const uint8_t *mac)
+{
+	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *scalar = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *ret = NULL;
+	uint8_t hash[L_ECC_SCALAR_MAX_BYTES];
+	unsigned int bytes = l_ecc_curve_get_scalar_bytes(curve);
+	enum l_checksum_type type = dpp_sha_from_key_len(bytes);
+	_auto_(l_ecc_point_free) struct l_ecc_point *p = NULL;
+	struct l_checksum *sha = l_checksum_new(type);
+
+	/*
+	 * "If the Initiator indicates PKEX with a Protocol Version of 1,
+	 * MAC-Initiator shall be the MAC address of the Initiator and the
+	 * Protocol Version shall not be present. Otherwise, MAC-Initiator is
+	 * not present"
+	 *
+	 * (This goes for MAC-Responder as well)
+	 */
+	if (mac)
+		l_checksum_update(sha, mac, 6);
+
+	if (identifier)
+		l_checksum_update(sha, identifier, strlen(identifier));
+
+	l_checksum_update(sha, key, strlen(key));
+	l_checksum_get_digest(sha, hash, bytes);
+	l_checksum_free(sha);
+
+	/* Unlikely but can happen */
+	scalar = l_ecc_scalar_new(curve, hash, bytes);
+	if (!scalar)
+		return NULL;
+
+	p = l_ecc_point_from_data(curve, L_ECC_POINT_TYPE_FULL,
+					p_data, bytes * 2);
+	if (!p)
+		return NULL;
+
+	ret = l_ecc_point_new(curve);
+
+	if (!l_ecc_point_multiply(ret, scalar, p))
+		return NULL;
+
+	return l_steal_ptr(ret);
+}
+
+/*
+ * 5.6.2 PKEX Exchange Phase
+ *
+ * Qi = H([MAC-Initiator |] [identifier | ] code) * Pi
+ */
+struct l_ecc_point *dpp_derive_qi(const struct l_ecc_curve *curve,
+					const char *key,
+					const char *identifier,
+					const uint8_t *mac_initiator)
+{
+	return dpp_derive_q(curve, dpp_pkex_initiator_p256, key, identifier,
+				mac_initiator);
+}
+
+/*
+ * 5.6.2 PKEX Exchange Phase
+ *
+ * Qr = H([MAC-Responder |] [identifier | ] code) * Pr
+ */
+struct l_ecc_point *dpp_derive_qr(const struct l_ecc_curve *curve,
+					const char *key,
+					const char *identifier,
+					const uint8_t *mac_responder)
+{
+	return dpp_derive_q(curve, dpp_pkex_responder_p256, key, identifier,
+				mac_responder);
+}
+
+/*
+ * 5.6.2 PKEX Exchange Phase
+ *
+ * z = HKDF(<>, info | M.x | N.x | code, K.x)
+ */
+bool dpp_derive_z(const uint8_t *mac_i, const uint8_t *mac_r,
+				const struct l_ecc_point *n,
+				const struct l_ecc_point *m,
+				const struct l_ecc_point *k,
+				const char *key,
+				const char *identifier,
+				void *z_out, size_t *z_len)
+{
+	const struct l_ecc_curve *curve = l_ecc_point_get_curve(n);
+	size_t bytes = l_ecc_curve_get_scalar_bytes(curve);
+	enum l_checksum_type sha = dpp_sha_from_key_len(bytes);
+	uint8_t k_x[L_ECC_SCALAR_MAX_BYTES];
+	uint8_t m_x[L_ECC_SCALAR_MAX_BYTES];
+	uint8_t n_x[L_ECC_SCALAR_MAX_BYTES];
+	uint8_t prk[L_ECC_SCALAR_MAX_BYTES];
+
+	l_ecc_point_get_x(k, k_x, sizeof(k_x));
+	l_ecc_point_get_x(m, m_x, sizeof(m_x));
+	l_ecc_point_get_x(n, n_x, sizeof(n_x));
+
+	hkdf_extract(sha, NULL, 0, 1, prk, k_x, bytes);
+
+	/* HKDF-Extract (since it doesn't take non-string arguments)*/
+	prf_plus(sha, prk, bytes, z_out, bytes, 5, mac_i, 6, mac_r, 6, m_x,
+			bytes, n_x, bytes, key, strlen(key));
+
+	*z_len = bytes;
+
+	return true;
+}
+
+/*
+ * 5.6.3 PKEX Commit-Reveal Phase
+ *
+ * Initiator derivation:
+ * u = HMAC(J.x, [MAC-Initiator |] A.x | Y'.x | X.x )
+ *
+ * Responder derivation:
+ * u' = HMAC(J'.x, [MAC-Initiator |] A'.x | Y.x | X'.x)
+ */
+bool dpp_derive_u(const struct l_ecc_point *j,
+			const uint8_t *mac_i,
+			const struct l_ecc_point *a,
+			const struct l_ecc_point *y,
+			const struct l_ecc_point *x,
+			void *u_out, size_t *u_len)
+{
+	const struct l_ecc_curve *curve = l_ecc_point_get_curve(y);
+	uint8_t j_x[L_ECC_SCALAR_MAX_BYTES];
+	uint8_t a_x[L_ECC_SCALAR_MAX_BYTES];
+	uint8_t y_x[L_ECC_SCALAR_MAX_BYTES];
+	uint8_t x_x[L_ECC_SCALAR_MAX_BYTES];
+	size_t bytes = l_ecc_curve_get_scalar_bytes(curve);
+	enum l_checksum_type sha = dpp_sha_from_key_len(bytes);
+	struct l_checksum *hmac;
+
+	l_ecc_point_get_x(j, j_x, bytes);
+	l_ecc_point_get_x(a, a_x, bytes);
+	l_ecc_point_get_x(y, y_x, bytes);
+	l_ecc_point_get_x(x, x_x, bytes);
+
+	/* u = HMAC(J.x, MAC-Initiator | A.x | Y'.x | X.x)*/
+	hmac = l_checksum_new_hmac(sha, j_x, bytes);
+	l_checksum_update(hmac, mac_i, 6);
+	l_checksum_update(hmac, a_x, bytes);
+	l_checksum_update(hmac, y_x, bytes);
+	l_checksum_update(hmac, x_x, bytes);
+	l_checksum_get_digest(hmac, u_out, bytes);
+	l_checksum_free(hmac);
+
+	*u_len = bytes;
+
+	return true;
+}
+
+/*
+ * 5.6.3 PKEX Commit-Reveal Phase
+ *
+ * Initiator derivation:
+ * v = HMAC(L.x, [MAC-Responder |] B.x | X'.x |Y.x )
+ *
+ * Responder derivation:
+ * v' = HMAC(L.x, [MAC-Responder |] B'.x | X.x | Y'.x )
+ */
+bool dpp_derive_v(const struct l_ecc_point *l, const uint8_t *mac,
+			const struct l_ecc_point *b,
+			const struct l_ecc_point *x,
+			const struct l_ecc_point *y,
+			void *v_out, size_t *v_len)
+{
+	const struct l_ecc_curve *curve = l_ecc_point_get_curve(l);
+	uint8_t l_x[L_ECC_SCALAR_MAX_BYTES];
+	uint8_t b_x[L_ECC_SCALAR_MAX_BYTES];
+	uint8_t x_x[L_ECC_SCALAR_MAX_BYTES];
+	uint8_t y_x[L_ECC_SCALAR_MAX_BYTES];
+	size_t bytes = l_ecc_curve_get_scalar_bytes(curve);
+	enum l_checksum_type sha = dpp_sha_from_key_len(bytes);
+	struct l_checksum *hmac;
+
+	l_ecc_point_get_x(l, l_x, sizeof(l_x));
+	l_ecc_point_get_x(b, b_x, sizeof(b_x));
+	l_ecc_point_get_x(x, x_x, sizeof(x_x));
+	l_ecc_point_get_x(y, y_x, sizeof(y_x));
+
+	hmac = l_checksum_new_hmac(sha, l_x, bytes);
+
+	if (mac)
+		l_checksum_update(hmac, mac, 6);
+
+	l_checksum_update(hmac, b_x, bytes);
+	l_checksum_update(hmac, x_x, bytes);
+	l_checksum_update(hmac, y_x, bytes);
+	l_checksum_get_digest(hmac, v_out, bytes);
+	l_checksum_free(hmac);
+
+	*v_len = bytes;
+
+	return true;
 }
