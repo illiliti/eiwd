@@ -56,6 +56,7 @@
 
 #define DPP_FRAME_MAX_RETRIES 5
 #define DPP_FRAME_RETRY_TIMEOUT 1
+#define DPP_AUTH_PROTO_TIMEOUT 10
 
 static uint32_t netdev_watch;
 static struct l_genl_family *nl80211;
@@ -480,12 +481,12 @@ static void dpp_protocol_timeout(struct l_timeout *timeout, void *user_data)
 	dpp_reset(dpp);
 }
 
-static void dpp_reset_protocol_timer(struct dpp_sm *dpp)
+static void dpp_reset_protocol_timer(struct dpp_sm *dpp, uint32_t time)
 {
 	if (dpp->timeout)
-		l_timeout_modify(dpp->timeout, 10);
+		l_timeout_modify(dpp->timeout, time);
 	else
-		dpp->timeout = l_timeout_create(10, dpp_protocol_timeout,
+		dpp->timeout = l_timeout_create(time, dpp_protocol_timeout,
 						dpp, NULL);
 }
 
@@ -1348,7 +1349,7 @@ static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
 
 	l_debug("Authentication successful");
 
-	dpp_reset_protocol_timer(dpp);
+	dpp_reset_protocol_timer(dpp, DPP_AUTH_PROTO_TIMEOUT);
 
 	if (dpp->role == DPP_CAPABILITY_ENROLLEE)
 		dpp_configuration_start(dpp, from);
@@ -1821,7 +1822,7 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	memcpy(dpp->peer_addr, from, 6);
 
 	dpp->state = DPP_STATE_AUTHENTICATING;
-	dpp_reset_protocol_timer(dpp);
+	dpp_reset_protocol_timer(dpp, DPP_AUTH_PROTO_TIMEOUT);
 
 	/* Don't send if the frequency is changing */
 	if (!dpp->new_freq)
