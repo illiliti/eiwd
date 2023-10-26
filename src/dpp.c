@@ -150,6 +150,7 @@ struct dpp_sm {
 	bool mcast_support : 1;
 	bool roc_started : 1;
 	bool channel_switch : 1;
+	bool mutual_auth : 1;
 };
 
 static bool dpp_get_started(struct l_dbus *dbus,
@@ -1172,7 +1173,7 @@ static void dpp_handle_config_result_frame(struct dpp_sm *dpp,
 static void send_authenticate_response(struct dpp_sm *dpp)
 {
 	uint8_t hdr[32];
-	uint8_t attrs[256];
+	uint8_t attrs[512];
 	uint8_t *ptr = attrs;
 	uint8_t status = DPP_STATUS_OK;
 	uint64_t r_proto_key[L_ECC_MAX_DIGITS * 2];
@@ -1193,6 +1194,9 @@ static void send_authenticate_response(struct dpp_sm *dpp)
 	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &status, 1);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH,
 				dpp->own_boot_hash, 32);
+	if (dpp->mutual_auth)
+		ptr += dpp_append_attr(ptr, DPP_ATTR_INITIATOR_BOOT_KEY_HASH,
+				dpp->peer_boot_hash, 32);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_PROTOCOL_KEY,
 				r_proto_key, dpp->key_len * 2);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_PROTOCOL_VERSION, &version, 1);
@@ -1246,6 +1250,7 @@ static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
 	const void *unwrap_key;
 	const void *ad0 = body + 2;
 	const void *ad1 = body + 8;
+	struct l_ecc_point *bi = NULL;
 
 	if (dpp->state != DPP_STATE_AUTHENTICATING)
 		return;
@@ -1338,9 +1343,12 @@ static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
 		goto auth_confirm_failed;
 	}
 
+	if (dpp->mutual_auth)
+		bi = dpp->peer_boot_public;
+
 	dpp_derive_i_auth(dpp->r_nonce, dpp->i_nonce, dpp->nonce_len,
 				dpp->own_proto_public, dpp->peer_proto_public,
-				dpp->boot_public, NULL, i_auth_check);
+				dpp->boot_public, bi, i_auth_check);
 
 	if (memcmp(i_auth, i_auth_check, i_auth_len)) {
 		l_error("I-Auth did not verify");
@@ -1656,6 +1664,8 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	_auto_(l_free) uint8_t *unwrapped = NULL;
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *m = NULL;
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *n = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *l = NULL;
+	struct l_ecc_point *bi = NULL;
 	uint64_t k1[L_ECC_MAX_DIGITS];
 	const void *ad0 = body + 2;
 	const void *ad1 = body + 8;
@@ -1803,6 +1813,12 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 
 	memcpy(dpp->i_nonce, i_nonce, i_nonce_len);
 
+	if (dpp->mutual_auth) {
+		l = dpp_derive_lr(dpp->boot_private, dpp->proto_private,
+					dpp->peer_boot_public);
+		bi = dpp->peer_boot_public;
+	}
+
 	/* Derive keys k2, ke, and R-Auth for authentication response */
 
 	n = dpp_derive_k2(dpp->peer_proto_public, dpp->proto_private, dpp->k2);
@@ -1811,12 +1827,12 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 
 	l_getrandom(dpp->r_nonce, dpp->nonce_len);
 
-	if (!dpp_derive_ke(dpp->i_nonce, dpp->r_nonce, m, n, NULL, dpp->ke))
+	if (!dpp_derive_ke(dpp->i_nonce, dpp->r_nonce, m, n, l, dpp->ke))
 		goto auth_request_failed;
 
 	if (!dpp_derive_r_auth(dpp->i_nonce, dpp->r_nonce, dpp->nonce_len,
 				dpp->peer_proto_public, dpp->own_proto_public,
-				NULL, dpp->boot_public, dpp->auth_tag))
+				bi, dpp->boot_public, dpp->auth_tag))
 		goto auth_request_failed;
 
 	memcpy(dpp->peer_addr, from, 6);
@@ -1851,6 +1867,9 @@ static void dpp_send_authenticate_confirm(struct dpp_sm *dpp)
 	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &zero, 1);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH,
 					dpp->peer_boot_hash, 32);
+	if (dpp->mutual_auth)
+		ptr += dpp_append_attr(ptr, DPP_ATTR_INITIATOR_BOOT_KEY_HASH,
+					dpp->own_boot_hash, 32);
 
 	ptr += dpp_append_wrapped_data(hdr + 26, 6, attrs, ptr - attrs, ptr,
 			sizeof(attrs), dpp->ke, dpp->key_len, 1,
@@ -1883,6 +1902,8 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 	const void *r_auth = NULL;
 	_auto_(l_ecc_point_free) struct l_ecc_point *r_proto_key = NULL;
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *n = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *l = NULL;
+	struct l_ecc_point *bi = NULL;
 	const void *ad0 = body + 2;
 	const void *ad1 = body + 8;
 	uint64_t r_auth_derived[L_ECC_MAX_DIGITS];
@@ -1987,7 +2008,13 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 		return;
 	}
 
-	if (!dpp_derive_ke(i_nonce, r_nonce, dpp->m, n, NULL, dpp->ke)) {
+	if (dpp->mutual_auth) {
+		l = dpp_derive_li(dpp->peer_boot_public, r_proto_key,
+					dpp->boot_private);
+		bi = dpp->boot_public;
+	}
+
+	if (!dpp_derive_ke(i_nonce, r_nonce, dpp->m, n, l, dpp->ke)) {
 		l_debug("Failed to derive ke");
 		return;
 	}
@@ -2020,7 +2047,7 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 	}
 
 	if (!dpp_derive_r_auth(i_nonce, r_nonce, dpp->nonce_len,
-				dpp->own_proto_public, r_proto_key, NULL,
+				dpp->own_proto_public, r_proto_key, bi,
 				dpp->peer_boot_public, r_auth_derived)) {
 		l_debug("Failed to derive r_auth");
 		return;
@@ -2033,7 +2060,7 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 
 	if (!dpp_derive_i_auth(r_nonce, i_nonce, dpp->nonce_len,
 				r_proto_key, dpp->own_proto_public,
-				dpp->peer_boot_public, NULL, dpp->auth_tag)) {
+				dpp->peer_boot_public, bi, dpp->auth_tag)) {
 		l_debug("Could not derive I-Auth");
 		return;
 	}
