@@ -946,6 +946,9 @@ static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
 		return;
 	}
 
+	if (dpp->role != DPP_CAPABILITY_CONFIGURATOR)
+		return;
+
 	if (memcmp(dpp->peer_addr, frame->address_2, 6)) {
 		l_debug("Configuration request not from authenticated peer");
 		return;
