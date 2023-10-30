@@ -123,6 +123,8 @@ struct station {
 
 	struct wiphy_radio_work_item ft_work;
 
+	uint64_t last_roam_scan;
+
 	bool preparing_roam : 1;
 	bool roam_scan_full : 1;
 	bool signal_low : 1;
@@ -1708,6 +1710,7 @@ static void station_roam_state_clear(struct station *station)
 	station->signal_low = false;
 	station->roam_min_time.tv_sec = 0;
 	station->netconfig_after_roam = false;
+	station->last_roam_scan = 0;
 
 	if (station->roam_scan_id)
 		scan_cancel(netdev_get_wdev_id(station->netdev),
@@ -2711,6 +2714,8 @@ static int station_roam_scan(struct station *station,
 	if (L_WARN_ON(scan_freq_set_isempty(params.freqs)))
 		return -ENOTSUP;
 
+	station->last_roam_scan = l_time_now();
+
 	station->roam_scan_id =
 		scan_active_full(netdev_get_wdev_id(station->netdev), &params,
 					station_roam_scan_triggered,
@@ -3330,10 +3335,13 @@ static void station_disconnect_event(struct station *station, void *event_data)
 	l_warn("Unexpected disconnect event");
 }
 
-#define STATION_PKT_LOSS_THRESHOLD 10
+#define STATION_PKT_LOSS_THRESHOLD	10
+#define LOSS_ROAM_RATE_LIMIT		2
 
 static void station_packets_lost(struct station *station, uint32_t num_pkts)
 {
+	uint64_t elapsed;
+
 	l_debug("Packets lost event: %u", num_pkts);
 
 	if (num_pkts < STATION_PKT_LOSS_THRESHOLD)
@@ -3343,6 +3351,24 @@ static void station_packets_lost(struct station *station, uint32_t num_pkts)
 		return;
 
 	station_debug_event(station, "packet-loss-roam");
+
+	elapsed = l_time_diff(station->last_roam_scan, l_time_now());
+
+	/*
+	 * If we just issued a roam scan, delay the roam to avoid constant
+	 * scanning.
+	 */
+	if (LOSS_ROAM_RATE_LIMIT > l_time_to_secs(elapsed)) {
+		l_debug("Too many roam attempts in %u second timeframe, "
+			"delaying roam", LOSS_ROAM_RATE_LIMIT);
+
+		if (station->roam_trigger_timeout)
+			return;
+
+		station_roam_timeout_rearm(station, LOSS_ROAM_RATE_LIMIT);
+
+		return;
+	}
 
 	station_start_roam(station);
 }
