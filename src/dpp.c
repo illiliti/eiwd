@@ -2553,8 +2553,6 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	 */
 	dpp_start_presence(dpp, &freq, 1);
 
-	scan_periodic_stop(dpp->wdev_id);
-
 	dpp_property_changed_notify(dpp);
 
 	return NULL;
@@ -2684,8 +2682,6 @@ static struct l_dbus_message *dpp_start_configurator_common(
 	dpp->config = dpp_configuration_new(settings,
 						network_get_ssid(network),
 						hs->akm_suite);
-
-	scan_periodic_stop(dpp->wdev_id);
 
 	dpp_property_changed_notify(dpp);
 
