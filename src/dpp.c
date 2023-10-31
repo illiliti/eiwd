@@ -1468,7 +1468,7 @@ static bool dpp_send_authenticate_request(struct dpp_sm *dpp)
 	struct scan_bss *bss = station_get_connected_bss(station);
 
 	/* Got disconnected by the time the peer was discovered */
-	if (!bss) {
+	if (dpp->role == DPP_CAPABILITY_CONFIGURATOR && !bss) {
 		dpp_reset(dpp);
 		return false;
 	}
@@ -1489,7 +1489,8 @@ static bool dpp_send_authenticate_request(struct dpp_sm *dpp)
 				i_proto_key, dpp->key_len * 2);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_PROTOCOL_VERSION, &version, 1);
 
-	if (dpp->current_freq != bss->frequency) {
+	if (dpp->role == DPP_CAPABILITY_CONFIGURATOR &&
+					dpp->current_freq != bss->frequency) {
 		uint8_t pair[2] = { 81,
 				band_freq_to_channel(bss->frequency, NULL) };
 
@@ -1926,9 +1927,6 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 	if (dpp->state != DPP_STATE_AUTHENTICATING)
 		return;
 
-	if (dpp->role != DPP_CAPABILITY_CONFIGURATOR)
-		return;
-
 	if (!dpp->freqs)
 		return;
 
@@ -2082,6 +2080,10 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 	dpp->current_freq = dpp->new_freq;
 
 	dpp_send_authenticate_confirm(dpp);
+
+	if (dpp->role == DPP_CAPABILITY_ENROLLEE)
+		dpp_configuration_start(dpp, from);
+
 }
 
 static void dpp_handle_presence_announcement(struct dpp_sm *dpp,
