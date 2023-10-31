@@ -991,7 +991,8 @@ int network_autoconnect(struct network *network, struct scan_bss *bss)
 		return -ENOTSUP;
 	}
 
-	return __station_connect_network(station, network, bss);
+	return __station_connect_network(station, network, bss,
+						STATION_STATE_CONNECTING_AUTO);
 
 close_settings:
 	network_settings_close(network);

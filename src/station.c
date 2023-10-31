@@ -280,9 +280,6 @@ static int station_autoconnect_next(struct station *station)
 
 		r = network_autoconnect(network, bss);
 		if (!r) {
-			station_enter_state(station,
-						STATION_STATE_CONNECTING_AUTO);
-
 			if (station->quick_scan_id) {
 				scan_cancel(netdev_get_wdev_id(station->netdev),
 						station->quick_scan_id);
@@ -3084,7 +3081,7 @@ static bool station_try_next_bss(struct station *station)
 		return false;
 
 	ret = __station_connect_network(station, station->connected_network,
-						next);
+						next, station->state);
 	if (ret < 0)
 		return false;
 
@@ -3421,7 +3418,7 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 }
 
 int __station_connect_network(struct station *station, struct network *network,
-				struct scan_bss *bss)
+				struct scan_bss *bss, enum station_state state)
 {
 	struct handshake_state *hs;
 	int r;
@@ -3448,6 +3445,9 @@ int __station_connect_network(struct station *station, struct network *network,
 	station->connected_bss = bss;
 	station->connected_network = network;
 
+	if (station->state != state)
+		station_enter_state(station, state);
+
 	return 0;
 }
 
@@ -3461,7 +3461,8 @@ static void station_disconnect_onconnect_cb(struct netdev *netdev, bool success,
 
 	err = __station_connect_network(station,
 					station->connect_pending_network,
-					station->connect_pending_bss);
+					station->connect_pending_bss,
+					STATION_STATE_CONNECTING);
 
 	station->connect_pending_network = NULL;
 	station->connect_pending_bss = NULL;
@@ -3472,8 +3473,6 @@ static void station_disconnect_onconnect_cb(struct netdev *netdev, bool success,
 						station->connect_pending));
 		return;
 	}
-
-	station_enter_state(station, STATION_STATE_CONNECTING);
 }
 
 static void station_disconnect_onconnect(struct station *station,
@@ -3531,11 +3530,10 @@ void station_connect_network(struct station *station, struct network *network,
 		return;
 	}
 
-	err = __station_connect_network(station, network, bss);
+	err = __station_connect_network(station, network, bss,
+					STATION_STATE_CONNECTING);
 	if (err < 0)
 		goto error;
-
-	station_enter_state(station, STATION_STATE_CONNECTING);
 
 	station->connect_pending = l_dbus_message_ref(message);
 
@@ -3746,7 +3744,8 @@ static void station_disconnect_reconnect_cb(struct netdev *netdev, bool success,
 	struct station *station = user_data;
 
 	if (__station_connect_network(station, station->connected_network,
-					station->connected_bss) < 0)
+					station->connected_bss,
+					STATION_STATE_ROAMING) < 0)
 		station_disassociated(station);
 }
 

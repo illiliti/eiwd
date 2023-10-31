@@ -833,7 +833,8 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	offchannel_cancel(dpp->wdev_id, dpp->offchannel_id);
 
 	if (network && bss)
-		__station_connect_network(station, network, bss);
+		__station_connect_network(station, network, bss,
+						STATION_STATE_CONNECTING);
 	else if (station) {
 		dpp->connect_scan_id = scan_active(dpp->wdev_id, NULL, 0,
 						dpp_scan_triggered,
