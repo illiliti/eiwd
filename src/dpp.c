@@ -920,6 +920,21 @@ static void dpp_send_config_response(struct dpp_sm *dpp, uint8_t status)
 	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
+static bool dpp_check_config_header(const uint8_t *ptr)
+{
+	/*
+	 * Table 58. General Format of DPP Configuration Request frame
+	 *
+	 * Unfortunately wpa_supplicant hard codes 0x7f as the Query Response
+	 * Info so we need to handle both cases.
+	 */
+	return ptr[0] == IE_TYPE_ADVERTISEMENT_PROTOCOL &&
+			ptr[1] == 0x08 &&
+			(ptr[2] == 0x7f || ptr[2] == 0x00) &&
+			ptr[3] == IE_TYPE_VENDOR_SPECIFIC &&
+			ptr[4] == 5;
+}
+
 static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
 				const void *body, size_t body_len,
 				int rssi, void *user_data)
@@ -937,8 +952,6 @@ static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
 	const uint8_t *e_nonce = NULL;
 	size_t wrapped_len = 0;
 	_auto_(l_free) uint8_t *unwrapped = NULL;
-	uint8_t hdr_check[] = { IE_TYPE_ADVERTISEMENT_PROTOCOL, 0x08, 0x7f,
-				IE_TYPE_VENDOR_SPECIFIC, 5 };
 	struct json_iter jsiter;
 	_auto_(l_free) char *tech = NULL;
 	_auto_(l_free) char *role = NULL;
@@ -965,10 +978,10 @@ static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
 
 	dpp->diag_token = *ptr++;
 
-	if (memcmp(ptr, hdr_check, sizeof(hdr_check)))
+	if (!dpp_check_config_header(ptr))
 		return;
 
-	ptr += sizeof(hdr_check);
+	ptr += 5;
 
 	if (memcmp(ptr, wifi_alliance_oui, sizeof(wifi_alliance_oui)))
 		return;
