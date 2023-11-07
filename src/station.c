@@ -3370,6 +3370,21 @@ static void station_packets_lost(struct station *station, uint32_t num_pkts)
 	station_start_roam(station);
 }
 
+static void station_beacon_lost(struct station *station)
+{
+	l_debug("Beacon lost event");
+
+	if (station_cannot_roam(station))
+		return;
+
+	station_debug_event(station, "beacon-loss-roam");
+
+	if (station->roam_trigger_timeout)
+		return;
+
+	station_roam_timeout_rearm(station, LOSS_ROAM_RATE_LIMIT);
+}
+
 static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 					void *event_data, void *user_data)
 {
@@ -3413,6 +3428,9 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 			return;
 
 		station_roamed(station);
+		break;
+	case NETDEV_EVENT_BEACON_LOSS_NOTIFY:
+		station_beacon_lost(station);
 		break;
 	}
 }
