@@ -71,3 +71,145 @@ Properties	boolean Started [readonly]
 
 			Indicates the DPP URI. This property is only available
 			when Started is true.
+
+
+Interface	net.connman.iwd.SharedCodeDeviceProvisioning [Experimental]
+Object path	/net/connman/iwd/{phy0,phy1,...}/{1,2,...}
+
+		void ConfigureEnrollee(a{sv})
+
+			Starts a DPP configurator using a shared code (and
+			optionally identifier) set in the dictionary argument.
+			Valid dictionary keys are:
+
+			string Code
+				The shared code to use. The code used by both
+				parties (configurator and enrollee) must match.
+
+			string Identifier
+				An optional identifier. The identifier used by
+				both parties must match. Per the DPP spec the
+				identifier "shall be a UTF-8 string not greater
+				than eighty (80) octets"
+
+			As with the DeviceProvisioning interface, configurators
+			must be connected to the network they wish to configure
+			in order to start.
+
+			Once started a configurator (acting as a responder) will
+			listen on the currently connected channel for an
+			enrollee's initial exchange request which will kick off
+			the shared code bootstrapping protocol (PKEX). Once
+			completed DPP will start automatically. Only one
+			enrollee can be configured per call to
+			ConfigureEnrollee, i.e. once PKEX/DPP has finished
+			(including failure) the configurator will stop.
+
+			The SharedCode methods have an eventual timeout and will
+			stop automatically after 2 minutes.
+
+			Possible errors:	net.connman.iwd.Busy
+						net.connman.iwd.NotConnected
+						net.connman.InvalidArguments
+
+		void StartEnrollee(a{sv})
+
+			Starts a DPP enrollee using a shared code (and
+			optionally identifier) set in the dictionary argument
+			(described above in ConfigureEnrollee).
+
+			As with the device provisioning interface, enrollees
+			must be disconnected in order to start.
+
+			Once started an enrollee (acting as an initiator) will
+			iterate channels sending out broadcast exchange requests
+			waiting for a response from a configurator. A response
+			will kick off the shared code bootstrapping protocol
+			(PKEX), followed by DPP if successful. Once the
+			protocols have completed, or failed, the enrollee will
+			stop. If failed, StartEnrollee will need to be called
+			again to retry.
+
+			Possible errors:	net.connman.iwd.Busy
+						net.connman.iwd.InvalidArguments
+
+		void StartConfigurator(object agent_path)
+
+			Start a shared code configurator using an agent
+			(distingushed by 'agent_path') to obtain the shared
+			code. This method is meant for an automated use case
+			where a configurator is capable of configuring multiple
+			enrollees, and distinguishing between them by their
+			identifier.
+
+			If the agent service disappears during the shared code
+			exchange it will be stopped, and the protocol will fail.
+
+			This method behaves nearly the same as ConfigureEnrollee
+			except upon receiving an enrollees first exchange
+			request the registered agent will be asked for the
+			shared code using the RequestSharedCode method.
+
+			Though the agent can provide shared codes for multiple
+			enrollees, this method will only configure a single
+			enrollee at a time. Once completed it will need to be
+			called again to configure additional enrollees.
+
+			Possible errors:	net.connman.iwd.Busy
+						net.connman.iwd.NotConnected
+						net.connman.iwd.NoAgent
+
+		Stop()
+
+			Stop a currently running configurator/enrollee. Note
+			that this will also interrupt DPP if the protocol has
+			advanced that far. Since DPP is initiated implicitly
+			from the shared code APIs it will also be canceled.
+			Calling Stop() if DPP was started via the
+			DeviceProvisioning interface will not stop it.
+
+Properties	boolean Started [readonly]
+
+			True if shared code device provisioning is currently
+			active. (configurator or enrollee is started)
+
+		string Role [readonly, optional]
+
+			Indicates the DPP role. Possible values are "enrollee"
+			or "configurator". This property is only available when
+			Started is true.
+
+SharedCodeAgent hierarchy
+=========================
+
+Service		unique name
+Interface	net.connman.iwd.SharedCodeAgent [Experimental]
+Object path	freely definable
+
+Methods		void Release() [noreply]
+
+			This method gets called when the service daemon
+			unregisters the agent.
+
+		string RequestSharedCode(string identifier)
+
+			This method gets called when a shared code is requested
+			for a particular enrollee, distingushed by the
+			identifier. The shared code agent should lookup the
+			identifier and return the shared code, or return an
+			error if not found.
+
+			Possible Errors:	[service].Error.Canceled
+						[service].Error.NotFound
+
+		void Cancel(string reason) [noreply]
+
+			This method gets called to indicate that the agent
+			request failed before a reply was returned. The
+			argument will indicate why the request is being
+			cancelled and may be "user-canceled", "timed-out" or
+			"shutdown".
+
+Examples	Requesting a shared code for an enrollee identified by "foo"
+
+			RequestSharedCode("foo") ==> "super_secret_code"
