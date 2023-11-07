@@ -1054,6 +1054,7 @@ static void netdev_cqm_event(struct l_genl_msg *msg, struct netdev *netdev)
 	uint32_t *rssi_event = NULL;
 	int32_t *rssi_val = NULL;
 	uint32_t *pkt_event = NULL;
+	bool beacon_loss = false;
 
 	if (!l_genl_attr_init(&attr, msg))
 		return;
@@ -1081,7 +1082,7 @@ static void netdev_cqm_event(struct l_genl_msg *msg, struct netdev *netdev)
 					break;
 
 				case NL80211_ATTR_CQM_BEACON_LOSS_EVENT:
-					l_debug("Beacon lost event");
+					beacon_loss = true;
 					break;
 
 				case NL80211_ATTR_CQM_RSSI_LEVEL:
@@ -1111,6 +1112,9 @@ static void netdev_cqm_event(struct l_genl_msg *msg, struct netdev *netdev)
 	} else if (pkt_event && netdev->event_filter)
 		netdev->event_filter(netdev, NETDEV_EVENT_PACKET_LOSS_NOTIFY,
 					pkt_event, netdev->user_data);
+	else if (beacon_loss && netdev->event_filter)
+		netdev->event_filter(netdev, NETDEV_EVENT_BEACON_LOSS_NOTIFY,
+					NULL, netdev->user_data);
 }
 
 static void netdev_rekey_offload_event(struct l_genl_msg *msg,
