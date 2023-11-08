@@ -1202,7 +1202,7 @@ static size_t ap_build_country_ie(struct ap_state *ap, uint8_t *out_buf,
 	 * and use the same TX power. Any deviation from this results in a new
 	 * channel group.
 	 *
-	 * TODO: 6Ghz requires operating triplets, not subband triplets.
+	 * TODO: 6GHz requires operating triplets, not subband triplets.
 	 */
 	for (i = 0; i < len; i++) {
 		const struct band_freq_attrs *attr = &list[i];
@@ -3564,7 +3564,7 @@ static bool ap_validate_band_channel(struct ap_state *ap)
 	freq = band_channel_to_freq(ap->channel, ap->band);
 	if (!freq) {
 		l_error("AP invalid band (%s) and channel (%u) combination",
-			(ap->band & BAND_FREQ_5_GHZ) ? "5Ghz" : "2.4GHz",
+			(ap->band & BAND_FREQ_5_GHZ) ? "5GHz" : "2.4GHz",
 			ap->channel);
 		return false;
 	}

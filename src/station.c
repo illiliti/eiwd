@@ -4435,7 +4435,7 @@ static void station_wiphy_watch(struct wiphy *wiphy,
 	/*
 	 * The only state that requires special handling is for
 	 * quick scans since the previous quick scan was delayed until
-	 * the regulatory domain updated. Try again in case 6Ghz is now
+	 * the regulatory domain updated. Try again in case 6GHz is now
 	 * unlocked (unlikely), or advance to full autoconnect. Just in
 	 * case this update came during a quick scan, ignore it.
 	 */

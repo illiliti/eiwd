@@ -2761,7 +2761,7 @@ static void print_wsc_configuration_error(unsigned int level, const char *label,
 		"Message timeout",
 		"Registration session timeout",
 		"Device Password Auth Failure",
-		"60 Ghz channel not supported",
+		"60 GHz channel not supported",
 		"Public Key Hash Mismatch",
 	};
 

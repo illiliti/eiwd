@@ -1262,10 +1262,10 @@ static void wiphy_print_basic_info(struct wiphy *wiphy)
 	l_info("\tPermanent Address: "MAC, MAC_STR(wiphy->permanent_addr));
 
 	if (wiphy->band_2g)
-		wiphy_print_band_info(wiphy->band_2g, "2.4Ghz Band");
+		wiphy_print_band_info(wiphy->band_2g, "2.4GHz Band");
 
 	if (wiphy->band_5g)
-		wiphy_print_band_info(wiphy->band_5g, "5Ghz Band");
+		wiphy_print_band_info(wiphy->band_5g, "5GHz Band");
 
 	if (wiphy->band_6g)
 		wiphy_print_band_info(wiphy->band_6g, "6GHz Band");

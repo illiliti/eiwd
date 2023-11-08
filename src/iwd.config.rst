@@ -122,7 +122,7 @@ The group ``[General]`` contains general settings.
      - Value: rssi dBm value, from -100 to 1, default: **-70**
 
        This value can be used to control how aggressively **iwd** roams when
-       connected to a 2.4Ghz access point.
+       connected to a 2.4GHz access point.
 
    * - RoamThreshold5G
      - Value: rssi dBm value, from -100 to 1, default: **-76**
@@ -291,7 +291,7 @@ autoconnect purposes.
    :widths: 20 80
    :align: left
 
-   * - BandModifier2_4Ghz
+   * - BandModifier2_4GHz
      - Values: floating point value (default: **1.0**)
 
        Increase or decrease the preference for 2.4GHz access points by
@@ -300,19 +300,19 @@ autoconnect purposes.
        A value of 0.0 will disable the 2.4GHz band and prevent scanning or
        connecting on those frequencies.
 
-   * - BandModifier5Ghz
+   * - BandModifier5GHz
      - Values: floating point value (default: **1.0**)
 
        Increase or decrease the preference for 5GHz access points by increasing
        or decreasing the value of this modifier.  5GHz networks are already
        preferred due to their increase throughput / data rate.  However, 5GHz
        networks are highly RSSI sensitive, so it is still possible for IWD to
-       prefer 2.4Ghz APs in certain circumstances.
+       prefer 2.4GHz APs in certain circumstances.
 
        A value of 0.0 will disable the 5GHz band and prevent scanning or
        connecting on those frequencies.
 
-   * - BandModifier6Ghz
+   * - BandModifier6GHz
      - Values: floating point value (default: **1.0**)
 
        Increase or decrease the preference for 6GHz access points by increasing

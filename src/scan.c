@@ -2333,24 +2333,28 @@ double scan_get_band_rank_modifier(enum band_freq band)
 {
 	const struct l_settings *config = iwd_get_config();
 	double modifier;
-	char *str;
+	char *str, *str_legacy;
 
 	switch (band) {
 	case BAND_FREQ_2_4_GHZ:
-		str = "BandModifier2_4Ghz";
+		str = "BandModifier2_4GHz";
+		str_legacy = "BandModifier2_4Ghz";
 		break;
 	case BAND_FREQ_5_GHZ:
-		str = "BandModifier5Ghz";
+		str = "BandModifier5GHz";
+		str_legacy = "BandModifier5Ghz";
 		break;
 	case BAND_FREQ_6_GHZ:
-		str = "BandModifier6Ghz";
+		str = "BandModifier6GHz";
+		str_legacy = "BandModifier6Ghz";
 		break;
 	default:
 		l_warn("Unhandled band %u", band);
 		return 0.0;
 	}
 
-	if (!l_settings_get_double(config, "Rank", str, &modifier))
+	if (!l_settings_get_double(config, "Rank", str, &modifier) &&
+		!l_settings_get_double(config, "Rank", str_legacy, &modifier))
 		modifier = 1.0;
 
 	return modifier;
