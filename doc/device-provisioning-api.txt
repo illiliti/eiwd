@@ -18,11 +18,9 @@ Methods		string StartEnrollee()
 
 		void Stop()
 
-			Stop an enrollee.
+			Stop an enrollee or configurator that is running.
 
-			Possible errors:	net.connman.iwd.Busy
-						net.connman.iwd.Failed
-						net.connman.iwd.InvalidArguments
+			Possible errors:	net.connman.iwd.NotFound
 
 		string StartConfigurator()
 
@@ -167,6 +165,8 @@ Object path	/net/connman/iwd/{phy0,phy1,...}/{1,2,...}
 			from the shared code APIs it will also be canceled.
 			Calling Stop() if DPP was started via the
 			DeviceProvisioning interface will not stop it.
+
+			Possible errors:	net.connman.iwd.NotFound
 
 Properties	boolean Started [readonly]
 
