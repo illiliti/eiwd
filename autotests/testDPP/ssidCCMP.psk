@@ -1,2 +1,14 @@
 [Security]
 Passphrase=secret123
+
+[DeviceProvisioning]
+SharedCode=secret123
+SharedCodeIdentifier=test
+ExactConfig=true
+
+[IPv4]
+SendHostname=true
+
+[Settings]
+AutoConnect=true
+Hidden=false

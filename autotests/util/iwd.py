@@ -231,6 +231,11 @@ class SharedCodeAgent(dbus.service.Object):
         print("SharedCodeAgent released")
 
     @dbus.service.method(IWD_SHARED_CODE_AGENT_INTERFACE,
+                         in_signature='s', out_signature='')
+    def Cancel(self, reason):
+        print("SharedCodeAgent canceled (%s)" % reason)
+
+    @dbus.service.method(IWD_SHARED_CODE_AGENT_INTERFACE,
                          in_signature='s', out_signature='s')
     def RequestSharedCode(self, identifier):
         print("SharedCodeAgent request for %s" % identifier)
@@ -356,12 +361,6 @@ class SharedCodeDeviceProvisioning(IWDDBusAbstract):
 
     def stop(self):
         self._iface.Stop()
-
-    def register_agent(self, path):
-        self._iface.RegisterSharedCodeAgent(path)
-
-    def unregister_agent(self):
-        self._iface.UnregisterSharedCodeAgent()
 
     @property
     def started(self):
