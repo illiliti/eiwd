@@ -148,8 +148,13 @@ class Test(unittest.TestCase):
         self.rule0.drop = True
 
     def tearDown(self):
-        self.device.disconnect()
-        self.device.dpp_stop()
+        # Tests end in various states, don't fail when tearing down.
+        try:
+            self.device.disconnect()
+            self.device.dpp_stop()
+        except:
+            pass
+
         self.wpas.dpp_configurator_remove()
         self.wpas.clean_up()
 
