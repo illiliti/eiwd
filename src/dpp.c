@@ -79,6 +79,12 @@ enum dpp_capability {
 	DPP_CAPABILITY_CONFIGURATOR = 0x02,
 };
 
+enum dpp_interface {
+	DPP_INTERFACE_UNBOUND,
+	DPP_INTERFACE_DPP,
+	DPP_INTERFACE_PKEX,
+};
+
 struct dpp_sm {
 	struct netdev *netdev;
 	char *uri;
@@ -100,6 +106,7 @@ struct dpp_sm {
 	struct l_ecc_point *peer_boot_public;
 
 	enum dpp_state state;
+	enum dpp_interface interface;
 
 	/*
 	 * List of frequencies to jump between. The presence of this list is
@@ -159,7 +166,8 @@ static bool dpp_get_started(struct l_dbus *dbus,
 				void *user_data)
 {
 	struct dpp_sm *dpp = user_data;
-	bool started = (dpp->state != DPP_STATE_NOTHING);
+	bool started = (dpp->state != DPP_STATE_NOTHING &&
+			dpp->interface == DPP_INTERFACE_DPP);
 
 	l_dbus_message_builder_append_basic(builder, 'b', &started);
 
@@ -174,7 +182,8 @@ static bool dpp_get_role(struct l_dbus *dbus,
 	struct dpp_sm *dpp = user_data;
 	const char *role;
 
-	if (dpp->state == DPP_STATE_NOTHING)
+	if (dpp->state == DPP_STATE_NOTHING ||
+				dpp->interface != DPP_INTERFACE_DPP)
 		return false;
 
 	switch (dpp->role) {
@@ -199,7 +208,8 @@ static bool dpp_get_uri(struct l_dbus *dbus,
 {
 	struct dpp_sm *dpp = user_data;
 
-	if (dpp->state == DPP_STATE_NOTHING)
+	if (dpp->state == DPP_STATE_NOTHING ||
+				dpp->interface != DPP_INTERFACE_DPP)
 		return false;
 
 	l_dbus_message_builder_append_basic(builder, 's', dpp->uri);
@@ -210,12 +220,18 @@ static void dpp_property_changed_notify(struct dpp_sm *dpp)
 {
 	const char *path = netdev_get_path(dpp->netdev);
 
-	l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
-				"Started");
-	l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
-				"Role");
-	l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
-				"URI");
+	switch (dpp->interface) {
+	case DPP_INTERFACE_DPP:
+		l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
+					"Started");
+		l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
+					"Role");
+		l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
+					"URI");
+		break;
+	default:
+		break;
+	}
 }
 
 static void *dpp_serialize_iovec(struct iovec *iov, size_t iov_len,
@@ -333,6 +349,8 @@ static void dpp_reset(struct dpp_sm *dpp)
 	dpp_free_auth_data(dpp);
 
 	dpp_property_changed_notify(dpp);
+
+	dpp->interface = DPP_INTERFACE_UNBOUND;
 }
 
 static void dpp_free(struct dpp_sm *dpp)
@@ -2416,6 +2434,7 @@ static void dpp_create(struct netdev *netdev)
 
 	dpp->netdev = netdev;
 	dpp->state = DPP_STATE_NOTHING;
+	dpp->interface = DPP_INTERFACE_UNBOUND;
 	dpp->wdev_id = wdev_id;
 	dpp->curve = l_ecc_curve_from_ike_group(19);
 	dpp->key_len = l_ecc_curve_get_scalar_bytes(dpp->curve);
@@ -2535,7 +2554,8 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	uint32_t freq = band_channel_to_freq(6, BAND_FREQ_2_4_GHZ);
 	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
 
-	if (dpp->state != DPP_STATE_NOTHING)
+	if (dpp->state != DPP_STATE_NOTHING ||
+				dpp->interface != DPP_INTERFACE_UNBOUND)
 		return dbus_error_busy(message);
 
 	/*
@@ -2554,6 +2574,7 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 
 	dpp->state = DPP_STATE_PRESENCE;
 	dpp->role = DPP_CAPABILITY_ENROLLEE;
+	dpp->interface = DPP_INTERFACE_DPP;
 
 	l_ecdh_generate_key_pair(dpp->curve, &dpp->proto_private,
 					&dpp->own_proto_public);
@@ -2663,7 +2684,8 @@ static struct l_dbus_message *dpp_start_configurator_common(
 	if (network_get_security(network) != SECURITY_PSK)
 		return dbus_error_not_supported(message);
 
-	if (dpp->state != DPP_STATE_NOTHING)
+	if (dpp->state != DPP_STATE_NOTHING ||
+				dpp->interface != DPP_INTERFACE_UNBOUND)
 		return dbus_error_busy(message);
 
 	l_ecdh_generate_key_pair(dpp->curve, &dpp->proto_private,
@@ -2695,6 +2717,7 @@ static struct l_dbus_message *dpp_start_configurator_common(
 					netdev_get_address(dpp->netdev),
 					&bss->frequency, 1, NULL, NULL);
 	dpp->role = DPP_CAPABILITY_CONFIGURATOR;
+	dpp->interface = DPP_INTERFACE_DPP;
 	dpp->config = dpp_configuration_new(settings,
 						network_get_ssid(network),
 						hs->akm_suite);
@@ -2729,6 +2752,9 @@ static struct l_dbus_message *dpp_dbus_stop(struct l_dbus *dbus,
 						void *user_data)
 {
 	struct dpp_sm *dpp = user_data;
+
+	if (dpp->interface != DPP_INTERFACE_DPP)
+		return dbus_error_not_found(message);
 
 	dpp_reset(dpp);
 
