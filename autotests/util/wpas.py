@@ -273,12 +273,16 @@ class Wpas:
 
         return self._dpp_uri
 
-    def dpp_configurator_create(self, uri):
+    def dpp_configurator_create(self, uri=None):
         self._rx_data = []
         self._ctrl_request('DPP_CONFIGURATOR_ADD')
         self._dpp_conf_id = self.wait_for_result()
         while not self._dpp_conf_id.isnumeric():
             self._dpp_conf_id = self.wait_for_result()
+
+        if not uri:
+            print("DPP Configurator ID: %s", self._dpp_conf_id)
+            return
 
         self._rx_data = []
         self._ctrl_request('DPP_QR_CODE ' + uri)
@@ -301,6 +305,40 @@ class Wpas:
         self._ctrl_request(cmd)
         self.wait_for_event('DPP-AUTH-SUCCESS', timeout=30)
         self.wait_for_event('DPP-CONF-SENT')
+
+    def dpp_bootstrap_gen(self, type='qrcode', curve=None):
+        cmd = f'DPP_BOOTSTRAP_GEN type={type}'
+
+        if curve:
+            cmd += f' curve={curve}'
+
+        self._rx_data = []
+        self._ctrl_request(cmd)
+        self._dpp_id = self.wait_for_result()
+
+    def dpp_pkex_add(self, code, identifier=None, version=None, initiator=False, role=None):
+        cmd = f'DPP_PKEX_ADD own={self._dpp_id}'
+
+        if identifier:
+            cmd += f' identifier={identifier}'
+
+        if initiator:
+            cmd += f' init=1'
+
+        if version:
+            cmd += f' ver={version}'
+
+        if role:
+            cmd += f' role={role}'
+
+        cmd += f' code={code}'
+
+        self._rx_data = []
+        self._ctrl_request(cmd)
+
+    def dpp_listen(self, freq):
+        self._rx_data = []
+        self._ctrl_request(f'DPP_LISTEN {freq}')
 
     def dpp_configurator_remove(self):
         self._ctrl_request('DPP_CONFIGURATOR_REMOVE *')
