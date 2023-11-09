@@ -3950,8 +3950,12 @@ static struct l_dbus_message *dpp_dbus_stop(struct l_dbus *dbus,
 {
 	struct dpp_sm *dpp = user_data;
 
+	l_debug("");
+
 	if (dpp->interface != DPP_INTERFACE_DPP)
 		return dbus_error_not_found(message);
+
+	dpp_reset(dpp);
 
 	return l_dbus_message_new_method_return(message);
 }
@@ -4264,8 +4268,12 @@ static struct l_dbus_message *dpp_dbus_pkex_stop(struct l_dbus *dbus,
 {
 	struct dpp_sm *dpp = user_data;
 
+	l_debug("");
+
 	if (dpp->interface != DPP_INTERFACE_PKEX)
 		return dbus_error_not_found(message);
+
+	dpp_reset(dpp);
 
 	return l_dbus_message_new_method_return(message);
 }
