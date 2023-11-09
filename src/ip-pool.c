@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <linux/rtnetlink.h>
 
 #include <ell/ell.h>
 
