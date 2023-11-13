@@ -100,6 +100,7 @@ struct dpp_sm {
 	char *uri;
 	uint8_t role;
 	int refcount;
+	uint32_t station_watch;
 
 	uint64_t wdev_id;
 
@@ -536,6 +537,8 @@ static void dpp_reset(struct dpp_sm *dpp)
 
 static void dpp_free(struct dpp_sm *dpp)
 {
+	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+
 	dpp_reset(dpp);
 
 	if (dpp->own_asn1) {
@@ -552,6 +555,13 @@ static void dpp_free(struct dpp_sm *dpp)
 		l_ecc_scalar_free(dpp->boot_private);
 		dpp->boot_private = NULL;
 	}
+
+	/*
+	 * Since this is called when the netdev goes down, station may already
+	 * be gone in which case the state watch will automatically go away.
+	 */
+	if (station)
+		station_remove_state_watch(station, dpp->station_watch);
 
 	l_free(dpp);
 }
@@ -3608,6 +3618,67 @@ static void dpp_frame_watch(struct dpp_sm *dpp, uint16_t frame_type,
 					L_UINT_TO_PTR(frame_type), NULL);
 }
 
+/*
+ * Station is unaware of DPP's state so we need to handle a few cases here so
+ * weird stuff doesn't happen:
+ *
+ *   - While configuring we should stay connected, a disconnection/roam should
+ *     stop DPP since it would fail regardless due to the hardware going idle
+ *     or changing channels since configurators assume all comms will be
+ *     on-channel.
+ *   - While enrolling we should stay disconnected. If station connects during
+ *     enrolling it would cause 2x calls to __station_connect_network after
+ *     DPP finishes.
+ *
+ * Other conditions shouldn't ever happen i.e. configuring and going into a
+ * connecting state or enrolling and going to a disconnected/roaming state.
+ */
+static void dpp_station_state_watch(enum station_state state, void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+
+	switch (state) {
+	case STATION_STATE_DISCONNECTED:
+	case STATION_STATE_DISCONNECTING:
+	case STATION_STATE_ROAMING:
+	case STATION_STATE_FT_ROAMING:
+	case STATION_STATE_FW_ROAMING:
+		if (L_WARN_ON(dpp->role == DPP_CAPABILITY_ENROLLEE))
+			dpp_reset(dpp);
+
+		if (dpp->role == DPP_CAPABILITY_CONFIGURATOR) {
+			l_debug("Disconnected while configuring, stopping DPP");
+			dpp_reset(dpp);
+		}
+
+		break;
+	case STATION_STATE_CONNECTING:
+	case STATION_STATE_CONNECTED:
+	case STATION_STATE_CONNECTING_AUTO:
+		if (L_WARN_ON(dpp->role == DPP_CAPABILITY_CONFIGURATOR))
+			dpp_reset(dpp);
+
+		if (dpp->role == DPP_CAPABILITY_ENROLLEE) {
+			l_debug("Connecting while enrolling, stopping DPP");
+			dpp_reset(dpp);
+		}
+
+		break;
+
+	/*
+	 * Autoconnect states are fine for enrollees. This makes it nicer for
+	 * the user since they don't need to explicity Disconnect() to disable
+	 * autoconnect, then re-enable it if DPP fails.
+	 */
+	case STATION_STATE_AUTOCONNECT_FULL:
+	case STATION_STATE_AUTOCONNECT_QUICK:
+		if (L_WARN_ON(dpp->role == DPP_CAPABILITY_CONFIGURATOR))
+			dpp_reset(dpp);
+
+		break;
+	}
+}
+
 static void dpp_create(struct netdev *netdev)
 {
 	struct l_dbus *dbus = dbus_get_bus();
@@ -3615,6 +3686,7 @@ static void dpp_create(struct netdev *netdev)
 	uint8_t dpp_conf_response_prefix[] = { 0x04, 0x0b };
 	uint8_t dpp_conf_request_prefix[] = { 0x04, 0x0a };
 	uint64_t wdev_id = netdev_get_wdev_id(netdev);
+	struct station *station = station_find(netdev_get_ifindex(netdev));
 
 	dpp->netdev = netdev;
 	dpp->state = DPP_STATE_NOTHING;
@@ -3659,6 +3731,9 @@ static void dpp_create(struct netdev *netdev)
 				dpp_conf_request_prefix,
 				sizeof(dpp_conf_request_prefix),
 				dpp_handle_config_request_frame, dpp, NULL);
+
+	dpp->station_watch = station_add_state_watch(station,
+					dpp_station_state_watch, dpp, NULL);
 
 	l_queue_push_tail(dpp_list, dpp);
 }
