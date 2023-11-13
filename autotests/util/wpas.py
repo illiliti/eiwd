@@ -76,7 +76,7 @@ class Wpas:
 
         for e in self._rx_data:
             if event in e:
-                return self._rx_data
+                return e
 
         return False
 
@@ -281,7 +281,7 @@ class Wpas:
             self._dpp_conf_id = self.wait_for_result()
 
         if not uri:
-            print("DPP Configurator ID: %s", self._dpp_conf_id)
+            print("DPP Configurator ID: %s" % self._dpp_conf_id)
             return
 
         self._rx_data = []
@@ -315,6 +315,8 @@ class Wpas:
         self._rx_data = []
         self._ctrl_request(cmd)
         self._dpp_id = self.wait_for_result()
+        while not self._dpp_id.isnumeric():
+            self._dpp_id = self.wait_for_result()
 
     def dpp_pkex_add(self, code, identifier=None, version=None, initiator=False, role=None):
         cmd = f'DPP_PKEX_ADD own={self._dpp_id}'
@@ -336,9 +338,17 @@ class Wpas:
         self._rx_data = []
         self._ctrl_request(cmd)
 
+    def dpp_pkex_remove(self):
+        self._rx_data = []
+        self._ctrl_request("DPP_PKEX_REMOVE *")
+
     def dpp_listen(self, freq):
         self._rx_data = []
         self._ctrl_request(f'DPP_LISTEN {freq}')
+
+    def dpp_stop_listen(self):
+        self._rx_data = []
+        self._ctrl_request("DPP_STOP_LISTEN")
 
     def dpp_configurator_remove(self):
         self._ctrl_request('DPP_CONFIGURATOR_REMOVE *')
