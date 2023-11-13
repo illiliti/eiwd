@@ -1264,6 +1264,7 @@ static void netdev_deauthenticate_event(struct l_genl_msg *msg,
 	uint16_t type, len;
 	const void *data;
 	const struct mmpdu_header *hdr = NULL;
+	const struct mmpdu_deauthentication *deauth;
 	uint16_t reason_code;
 
 	l_debug("");
@@ -1298,7 +1299,8 @@ static void netdev_deauthenticate_event(struct l_genl_msg *msg,
 	if (!memcmp(hdr->address_2, netdev->addr, sizeof(netdev->addr)))
 		return;
 
-	reason_code = l_get_u8(mmpdu_body(hdr));
+	deauth = mmpdu_body(hdr);
+	reason_code = L_LE16_TO_CPU(deauth->reason_code);
 
 	l_info("deauth event, src="MAC" dest="MAC" bssid="MAC" reason=%u",
 			MAC_STR(hdr->address_2), MAC_STR(hdr->address_1),
