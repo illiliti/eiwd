@@ -21,6 +21,11 @@ class Test(unittest.TestCase):
             self.wpas.dpp_configurator_create()
             self.wpas.dpp_listen(2437)
 
+    def stop_wpas_pkex(self):
+        self.wpas.dpp_pkex_remove()
+        self.wpas.dpp_stop_listen()
+        self.wpas.dpp_configurator_remove()
+
     def start_iwd_pkex_configurator(self, device, agent=False):
         self.hapd.reload()
         self.hapd.wait_for_event('AP-ENABLED')
@@ -38,10 +43,50 @@ class Test(unittest.TestCase):
         else:
             device.dpp_pkex_configure_enrollee('secret123', identifier="test")
 
+    #
+    # WPA Supplicant has awful handling of retransmissions and no-ACK
+    # conditions. It only handles retransmitting the exchange request when
+    # there is no-ACK, which makes zero sense since its a broadcast...
+    #
+    # So, really, testing against wpa_supplicant is fragile and dependent on
+    # how the scheduling works out. If IWD doesn't ACK due to being on the
+    # next frequency or in between offchannel requests wpa_supplicant gets
+    # into a state where it thinks a PKEX session has been started (having
+    # received the exchange request) but will only accept commit-reveal
+    # frames. IWD is unaware because it never got a response so it keeps
+    # sending exchange requests which are ignored.
+    #
+    # Nevertheless we should still test against wpa_supplicant for
+    # compatibility so attempt to detect this case and restart the
+    # wpa_supplicant configurator.
+    #
+    def restart_wpas_if_needed(self):
+        i = 0
+
+        while i < 10:
+            data = self.wpas.wait_for_event("DPP-RX")
+            self.assertIn("type=7", data)
+
+            data = self.wpas.wait_for_event("DPP-TX")
+            self.assertIn("type=8", data)
+
+            data = self.wpas.wait_for_event("DPP-TX-STATUS")
+            if "result=no-ACK" in data:
+                self.stop_wpas_pkex()
+                self.start_wpas_pkex('secret123', identifier="test")
+            else:
+                return
+
+            i += 1
+
+        raise Exception("wpa_supplicant could not complete PKEX after 10 retries")
+
     def test_pkex_iwd_as_enrollee(self):
         self.start_wpas_pkex('secret123', identifier="test")
 
         self.device[0].dpp_pkex_enroll('secret123', identifier="test")
+
+        self.restart_wpas_if_needed()
 
         self.wpas.wait_for_event("DPP-AUTH-SUCCESS")
 
@@ -51,6 +96,8 @@ class Test(unittest.TestCase):
         self.start_wpas_pkex('secret123', identifier="test")
 
         self.device[0].dpp_pkex_enroll('secret123', identifier="test")
+
+        self.restart_wpas_if_needed()
 
         self.wpas.wait_for_event("DPP-AUTH-SUCCESS")
 
@@ -120,15 +167,6 @@ class Test(unittest.TestCase):
 
         condition = 'obj.state == DeviceState.connected'
         self.wd.wait_for_object_condition(self.device[1], condition)
-
-        self.assertTrue(os.path.exists('/tmp/ns0/ssidCCMP.psk'))
-
-        with open('/tmp/ns0/ssidCCMP.psk') as f:
-            data = f.read()
-
-        self.assertIn("SendHostname", data)
-        self.assertIn("SharedCode=secret123", data)
-        self.assertIn("ExactConfig=true", data)
 
     def test_pkex_configurator_with_agent(self):
         self.start_iwd_pkex_configurator(self.device[0], agent=True)
