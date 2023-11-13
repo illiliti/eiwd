@@ -4956,8 +4956,7 @@ static void netdev_unprot_disconnect_event(struct l_genl_msg *msg,
 	if (!hdr)
 		return;
 
-	/* get reason code, first byte of frame */
-	reason_code = l_get_u8(mmpdu_body(hdr));
+	reason_code = l_get_le16(mmpdu_body(hdr));
 
 	l_info("disconnect event, src="MAC" dest="MAC" bssid="MAC" reason=%u",
 			MAC_STR(hdr->address_2), MAC_STR(hdr->address_1),
