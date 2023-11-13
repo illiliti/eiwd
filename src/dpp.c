@@ -4001,13 +4001,7 @@ static uint32_t *dpp_default_freqs(struct dpp_sm *dpp, size_t *out_len)
 static bool dpp_start_pkex_enrollee(struct dpp_sm *dpp, const char *key,
 				const char *identifier)
 {
-	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
 	_auto_(l_ecc_point_free) struct l_ecc_point *qi = NULL;
-
-	if (station && station_get_connected_network(station)) {
-		l_debug("Already connected, disconnect before enrolling");
-		return false;
-	}
 
 	if (identifier)
 		dpp->pkex_id = l_strdup(identifier);
@@ -4120,7 +4114,7 @@ static struct l_dbus_message *dpp_dbus_pkex_start_enrollee(struct l_dbus *dbus,
 				dpp->interface != DPP_INTERFACE_UNBOUND)
 		return dbus_error_busy(message);
 
-	if (station_get_connected_network(station))
+	if (station && station_get_connected_network(station))
 		return dbus_error_busy(message);
 
 	if (!dpp_parse_pkex_args(message, &key, &id))
