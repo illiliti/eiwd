@@ -839,7 +839,6 @@ static void netdev_connect_failed(struct netdev *netdev,
 					uint16_t status_or_reason)
 {
 	netdev_connect_cb_t connect_cb = netdev->connect_cb;
-	netdev_event_func_t event_filter = netdev->event_filter;
 	void *connect_data = netdev->user_data;
 
 	/* Done this way to allow re-entrant netdev_connect calls */
@@ -847,15 +846,6 @@ static void netdev_connect_failed(struct netdev *netdev,
 
 	if (connect_cb)
 		connect_cb(netdev, result, &status_or_reason, connect_data);
-	else if (event_filter) {
-		/* NETDEV_EVENT_DISCONNECT_BY_SME expects a reason code */
-		if (result != NETDEV_RESULT_HANDSHAKE_FAILED)
-			status_or_reason = MMPDU_REASON_CODE_UNSPECIFIED;
-
-		event_filter(netdev, NETDEV_EVENT_DISCONNECT_BY_SME,
-				&status_or_reason,
-				connect_data);
-	}
 }
 
 static void netdev_connect_failed_cb(struct l_genl_msg *msg, void *user_data)
@@ -900,12 +890,42 @@ static void netdev_deauth_and_fail_connection(struct netdev *netdev,
 	netdev_send_and_fail_connection(netdev, result, status_code, msg);
 }
 
+/*
+ * If we have a connection callback pending, either through netdev_connect
+ * or netdev_reassociate, then invoke that callback with the @result and
+ * @status_or_reason.  Otherwise, invoke the event callback with the @event
+ * and @status_or_reason.
+ *
+ * This is useful for situations where handshaking or setting keys somehow
+ * fails (perhaps due to rekeying), or if the device is removed / brought
+ * down when keys are being set as a result of a rekey
+ */
+static void netdev_disconnected(struct netdev *netdev,
+					enum netdev_result result,
+					enum netdev_event event,
+					uint16_t status_or_reason)
+{
+	netdev_event_func_t event_filter = netdev->event_filter;
+	void *event_data = netdev->user_data;
+
+	if (netdev->connect_cb) {
+		netdev_connect_failed(netdev, result, status_or_reason);
+		return;
+	}
+
+	netdev_connect_free(netdev);
+
+	if (event_filter)
+		event_filter(netdev, event, &status_or_reason, event_data);
+}
+
 static void netdev_disconnect_by_sme_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = user_data;
 
 	netdev->disconnect_cmd_id = 0;
-	netdev_connect_failed(netdev, netdev->result, netdev->last_code);
+	netdev_disconnected(netdev, netdev->result,
+			NETDEV_EVENT_DISCONNECT_BY_SME, netdev->last_code);
 }
 
 static void netdev_disconnect_by_sme(struct netdev *netdev,
@@ -1440,7 +1460,8 @@ static void netdev_setting_keys_failed(struct netdev_handshake_state *nhs,
 		 * CMD_DISCONNECT
 		 */
 		if (err == -ENETDOWN) {
-			netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
+			netdev_disconnected(netdev, NETDEV_RESULT_ABORTED,
+					NETDEV_EVENT_DISCONNECT_BY_SME,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
 			return;
 		}
