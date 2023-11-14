@@ -3605,19 +3605,16 @@ static void netdev_mac_change_failed(struct netdev *netdev, int error)
 		WATCHLIST_NOTIFY(&netdev_watches, netdev_watch_func_t,
 				netdev, NETDEV_WATCH_EVENT_DOWN);
 
-		goto failed;
-	} else {
-		/* If the interface is up we can still try and connect */
-		l_info("Failed to change the MAC, continuing with connection");
-		if (netdev_begin_connection(netdev) < 0)
-			goto failed;
-
+		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
+				MMPDU_STATUS_CODE_UNSPECIFIED);
 		return;
 	}
 
-failed:
-	netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
-				MMPDU_STATUS_CODE_UNSPECIFIED);
+	/* If the interface is up we can still try and connect */
+	l_info("Failed to change the MAC, continuing with connection");
+
+	if (netdev_begin_connection(netdev) < 0)
+		l_error("netdev_begin_connection() error in mac_change_failed");
 }
 
 static void netdev_mac_destroy(void *user_data)
@@ -3649,14 +3646,9 @@ static void netdev_mac_power_up_cb(int error, uint16_t type,
 		return;
 	}
 
-	/*
-	 * Pick up where we left off in netdev_connect_commmon.
-	 */
-	if (netdev_begin_connection(netdev) < 0) {
-		l_error("Failed to connect after changing MAC");
-		netdev_connect_failed(netdev, NETDEV_RESULT_ASSOCIATION_FAILED,
-				MMPDU_STATUS_CODE_UNSPECIFIED);
-	}
+	/* Pick up where we left off in netdev_connect_commmon */
+	if (netdev_begin_connection(netdev) < 0)
+		l_error("netdev_begin_connection() error in mac_power_up_cb");
 }
 
 static void netdev_mac_power_down_cb(int error, uint16_t type,
@@ -3870,7 +3862,7 @@ static bool netdev_connection_work_ready(struct wiphy_radio_work_item *item)
 	}
 
 	if (netdev_begin_connection(netdev) < 0)
-		goto failed;
+		return true;
 
 	return false;
 
