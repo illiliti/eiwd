@@ -57,6 +57,11 @@ struct l_genl_msg *nl80211_build_new_rx_key_pairwise(uint32_t ifindex,
 						size_t tk_len,
 						uint8_t key_id);
 
+struct l_genl_msg *nl80211_build_rekey_offload(uint32_t ifindex,
+						const uint8_t *kek,
+						const uint8_t *kck,
+						uint64_t replay_ctr);
+
 struct l_genl_msg *nl80211_build_set_station_authorized(uint32_t ifindex,
 							const uint8_t *addr);
 

@@ -2163,30 +2163,6 @@ static void hardware_rekey_cb(struct l_genl_msg *msg, void *data)
 	}
 }
 
-static struct l_genl_msg *netdev_build_cmd_replay_counter(struct netdev *netdev,
-							const uint8_t *kek,
-							const uint8_t *kck,
-							uint64_t replay_ctr)
-{
-	struct l_genl_msg *msg;
-
-	msg = l_genl_msg_new_sized(NL80211_CMD_SET_REKEY_OFFLOAD, 512);
-
-	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
-
-	l_genl_msg_enter_nested(msg, NL80211_ATTR_REKEY_DATA);
-	l_genl_msg_append_attr(msg, NL80211_REKEY_DATA_KEK,
-					NL80211_KEK_LEN, kek);
-	l_genl_msg_append_attr(msg, NL80211_REKEY_DATA_KCK,
-					NL80211_KCK_LEN, kck);
-	l_genl_msg_append_attr(msg, NL80211_REKEY_DATA_REPLAY_CTR,
-			NL80211_REPLAY_CTR_LEN, &replay_ctr);
-
-	l_genl_msg_leave_nested(msg);
-
-	return msg;
-}
-
 static void netdev_set_rekey_offload(uint32_t ifindex,
 					const uint8_t *kek,
 					const uint8_t *kck,
@@ -2207,7 +2183,7 @@ static void netdev_set_rekey_offload(uint32_t ifindex,
 		return;
 
 	l_debug("%d", netdev->index);
-	msg = netdev_build_cmd_replay_counter(netdev, kek, kck, replay_counter);
+	msg = nl80211_build_rekey_offload(ifindex, kek, kck, replay_counter);
 	netdev->rekey_offload_cmd_id = l_genl_family_send(nl80211, msg,
 							hardware_rekey_cb,
 							netdev, NULL);

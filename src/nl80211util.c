@@ -408,6 +408,30 @@ struct l_genl_msg *nl80211_build_new_rx_key_pairwise(uint32_t ifindex,
 	return msg;
 }
 
+struct l_genl_msg *nl80211_build_rekey_offload(uint32_t ifindex,
+						const uint8_t *kek,
+						const uint8_t *kck,
+						uint64_t replay_ctr)
+{
+	struct l_genl_msg *msg;
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_SET_REKEY_OFFLOAD, 512);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &ifindex);
+
+	l_genl_msg_enter_nested(msg, NL80211_ATTR_REKEY_DATA);
+	l_genl_msg_append_attr(msg, NL80211_REKEY_DATA_KEK,
+					NL80211_KEK_LEN, kek);
+	l_genl_msg_append_attr(msg, NL80211_REKEY_DATA_KCK,
+					NL80211_KCK_LEN, kck);
+	l_genl_msg_append_attr(msg, NL80211_REKEY_DATA_REPLAY_CTR,
+			NL80211_REPLAY_CTR_LEN, &replay_ctr);
+
+	l_genl_msg_leave_nested(msg);
+
+	return msg;
+}
+
 static struct l_genl_msg *nl80211_build_set_station(uint32_t ifindex,
 					const uint8_t *addr,
 					struct nl80211_sta_flag_update *flags)
