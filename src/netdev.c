@@ -1298,20 +1298,6 @@ static void netdev_deauthenticate_event(struct l_genl_msg *msg,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
 }
 
-static struct l_genl_msg *netdev_build_cmd_deauthenticate(struct netdev *netdev,
-							uint16_t reason_code)
-{
-	struct l_genl_msg *msg;
-
-	msg = l_genl_msg_new_sized(NL80211_CMD_DEAUTHENTICATE, 128);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_REASON_CODE, 2, &reason_code);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN,
-							netdev->handshake->aa);
-
-	return msg;
-}
-
 static struct l_genl_msg *netdev_build_cmd_del_station(struct netdev *netdev,
 							const uint8_t *sta,
 							uint16_t reason_code,
@@ -3028,7 +3014,8 @@ static void netdev_cmd_ft_reassociate_cb(struct l_genl_msg *msg,
 
 		netdev->result = NETDEV_RESULT_ASSOCIATION_FAILED;
 		netdev->last_code = MMPDU_STATUS_CODE_UNSPECIFIED;
-		cmd_deauth = netdev_build_cmd_deauthenticate(netdev,
+		cmd_deauth = nl80211_build_deauthenticate(netdev->index,
+						netdev->handshake->aa,
 						MMPDU_REASON_CODE_UNSPECIFIED);
 		netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
 							cmd_deauth,
@@ -3163,7 +3150,8 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 
 			netdev->result = NETDEV_RESULT_ASSOCIATION_FAILED;
 			netdev->last_code = MMPDU_STATUS_CODE_UNSPECIFIED;
-			cmd_deauth = netdev_build_cmd_deauthenticate(netdev,
+			cmd_deauth = nl80211_build_deauthenticate(netdev->index,
+						netdev->handshake->aa,
 						MMPDU_REASON_CODE_UNSPECIFIED);
 			netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
 							cmd_deauth,

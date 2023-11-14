@@ -284,6 +284,20 @@ done:
 	return ret;
 }
 
+struct l_genl_msg *nl80211_build_deauthenticate(uint32_t ifindex,
+						const uint8_t addr[static 6],
+						uint16_t reason_code)
+{
+	struct l_genl_msg *msg;
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_DEAUTHENTICATE, 128);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &ifindex);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_REASON_CODE, 2, &reason_code);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, addr);
+
+	return msg;
+}
+
 struct l_genl_msg *nl80211_build_disconnect(uint32_t ifindex,
 							uint16_t reason_code)
 {
