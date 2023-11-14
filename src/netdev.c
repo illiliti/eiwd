@@ -858,12 +858,69 @@ static void netdev_connect_failed(struct netdev *netdev,
 	}
 }
 
-static void netdev_disconnect_cb(struct l_genl_msg *msg, void *user_data)
+static void netdev_connect_failed_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = user_data;
 
 	netdev->disconnect_cmd_id = 0;
 	netdev_connect_failed(netdev, netdev->result, netdev->last_code);
+}
+
+static void netdev_send_and_fail_connection(struct netdev *netdev,
+						enum netdev_result result,
+						uint16_t status_code,
+						struct l_genl_msg *msg)
+{
+	netdev->result = result;
+	netdev->last_code = status_code;
+
+	netdev->disconnect_cmd_id =
+		l_genl_family_send(nl80211, msg, netdev_connect_failed_cb,
+					netdev, NULL);
+}
+
+static void netdev_disconnect_and_fail_connection(struct netdev *netdev,
+						enum netdev_result result,
+						uint16_t status_code)
+{
+	struct l_genl_msg *msg = nl80211_build_disconnect(netdev->index,
+						MMPDU_REASON_CODE_UNSPECIFIED);
+
+	netdev_send_and_fail_connection(netdev, result, status_code, msg);
+}
+
+static void netdev_deauth_and_fail_connection(struct netdev *netdev,
+						enum netdev_result result,
+						uint16_t status_code)
+{
+	struct l_genl_msg *msg = nl80211_build_deauthenticate(netdev->index,
+						netdev->handshake->aa,
+						MMPDU_REASON_CODE_UNSPECIFIED);
+
+	netdev_send_and_fail_connection(netdev, result, status_code, msg);
+}
+
+static void netdev_disconnect_by_sme_cb(struct l_genl_msg *msg, void *user_data)
+{
+	struct netdev *netdev = user_data;
+
+	netdev->disconnect_cmd_id = 0;
+	netdev_connect_failed(netdev, netdev->result, netdev->last_code);
+}
+
+static void netdev_disconnect_by_sme(struct netdev *netdev,
+					enum netdev_result result,
+					uint16_t reason_code)
+{
+	struct l_genl_msg *msg = nl80211_build_disconnect(netdev->index,
+								reason_code);
+
+	netdev->result = result;
+	netdev->last_code = reason_code;
+
+	netdev->disconnect_cmd_id = l_genl_family_send(nl80211, msg,
+						netdev_disconnect_by_sme_cb,
+						netdev, NULL);
 }
 
 static void netdev_free(void *data)
@@ -1388,11 +1445,9 @@ static void netdev_setting_keys_failed(struct netdev_handshake_state *nhs,
 			return;
 		}
 
-		msg = nl80211_build_disconnect(netdev->index,
-						MMPDU_REASON_CODE_UNSPECIFIED);
-		netdev->disconnect_cmd_id = l_genl_family_send(nl80211, msg,
-							netdev_disconnect_cb,
-							netdev, NULL);
+		netdev_disconnect_by_sme(netdev,
+					NETDEV_RESULT_KEY_SETTING_FAILED,
+					MMPDU_REASON_CODE_UNSPECIFIED);
 		break;
 	case NL80211_IFTYPE_AP:
 		if (err == -ENETDOWN)
@@ -1407,7 +1462,6 @@ static void netdev_setting_keys_failed(struct netdev_handshake_state *nhs,
 		break;
 	}
 
-	netdev->result = NETDEV_RESULT_KEY_SETTING_FAILED;
 	handshake_event(&nhs->super, HANDSHAKE_EVENT_SETTING_KEYS_FAILED, &err);
 }
 
@@ -2118,16 +2172,11 @@ void netdev_handshake_failed(struct handshake_state *hs, uint16_t reason_code)
 
 	netdev->sm = NULL;
 
-	netdev->result = NETDEV_RESULT_HANDSHAKE_FAILED;
-	netdev->last_code = reason_code;
-
 	switch (netdev->type) {
 	case NL80211_IFTYPE_STATION:
 	case NL80211_IFTYPE_P2P_CLIENT:
-		msg = nl80211_build_disconnect(netdev->index, reason_code);
-		netdev->disconnect_cmd_id = l_genl_family_send(nl80211, msg,
-							netdev_disconnect_cb,
-							netdev, NULL);
+		netdev_disconnect_by_sme(netdev, NETDEV_RESULT_HANDSHAKE_FAILED,
+						reason_code);
 		break;
 	case NL80211_IFTYPE_AP:
 	case NL80211_IFTYPE_P2P_GO:
@@ -2842,14 +2891,9 @@ error:
 	return;
 
 deauth:
-	netdev->result = NETDEV_RESULT_ASSOCIATION_FAILED;
-	netdev->last_code = MMPDU_STATUS_CODE_UNSPECIFIED;
-	msg = nl80211_build_disconnect(netdev->index,
-						MMPDU_REASON_CODE_UNSPECIFIED);
-	netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
-							msg,
-							netdev_disconnect_cb,
-							netdev, NULL);
+	netdev_disconnect_and_fail_connection(netdev,
+					NETDEV_RESULT_ASSOCIATION_FAILED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
 }
 
 static struct l_genl_msg *netdev_build_cmd_associate_common(
@@ -2890,19 +2934,12 @@ static void netdev_cmd_ft_reassociate_cb(struct l_genl_msg *msg,
 
 	netdev->connect_cmd_id = 0;
 
-	if (l_genl_msg_get_error(msg) < 0) {
-		struct l_genl_msg *cmd_deauth;
+	if (l_genl_msg_get_error(msg) >= 0)
+		return;
 
-		netdev->result = NETDEV_RESULT_ASSOCIATION_FAILED;
-		netdev->last_code = MMPDU_STATUS_CODE_UNSPECIFIED;
-		cmd_deauth = nl80211_build_deauthenticate(netdev->index,
-						netdev->handshake->aa,
-						MMPDU_REASON_CODE_UNSPECIFIED);
-		netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
-							cmd_deauth,
-							netdev_disconnect_cb,
-							netdev, NULL);
-	}
+	netdev_deauth_and_fail_connection(netdev,
+					NETDEV_RESULT_ASSOCIATION_FAILED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
 }
 
 static bool kernel_will_retry_auth(uint16_t status_code,
@@ -3027,17 +3064,9 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 		 * to keep retrying, tell it to stop
 		 */
 		if (retry) {
-			struct l_genl_msg *cmd_deauth;
-
-			netdev->result = NETDEV_RESULT_ASSOCIATION_FAILED;
-			netdev->last_code = MMPDU_STATUS_CODE_UNSPECIFIED;
-			cmd_deauth = nl80211_build_deauthenticate(netdev->index,
-						netdev->handshake->aa,
-						MMPDU_REASON_CODE_UNSPECIFIED);
-			netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
-							cmd_deauth,
-							netdev_disconnect_cb,
-							netdev, NULL);
+			netdev_deauth_and_fail_connection(netdev,
+					NETDEV_RESULT_ASSOCIATION_FAILED,
+					MMPDU_STATUS_CODE_UNSPECIFIED);
 			return;
 		}
 	}
@@ -4545,17 +4574,14 @@ static void netdev_sa_query_timeout(struct l_timeout *timeout,
 		void *user_data)
 {
 	struct netdev *netdev = user_data;
-	struct l_genl_msg *msg;
 
 	l_info("SA Query timed out, connection is invalid.  Disconnecting...");
 
 	l_timeout_remove(netdev->sa_query_timeout);
 	netdev->sa_query_timeout = NULL;
 
-	msg = nl80211_build_disconnect(netdev->index,
-			MMPDU_REASON_CODE_PREV_AUTH_NOT_VALID);
-	netdev->disconnect_cmd_id = l_genl_family_send(nl80211, msg,
-			netdev_disconnect_cb, netdev, NULL);
+	netdev_disconnect_by_sme(netdev, NETDEV_RESULT_ABORTED,
+					MMPDU_REASON_CODE_PREV_AUTH_NOT_VALID);
 }
 
 static void netdev_sa_query_req_cb(struct l_genl_msg *msg, void *user_data)
