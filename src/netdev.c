@@ -3240,25 +3240,22 @@ static void netdev_auth_cb(struct l_genl_msg *msg, void *user_data)
 
 	l_debug("Error during auth: %d", err);
 
-	if (!netdev->auth_cmd || err != -ENOENT) {
-		netdev_connect_failed(netdev,
-					NETDEV_RESULT_AUTHENTICATION_FAILED,
-					MMPDU_STATUS_CODE_UNSPECIFIED);
-		return;
-	}
+	if (!netdev->auth_cmd || err != -ENOENT)
+		goto failed;
 
 	/* Kernel can't find the BSS in its cache, scan and retry */
 	scan_msg = scan_build_trigger_scan_bss(netdev->index, netdev->wiphy,
 						netdev->frequency,
 						hs->ssid, hs->ssid_len);
 
-	if (!l_genl_family_send(nl80211, scan_msg,
-					netdev_scan_cb, netdev, NULL)) {
-		l_genl_msg_unref(scan_msg);
-		netdev_connect_failed(netdev,
-					NETDEV_RESULT_AUTHENTICATION_FAILED,
+	if (l_genl_family_send(nl80211, scan_msg,
+					netdev_scan_cb, netdev, NULL) > 0)
+		return;
+
+	l_genl_msg_unref(scan_msg);
+failed:
+	netdev_connect_failed(netdev, NETDEV_RESULT_AUTHENTICATION_FAILED,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
-	}
 }
 
 static void netdev_new_scan_results_event(struct l_genl_msg *msg,
