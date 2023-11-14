@@ -4934,7 +4934,7 @@ static bool netdev_get_fw_scan_cb(int err, struct l_queue *bss_list,
 
 	if (err < 0) {
 		l_error("Failed to get scan after roam (%d)", err);
-		goto failed;
+		return false;
 	}
 
 	/*
@@ -4946,7 +4946,7 @@ static bool netdev_get_fw_scan_cb(int err, struct l_queue *bss_list,
 
 	if (!bss) {
 		l_error("Roam target BSS not found in scan results");
-		goto failed;
+		return false;
 	}
 
 	netdev->fw_roam_bss = bss;
@@ -4958,16 +4958,9 @@ static bool netdev_get_fw_scan_cb(int err, struct l_queue *bss_list,
 		return false;
 	}
 
-	if (netdev->sm) {
-		if (!eapol_start(netdev->sm))
-			goto failed;
-	}
+	if (netdev->sm)
+		L_WARN_ON(!eapol_start(netdev->sm));
 
-	return false;
-
-failed:
-	netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
-					MMPDU_REASON_CODE_UNSPECIFIED);
 	return false;
 }
 
@@ -4998,8 +4991,8 @@ static void netdev_roam_event(struct l_genl_msg *msg, struct netdev *netdev)
 
 	netdev->operational = false;
 
-	if (!l_genl_attr_init(&attr, msg))
-		goto failed;
+	if (L_WARN_ON(!l_genl_attr_init(&attr, msg)))
+		return;
 
 	while (l_genl_attr_next(&attr, &type, &len, &data)) {
 		switch (type) {
@@ -5014,7 +5007,7 @@ static void netdev_roam_event(struct l_genl_msg *msg, struct netdev *netdev)
 
 	if (!mac) {
 		l_error("Failed to parse ATTR_MAC from CMD_ROAM");
-		goto failed;
+		return;
 	}
 
 	/* Handshake completed in firmware, just get the roamed BSS */
@@ -5031,20 +5024,14 @@ static void netdev_roam_event(struct l_genl_msg *msg, struct netdev *netdev)
 get_fw_scan:
 	handshake_state_set_authenticator_address(netdev->handshake, mac);
 
-	if (!scan_get_firmware_scan(netdev->wdev_id, netdev_get_fw_scan_cb,
-					netdev, NULL))
-		goto failed;
+	if (L_WARN_ON(!scan_get_firmware_scan(netdev->wdev_id,
+					netdev_get_fw_scan_cb,
+					netdev, NULL)))
+		return;
 
 	if (netdev->event_filter)
 		netdev->event_filter(netdev, NETDEV_EVENT_ROAMING,
 					NULL, netdev->user_data);
-
-	return;
-failed:
-	l_error("Failed to properly handle the ROAM event -- submit logs!");
-	netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
-					MMPDU_REASON_CODE_UNSPECIFIED);
-
 }
 
 static void netdev_send_sa_query_delay(struct l_timeout *timeout,
