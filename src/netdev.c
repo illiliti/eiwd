@@ -1298,52 +1298,6 @@ static void netdev_deauthenticate_event(struct l_genl_msg *msg,
 					MMPDU_STATUS_CODE_UNSPECIFIED);
 }
 
-static struct l_genl_msg *netdev_build_cmd_del_station(struct netdev *netdev,
-							const uint8_t *sta,
-							uint16_t reason_code,
-							bool disassociate)
-{
-	struct l_genl_msg *msg;
-	uint8_t subtype = disassociate ?
-			MPDU_MANAGEMENT_SUBTYPE_DISASSOCIATION :
-			MPDU_MANAGEMENT_SUBTYPE_DEAUTHENTICATION;
-
-	msg = l_genl_msg_new_sized(NL80211_CMD_DEL_STATION, 64);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, 6, sta);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_MGMT_SUBTYPE, 1, &subtype);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_REASON_CODE, 2, &reason_code);
-
-	return msg;
-}
-
-static void netdev_del_sta_cb(struct l_genl_msg *msg, void *user_data)
-{
-	int err = l_genl_msg_get_error(msg);
-	const char *ext_error;
-
-	if (err >= 0)
-		return;
-
-	ext_error = l_genl_msg_get_extended_error(msg);
-	l_error("DEL_STATION failed: %s",
-			ext_error ? ext_error : strerror(-err));
-}
-
-int netdev_del_station(struct netdev *netdev, const uint8_t *sta,
-			uint16_t reason_code, bool disassociate)
-{
-	struct l_genl_msg *msg;
-
-	msg = netdev_build_cmd_del_station(netdev, sta, reason_code,
-						disassociate);
-
-	if (!l_genl_family_send(nl80211, msg, netdev_del_sta_cb, NULL, NULL))
-		return -EIO;
-
-	return 0;
-}
-
 static void netdev_operstate_cb(int error, uint16_t type,
 					const void *data,
 					uint32_t len, void *user_data)
@@ -1444,8 +1398,9 @@ static void netdev_setting_keys_failed(struct netdev_handshake_state *nhs,
 		if (err == -ENETDOWN)
 			return;
 
-		msg = netdev_build_cmd_del_station(netdev, nhs->super.spa,
-				MMPDU_REASON_CODE_UNSPECIFIED, false);
+		msg = nl80211_build_del_station(netdev->index,
+				nhs->super.spa, MMPDU_REASON_CODE_UNSPECIFIED,
+				MPDU_MANAGEMENT_SUBTYPE_DEAUTHENTICATION);
 		if (!l_genl_family_send(nl80211, msg, NULL, NULL, NULL))
 			l_error("error sending DEL_STATION");
 
@@ -2227,8 +2182,9 @@ void netdev_handshake_failed(struct handshake_state *hs, uint16_t reason_code)
 		break;
 	case NL80211_IFTYPE_AP:
 	case NL80211_IFTYPE_P2P_GO:
-		msg = netdev_build_cmd_del_station(netdev, nhs->super.spa,
-				reason_code, false);
+		msg = nl80211_build_del_station(netdev->index, nhs->super.spa,
+				reason_code,
+				MPDU_MANAGEMENT_SUBTYPE_DEAUTHENTICATION);
 		if (!l_genl_family_send(nl80211, msg, NULL, NULL, NULL))
 			l_error("error sending DEL_STATION");
 	}

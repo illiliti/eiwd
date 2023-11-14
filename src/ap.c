@@ -392,10 +392,17 @@ static void ap_del_station(struct sta_state *sta, uint16_t reason,
 				bool disassociate)
 {
 	struct ap_state *ap = sta->ap;
+	uint32_t ifindex = netdev_get_ifindex(ap->netdev);
 	struct ap_event_station_removed_data event_data;
 	bool send_event = false;
+	struct l_genl_msg *msg;
+	uint8_t subtype = disassociate ?
+			MPDU_MANAGEMENT_SUBTYPE_DISASSOCIATION :
+			MPDU_MANAGEMENT_SUBTYPE_DEAUTHENTICATION;
 
-	netdev_del_station(ap->netdev, sta->addr, reason, disassociate);
+	msg = nl80211_build_del_station(ifindex, sta->addr, reason, subtype);
+	l_genl_family_send(ap->nl80211, msg, NULL, NULL, NULL);
+
 	sta->associated = false;
 
 	if (sta->rsna) {
