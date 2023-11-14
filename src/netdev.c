@@ -1898,36 +1898,6 @@ error:
 	netdev_setting_keys_failed(nhs, err);
 }
 
-static struct l_genl_msg *netdev_build_cmd_new_rx_key_pairwise(
-							struct netdev *netdev,
-							uint32_t cipher,
-							const uint8_t *aa,
-							const uint8_t *tk,
-							size_t tk_len,
-							uint8_t key_id)
-{
-	uint8_t key_mode = NL80211_KEY_NO_TX;
-	uint32_t key_type = NL80211_KEYTYPE_PAIRWISE;
-	struct l_genl_msg *msg;
-
-	msg = l_genl_msg_new_sized(NL80211_CMD_NEW_KEY, 512);
-
-	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, aa);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
-
-	l_genl_msg_enter_nested(msg, NL80211_ATTR_KEY);
-
-	l_genl_msg_append_attr(msg, NL80211_KEY_DATA, tk_len, tk);
-	l_genl_msg_append_attr(msg, NL80211_KEY_CIPHER, 4, &cipher);
-	l_genl_msg_append_attr(msg, NL80211_KEY_IDX, 1, &key_id);
-	l_genl_msg_append_attr(msg, NL80211_KEY_MODE, 1, &key_mode);
-	l_genl_msg_append_attr(msg, NL80211_KEY_TYPE, 4, &key_type);
-
-	l_genl_msg_leave_nested(msg);
-
-	return msg;
-}
-
 static void netdev_group_timeout_cb(struct l_timeout *timeout, void *user_data)
 {
 	struct netdev_handshake_state *nhs = user_data;
@@ -2037,9 +2007,9 @@ static void netdev_set_ext_tk(struct handshake_state *hs, uint8_t key_idx,
 	if (!netdev_copy_tk(tk_buf, tk, cipher, hs->authenticator))
 		goto error;
 
-	msg = netdev_build_cmd_new_rx_key_pairwise(netdev, cipher, addr, tk_buf,
-						crypto_cipher_key_len(cipher),
-						hs->active_tk_index);
+	msg = nl80211_build_new_rx_key_pairwise(netdev->index, cipher, addr,
+					tk_buf, crypto_cipher_key_len(cipher),
+					hs->active_tk_index);
 	nhs->pairwise_new_key_cmd_id =
 		l_genl_family_send(nl80211, msg, netdev_new_rx_pairwise_key_cb,
 						nhs, NULL);

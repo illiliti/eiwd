@@ -379,6 +379,35 @@ struct l_genl_msg *nl80211_build_new_key_pairwise(uint32_t ifindex,
 	return msg;
 }
 
+struct l_genl_msg *nl80211_build_new_rx_key_pairwise(uint32_t ifindex,
+						uint32_t cipher,
+						const uint8_t addr[static 6],
+						const uint8_t *tk,
+						size_t tk_len,
+						uint8_t key_id)
+{
+	uint8_t key_mode = NL80211_KEY_NO_TX;
+	uint32_t key_type = NL80211_KEYTYPE_PAIRWISE;
+	struct l_genl_msg *msg;
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_NEW_KEY, 512);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, addr);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &ifindex);
+
+	l_genl_msg_enter_nested(msg, NL80211_ATTR_KEY);
+
+	l_genl_msg_append_attr(msg, NL80211_KEY_DATA, tk_len, tk);
+	l_genl_msg_append_attr(msg, NL80211_KEY_CIPHER, 4, &cipher);
+	l_genl_msg_append_attr(msg, NL80211_KEY_IDX, 1, &key_id);
+	l_genl_msg_append_attr(msg, NL80211_KEY_MODE, 1, &key_mode);
+	l_genl_msg_append_attr(msg, NL80211_KEY_TYPE, 4, &key_type);
+
+	l_genl_msg_leave_nested(msg);
+
+	return msg;
+}
+
 static struct l_genl_msg *nl80211_build_set_station(uint32_t ifindex,
 					const uint8_t *addr,
 					struct nl80211_sta_flag_update *flags)

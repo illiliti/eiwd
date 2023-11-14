@@ -50,6 +50,12 @@ struct l_genl_msg *nl80211_build_new_key_pairwise(uint32_t ifindex,
 						const uint8_t *tk,
 						size_t tk_len,
 						uint8_t key_id);
+struct l_genl_msg *nl80211_build_new_rx_key_pairwise(uint32_t ifindex,
+						uint32_t cipher,
+						const uint8_t addr[static 6],
+						const uint8_t *tk,
+						size_t tk_len,
+						uint8_t key_id);
 
 struct l_genl_msg *nl80211_build_set_station_authorized(uint32_t ifindex,
 							const uint8_t *addr);
