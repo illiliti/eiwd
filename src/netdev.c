@@ -1245,18 +1245,6 @@ static void netdev_cmd_disconnect_cb(struct l_genl_msg *msg, void *user_data)
 	disconnect_cb(netdev, r, disconnect_data);
 }
 
-static struct l_genl_msg *netdev_build_cmd_disconnect(struct netdev *netdev,
-							uint16_t reason_code)
-{
-	struct l_genl_msg *msg;
-
-	msg = l_genl_msg_new_sized(NL80211_CMD_DISCONNECT, 64);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &netdev->index);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_REASON_CODE, 2, &reason_code);
-
-	return msg;
-}
-
 static void netdev_deauthenticate_event(struct l_genl_msg *msg,
 							struct netdev *netdev)
 {
@@ -1460,7 +1448,7 @@ static void netdev_setting_keys_failed(struct netdev_handshake_state *nhs,
 			return;
 		}
 
-		msg = netdev_build_cmd_disconnect(netdev,
+		msg = nl80211_build_disconnect(netdev->index,
 						MMPDU_REASON_CODE_UNSPECIFIED);
 		netdev->disconnect_cmd_id = l_genl_family_send(nl80211, msg,
 							netdev_disconnect_cb,
@@ -2246,7 +2234,7 @@ void netdev_handshake_failed(struct handshake_state *hs, uint16_t reason_code)
 	switch (netdev->type) {
 	case NL80211_IFTYPE_STATION:
 	case NL80211_IFTYPE_P2P_CLIENT:
-		msg = netdev_build_cmd_disconnect(netdev, reason_code);
+		msg = nl80211_build_disconnect(netdev->index, reason_code);
 		netdev->disconnect_cmd_id = l_genl_family_send(nl80211, msg,
 							netdev_disconnect_cb,
 							netdev, NULL);
@@ -2989,7 +2977,7 @@ error:
 deauth:
 	netdev->result = NETDEV_RESULT_ASSOCIATION_FAILED;
 	netdev->last_code = MMPDU_STATUS_CODE_UNSPECIFIED;
-	msg = netdev_build_cmd_disconnect(netdev,
+	msg = nl80211_build_disconnect(netdev->index,
 						MMPDU_REASON_CODE_UNSPECIFIED);
 	netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
 							msg,
@@ -4159,7 +4147,7 @@ int netdev_disconnect(struct netdev *netdev,
 	}
 
 	if (send_disconnect) {
-		disconnect = netdev_build_cmd_disconnect(netdev,
+		disconnect = nl80211_build_disconnect(netdev->index,
 					MMPDU_REASON_CODE_DEAUTH_LEAVING);
 		netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
 					disconnect, netdev_cmd_disconnect_cb,
@@ -4695,7 +4683,7 @@ static void netdev_sa_query_timeout(struct l_timeout *timeout,
 	l_timeout_remove(netdev->sa_query_timeout);
 	netdev->sa_query_timeout = NULL;
 
-	msg = netdev_build_cmd_disconnect(netdev,
+	msg = nl80211_build_disconnect(netdev->index,
 			MMPDU_REASON_CODE_PREV_AUTH_NOT_VALID);
 	netdev->disconnect_cmd_id = l_genl_family_send(nl80211, msg,
 			netdev_disconnect_cb, netdev, NULL);

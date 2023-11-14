@@ -28,6 +28,9 @@ struct band_freq_attrs;
 
 int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...);
 
+struct l_genl_msg *nl80211_build_disconnect(uint32_t ifindex,
+							uint16_t reason_code);
+
 struct l_genl_msg *nl80211_build_new_key_group(uint32_t ifindex,
 					uint32_t cipher, uint8_t key_id,
 					const uint8_t *key, size_t key_len,
