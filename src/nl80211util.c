@@ -359,6 +359,26 @@ struct l_genl_msg *nl80211_build_new_key_group(uint32_t ifindex, uint32_t cipher
 	return msg;
 }
 
+struct l_genl_msg *nl80211_build_new_key_pairwise(uint32_t ifindex,
+						uint32_t cipher,
+						const uint8_t addr[static 6],
+						const uint8_t *tk,
+						size_t tk_len,
+						uint8_t key_id)
+{
+	struct l_genl_msg *msg;
+
+	msg = l_genl_msg_new_sized(NL80211_CMD_NEW_KEY, 512);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_KEY_DATA, tk_len, tk);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_KEY_CIPHER, 4, &cipher);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_MAC, ETH_ALEN, addr);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_KEY_IDX, 1, &key_id);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &ifindex);
+
+	return msg;
+}
+
 static struct l_genl_msg *nl80211_build_set_station(uint32_t ifindex,
 					const uint8_t *addr,
 					struct nl80211_sta_flag_update *flags)
