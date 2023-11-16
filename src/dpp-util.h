@@ -112,7 +112,7 @@ enum dpp_attribute_type {
 };
 
 struct dpp_configuration {
-	uint8_t ssid[32];
+	char ssid[33];
 	size_t ssid_len;
 	uint32_t akm_suites;
 	char *passphrase;
