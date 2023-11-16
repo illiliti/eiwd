@@ -809,16 +809,12 @@ static void send_config_result(struct dpp_sm *dpp, const uint8_t *to)
 static void dpp_write_config(struct dpp_configuration *config,
 				struct network *network)
 {
-	char ssid[33];
 	_auto_(l_settings_free) struct l_settings *settings = l_settings_new();
 	_auto_(l_free) char *path;
 	_auto_(l_free) uint8_t *psk = NULL;
 	size_t psk_len;
 
-	memcpy(ssid, config->ssid, config->ssid_len);
-	ssid[config->ssid_len] = '\0';
-
-	path = storage_get_network_file_path(SECURITY_PSK, ssid);
+	path = storage_get_network_file_path(SECURITY_PSK, config->ssid);
 
 	if (l_settings_load_from_file(settings, path)) {
 		/* Remove any existing Security keys */
@@ -841,9 +837,9 @@ static void dpp_write_config(struct dpp_configuration *config,
 			network_set_psk(network, psk);
 	}
 
-	l_debug("Storing credential for '%s(%s)'", ssid,
+	l_debug("Storing credential for '%s(%s)'", config->ssid,
 						security_to_str(SECURITY_PSK));
-	storage_network_sync(SECURITY_PSK, ssid, settings);
+	storage_network_sync(SECURITY_PSK, config->ssid, settings);
 }
 
 static void dpp_scan_triggered(int err, void *user_data)
@@ -932,8 +928,6 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
 	struct network *network = NULL;
 	struct scan_bss *bss = NULL;
-	char ssid[33];
-	size_t ssid_len;
 
 	if (dpp->state != DPP_STATE_CONFIGURING)
 		return;
@@ -1062,17 +1056,13 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	 * credentials out and be done
 	 */
 	if (station) {
-		memcpy(ssid, config->ssid, config->ssid_len);
-		ssid_len = config->ssid_len;
-		ssid[config->ssid_len] = '\0';
-
-		network = station_network_find(station, ssid, SECURITY_PSK);
+		network = station_network_find(station, config->ssid,
+						SECURITY_PSK);
 		if (network)
 			bss = network_bss_select(network, true);
 	}
 
 	dpp_write_config(config, network);
-	dpp_configuration_free(config);
 
 	send_config_result(dpp, dpp->peer_addr);
 
@@ -1084,19 +1074,22 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	else if (station) {
 		struct scan_parameters params = {0};
 
-		params.ssid = (void *) ssid;
-		params.ssid_len = ssid_len;
+		params.ssid = (void *) config->ssid;
+		params.ssid_len = config->ssid_len;
 
-		l_debug("Scanning for %s", ssid);
+		l_debug("Scanning for %s", config->ssid);
 
 		dpp->connect_scan_id = scan_active_full(dpp->wdev_id, &params,
 						dpp_scan_triggered,
 						dpp_scan_results, dpp,
 						dpp_scan_destroy);
-		if (dpp->connect_scan_id)
+		if (dpp->connect_scan_id) {
+			dpp_configuration_free(config);
 			return;
+		}
 	}
 
+	dpp_configuration_free(config);
 	dpp_reset(dpp);
 }
 
