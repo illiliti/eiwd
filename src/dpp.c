@@ -3681,6 +3681,9 @@ static void dpp_station_state_watch(enum station_state state, void *user_data)
 {
 	struct dpp_sm *dpp = user_data;
 
+	if (dpp->state == DPP_STATE_NOTHING)
+		return;
+
 	switch (state) {
 	case STATION_STATE_DISCONNECTED:
 	case STATION_STATE_DISCONNECTING:
