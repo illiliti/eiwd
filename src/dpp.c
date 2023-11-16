@@ -856,7 +856,6 @@ static bool dpp_scan_results(int err, struct l_queue *bss_list,
 	struct dpp_sm *dpp = userdata;
 	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
 	struct scan_bss *bss;
-	char ssid[33];
 	struct network *network;
 
 	if (err < 0)
@@ -872,17 +871,17 @@ static bool dpp_scan_results(int err, struct l_queue *bss_list,
 	if (L_WARN_ON(station_get_connected_network(station)))
 		goto reset;
 
-	/* Purely for grabbing the SSID */
-	bss = l_queue_peek_head(bss_list);
-
-	memcpy(ssid, bss->ssid, bss->ssid_len);
-	ssid[bss->ssid_len] = '\0';
-
 	station_set_scan_results(station, bss_list, freqs, false);
 
-	network = station_network_find(station, ssid, SECURITY_PSK);
+	network = station_network_find(station, dpp->config->ssid,
+					SECURITY_PSK);
 
 	dpp_reset(dpp);
+
+	if (!network) {
+		l_debug("Network was not found after scanning");
+		return true;
+	}
 
 	bss = network_bss_select(network, true);
 	network_autoconnect(network, bss);
@@ -1084,7 +1083,7 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 						dpp_scan_results, dpp,
 						dpp_scan_destroy);
 		if (dpp->connect_scan_id) {
-			dpp_configuration_free(config);
+			dpp->config = config;
 			return;
 		}
 	}
