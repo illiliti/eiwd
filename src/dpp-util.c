@@ -144,6 +144,40 @@ static uint32_t dpp_parse_akm(char *akms)
 	return akm_out;
 }
 
+static bool dpp_parse_extra_options(struct dpp_configuration *config,
+					struct json_iter *extra)
+{
+	struct json_iter host_val;
+	struct json_iter hidden_val;
+	bool hostname = false;
+	bool hidden = false;
+
+	if (!json_iter_parse(extra,
+			JSON_OPTIONAL("send_hostname", JSON_PRIMITIVE,
+					&host_val),
+			JSON_OPTIONAL("hidden", JSON_PRIMITIVE, &hidden_val),
+			JSON_UNDEFINED))
+		return false;
+
+	/*
+	 * The values are optional in order to support backwards compatibility
+	 * if more are added, but if the key does exist require the type
+	 * matches and fail otherwise.
+	 */
+	if (json_iter_is_valid(&host_val) &&
+			!json_iter_get_boolean(&host_val, &hostname))
+		return false;
+
+	if (json_iter_is_valid(&hidden_val) &&
+			!json_iter_get_boolean(&hidden_val, &hidden))
+		return false;
+
+	config->send_hostname = hostname;
+	config->hidden = hidden;
+
+	return true;
+}
+
 /*
  * TODO: This handles the most basic configuration. i.e. a configuration object
  * with ssid/passphrase/akm.
@@ -156,6 +190,7 @@ struct dpp_configuration *dpp_parse_configuration_object(const char *json,
 	struct json_iter iter;
 	struct json_iter discovery;
 	struct json_iter cred;
+	struct json_iter extra;
 	_auto_(l_free) char *tech = NULL;
 	_auto_(l_free) char *ssid = NULL;
 	_auto_(l_free) char *akm = NULL;
@@ -172,6 +207,7 @@ struct dpp_configuration *dpp_parse_configuration_object(const char *json,
 			JSON_MANDATORY("wi-fi_tech", JSON_STRING, &tech),
 			JSON_MANDATORY("discovery", JSON_OBJECT, &discovery),
 			JSON_MANDATORY("cred", JSON_OBJECT, &cred),
+			JSON_OPTIONAL("/net/connman/iwd", JSON_OBJECT, &extra),
 			JSON_UNDEFINED))
 		goto free_contents;
 
@@ -209,6 +245,11 @@ struct dpp_configuration *dpp_parse_configuration_object(const char *json,
 	config->akm_suites = dpp_parse_akm(akm);
 	if (!config->akm_suites)
 		goto free_config;
+
+	if (json_iter_is_valid(&extra)) {
+		if (!dpp_parse_extra_options(config, &extra))
+			l_warn("Extra settings failed to parse!");
+	}
 
 	json_contents_free(c);
 
@@ -258,10 +299,20 @@ char *dpp_configuration_to_json(struct dpp_configuration *config)
 						config->psk);
 
 	return l_strdup_printf("{\"wi-fi_tech\":\"infra\","
-				"\"discovery\":{\"ssid\":\"%s\"},"
-				"\"cred\":{\"akm\":\"%s\",%s}}",
+				"\"discovery\":{"
+					"\"ssid\":\"%s\""
+				"},"
+				"\"cred\":{"
+					"\"akm\":\"%s\",%s"
+				"},"
+				"\"/net/connman/iwd\":{"
+					"\"send_hostname\":%s,"
+					"\"hidden\":%s}"
+				"}",
 				ssid, dpp_akm_to_string(config->akm_suites),
-				pass_or_psk);
+				pass_or_psk,
+				config->send_hostname ? "true" : "false",
+				config->hidden ? "true" : "false");
 }
 
 struct dpp_configuration *dpp_configuration_new(
@@ -273,6 +324,8 @@ struct dpp_configuration *dpp_configuration_new(
 	_auto_(l_free) char *passphrase = NULL;
 	_auto_(l_free) char *psk = NULL;
 	size_t ssid_len = strlen(ssid);
+	bool send_hostname;
+	bool hidden;
 
 	if (!l_settings_has_group(settings, "Security"))
 		return NULL;
@@ -298,6 +351,16 @@ struct dpp_configuration *dpp_configuration_new(
 
 
 	config->akm_suites = akm_suite;
+
+	if (!l_settings_get_bool(settings, "IPv4", "SendHostname",
+					&send_hostname))
+		send_hostname = false;
+
+	if (!l_settings_get_bool(settings, "Settings", "Hidden", &hidden))
+		hidden = false;
+
+	config->send_hostname = send_hostname;
+	config->hidden = hidden;
 
 	return config;
 }

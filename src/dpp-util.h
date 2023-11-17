@@ -117,6 +117,10 @@ struct dpp_configuration {
 	uint32_t akm_suites;
 	char *passphrase;
 	char *psk;		/* hex string */
+
+	/* "3rd party extensions" only applicable for two IWD peers */
+	bool send_hostname : 1;
+	bool hidden : 1;
 };
 
 struct dpp_configuration *dpp_parse_configuration_object(const char *json,
