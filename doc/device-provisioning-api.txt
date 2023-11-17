@@ -109,6 +109,7 @@ Object path	/net/connman/iwd/{phy0,phy1,...}/{1,2,...}
 			Possible errors:	net.connman.iwd.Busy
 						net.connman.iwd.NotConnected
 						net.connman.InvalidArguments
+						net.connman.NotSupported
 
 		void StartEnrollee(a{sv})
 
@@ -156,6 +157,7 @@ Object path	/net/connman/iwd/{phy0,phy1,...}/{1,2,...}
 			Possible errors:	net.connman.iwd.Busy
 						net.connman.iwd.NotConnected
 						net.connman.iwd.NoAgent
+						net.connman.iwd.NotSupported
 
 		Stop()
 
