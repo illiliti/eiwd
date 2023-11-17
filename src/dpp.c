@@ -837,6 +837,12 @@ static void dpp_write_config(struct dpp_configuration *config,
 			network_set_psk(network, psk);
 	}
 
+	if (config->send_hostname)
+		l_settings_set_bool(settings, "IPv4", "SendHostname", true);
+
+	if (config->hidden)
+		l_settings_set_bool(settings, "Settings", "Hidden", true);
+
 	l_debug("Storing credential for '%s(%s)'", config->ssid,
 						security_to_str(SECURITY_PSK));
 	storage_network_sync(SECURITY_PSK, config->ssid, settings);
