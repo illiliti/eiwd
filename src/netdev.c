@@ -2561,23 +2561,23 @@ static void netdev_cmd_connect_cb(struct l_genl_msg *msg, void *user_data)
 
 static bool netdev_retry_owe(struct netdev *netdev)
 {
+	struct l_genl_msg *connect_cmd;
+
 	if (!owe_next_group(netdev->owe_sm))
 		return false;
 
-	netdev->connect_cmd = netdev_build_cmd_connect(netdev,
+	connect_cmd = netdev_build_cmd_connect(netdev,
 					netdev->handshake, NULL, NULL, 0);
 
-	netdev->connect_cmd_id = l_genl_family_send(nl80211,
-						netdev->connect_cmd,
+	netdev->connect_cmd_id = l_genl_family_send(nl80211, connect_cmd,
 						netdev_cmd_connect_cb, netdev,
 						NULL);
 
-	if (!netdev->connect_cmd_id)
-		return false;
+	if (netdev->connect_cmd_id > 0)
+		return true;
 
-	netdev->connect_cmd = NULL;
-
-	return true;
+	l_genl_msg_unref(connect_cmd);
+	return false;
 }
 
 static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
