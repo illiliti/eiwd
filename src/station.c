@@ -1721,6 +1721,9 @@ static void station_roam_state_clear(struct station *station)
 	l_queue_clear(station->roam_bss_list, l_free);
 
 	ft_clear_authentications(netdev_get_ifindex(station->netdev));
+
+	if (station->ft_work.id)
+		wiphy_radio_work_done(station->wiphy, station->ft_work.id);
 }
 
 static void station_reset_connection_state(struct station *station)
