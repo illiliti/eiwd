@@ -25,6 +25,7 @@
 #endif
 
 #include <linux/rtnetlink.h>
+#include <sys/socket.h>
 #include <linux/if.h>
 
 #include <ell/ell.h>
