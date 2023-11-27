@@ -2561,16 +2561,11 @@ static void netdev_cmd_connect_cb(struct l_genl_msg *msg, void *user_data)
 
 static bool netdev_retry_owe(struct netdev *netdev)
 {
-	struct iovec iov;
-
 	if (!owe_next_group(netdev->owe_sm))
 		return false;
 
-	iov.iov_base = netdev->handshake->vendor_ies;
-	iov.iov_len = netdev->handshake->vendor_ies_len;
-
 	netdev->connect_cmd = netdev_build_cmd_connect(netdev,
-					netdev->handshake, NULL, &iov, 1);
+					netdev->handshake, NULL, NULL, 0);
 
 	netdev->connect_cmd_id = l_genl_family_send(nl80211,
 						netdev->connect_cmd,
