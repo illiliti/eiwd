@@ -146,7 +146,8 @@ const uint8_t *wiphy_get_ht_capabilities(const struct wiphy *wiphy,
 						enum band_freq band,
 						size_t *size);
 void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6]);
-void wiphy_generate_address_from_ssid(struct wiphy *wiphy, const char *ssid,
+void wiphy_generate_address_from_ssid(struct wiphy *wiphy,
+					const uint8_t *ssid, size_t ssid_len,
 					uint8_t addr[static 6]);
 
 int wiphy_estimate_data_rate(struct wiphy *wiphy,

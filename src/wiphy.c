@@ -796,12 +796,13 @@ void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6])
 	wiphy_address_constrain(wiphy, addr);
 }
 
-void wiphy_generate_address_from_ssid(struct wiphy *wiphy, const char *ssid,
+void wiphy_generate_address_from_ssid(struct wiphy *wiphy,
+					const uint8_t *ssid, size_t ssid_len,
 					uint8_t addr[static 6])
 {
 	struct l_checksum *sha = l_checksum_new(L_CHECKSUM_SHA256);
 
-	l_checksum_update(sha, ssid, strlen(ssid));
+	l_checksum_update(sha, ssid, ssid_len);
 	l_checksum_update(sha, wiphy->permanent_addr,
 				sizeof(wiphy->permanent_addr));
 	l_checksum_get_digest(sha, addr, mac_randomize_bytes);

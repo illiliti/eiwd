@@ -3526,7 +3526,8 @@ static int netdev_start_powered_mac_change(struct netdev *netdev)
 	/* No address set in handshake, use per-network MAC generation */
 	if (l_memeqzero(netdev->handshake->spa, ETH_ALEN))
 		wiphy_generate_address_from_ssid(netdev->wiphy,
-					(const char *)netdev->handshake->ssid,
+					netdev->handshake->ssid,
+					netdev->handshake->ssid_len,
 					new_addr);
 	else
 		memcpy(new_addr, netdev->handshake->spa, ETH_ALEN);
