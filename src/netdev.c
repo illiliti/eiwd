@@ -2445,45 +2445,6 @@ static void netdev_driver_connected(struct netdev *netdev)
 		eapol_register(netdev->sm);
 }
 
-
-static void netdev_append_nl80211_rsn_attributes(struct l_genl_msg *msg,
-						struct handshake_state *hs)
-{
-	uint32_t nl_cipher;
-	uint32_t nl_akm;
-	uint32_t wpa_version;
-
-	nl_cipher = ie_rsn_cipher_suite_to_cipher(hs->pairwise_cipher);
-	L_WARN_ON(!nl_cipher);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITES_PAIRWISE,
-					4, &nl_cipher);
-
-	nl_cipher = ie_rsn_cipher_suite_to_cipher(hs->group_cipher);
-	L_WARN_ON(!nl_cipher);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITE_GROUP,
-					4, &nl_cipher);
-
-	if (hs->mfp) {
-		uint32_t use_mfp = NL80211_MFP_REQUIRED;
-
-		l_genl_msg_append_attr(msg, NL80211_ATTR_USE_MFP, 4, &use_mfp);
-	}
-
-	nl_akm = ie_rsn_akm_suite_to_akm(hs->akm_suite);
-	L_WARN_ON(!nl_akm);
-	l_genl_msg_append_attr(msg, NL80211_ATTR_AKM_SUITES, 4, &nl_akm);
-
-	if (IE_AKM_IS_SAE(hs->akm_suite))
-		wpa_version = NL80211_WPA_VERSION_3;
-	else if (hs->wpa_ie)
-		wpa_version = NL80211_WPA_VERSION_1;
-	else
-		wpa_version = NL80211_WPA_VERSION_2;
-
-	l_genl_msg_append_attr(msg, NL80211_ATTR_WPA_VERSIONS,
-						4, &wpa_version);
-}
-
 static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 						struct handshake_state *hs,
 						const uint8_t *prev_bssid,
@@ -2540,7 +2501,7 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 	l_genl_msg_append_attr(msg, NL80211_ATTR_SOCKET_OWNER, 0, NULL);
 
 	if (is_rsn) {
-		netdev_append_nl80211_rsn_attributes(msg, hs);
+		nl80211_append_rsn_attributes(msg, hs);
 		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_ie);
 	}
 
@@ -2888,7 +2849,7 @@ static struct l_genl_msg *netdev_build_cmd_associate_common(
 	l_genl_msg_append_attr(msg, NL80211_ATTR_SOCKET_OWNER, 0, NULL);
 
 	if (is_rsn)
-		netdev_append_nl80211_rsn_attributes(msg, hs);
+		nl80211_append_rsn_attributes(msg, hs);
 
 	if (is_rsn || hs->settings_8021x) {
 		l_genl_msg_append_attr(msg, NL80211_ATTR_CONTROL_PORT,

@@ -32,6 +32,8 @@
 
 #include "src/nl80211util.h"
 #include "src/band.h"
+#include "src/ie.h"
+#include "src/handshake.h"
 #include "src/util.h"
 
 typedef bool (*attr_handler)(const void *data, uint16_t len, void *o);
@@ -686,4 +688,42 @@ int nl80211_parse_supported_frequencies(struct l_genl_attr *band_freqs,
 	}
 
 	return 0;
+}
+
+void nl80211_append_rsn_attributes(struct l_genl_msg *msg,
+						struct handshake_state *hs)
+{
+	uint32_t nl_cipher;
+	uint32_t nl_akm;
+	uint32_t wpa_version;
+
+	nl_cipher = ie_rsn_cipher_suite_to_cipher(hs->pairwise_cipher);
+	L_WARN_ON(!nl_cipher);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITES_PAIRWISE,
+					4, &nl_cipher);
+
+	nl_cipher = ie_rsn_cipher_suite_to_cipher(hs->group_cipher);
+	L_WARN_ON(!nl_cipher);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_CIPHER_SUITE_GROUP,
+					4, &nl_cipher);
+
+	if (hs->mfp) {
+		uint32_t use_mfp = NL80211_MFP_REQUIRED;
+
+		l_genl_msg_append_attr(msg, NL80211_ATTR_USE_MFP, 4, &use_mfp);
+	}
+
+	nl_akm = ie_rsn_akm_suite_to_akm(hs->akm_suite);
+	L_WARN_ON(!nl_akm);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_AKM_SUITES, 4, &nl_akm);
+
+	if (IE_AKM_IS_SAE(hs->akm_suite))
+		wpa_version = NL80211_WPA_VERSION_3;
+	else if (hs->wpa_ie)
+		wpa_version = NL80211_WPA_VERSION_1;
+	else
+		wpa_version = NL80211_WPA_VERSION_2;
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_WPA_VERSIONS,
+						4, &wpa_version);
 }
