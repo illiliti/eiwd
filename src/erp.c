@@ -160,11 +160,17 @@ static void erp_cache_entry_destroy(void *data)
 
 void erp_cache_add(const char *id, const void *session_id,
 			size_t session_len, const void *emsk, size_t emsk_len,
-			const char *ssid)
+			const uint8_t *ssid, size_t ssid_len)
 {
 	struct erp_cache_entry *entry;
 
 	if (!unlikely(id || session_id || emsk))
+		return;
+
+	if (!util_ssid_is_utf8(ssid_len, ssid))
+		return;
+
+	if (util_ssid_is_hidden(ssid_len, ssid))
 		return;
 
 	entry = l_new(struct erp_cache_entry, 1);
@@ -174,7 +180,7 @@ void erp_cache_add(const char *id, const void *session_id,
 	entry->emsk_len = emsk_len;
 	entry->session_id = l_memdup(session_id, session_len);
 	entry->session_len = session_len;
-	entry->ssid = l_strdup(ssid);
+	entry->ssid = l_strndup((char *) ssid, ssid_len);
 	entry->expire_time = l_time_offset(l_time_now(),
 					ERP_DEFAULT_KEY_LIFETIME_US);
 
