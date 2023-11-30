@@ -209,7 +209,7 @@ static bool mac_per_ssid;
 
 static unsigned int iov_ie_append(struct iovec *iov,
 					unsigned int n_iov, unsigned int c,
-					const uint8_t *ie)
+					const uint8_t *ie, size_t len)
 {
 	if (L_WARN_ON(c >= n_iov))
 		return n_iov;
@@ -218,7 +218,7 @@ static unsigned int iov_ie_append(struct iovec *iov,
 		return c;
 
 	iov[c].iov_base = (void *) ie;
-	iov[c].iov_len = ie[1] + 2;
+	iov[c].iov_len = len;
 
 	return c + 1u;
 }
@@ -286,19 +286,22 @@ static unsigned int netdev_populate_common_ies(struct netdev *netdev,
 
 	extended_capabilities = wiphy_get_extended_capabilities(netdev->wiphy,
 								netdev->type);
-	c_iov = iov_ie_append(iov, n_iov, c_iov, extended_capabilities);
+	c_iov = iov_ie_append(iov, n_iov, c_iov, extended_capabilities,
+				IE_LEN(extended_capabilities));
 
 	rm_enabled_capabilities =
 		wiphy_get_rm_enabled_capabilities(netdev->wiphy);
-	c_iov = iov_ie_append(iov, n_iov, c_iov, rm_enabled_capabilities);
+	c_iov = iov_ie_append(iov, n_iov, c_iov, rm_enabled_capabilities,
+				IE_LEN(rm_enabled_capabilities));
 
 	if (rm_enabled_capabilities)
 		l_genl_msg_append_attr(msg, NL80211_ATTR_USE_RRM, 0, NULL);
 
-	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->vendor_ies);
+	c_iov = iov_ie_append(iov, n_iov, c_iov,
+				hs->vendor_ies, hs->vendor_ies_len);
 
-	if (hs->fils_ip_req_ie)
-		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->fils_ip_req_ie);
+	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->fils_ip_req_ie,
+				IE_LEN(hs->fils_ip_req_ie));
 
 	return c_iov;
 }
@@ -2502,7 +2505,8 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 
 	if (is_rsn) {
 		nl80211_append_rsn_attributes(msg, hs);
-		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_ie);
+		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_ie,
+					IE_LEN(hs->supplicant_ie));
 	}
 
 	if (is_rsn || hs->settings_8021x) {
@@ -2517,10 +2521,10 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 
 	if (netdev->owe_sm) {
 		owe_build_dh_ie(netdev->owe_sm, owe_dh_ie, &dh_ie_len);
-		c_iov = iov_ie_append(iov, n_iov, c_iov, owe_dh_ie);
+		c_iov = iov_ie_append(iov, n_iov, c_iov, owe_dh_ie, dh_ie_len);
 	}
 
-	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->mde);
+	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->mde, IE_LEN(hs->mde));
 	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
 
 	mpdu_sort_ies(subtype, iov, c_iov);
@@ -3267,9 +3271,11 @@ static void netdev_sae_tx_associate(void *user_data)
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
-	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_ie);
-	n_used = iov_ie_append(iov, n_iov, n_used, hs->mde);
-	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_rsnxe);
+	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_ie,
+						IE_LEN(hs->supplicant_ie));
+	n_used = iov_ie_append(iov, n_iov, n_used, hs->mde, IE_LEN(hs->mde));
+	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_rsnxe,
+					IE_LEN(hs->supplicant_rsnxe));
 	n_used = netdev_populate_common_ies(netdev, hs, msg,
 							iov, n_iov, n_used);
 	mpdu_sort_ies(subtype, iov, n_used);
