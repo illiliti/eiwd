@@ -105,7 +105,12 @@ void __handshake_set_install_ext_tk_func(handshake_install_ext_tk_func_t func)
 
 void handshake_state_free(struct handshake_state *s)
 {
-	__typeof__(s->free) destroy = s->free;
+	__typeof__(s->free) destroy;
+
+	if (!s)
+		return;
+
+	destroy = s->free;
 
 	if (s->in_event) {
 		s->in_event = false;

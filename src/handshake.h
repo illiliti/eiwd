@@ -24,6 +24,7 @@
 #include <stdbool.h>
 #include <asm/byteorder.h>
 #include <linux/types.h>
+#include <ell/cleanup.h>
 
 struct handshake_state;
 enum crypto_cipher;
@@ -298,3 +299,5 @@ const uint8_t *handshake_util_find_pmkid_kde(const uint8_t *data,
 					size_t data_len);
 void handshake_util_build_gtk_kde(enum crypto_cipher cipher, const uint8_t *key,
 					unsigned int key_index, uint8_t *to);
+
+DEFINE_CLEANUP_FUNC(handshake_state_free);
