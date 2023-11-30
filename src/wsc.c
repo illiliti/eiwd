@@ -384,7 +384,7 @@ static int wsc_enrollee_connect(struct wsc_enrollee *wsce, struct scan_bss *bss,
 
 	handshake_state_set_vendor_ies(hs, ie_iov, 1 + ies_num);
 
-	r = netdev_connect(wsce->netdev, bss, hs, NULL, 0,
+	r = netdev_connect(wsce->netdev, bss, hs,
 				wsc_enrollee_netdev_event,
 				wsc_enrollee_connect_cb, wsce);
 	l_free(ie_iov[0].iov_base);

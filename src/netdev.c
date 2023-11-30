@@ -2450,9 +2450,7 @@ static void netdev_driver_connected(struct netdev *netdev)
 
 static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 						struct handshake_state *hs,
-						const uint8_t *prev_bssid,
-						const struct iovec *vendor_ies,
-						size_t num_vendor_ies)
+						const uint8_t *prev_bssid)
 {
 	struct netdev_handshake_state *nhs =
 		l_container_of(hs, struct netdev_handshake_state, super);
@@ -2529,12 +2527,6 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 
 	mpdu_sort_ies(subtype, iov, c_iov);
 
-	if (vendor_ies && !L_WARN_ON(n_iov - c_iov < num_vendor_ies)) {
-		memcpy(iov + c_iov, vendor_ies,
-					sizeof(*vendor_ies) * num_vendor_ies);
-		c_iov += num_vendor_ies;
-	}
-
 	if (c_iov)
 		l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
 
@@ -2570,8 +2562,7 @@ static bool netdev_retry_owe(struct netdev *netdev)
 	if (!owe_next_group(netdev->owe_sm))
 		return false;
 
-	connect_cmd = netdev_build_cmd_connect(netdev,
-					netdev->handshake, NULL, NULL, 0);
+	connect_cmd = netdev_build_cmd_connect(netdev, netdev->handshake, NULL);
 
 	netdev->connect_cmd_id = l_genl_family_send(nl80211, connect_cmd,
 						netdev_cmd_connect_cb, netdev,
@@ -3807,8 +3798,6 @@ static void netdev_connect_common(struct netdev *netdev,
 					const struct scan_bss *bss,
 					const struct scan_bss *prev_bss,
 					struct handshake_state *hs,
-					const struct iovec *vendor_ies,
-					size_t num_vendor_ies,
 					netdev_event_func_t event_filter,
 					netdev_connect_cb_t cb, void *user_data)
 {
@@ -3866,8 +3855,7 @@ static void netdev_connect_common(struct netdev *netdev,
 		break;
 	default:
 build_cmd_connect:
-		cmd_connect = netdev_build_cmd_connect(netdev, hs, prev_bssid,
-						vendor_ies, num_vendor_ies);
+		cmd_connect = netdev_build_cmd_connect(netdev, hs, prev_bssid);
 
 		if (!is_offload(hs) && (is_rsn || hs->settings_8021x)) {
 			sm = eapol_sm_new(hs);
@@ -3900,8 +3888,6 @@ build_cmd_connect:
 
 int netdev_connect(struct netdev *netdev, const struct scan_bss *bss,
 				struct handshake_state *hs,
-				const struct iovec *vendor_ies,
-				size_t num_vendor_ies,
 				netdev_event_func_t event_filter,
 				netdev_connect_cb_t cb, void *user_data)
 {
@@ -3918,9 +3904,8 @@ int netdev_connect(struct netdev *netdev, const struct scan_bss *bss,
 	if (netdev_handshake_state_setup_connection_type(hs) < 0)
 		return -ENOTSUP;
 
-	netdev_connect_common(netdev, bss, NULL, hs, vendor_ies,
-					num_vendor_ies, event_filter, cb,
-					user_data);
+	netdev_connect_common(netdev, bss, NULL, hs,
+				event_filter, cb, user_data);
 
 	return 0;
 }
@@ -4025,7 +4010,7 @@ int netdev_reassociate(struct netdev *netdev, const struct scan_bss *target_bss,
 	netdev->connected = false;
 	netdev->in_reassoc = true;
 
-	netdev_connect_common(netdev, target_bss, orig_bss, hs, NULL, 0,
+	netdev_connect_common(netdev, target_bss, orig_bss, hs,
 					event_filter, cb, user_data);
 
 	if (netdev->ap)
