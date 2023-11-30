@@ -1550,11 +1550,12 @@ static void p2p_try_connect_group(struct p2p_device *dev)
 	handshake_state_set_event_func(hs, p2p_handshake_event, dev);
 	handshake_state_set_ssid(hs, bss->ssid, bss->ssid_len);
 	handshake_state_set_pmk(hs, dev->conn_psk, 32);
+	handshake_state_set_vendor_ies(hs, ie_iov, ie_num);
 
 	if (dev->conn_peer_capability.group_caps & P2P_GROUP_CAP_IP_ALLOCATION)
 		hs->support_ip_allocation = true;
 
-	r = netdev_connect(dev->conn_netdev, bss, hs, ie_iov, ie_num,
+	r = netdev_connect(dev->conn_netdev, bss, hs, NULL, 0,
 				p2p_netdev_event, p2p_netdev_connect_cb, dev);
 	if (r < 0) {
 		l_error("netdev_connect error: %s (%i)", strerror(-r), -r);
