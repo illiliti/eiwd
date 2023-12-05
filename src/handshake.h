@@ -143,6 +143,7 @@ struct handshake_state {
 	uint8_t ssid[32];
 	size_t ssid_len;
 	char *passphrase;
+	char *password_identifier;
 	uint8_t r0khid[48];
 	size_t r0khid_len;
 	uint8_t r1khid[6];
@@ -228,6 +229,8 @@ void handshake_state_set_event_func(struct handshake_state *s,
 					void *user_data);
 void handshake_state_set_passphrase(struct handshake_state *s,
 					const char *passphrase);
+void handshake_state_set_password_identifier(struct handshake_state *s,
+						const char *id);
 bool handshake_state_add_ecc_sae_pt(struct handshake_state *s,
 					const struct l_ecc_point *pt);
 void handshake_state_set_no_rekey(struct handshake_state *s, bool no_rekey);

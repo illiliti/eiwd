@@ -137,6 +137,12 @@ void handshake_state_free(struct handshake_state *s)
 		l_free(s->passphrase);
 	}
 
+	if (s->password_identifier) {
+		explicit_bzero(s->password_identifier,
+				strlen(s->password_identifier));
+		l_free(s->password_identifier);
+	}
+
 	if (s->ecc_sae_pts) {
 		unsigned int i;
 
@@ -362,6 +368,12 @@ void handshake_state_set_passphrase(struct handshake_state *s,
 					const char *passphrase)
 {
 	s->passphrase = l_strdup(passphrase);
+}
+
+void handshake_state_set_password_identifier(struct handshake_state *s,
+						const char *id)
+{
+	s->password_identifier = l_strdup(id);
 }
 
 void handshake_state_set_no_rekey(struct handshake_state *s, bool no_rekey)
