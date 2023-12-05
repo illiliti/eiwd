@@ -594,8 +594,34 @@ generate:
 	return -EIO;
 }
 
-static int network_load_psk(struct network *network, bool need_passphrase)
+static inline bool __bss_is_sae(const struct scan_bss *bss,
+						const struct ie_rsn_info *rsn)
 {
+	if (rsn->akm_suites & IE_RSN_AKM_SUITE_SAE_SHA256)
+		return true;
+
+	return false;
+}
+
+static bool bss_is_sae(const struct scan_bss *bss)
+{
+	struct ie_rsn_info rsn;
+
+	memset(&rsn, 0, sizeof(rsn));
+	scan_bss_get_rsn_info(bss, &rsn);
+
+	return __bss_is_sae(bss, &rsn);
+}
+
+static int network_load_psk(struct network *network, struct scan_bss *bss)
+{
+	/*
+	 * A legacy psk file may only contain the PreSharedKey entry. For SAE
+	 * networks the raw Passphrase is required. So in this case where
+	 * the psk is found but no Passphrase, we ask the agent.  The psk file
+	 * will then be re-written to contain the raw passphrase.
+	 */
+	bool is_sae = bss_is_sae(bss);
 	const char *ssid = network_get_ssid(network);
 	enum security security = network_get_security(network);
 	size_t psk_len;
@@ -616,7 +642,7 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 	}
 
 	/* PSK can be generated from the passphrase but not the other way */
-	if (!psk || need_passphrase) {
+	if (!psk || is_sae) {
 		if (!passphrase)
 			return -ENOKEY;
 
@@ -776,25 +802,6 @@ void network_set_force_default_owe_group(struct network *network)
 bool network_get_force_default_owe_group(struct network *network)
 {
 	return network->force_default_owe_group;
-}
-
-static inline bool __bss_is_sae(const struct scan_bss *bss,
-						const struct ie_rsn_info *rsn)
-{
-	if (rsn->akm_suites & IE_RSN_AKM_SUITE_SAE_SHA256)
-		return true;
-
-	return false;
-}
-
-static bool bss_is_sae(const struct scan_bss *bss)
-{
-	struct ie_rsn_info rsn;
-
-	memset(&rsn, 0, sizeof(rsn));
-	scan_bss_get_rsn_info(bss, &rsn);
-
-	return __bss_is_sae(bss, &rsn);
 }
 
 int network_can_connect_bss(struct network *network, const struct scan_bss *bss)
@@ -959,7 +966,7 @@ int network_autoconnect(struct network *network, struct scan_bss *bss)
 
 	switch (security) {
 	case SECURITY_PSK:
-		ret = network_load_psk(network, bss_is_sae(bss));
+		ret = network_load_psk(network, bss);
 		if (ret < 0)
 			goto close_settings;
 
@@ -1285,20 +1292,13 @@ static struct l_dbus_message *network_connect_psk(struct network *network,
 					struct l_dbus_message *message)
 {
 	struct station *station = network->station;
-	/*
-	 * A legacy psk file may only contain the PreSharedKey entry. For SAE
-	 * networks the raw Passphrase is required. So in this case where
-	 * the psk is found but no Passphrase, we ask the agent.  The psk file
-	 * will then be re-written to contain the raw passphrase.
-	 */
-	bool need_passphrase = bss_is_sae(bss);
 
 	if (!network_settings_load(network)) {
 		network->settings = l_settings_new();
 		network->ask_passphrase = true;
 	} else if (!network->ask_passphrase)
 		network->ask_passphrase =
-			network_load_psk(network, need_passphrase) < 0;
+			network_load_psk(network, bss) < 0;
 
 	l_debug("ask_passphrase: %s",
 		network->ask_passphrase ? "true" : "false");
