@@ -88,6 +88,8 @@ struct scan_bss {
 	uint8_t cost_level : 3;
 	uint8_t cost_flags : 4;
 	bool dpp_configurator : 1;
+	bool sae_pw_id_used : 1;
+	bool sae_pw_id_exclusive : 1;
 };
 
 struct scan_parameters {
