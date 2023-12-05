@@ -637,6 +637,14 @@ old_commit:
 		ie_tlv_builder_set_data(&builder, sm->token, sm->token_len);
 	}
 
+	if (sm->sae_type == CRYPTO_SAE_HASH_TO_ELEMENT &&
+					sm->handshake->password_identifier) {
+		ie_tlv_builder_next(&builder, IE_TYPE_PASSWORD_IDENTIFIER);
+		ie_tlv_builder_set_data(&builder,
+				sm->handshake->password_identifier,
+				strlen(sm->handshake->password_identifier));
+	}
+
 	ie_tlv_builder_finalize(&builder, &len);
 
 	return ptr - commit + len;
