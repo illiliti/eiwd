@@ -1104,11 +1104,19 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 	 * If the Status is some other nonzero value, the frame shall be
 	 * silently discarded and the t0 (retransmission) timer shall be set.
 	 */
-	if (status != 0 && status != MMPDU_STATUS_CODE_SAE_HASH_TO_ELEMENT)
+	switch (status) {
+	case 0:
+	case MMPDU_STATUS_CODE_SAE_HASH_TO_ELEMENT:
+		if (status != sae_status_code(sm))
+			return -EBADMSG;
+		break;
+	case MMPDU_STATUS_CODE_UNKNOWN_PASSWORD_IDENTIFIER:
+		sae_debug("Incorrect password identifier, check "
+				"[Security].PasswordIdentifier");
+		/* fall through */
+	default:
 		return -ENOMSG;
-
-	if (status != sae_status_code(sm))
-		return -EBADMSG;
+	}
 
 	if (len < 2)
 		return -EBADMSG;
