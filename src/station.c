@@ -3444,12 +3444,6 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 	case NETDEV_EVENT_PACKET_LOSS_NOTIFY:
 		station_packets_lost(station, l_get_u32(event_data));
 		break;
-	case NETDEV_EVENT_FT_ROAMED:
-		if (L_WARN_ON(station->state != STATION_STATE_FT_ROAMING))
-			return;
-
-		station_roamed(station);
-		break;
 	case NETDEV_EVENT_BEACON_LOSS_NOTIFY:
 		station_beacon_lost(station);
 		break;
