@@ -39,6 +39,8 @@ void __ft_rx_action(uint32_t ifindex, const uint8_t *frame, size_t frame_len);
 void __ft_rx_authenticate(uint32_t ifindex, const uint8_t *frame,
 				size_t frame_len);
 
+int ft_handshake_setup(uint32_t ifindex, const uint8_t *target);
+
 void ft_clear_authentications(uint32_t ifindex);
 int ft_action(uint32_t ifindex, uint32_t freq, const struct scan_bss *target);
 int ft_associate(uint32_t ifindex, const uint8_t *addr);
