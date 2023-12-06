@@ -1363,6 +1363,10 @@ class IWD(AsyncOpAbstract):
 
         self.psk_agents = []
 
+    def stop(self):
+        if self.namespace.is_process_running('iwd'):
+            self._iwd_proc.kill()
+
     def __del__(self):
         for agent in self.psk_agents:
             self.unregister_psk_agent(agent)
