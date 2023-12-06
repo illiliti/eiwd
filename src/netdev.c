@@ -2777,7 +2777,7 @@ process_resp_ies:
 			 */
 			if (ie_parse_fast_bss_transition_from_data(fte,
 					fte[1] + 2, kck_len, &ft_info) >= 0) {
-				handshake_state_set_fte(hs, fte);
+				handshake_state_set_authenticator_fte(hs, fte);
 				handshake_state_set_kh_ids(hs,
 							ft_info.r0khid,
 							ft_info.r0khid_len,

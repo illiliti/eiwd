@@ -445,7 +445,7 @@ static int fils_rx_authenticate(struct auth_proto *driver, const uint8_t *frame,
 					kck_len, &ft_info) < 0)
 			goto invalid_ies;
 
-		handshake_state_set_fte(fils->hs, fte);
+		handshake_state_set_authenticator_fte(fils->hs, fte);
 		handshake_state_set_kh_ids(fils->hs, ft_info.r0khid,
 							ft_info.r0khid_len,
 							ft_info.r1khid);

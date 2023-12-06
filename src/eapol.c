@@ -1299,7 +1299,8 @@ static void eapol_handle_ptk_1_of_4(struct eapol_sm *sm,
 		ies_len = ies[1] + 2;
 
 		ies_len += append_ie(ies + ies_len, sm->handshake->mde);
-		ies_len += append_ie(ies + ies_len, sm->handshake->fte);
+		ies_len += append_ie(ies + ies_len,
+					sm->handshake->authenticator_fte);
 	} else {
 		ies_len = append_ie(ies, own_ie);
 	}
@@ -1795,7 +1796,7 @@ static void eapol_handle_ptk_3_of_4(struct eapol_sm *sm,
 		if (eapol_ie_matches(decrypted_key_data,
 					decrypted_key_data_size,
 					IE_TYPE_FAST_BSS_TRANSITION,
-					hs->fte) < 0)
+					hs->authenticator_fte) < 0)
 			goto error_ie_different;
 	}
 

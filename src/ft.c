@@ -922,7 +922,7 @@ static void ft_prepare_handshake(struct ft_info *info,
 
 	memcpy(hs->snonce, info->snonce, sizeof(hs->snonce));
 
-	handshake_state_set_fte(hs, info->fte);
+	handshake_state_set_authenticator_fte(hs, info->fte);
 
 	handshake_state_set_anonce(hs, info->ft_info.anonce);
 

@@ -540,7 +540,7 @@ bool handshake_state_derive_ptk(struct handshake_state *s)
 				IE_RSN_AKM_SUITE_FT_OVER_SAE_SHA256 |
 				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256 |
 				IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384)) &&
-			(!s->mde || !s->fte))
+			(!s->mde || !s->authenticator_fte))
 		return false;
 
 	s->ptk_complete = false;
