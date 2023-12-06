@@ -3493,7 +3493,7 @@ static void eapol_ft_handshake_test(const void *data)
 	handshake_state_set_supplicant_ie(hs, own_rsne);
 	handshake_state_set_authenticator_ie(hs, ap_rsne);
 	handshake_state_set_mde(hs, mde);
-	handshake_state_set_fte(hs, fte);
+	handshake_state_set_authenticator_fte(hs, fte);
 	handshake_state_set_kh_ids(hs, r0khid, strlen((void *) r0khid), r1khid);
 	eapol_start(sm);
 
