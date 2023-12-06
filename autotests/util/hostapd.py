@@ -75,6 +75,8 @@ class HostapdCLI(object):
         if self._default_config.get('vendor_elements', None) == None:
             self._default_config['vendor_elements'] = ''
 
+        self._current_config = self._default_config.copy()
+
         if not self.interface:
             raise Exception('config %s not found' % config)
 
@@ -170,6 +172,8 @@ class HostapdCLI(object):
         if self._default_config.get(key, None) == None:
             raise Exception("Untracked setting '%s'! Please set default in hostapd config" % key)
 
+        self._current_config[key] = value
+
         cmd = self.cmdline + ['set', key, value]
         ctx.start_process(cmd).wait()
 
@@ -200,7 +204,10 @@ class HostapdCLI(object):
 
     def default(self):
         for k, v in self._default_config.items():
-            self.set_value(k, v)
+            # Only bother setting the value if it differs
+            if self._current_config[k] != v:
+                self.set_value(k, v)
+                self._current_config[k] = v
 
         self.reload()
 
