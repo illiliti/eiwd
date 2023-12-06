@@ -165,6 +165,11 @@ int netdev_reassociate(struct netdev *netdev,
 			struct handshake_state *hs,
 			netdev_event_func_t event_filter,
 			netdev_connect_cb_t cb, void *user_data);
+int netdev_ft_reassociate(struct netdev *netdev,
+				const struct scan_bss *target_bss,
+				const struct scan_bss *orig_bss,
+				netdev_event_func_t event_filter,
+				netdev_connect_cb_t cb, void *user_data);
 
 int netdev_preauthenticate(struct netdev *netdev,
 				const struct scan_bss *target_bss,

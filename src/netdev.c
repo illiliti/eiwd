@@ -1409,16 +1409,13 @@ static void netdev_connect_ok(struct netdev *netdev)
 			scan_bss_free(netdev->fw_roam_bss);
 
 		netdev->fw_roam_bss = NULL;
-	} else if (netdev->in_ft) {
-		if (netdev->event_filter)
-			netdev->event_filter(netdev, NETDEV_EVENT_FT_ROAMED,
-						NULL, netdev->user_data);
-		netdev->in_ft = false;
 	} else if (netdev->connect_cb) {
 		netdev->connect_cb(netdev, NETDEV_RESULT_OK, NULL,
 					netdev->user_data);
 		netdev->connect_cb = NULL;
-	}
+		netdev->in_ft = false;
+	} else
+		l_warn("Connection event without a connect callback!");
 
 	netdev_rssi_polling_update(netdev);
 
@@ -4205,13 +4202,14 @@ static int netdev_tx_ft_frame(uint32_t ifindex, uint16_t frame_type,
 	return 0;
 }
 
-static int netdev_ft_tx_associate(uint32_t ifindex, uint32_t freq,
-					const uint8_t *prev_bssid,
-					struct iovec *ft_iov, size_t n_ft_iov)
+int netdev_ft_reassociate(struct netdev *netdev,
+				const struct scan_bss *target_bss,
+				const struct scan_bss *orig_bss,
+				netdev_event_func_t event_filter,
+				netdev_connect_cb_t cb, void *user_data)
 {
-	struct netdev *netdev = netdev_find(ifindex);
-	struct netdev_handshake_state *nhs;
 	struct handshake_state *hs = netdev->handshake;
+	struct netdev_handshake_state *nhs;
 	struct l_genl_msg *msg;
 	struct iovec iov[64];
 	unsigned int n_iov = L_ARRAY_SIZE(iov);
@@ -4223,11 +4221,14 @@ static int netdev_ft_tx_associate(uint32_t ifindex, uint32_t freq,
 	 * At this point there is no going back with FT so reset all the flags
 	 * needed to associate with a new BSS.
 	 */
-	netdev->frequency = freq;
+	netdev->frequency = target_bss->frequency;
 	netdev->handshake->active_tk_index = 0;
 	netdev->associated = false;
 	netdev->operational = false;
 	netdev->in_ft = true;
+	netdev->event_filter = event_filter;
+	netdev->connect_cb = cb;
+	netdev->user_data = user_data;
 
 	/*
 	 * Cancel commands that could be running because of EAPoL activity
@@ -4271,15 +4272,22 @@ static int netdev_ft_tx_associate(uint32_t ifindex, uint32_t freq,
 
 	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
 
-	if (!L_WARN_ON(n_iov - c_iov < n_ft_iov)) {
-		memcpy(iov + c_iov, ft_iov, sizeof(*ft_iov) * n_ft_iov);
-		c_iov += n_ft_iov;
-	}
+	if (hs->supplicant_ie)
+		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_ie,
+					IE_LEN(hs->supplicant_ie));
+
+	if (hs->supplicant_fte)
+		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_fte,
+					IE_LEN(hs->supplicant_fte));
+
+	if (hs->mde)
+		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->mde,
+					IE_LEN(hs->mde));
 
 	mpdu_sort_ies(subtype, iov, c_iov);
 
 	l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, ETH_ALEN,
-				prev_bssid);
+				orig_bss->addr);
 	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
 
 	netdev->connect_cmd_id = l_genl_family_send(nl80211, msg,
@@ -6256,7 +6264,6 @@ static int netdev_init(void)
 	__eapol_set_install_pmk_func(netdev_set_pmk);
 
 	__ft_set_tx_frame_func(netdev_tx_ft_frame);
-	__ft_set_tx_associate_func(netdev_ft_tx_associate);
 
 	unicast_watch = l_genl_add_unicast_watch(genl, NL80211_GENL_NAME,
 						netdev_unicast_notify,
