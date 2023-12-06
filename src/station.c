@@ -2181,7 +2181,8 @@ static void station_reassociate_cb(struct netdev *netdev,
 
 	l_debug("%u, result: %d", netdev_get_ifindex(station->netdev), result);
 
-	if (station->state != STATION_STATE_ROAMING)
+	if (station->state != STATION_STATE_ROAMING &&
+			station->state != STATION_STATE_FT_ROAMING)
 		return;
 
 	if (result == NETDEV_RESULT_OK)
@@ -2314,7 +2315,8 @@ static bool station_ft_work_ready(struct wiphy_radio_work_item *item)
 	if (!bss)
 		goto try_next;
 
-	ret = ft_associate(netdev_get_ifindex(station->netdev), bss->addr);
+	ret = ft_handshake_setup(netdev_get_ifindex(station->netdev),
+					bss->addr);
 	switch (ret) {
 	case MMPDU_STATUS_CODE_INVALID_PMKID:
 		/*
@@ -2343,12 +2345,28 @@ try_next:
 		station_transition_start(station);
 		break;
 	case 0:
+		ret = netdev_ft_reassociate(station->netdev, bss,
+					station->connected_bss,
+					station_netdev_event,
+					station_reassociate_cb, station);
+		if (ret < 0)
+			goto disassociate;
+
 		station->connected_bss = bss;
 		station->preparing_roam = false;
 		station_enter_state(station, STATION_STATE_FT_ROAMING);
 
 		station_debug_event(station, "ft-roam");
 
+		break;
+	case -EINVAL:
+		/*
+		 * Likely an impossible situation, but since ft_handshake_setup
+		 * rederived the handshake keys we can't do anything but
+		 * disconnect.
+		 */
+disassociate:
+		station_disassociated(station);
 		break;
 	default:
 		if (ret > 0)
