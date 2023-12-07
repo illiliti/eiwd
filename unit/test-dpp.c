@@ -158,28 +158,104 @@ static void test_bad_channels(const void *data)
 		test_uri_parse(&bad_channels[i]);
 }
 
+struct dpp_test_vector {
+	/* Initiator values */
+	const char *i_proto_public;
+	const char *i_proto_private;
+	const char *i_boot_public;
+	const char *i_boot_private;
+	const char *i_nonce;
+	const char *i_auth;
+	const char *i_asn1;
+
+	/* Responder values */
+	const char *r_proto_public;
+	const char *r_proto_private;
+	const char *r_boot_public;
+	const char *r_boot_private;
+	const char *r_nonce;
+	const char *r_auth;
+	const char *r_asn1;
+
+	const char *k1;
+	const char *k2;
+	const char *ke;
+	const char *mx;
+	const char *nx;
+	const char *lx;
+};
+
+/*
+ * B.1 Test Vectors for DPP Authentication Using P-256 for
+ * Mutual Authentication
+ */
+static struct dpp_test_vector mutual_p256 = {
+	.i_proto_public = "50a532ae2a07207276418d2fa630295d45569be425aa634f02014d00a7d1f61a"
+			"e14f35a5a858bccad90d126c46594c49ef82655e78888e15a32d916ac2172491",
+	.i_proto_private = "a87de9afbb406c96e5f79a3df895ecac3ad406f95da66314c8cb3165e0c61783",
+	/*
+	 * The spec uses a 31 octet Y value, a zero byte was prepended to the
+	 * Y value here otherwise the point cannot be created
+	 */
+	.i_boot_public = "88b37ed91938b5197097808a6244847617892046d93b9501afd48fa0f148dfde"
+			"00f73b6991287884a9c9a33f8e0691f14d44b59811e9d8242d010270b0d33ec0",
+	.i_boot_private = "15b2a83c5a0a38b61f2aa8200ee4994b8afdc01c58507d10d0a38f7eedf051bb",
+	.i_nonce = "13f4602a16daeb69712263b9c46cba31",
+	.i_auth = "d34944bb4b1f05caebda762c6e4ae034c819ec2f62a57dcfade2473876e007b2",
+	.i_asn1 = "3039301306072a8648ce3d020106082a8648ce3d0301070322000288b37ed919"
+			"38b5197097808a6244847617892046d93b9501afd48fa0f148dfde",
+
+	.r_proto_public = "5e3fb3576884887f17c3203d8a3a6c2fac722ef0e2201b61ac73bc655c709a90"
+			"2d4b030669fb9eff8b0a79fa7c1a172ac2a92c626256963f9274dc90682c81e5",
+	.r_proto_private = "f798ed2e19286f6a6efe210b1863badb99af2a14b497634dbfd2a97394fb5aa5",
+	.r_boot_public = "09c585a91b4df9fd25a045201885c39cc5cfae397ddaeda957dec57fa0e3503f"
+			"52bf05968198a2f92883e96a386d767579883302dbf292105c90a43694c2fd5c",
+	.r_boot_private = "54ce181a98525f217216f59b245f60e9df30ac7f6b26c939418cfc3c42d1afa0",
+	.r_nonce = "3d0cfb011ca916d796f7029ff0b43393",
+	.r_auth = "a725abe6dc66ccf3aa3d6d61a19932fcbb0799ed09ff78e5bc6d4ea5ef8e8670",
+	.r_asn1 = "3039301306072a8648ce3d020106082a8648ce3d0301070322000209c585a91b"
+			"4df9fd25a045201885c39cc5cfae397ddaeda957dec57fa0e3503f",
+
+	.k1 = "3d832a02ed6d7fc1dc96d2eceab738cf01c0028eb256be33d5a21a720bfcf949",
+	.k2 = "ca08bdeeef838ddf897a5f01f20bb93dc5a895cb86788ca8c00a7664899bc310",
+	.ke = "b6db65526c9a0174c3bed56f7e614f3a656233c078693249ac3516425127e5d5",
+	.mx = "dde2878117d69745be4f916a2dd14269d783d1d788c603bb8746beabbd1dbbbc",
+	.nx = "92118478b75c21c2c59340c842b5bce560a535f60bc37a75fe390d738c58d8e8",
+	.lx = "fb737234c973cc3a36e64e5170a32f12089d198c73c2fd85a53d0b282530fd02"
+};
+
 /*
  * B.2 Test Vectors for DPP Authentication Using P-256 for
  * Responder-only Authentication
  */
-const char *i_proto_public_bytes = "50a532ae2a07207276418d2fa630295d45569be425aa634f02014d00a7d1f61a";
-const char *r_boot_public_bytes = "09c585a91b4df9fd25a045201885c39cc5cfae397ddaeda957dec57fa0e3503f";
-const char *r_boot_private_bytes = "54ce181a98525f217216f59b245f60e9df30ac7f6b26c939418cfc3c42d1afa0";
-const char *r_proto_private_bytes = "f798ed2e19286f6a6efe210b1863badb99af2a14b497634dbfd2a97394fb5aa5";
-const char *r_proto_public_bytes = "5e3fb3576884887f17c3203d8a3a6c2fac722ef0e2201b61ac73bc655c709a90";
-const char *k1_bytes = "3d832a02ed6d7fc1dc96d2eceab738cf01c0028eb256be33d5a21a720bfcf949";
-const char *k2_bytes = "ca08bdeeef838ddf897a5f01f20bb93dc5a895cb86788ca8c00a7664899bc310";
-const char *ke_bytes = "c8882a8ab30c878467822534138c704ede0ab1e873fe03b601a7908463fec87a";
-const char *mx_bytes = "dde2878117d69745be4f916a2dd14269d783d1d788c603bb8746beabbd1dbbbc";
-const char *nx_bytes = "92118478b75c21c2c59340c842b5bce560a535f60bc37a75fe390d738c58d8e8";
-const char *i_nonce_bytes = "13f4602a16daeb69712263b9c46cba31";
-const char *r_nonce_bytes = "3d0cfb011ca916d796f7029ff0b43393";
-const char *i_auth_bytes = "787d1189b526448d2901e7f6c22775ce514fce52fc886c1e924f2fbb8d97b210";
-const char *r_auth_bytes = "43509ef7137d8c2fbe66d802ae09dedd94d41b8cbfafb4954782014ff4a3f91c";
+static struct dpp_test_vector responder_only_p256 = {
+	.i_proto_public = "50a532ae2a07207276418d2fa630295d45569be425aa634f02014d00a7d1f61a"
+			"e14f35a5a858bccad90d126c46594c49ef82655e78888e15a32d916ac2172491",
+	.i_nonce = "13f4602a16daeb69712263b9c46cba31",
+	.i_auth = "787d1189b526448d2901e7f6c22775ce514fce52fc886c1e924f2fbb8d97b210",
+
+	.r_proto_public = "5e3fb3576884887f17c3203d8a3a6c2fac722ef0e2201b61ac73bc655c709a90"
+			"2d4b030669fb9eff8b0a79fa7c1a172ac2a92c626256963f9274dc90682c81e5",
+	.r_proto_private = "f798ed2e19286f6a6efe210b1863badb99af2a14b497634dbfd2a97394fb5aa5",
+	.r_boot_public = "09c585a91b4df9fd25a045201885c39cc5cfae397ddaeda957dec57fa0e3503f"
+			"52bf05968198a2f92883e96a386d767579883302dbf292105c90a43694c2fd5c",
+	.r_boot_private = "54ce181a98525f217216f59b245f60e9df30ac7f6b26c939418cfc3c42d1afa0",
+	.r_nonce = "3d0cfb011ca916d796f7029ff0b43393",
+	.r_auth = "43509ef7137d8c2fbe66d802ae09dedd94d41b8cbfafb4954782014ff4a3f91c",
+	.r_asn1 = "3039301306072a8648ce3d020106082a8648ce3d0301070322000209c585a91b"
+			"4df9fd25a045201885c39cc5cfae397ddaeda957dec57fa0e3503f",
+
+	.k1 = "3d832a02ed6d7fc1dc96d2eceab738cf01c0028eb256be33d5a21a720bfcf949",
+	.k2 = "ca08bdeeef838ddf897a5f01f20bb93dc5a895cb86788ca8c00a7664899bc310",
+	.ke = "c8882a8ab30c878467822534138c704ede0ab1e873fe03b601a7908463fec87a",
+	.mx = "dde2878117d69745be4f916a2dd14269d783d1d788c603bb8746beabbd1dbbbc",
+	.nx = "92118478b75c21c2c59340c842b5bce560a535f60bc37a75fe390d738c58d8e8",
+};
 
 #define HEX2BUF(s, buf, _len) { \
-	unsigned char *_tmp = l_util_from_hexstring(s, NULL); \
-	memcpy(buf, _tmp, _len); \
+	size_t _len_out; \
+	unsigned char *_tmp = l_util_from_hexstring(s, &_len_out); \
+	memcpy(buf, _tmp, _len_out); \
 	l_free(_tmp); \
 }
 
@@ -192,8 +268,12 @@ const char *r_auth_bytes = "43509ef7137d8c2fbe66d802ae09dedd94d41b8cbfafb4954782
 
 static void test_key_derivation(const void *data)
 {
-	uint64_t tmp[L_ECC_MAX_DIGITS];
+	const struct dpp_test_vector *vector = data;
+
+	uint64_t tmp[L_ECC_MAX_DIGITS * 2];
 	const struct l_ecc_curve *curve = l_ecc_curve_from_ike_group(19);
+	_auto_(l_ecc_point_free) struct l_ecc_point *i_boot_public = NULL;
+	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *i_boot_private = NULL;
 	_auto_(l_ecc_point_free) struct l_ecc_point *i_proto_public = NULL;
 	_auto_(l_ecc_point_free) struct l_ecc_point *r_boot_public = NULL;
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *r_boot_private = NULL;
@@ -201,6 +281,8 @@ static void test_key_derivation(const void *data)
 	_auto_(l_ecc_point_free) struct l_ecc_point *r_proto_public = NULL;
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *m = NULL;
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *n = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *l = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *from_asn1 = NULL;
 	uint64_t k1[L_ECC_MAX_DIGITS];
 	uint64_t k2[L_ECC_MAX_DIGITS];
 	uint64_t ke[L_ECC_MAX_DIGITS];
@@ -208,60 +290,258 @@ static void test_key_derivation(const void *data)
 	uint8_t r_nonce[16];
 	uint64_t r_auth[L_ECC_MAX_DIGITS];
 	uint64_t i_auth[L_ECC_MAX_DIGITS];
+	_auto_(l_free) uint8_t *asn1 = NULL;
+	size_t asn1_len;
 
-	HEX2BUF(i_proto_public_bytes, tmp, 32);
+	HEX2BUF(vector->i_proto_public, tmp, 64);
 	i_proto_public = l_ecc_point_from_data(curve,
-						L_ECC_POINT_TYPE_COMPLIANT,
-						tmp, 32);
+						L_ECC_POINT_TYPE_FULL,
+						tmp, 64);
 	assert(i_proto_public);
 
-	HEX2BUF(r_boot_public_bytes, tmp, 32);
+	HEX2BUF(vector->r_boot_public, tmp, 64);
 	r_boot_public = l_ecc_point_from_data(curve,
-						L_ECC_POINT_TYPE_COMPLIANT,
-						tmp, 32);
+						L_ECC_POINT_TYPE_FULL,
+						tmp, 64);
 	assert(r_boot_public);
 
-	HEX2BUF(r_proto_public_bytes, tmp, 32);
+	if (vector->i_boot_public) {
+		HEX2BUF(vector->i_boot_public, tmp, 64);
+		i_boot_public = l_ecc_point_from_data(curve,
+						L_ECC_POINT_TYPE_FULL,
+						tmp, 64);
+		assert(i_boot_public);
+	}
+
+	if (vector->i_boot_private) {
+		HEX2BUF(vector->i_boot_private, tmp, 32);
+		i_boot_private = l_ecc_scalar_new(curve, tmp, 32);
+		assert(i_boot_private);
+	}
+
+	HEX2BUF(vector->r_asn1, tmp, sizeof(tmp));
+	asn1 = dpp_point_to_asn1(r_boot_public, &asn1_len);
+
+	from_asn1 = dpp_point_from_asn1(asn1, asn1_len);
+
+	assert(l_ecc_points_are_equal(from_asn1, r_boot_public));
+
+	assert(asn1_len == 59);
+	assert(memcmp(tmp, asn1, asn1_len) == 0);
+
+	if (vector->i_asn1) {
+		HEX2BUF(vector->i_asn1, tmp, sizeof(tmp));
+		asn1 = dpp_point_to_asn1(i_boot_public, &asn1_len);
+
+		from_asn1 = dpp_point_from_asn1(asn1, asn1_len);
+
+		assert(l_ecc_points_are_equal(from_asn1, i_boot_public));
+
+		assert(asn1_len == 59);
+		assert(memcmp(tmp, asn1, asn1_len) == 0);
+	}
+
+
+	HEX2BUF(vector->r_proto_public, tmp, 64);
 	r_proto_public = l_ecc_point_from_data(curve,
-						L_ECC_POINT_TYPE_COMPLIANT,
-						tmp, 32);
+						L_ECC_POINT_TYPE_FULL,
+						tmp, 64);
 	assert(r_proto_public);
 
-	HEX2BUF(r_boot_private_bytes, tmp, 32);
+	HEX2BUF(vector->r_boot_private, tmp, 32);
 	r_boot_private = l_ecc_scalar_new(curve, tmp, 32);
 	assert(r_boot_private);
 
-	HEX2BUF(r_proto_private_bytes, tmp, 32);
+	HEX2BUF(vector->r_proto_private, tmp, 32);
 	r_proto_private = l_ecc_scalar_new(curve, tmp, 32);
 	assert(r_proto_private);
 
 	m = dpp_derive_k1(i_proto_public, r_boot_private, k1);
 	assert(m);
 
-	CHECK_FROM_STR(k1_bytes, k1, 32);
+	CHECK_FROM_STR(vector->k1, k1, 32);
 	l_ecc_scalar_get_data(m, tmp, sizeof(tmp));
-	CHECK_FROM_STR(mx_bytes, tmp, 32);
+	CHECK_FROM_STR(vector->mx, tmp, 32);
 
 	n = dpp_derive_k2(i_proto_public, r_proto_private, k2);
 	assert(n);
 
-	CHECK_FROM_STR(k2_bytes, k2, 32);
+	CHECK_FROM_STR(vector->k2, k2, 32);
 	l_ecc_scalar_get_data(n, tmp, sizeof(tmp));
-	CHECK_FROM_STR(nx_bytes, tmp, 32);
+	CHECK_FROM_STR(vector->nx, tmp, 32);
 
-	HEX2BUF(i_nonce_bytes, i_nonce, 16);
-	HEX2BUF(r_nonce_bytes, r_nonce, 16);
-	dpp_derive_ke(i_nonce, r_nonce, m, n, ke);
+	if (vector->lx) {
+		/* Check initiator derivation */
+		l = dpp_derive_li(r_boot_public, r_proto_public,
+					i_boot_private);
+		assert(l);
+		l_ecc_point_get_x(l, tmp, sizeof(tmp));
+		CHECK_FROM_STR(vector->lx, tmp, 32);
+		l_ecc_point_free(l);
+		l = NULL;
 
-	CHECK_FROM_STR(ke_bytes, ke, 32);
+		/* Check responder derivation */
+		l = dpp_derive_lr(r_boot_private, r_proto_private,
+					i_boot_public);
+		assert(l);
+		l_ecc_point_get_x(l, tmp, sizeof(tmp));
+		CHECK_FROM_STR(vector->lx, tmp, 32);
+
+	}
+
+	HEX2BUF(vector->i_nonce, i_nonce, 16);
+	HEX2BUF(vector->r_nonce, r_nonce, 16);
+	dpp_derive_ke(i_nonce, r_nonce, m, n, l, ke);
+
+	CHECK_FROM_STR(vector->ke, ke, 32);
 
 	dpp_derive_r_auth(i_nonce, r_nonce, 16, i_proto_public, r_proto_public,
-				r_boot_public, r_auth);
-	CHECK_FROM_STR(r_auth_bytes, r_auth, 32);
+				i_boot_public, r_boot_public, r_auth);
+	CHECK_FROM_STR(vector->r_auth, r_auth, 32);
 
 	dpp_derive_i_auth(r_nonce, i_nonce, 16, r_proto_public, i_proto_public,
-				r_boot_public, i_auth);
-	CHECK_FROM_STR(i_auth_bytes, i_auth, 32);
+				r_boot_public, i_boot_public, i_auth);
+	CHECK_FROM_STR(vector->i_auth, i_auth, 32);
+}
+
+struct dpp_pkex_test_vector {
+	uint8_t mac_i[6];
+	uint8_t mac_r[6];
+	const char *identifier;
+	const char *key;
+
+	const char *i_boot_public;
+	const char *i_boot_private;
+	const char *qix;
+
+	const char *r_boot_public;
+	const char *r_boot_private;
+	const char *qrx;
+
+	const char *mx;
+	const char *nx;
+
+	const char *k;
+	const char *j;
+	const char *ax;
+	const char *yx;
+	const char *xx;
+	const char *bx;
+	const char *lx;
+
+	const char *z;
+	const char *u;
+	const char *v;
+};
+
+/*
+ * Appendix D PKEX Test Vector for NIST p256
+ */
+static struct dpp_pkex_test_vector pkex_vector = {
+	.mac_i = { 0xac, 0x64, 0x91, 0xf4, 0x52, 0x07 },
+	.mac_r = { 0x6e, 0x5e, 0xce, 0x6e, 0xf3, 0xdd },
+	.identifier = "joes_key",
+	.key = "thisisreallysecret",
+
+	.i_boot_public = "0ad58864754c812685ff3a52a573c1d72c72c4ebed98f3915622d4dfc84a438d"
+			"7e81429aac49ddec75ad6521db9c74074e30b5eb2ba53693c9341b79be14e101",
+	.i_boot_private = "5941b51acfc702cdc1c347264beb2920db88eb1a0bf03a211868b1632233c269",
+	.qix = "2867c4e080980dbad5099a8f821e8729679c5c714888c0bd9c7e8e4048c5fa5e",
+
+	.r_boot_public = "977b7fa39779a81429febb12e1dc5e20a7e017c4bc7437090e57c966a2b0e8a3"
+			"9d2b62733947639763f64c7b6708c1e0857becb7e24fc195248b5b06036cf792",
+	.r_boot_private = "2ae8956293f49986b6d0b8169a86805d9232babb5f6813fdfe96f19d59536c60",
+	.qrx = "134af1c41c8e7d974c647cc2bfca30b036966959f9044e90f673d756706e624c",
+
+	.mx = "bcca8e23e5c05032ae6051ca6392f7c4a4b4f9fe13e8126132d070e552848176",
+	.nx = "0a91e0728809bb8191ea36d0a1d5602bf36ab6708fbfd063e2511e533b534020",
+
+	.k = "7415e1c68611f0443cc345d136984e488c6a26d3d5482fa67e9841a03a87c78f",
+	.j = "31c1b9ab31d9c2f278b35b5c29d180dfeaf76d585ede9c0dd91cb66149db572e",
+	.ax = "0ad58864754c812685ff3a52a573c1d72c72c4ebed98f3915622d4dfc84a438d",
+	.yx = "a9972a94f143740df31c7a61124d01a4e949d0fdcede61369f4c6b097aeb18b5",
+	.xx = "740ab9f0c173507b0081b475b275de6a3060cf434b6a65f0b0144a1dbf913310",
+	.bx = "977b7fa39779a81429febb12e1dc5e20a7e017c4bc7437090e57c966a2b0e8a3",
+	.lx = "bc5f3128b0b997079a23ead63cf502ef4f7526602269620377b79bce20e03d44",
+
+	.z = "5271dee915cf7b1908747d8edb8394442411c5183ee38b79ebef399c08738e0b",
+	.u = "598c3d8dcccea2d43259068d542a907442f07e8cbcfb3fb49faac12eb2fee5b6",
+	.v = "b2833ce21ab4e42c082111a5dd232334e48019f66b2e274f521fe2f7dfa11999",
+};
+
+static void test_pkex_key_derivation(const void *user_data)
+{
+	const struct dpp_pkex_test_vector *vector = user_data;
+	const struct l_ecc_curve *curve = l_ecc_curve_from_ike_group(19);
+	uint64_t tmp[L_ECC_MAX_DIGITS * 2];
+	_auto_(l_ecc_point_free) struct l_ecc_point *qi = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *qr = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *n = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *m = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *j = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *k = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *a = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *y = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *x = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *b = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *l = NULL;
+	size_t len;
+
+	qi = dpp_derive_qi(curve, vector->key, vector->identifier,
+				vector->mac_i);
+	l_ecc_point_get_x(qi, tmp, sizeof(tmp));
+	CHECK_FROM_STR(vector->qix, tmp, 32);
+
+	qr = dpp_derive_qr(curve, vector->key, vector->identifier,
+				vector->mac_r);
+	l_ecc_point_get_x(qr, tmp, sizeof(tmp));
+	CHECK_FROM_STR(vector->qrx, tmp, 32);
+
+	HEX2BUF(vector->nx, tmp, 32);
+	n = l_ecc_point_from_data(curve, L_ECC_POINT_TYPE_COMPLIANT, tmp, 32);
+	assert(n);
+
+	HEX2BUF(vector->mx, tmp, 32);
+	m = l_ecc_point_from_data(curve, L_ECC_POINT_TYPE_COMPLIANT, tmp, 32);
+	assert(m);
+
+	HEX2BUF(vector->k, tmp, 32);
+	k = l_ecc_point_from_data(curve, L_ECC_POINT_TYPE_COMPLIANT, tmp, 32);
+	assert(k);
+
+	dpp_derive_z(vector->mac_i, vector->mac_r, n, m, k, vector->key,
+			vector->identifier, tmp, &len);
+	CHECK_FROM_STR(vector->z, tmp, 32);
+
+	HEX2BUF(vector->j, tmp, 32);
+	j = l_ecc_point_from_data(curve, L_ECC_POINT_TYPE_COMPLIANT, tmp, 32);
+	assert(j);
+
+	HEX2BUF(vector->ax, tmp, 32);
+	a = l_ecc_point_from_data(curve, L_ECC_POINT_TYPE_COMPLIANT, tmp, 32);
+	assert(a);
+
+	HEX2BUF(vector->yx, tmp, 32);
+	y = l_ecc_point_from_data(curve, L_ECC_POINT_TYPE_COMPLIANT, tmp, 32);
+	assert(y);
+
+	HEX2BUF(vector->xx, tmp, 32);
+	x = l_ecc_point_from_data(curve, L_ECC_POINT_TYPE_COMPLIANT, tmp, 32);
+	assert(x);
+
+	dpp_derive_u(j, vector->mac_i, a, y, x, tmp, &len);
+	CHECK_FROM_STR(vector->u, tmp, 32);
+
+	HEX2BUF(vector->bx, tmp, 32);
+	b = l_ecc_point_from_data(curve, L_ECC_POINT_TYPE_COMPLIANT, tmp, 32);
+	assert(b);
+
+	HEX2BUF(vector->lx, tmp, 32);
+	l = l_ecc_point_from_data(curve, L_ECC_POINT_TYPE_COMPLIANT, tmp, 32);
+	assert(l);
+
+	dpp_derive_v(l, vector->mac_r, b, x, y, tmp, &len);
+	CHECK_FROM_STR(vector->v, tmp, 32);
 }
 
 int main(int argc, char *argv[])
@@ -269,9 +549,17 @@ int main(int argc, char *argv[])
 	l_test_init(&argc, &argv);
 
 	if (l_checksum_is_supported(L_CHECKSUM_SHA256, true) &&
-						l_getrandom_is_supported())
-		l_test_add("DPP test key derivation",
-						test_key_derivation, NULL);
+						l_getrandom_is_supported()) {
+		l_test_add("DPP test responder-only key derivation",
+						test_key_derivation,
+						&responder_only_p256);
+		l_test_add("DPP test mutual key derivation",
+						test_key_derivation,
+						&mutual_p256);
+		l_test_add("DPP test PKEX key derivation",
+						test_pkex_key_derivation,
+						&pkex_vector);
+	}
 
 	l_test_add("DPP URI parse", test_uri_parse, &all_values);
 	l_test_add("DPP URI no type", test_uri_parse, &no_type);

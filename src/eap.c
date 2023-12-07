@@ -415,11 +415,8 @@ static const char *eap_type_to_str(enum eap_type type, uint32_t vendor_id,
 	return buf;
 }
 
-_Pragma("GCC diagnostic push")
-_Pragma("GCC diagnostic ignored \"-Wmaybe-uninitialized\"")
 #define IS_EXPANDED_RESPONSE(id, t) \
 	(type == EAP_TYPE_EXPANDED && vendor_id == (id) && vendor_type == (t))
-_Pragma("GCC diagnostic pop")
 
 #define RESPONSE_IS(t) \
 	(type == (t) || IS_EXPANDED_RESPONSE(0, (t)))
@@ -530,7 +527,10 @@ static void eap_handle_response(struct eap_state *eap, const uint8_t *pkt,
 	if (our_type != EAP_TYPE_EXPANDED) {
 		if (RESPONSE_IS(our_type))
 			goto handle_response;
+_Pragma("GCC diagnostic push")
+_Pragma("GCC diagnostic ignored \"-Wmaybe-uninitialized\"")
 	} else if (IS_EXPANDED_RESPONSE(our_vendor_id, our_vendor_type))
+_Pragma("GCC diagnostic pop")
 		goto handle_response;
 
 error:

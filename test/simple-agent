@@ -54,7 +54,7 @@ class Agent(dbus.service.Object):
                             in_signature='o',
                             out_signature='ss')
     def RequestUserNameAndPassword(self, path):
-        print("RequestPrivateKeyPassphrase (%s)" % (path))
+        print("RequestUserNameAndPassword (%s)" % (path))
 
         print("Service credentials requested, type cancel to cancel")
         user = input('User name: ')

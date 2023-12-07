@@ -27,8 +27,6 @@ from utils import Process, Namespace, BarChart
 config = None
 intf_id = 0
 
-TEST_MAX_TIMEOUT = 240
-
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 
 def dbg(*s, **kwargs):
@@ -52,7 +50,7 @@ def exit_vm():
 			p.kill()
 
 		if config.ctx and config.ctx.results:
-			success = print_results(config.ctx.results)
+			success = print_results(config.ctx.results, int(config.ctx.args.timeout))
 
 			if config.ctx.args.result:
 				write_results(config.ctx.args.result, config.ctx.results)
@@ -917,7 +915,7 @@ def post_test(ctx, to_copy):
 		except:
 			pass
 
-def print_results(results):
+def print_results(results, max_timeout):
 	table = PrettyTable(['Test', colored('Passed', 'green'), colored('Failed', 'red'), \
 				colored('Skipped', 'cyan'), colored('Time', 'yellow')])
 
@@ -928,7 +926,7 @@ def print_results(results):
 
 	for test, result in results.items():
 
-		if result.time == TEST_MAX_TIMEOUT:
+		if result.time == max_timeout:
 			failed = "Timed out"
 			passed = "Timed out"
 		elif result.time == 0:
@@ -975,7 +973,7 @@ def run_auto_tests(ctx, args):
 			p.start()
 			# Rather than time each subtest we just time the total but
 			# mutiply the default time by the number of tests being run.
-			p.join(TEST_MAX_TIMEOUT * len(subtests))
+			p.join(int(args.timeout) * len(subtests))
 
 			if p.is_alive():
 				# Timeout
@@ -983,7 +981,7 @@ def run_auto_tests(ctx, args):
 
 				ctx.results[os.path.basename(test)] = SimpleResult(run=0,
 								failures=0, errors=0,
-								skipped=0, time=TEST_MAX_TIMEOUT)
+								skipped=0, time=int(args.timeout))
 			else:
 				ctx.results[os.path.basename(test)] = rqueue.get()
 

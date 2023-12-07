@@ -1,2 +1,5 @@
 [Security]
 Passphrase=secret123
+
+[IPv4]
+SendHostname=true

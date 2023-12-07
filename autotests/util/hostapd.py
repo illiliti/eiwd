@@ -64,7 +64,16 @@ class HostapdCLI(object):
         hapd = ctx.get_hapd_instance(config)
 
         self.interface = hapd.intf
-        self.config = hapd.config
+        self._config_path = "/tmp/" + hapd.config
+        self._default_config = self._get_config(self._config_path)
+
+        # The vendor_elements is somewhat of a special case because you can't
+        # set it to 'nothing' within the hostapd config. In most cases tests do
+        # not use this and we don't want to require they unset this value
+        # during initialization. Default this to '' so set_value won't throw
+        # an exception.
+        if self._default_config.get('vendor_elements', None) == None:
+            self._default_config['vendor_elements'] = ''
 
         if not self.interface:
             raise Exception('config %s not found' % config)
@@ -88,6 +97,12 @@ class HostapdCLI(object):
             raise Exception('ATTACH failed')
 
         ctrl_count = ctrl_count + 1
+
+    def _get_config(self, path):
+        f = open(path)
+        lines = f.readlines()
+        f.close()
+        return dict([[v.strip() for v in kv] for kv in [l.split('#', 1)[0].split('=', 1) for l in lines] if len(kv) == 2])
 
     def _handle_data_in(self, sock, *args):
         newdata = sock.recv(4096)
@@ -151,6 +166,10 @@ class HostapdCLI(object):
             pass
 
     def set_value(self, key, value):
+        # Don't allow new settings, defaults should always be in hostapd config
+        if self._default_config.get(key, None) == None:
+            raise Exception("Untracked setting '%s'! Please set default in hostapd config" % key)
+
         cmd = self.cmdline + ['set', key, value]
         ctx.start_process(cmd).wait()
 
@@ -178,6 +197,12 @@ class HostapdCLI(object):
         ctx.start_process(self.cmdline + ['reload']).wait()
         ctx.start_process(self.cmdline + ['disable']).wait()
         ctx.start_process(self.cmdline + ['enable']).wait()
+
+    def default(self):
+        for k, v in self._default_config.items():
+            self.set_value(k, v)
+
+        self.reload()
 
     def disable(self):
         ctx.start_process(self.cmdline + ['disable']).wait()

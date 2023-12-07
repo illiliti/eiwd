@@ -40,10 +40,8 @@ class Test(unittest.TestCase):
         # needed because the hwsim rule only matches once and must be matched
         # on the first commit, not during group negotiation.
         #
-        hostapd = HostapdCLI(config='ssidSAE.conf')
-        hostapd.set_value('vendor_elements', 'dd0cf4f5e8050500000000000000')
-        hostapd.set_value('sae_groups', '19')
-        hostapd.reload()
+        self.hostapd.set_value('vendor_elements', 'dd0cf4f5e8050500000000000000')
+        self.hostapd.reload()
 
         hwsim = Hwsim()
         bss_radio = hwsim.get_radio('rad0')
@@ -64,10 +62,8 @@ class Test(unittest.TestCase):
         rule0.remove()
 
     def test_sta_confirm_not_acked(self):
-        hostapd = HostapdCLI(config='ssidSAE.conf')
-        hostapd.set_value('vendor_elements', 'dd0cf4f5e8050500000000000000')
-        hostapd.set_value('sae_groups', '19')
-        hostapd.reload()
+        self.hostapd.set_value('vendor_elements', 'dd0cf4f5e8050500000000000000')
+        self.hostapd.reload()
 
         hwsim = Hwsim()
         bss_radio = hwsim.get_radio('rad0')
@@ -86,6 +82,10 @@ class Test(unittest.TestCase):
         self.validate_connection(wd)
 
         rule0.remove()
+
+    def setUp(self):
+        self.hostapd = HostapdCLI(config='ssidSAE.conf')
+        self.hostapd.default()
 
     @classmethod
     def setUpClass(cls):

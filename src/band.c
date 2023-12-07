@@ -1260,7 +1260,10 @@ int band_freq_to_ht_chandef(uint32_t freq, const struct band_freq_attrs *attr,
 	 * - 40mhz we can base the selection off the channel flags, either
 	 *   higher or lower.
 	 */
+_Pragma("GCC diagnostic push")
+_Pragma("GCC diagnostic ignored \"-Wmaybe-uninitialized\"")
 	switch (width) {
+_Pragma("GCC diagnostic pop")
 	case BAND_CHANDEF_WIDTH_20:
 		return 0;
 	case BAND_CHANDEF_WIDTH_40:

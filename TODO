@@ -286,7 +286,7 @@ Wireless daemon
 - Support OCE mutually non-overlapping channels optimization.
 
   OCE Section 3.10 mandates that the STA should scan channels 1, 6 and 11 in
-  the 2.4Ghz band first, unless it expects to find an AP on a different
+  the 2.4GHz band first, unless it expects to find an AP on a different
   channel.
 
   Priority: Low

@@ -3,6 +3,7 @@
  *  Wireless daemon for Linux
  *
  *  Copyright (C) 2017-2019  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2023, Locus Robotics
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -38,6 +39,8 @@ struct proxy_interface;
 #define IWD_AP_DIAGNOSTIC_INTERFACE      "net.connman.iwd.AccessPointDiagnostic"
 #define IWD_DAEMON_INTERFACE             "net.connman.iwd.Daemon"
 #define IWD_DPP_INTERFACE                "net.connman.iwd.DeviceProvisioning"
+#define IWD_DPP_PKEX_INTERFACE \
+				"net.connman.iwd.SharedCodeDeviceProvisioning"
 
 typedef bool (*proxy_property_match_func_t) (const void *a, const void *b);
 

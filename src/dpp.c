@@ -56,6 +56,8 @@
 
 #define DPP_FRAME_MAX_RETRIES 5
 #define DPP_FRAME_RETRY_TIMEOUT 1
+#define DPP_AUTH_PROTO_TIMEOUT 10
+#define DPP_PKEX_PROTO_TIMEOUT 120
 
 static uint32_t netdev_watch;
 static struct l_genl_family *nl80211;
@@ -69,6 +71,8 @@ static uint8_t dpp_prefix[] = { 0x04, 0x09, 0x50, 0x6f, 0x9a, 0x1a, 0x01 };
 enum dpp_state {
 	DPP_STATE_NOTHING,
 	DPP_STATE_PRESENCE,
+	DPP_STATE_PKEX_EXCHANGE,
+	DPP_STATE_PKEX_COMMIT_REVEAL,
 	DPP_STATE_AUTHENTICATING,
 	DPP_STATE_CONFIGURING,
 };
@@ -78,10 +82,25 @@ enum dpp_capability {
 	DPP_CAPABILITY_CONFIGURATOR = 0x02,
 };
 
+enum dpp_interface {
+	DPP_INTERFACE_UNBOUND,
+	DPP_INTERFACE_DPP,
+	DPP_INTERFACE_PKEX,
+};
+
+struct pkex_agent {
+	char *owner;
+	char *path;
+	unsigned int disconnect_watch;
+	uint32_t pending_id;
+};
+
 struct dpp_sm {
 	struct netdev *netdev;
 	char *uri;
 	uint8_t role;
+	int refcount;
+	uint32_t station_watch;
 
 	uint64_t wdev_id;
 
@@ -99,6 +118,9 @@ struct dpp_sm {
 	struct l_ecc_point *peer_boot_public;
 
 	enum dpp_state state;
+	enum dpp_interface interface;
+
+	struct pkex_agent *agent;
 
 	/*
 	 * List of frequencies to jump between. The presence of this list is
@@ -111,10 +133,11 @@ struct dpp_sm {
 	uint32_t current_freq;
 	uint32_t new_freq;
 	struct scan_freq_set *presence_list;
+	uint32_t max_roc;
 
 	uint32_t offchannel_id;
 
-	uint8_t auth_addr[6];
+	uint8_t peer_addr[6];
 	uint8_t r_nonce[32];
 	uint8_t i_nonce[32];
 	uint8_t e_nonce[32];
@@ -145,10 +168,74 @@ struct dpp_sm {
 
 	struct l_dbus_message *pending;
 
+	/* PKEX-specific values */
+	char *pkex_id;
+	char *pkex_key;
+	uint8_t pkex_version;
+	struct l_ecc_point *peer_encr_key;
+	struct l_ecc_point *pkex_m;
+	/* Ephemeral key Y' or X' for enrollee or configurator */
+	struct l_ecc_point *y_or_x;
+	/* Ephemeral key pair y/Y or x/X */
+	struct l_ecc_point *pkex_public;
+	struct l_ecc_scalar *pkex_private;
+	uint8_t z[L_ECC_SCALAR_MAX_BYTES];
+	size_t z_len;
+	uint8_t u[L_ECC_SCALAR_MAX_BYTES];
+	size_t u_len;
+	uint32_t pkex_scan_id;
+
 	bool mcast_support : 1;
 	bool roc_started : 1;
 	bool channel_switch : 1;
+	bool mutual_auth : 1;
 };
+
+static const char *dpp_role_to_string(enum dpp_capability role)
+{
+	switch (role) {
+	case DPP_CAPABILITY_ENROLLEE:
+		return "enrollee";
+	case DPP_CAPABILITY_CONFIGURATOR:
+		return "configurator";
+	default:
+		return NULL;
+	}
+}
+
+static bool dpp_pkex_get_started(struct l_dbus *dbus,
+				struct l_dbus_message *message,
+				struct l_dbus_message_builder *builder,
+				void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+	bool started = (dpp->state != DPP_STATE_NOTHING &&
+			dpp->interface == DPP_INTERFACE_PKEX);
+
+	l_dbus_message_builder_append_basic(builder, 'b', &started);
+
+	return true;
+}
+
+static bool dpp_pkex_get_role(struct l_dbus *dbus,
+				struct l_dbus_message *message,
+				struct l_dbus_message_builder *builder,
+				void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+	const char *role;
+
+	if (dpp->state == DPP_STATE_NOTHING ||
+				dpp->interface != DPP_INTERFACE_PKEX)
+		return false;
+
+	role = dpp_role_to_string(dpp->role);
+	if (L_WARN_ON(!role))
+		return false;
+
+	l_dbus_message_builder_append_basic(builder, 's', role);
+	return true;
+}
 
 static bool dpp_get_started(struct l_dbus *dbus,
 				struct l_dbus_message *message,
@@ -156,7 +243,8 @@ static bool dpp_get_started(struct l_dbus *dbus,
 				void *user_data)
 {
 	struct dpp_sm *dpp = user_data;
-	bool started = (dpp->state != DPP_STATE_NOTHING);
+	bool started = (dpp->state != DPP_STATE_NOTHING &&
+			dpp->interface == DPP_INTERFACE_DPP);
 
 	l_dbus_message_builder_append_basic(builder, 'b', &started);
 
@@ -171,19 +259,13 @@ static bool dpp_get_role(struct l_dbus *dbus,
 	struct dpp_sm *dpp = user_data;
 	const char *role;
 
-	if (dpp->state == DPP_STATE_NOTHING)
+	if (dpp->state == DPP_STATE_NOTHING ||
+				dpp->interface != DPP_INTERFACE_DPP)
 		return false;
 
-	switch (dpp->role) {
-	case DPP_CAPABILITY_ENROLLEE:
-		role = "enrollee";
-		break;
-	case DPP_CAPABILITY_CONFIGURATOR:
-		role = "configurator";
-		break;
-	default:
+	role = dpp_role_to_string(dpp->role);
+	if (L_WARN_ON(!role))
 		return false;
-	}
 
 	l_dbus_message_builder_append_basic(builder, 's', role);
 	return true;
@@ -196,7 +278,8 @@ static bool dpp_get_uri(struct l_dbus *dbus,
 {
 	struct dpp_sm *dpp = user_data;
 
-	if (dpp->state == DPP_STATE_NOTHING)
+	if (dpp->state == DPP_STATE_NOTHING ||
+				dpp->interface != DPP_INTERFACE_DPP)
 		return false;
 
 	l_dbus_message_builder_append_basic(builder, 's', dpp->uri);
@@ -207,12 +290,26 @@ static void dpp_property_changed_notify(struct dpp_sm *dpp)
 {
 	const char *path = netdev_get_path(dpp->netdev);
 
-	l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
-				"Started");
-	l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
-				"Role");
-	l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
-				"URI");
+	switch (dpp->interface) {
+	case DPP_INTERFACE_DPP:
+		l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
+					"Started");
+		l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
+					"Role");
+		l_dbus_property_changed(dbus_get_bus(), path, IWD_DPP_INTERFACE,
+					"URI");
+		break;
+	case DPP_INTERFACE_PKEX:
+		l_dbus_property_changed(dbus_get_bus(), path,
+					IWD_DPP_PKEX_INTERFACE,
+					"Started");
+		l_dbus_property_changed(dbus_get_bus(), path,
+					IWD_DPP_PKEX_INTERFACE,
+					"Role");
+		break;
+	default:
+		break;
+	}
 }
 
 static void *dpp_serialize_iovec(struct iovec *iov, size_t iov_len,
@@ -237,6 +334,83 @@ static void *dpp_serialize_iovec(struct iovec *iov, size_t iov_len,
 		*out_len = size;
 
 	return ret;
+}
+
+static void dpp_free_pending_pkex_data(struct dpp_sm *dpp)
+{
+	if (dpp->pkex_id) {
+		l_free(dpp->pkex_id);
+		dpp->pkex_id = NULL;
+	}
+
+	if (dpp->pkex_key) {
+		l_free(dpp->pkex_key);
+		dpp->pkex_key = NULL;
+	}
+
+	memset(dpp->peer_addr, 0, sizeof(dpp->peer_addr));
+
+	if (dpp->peer_encr_key) {
+		l_ecc_point_free(dpp->peer_encr_key);
+		dpp->peer_encr_key = NULL;
+	}
+}
+
+static void pkex_agent_free(void *data)
+{
+	struct pkex_agent *agent = data;
+
+	l_free(agent->owner);
+	l_free(agent->path);
+	l_dbus_remove_watch(dbus_get_bus(), agent->disconnect_watch);
+	l_free(agent);
+}
+
+static void dpp_agent_cancel(struct dpp_sm *dpp)
+{
+	struct l_dbus_message *msg;
+
+	const char *reason = "shutdown";
+
+	msg = l_dbus_message_new_method_call(dbus_get_bus(),
+						dpp->agent->owner,
+						dpp->agent->path,
+						IWD_SHARED_CODE_AGENT_INTERFACE,
+						"Cancel");
+	l_dbus_message_set_arguments(msg, "s", reason);
+	l_dbus_message_set_no_reply(msg, true);
+	l_dbus_send(dbus_get_bus(), msg);
+}
+
+static void dpp_agent_release(struct dpp_sm *dpp)
+{
+	struct l_dbus_message *msg;
+
+	msg = l_dbus_message_new_method_call(dbus_get_bus(),
+						dpp->agent->owner,
+						dpp->agent->path,
+						IWD_SHARED_CODE_AGENT_INTERFACE,
+						"Release");
+	l_dbus_message_set_no_reply(msg, true);
+	l_dbus_send(dbus_get_bus(), msg);
+}
+
+static void dpp_destroy_agent(struct dpp_sm *dpp)
+{
+	if (!dpp->agent)
+		return;
+
+	if (dpp->agent->pending_id) {
+		dpp_agent_cancel(dpp);
+		l_dbus_cancel(dbus_get_bus(), dpp->agent->pending_id);
+	}
+
+	dpp_agent_release(dpp);
+
+	l_debug("Released SharedCodeAgent on path %s", dpp->agent->path);
+
+	pkex_agent_free(dpp->agent);
+	dpp->agent = NULL;
 }
 
 static void dpp_free_auth_data(struct dpp_sm *dpp)
@@ -265,6 +439,27 @@ static void dpp_free_auth_data(struct dpp_sm *dpp)
 		l_ecc_scalar_free(dpp->m);
 		dpp->m = NULL;
 	}
+
+	if (dpp->pkex_m) {
+		l_ecc_point_free(dpp->pkex_m);
+		dpp->pkex_m = NULL;
+	}
+
+	if (dpp->y_or_x) {
+		l_ecc_point_free(dpp->y_or_x);
+		dpp->y_or_x = NULL;
+	}
+
+	if (dpp->pkex_public) {
+		l_ecc_point_free(dpp->pkex_public);
+		dpp->pkex_public = NULL;
+	}
+
+	if (dpp->pkex_private) {
+		l_ecc_scalar_free(dpp->pkex_private);
+		dpp->pkex_private = NULL;
+	}
+
 }
 
 static void dpp_reset(struct dpp_sm *dpp)
@@ -314,10 +509,16 @@ static void dpp_reset(struct dpp_sm *dpp)
 		dpp->retry_timeout = NULL;
 	}
 
+	if (dpp->pkex_scan_id) {
+		scan_cancel(dpp->wdev_id, dpp->pkex_scan_id);
+		dpp->pkex_scan_id = 0;
+	}
+
 	dpp->state = DPP_STATE_NOTHING;
 	dpp->new_freq = 0;
 	dpp->frame_retry = 0;
 	dpp->frame_cookie = 0;
+	dpp->pkex_version = 0;
 
 	explicit_bzero(dpp->r_nonce, dpp->nonce_len);
 	explicit_bzero(dpp->i_nonce, dpp->nonce_len);
@@ -326,14 +527,24 @@ static void dpp_reset(struct dpp_sm *dpp)
 	explicit_bzero(dpp->k1, dpp->key_len);
 	explicit_bzero(dpp->k2, dpp->key_len);
 	explicit_bzero(dpp->auth_tag, dpp->key_len);
+	explicit_bzero(dpp->z, dpp->key_len);
+	explicit_bzero(dpp->u, dpp->u_len);
+
+	dpp_destroy_agent(dpp);
+
+	dpp_free_pending_pkex_data(dpp);
 
 	dpp_free_auth_data(dpp);
 
 	dpp_property_changed_notify(dpp);
+
+	dpp->interface = DPP_INTERFACE_UNBOUND;
 }
 
 static void dpp_free(struct dpp_sm *dpp)
 {
+	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+
 	dpp_reset(dpp);
 
 	if (dpp->own_asn1) {
@@ -350,6 +561,13 @@ static void dpp_free(struct dpp_sm *dpp)
 		l_ecc_scalar_free(dpp->boot_private);
 		dpp->boot_private = NULL;
 	}
+
+	/*
+	 * Since this is called when the netdev goes down, station may already
+	 * be gone in which case the state watch will automatically go away.
+	 */
+	if (station)
+		station_remove_state_watch(station, dpp->station_watch);
 
 	l_free(dpp);
 }
@@ -479,12 +697,12 @@ static void dpp_protocol_timeout(struct l_timeout *timeout, void *user_data)
 	dpp_reset(dpp);
 }
 
-static void dpp_reset_protocol_timer(struct dpp_sm *dpp)
+static void dpp_reset_protocol_timer(struct dpp_sm *dpp, uint32_t time)
 {
 	if (dpp->timeout)
-		l_timeout_modify(dpp->timeout, 10);
+		l_timeout_modify(dpp->timeout, time);
 	else
-		dpp->timeout = l_timeout_create(10, dpp_protocol_timeout,
+		dpp->timeout = l_timeout_create(time, dpp_protocol_timeout,
 						dpp, NULL);
 }
 
@@ -591,16 +809,12 @@ static void send_config_result(struct dpp_sm *dpp, const uint8_t *to)
 static void dpp_write_config(struct dpp_configuration *config,
 				struct network *network)
 {
-	char ssid[33];
 	_auto_(l_settings_free) struct l_settings *settings = l_settings_new();
 	_auto_(l_free) char *path;
 	_auto_(l_free) uint8_t *psk = NULL;
 	size_t psk_len;
 
-	memcpy(ssid, config->ssid, config->ssid_len);
-	ssid[config->ssid_len] = '\0';
-
-	path = storage_get_network_file_path(SECURITY_PSK, ssid);
+	path = storage_get_network_file_path(SECURITY_PSK, config->ssid);
 
 	if (l_settings_load_from_file(settings, path)) {
 		/* Remove any existing Security keys */
@@ -623,9 +837,15 @@ static void dpp_write_config(struct dpp_configuration *config,
 			network_set_psk(network, psk);
 	}
 
-	l_debug("Storing credential for '%s(%s)'", ssid,
+	if (config->send_hostname)
+		l_settings_set_bool(settings, "IPv4", "SendHostname", true);
+
+	if (config->hidden)
+		l_settings_set_bool(settings, "Settings", "Hidden", true);
+
+	l_debug("Storing credential for '%s(%s)'", config->ssid,
 						security_to_str(SECURITY_PSK));
-	storage_network_sync(SECURITY_PSK, ssid, settings);
+	storage_network_sync(SECURITY_PSK, config->ssid, settings);
 }
 
 static void dpp_scan_triggered(int err, void *user_data)
@@ -641,13 +861,41 @@ static bool dpp_scan_results(int err, struct l_queue *bss_list,
 {
 	struct dpp_sm *dpp = userdata;
 	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+	struct scan_bss *bss;
+	struct network *network;
 
 	if (err < 0)
-		return false;
+		goto reset;
 
-	station_set_scan_results(station, bss_list, freqs, true);
+	if (!bss_list || l_queue_length(bss_list) == 0)
+		goto reset;
+
+	/*
+	 * The station watch _should_ detect this and reset, which cancels the
+	 * scan. But just in case...
+	 */
+	if (L_WARN_ON(station_get_connected_network(station)))
+		goto reset;
+
+	station_set_scan_results(station, bss_list, freqs, false);
+
+	network = station_network_find(station, dpp->config->ssid,
+					SECURITY_PSK);
+
+	dpp_reset(dpp);
+
+	if (!network) {
+		l_debug("Network was not found after scanning");
+		return true;
+	}
+
+	bss = network_bss_select(network, true);
+	network_autoconnect(network, bss);
 
 	return true;
+
+reset:
+	return false;
 }
 
 static void dpp_scan_destroy(void *userdata)
@@ -685,7 +933,6 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
 	struct network *network = NULL;
 	struct scan_bss *bss = NULL;
-	char ssid[33];
 
 	if (dpp->state != DPP_STATE_CONFIGURING)
 		return;
@@ -694,7 +941,7 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	 * Can a configuration request come from someone other than who you
 	 * authenticated to?
 	 */
-	if (memcmp(dpp->auth_addr, frame->address_2, 6))
+	if (memcmp(dpp->peer_addr, frame->address_2, 6))
 		return;
 
 	if (body_len < 19)
@@ -814,32 +1061,40 @@ static void dpp_handle_config_response_frame(const struct mmpdu_header *frame,
 	 * credentials out and be done
 	 */
 	if (station) {
-		memcpy(ssid, config->ssid, config->ssid_len);
-		ssid[config->ssid_len] = '\0';
-
-		network = station_network_find(station, ssid, SECURITY_PSK);
+		network = station_network_find(station, config->ssid,
+						SECURITY_PSK);
 		if (network)
 			bss = network_bss_select(network, true);
 	}
 
 	dpp_write_config(config, network);
-	dpp_configuration_free(config);
 
-	send_config_result(dpp, dpp->auth_addr);
+	send_config_result(dpp, dpp->peer_addr);
 
 	offchannel_cancel(dpp->wdev_id, dpp->offchannel_id);
 
 	if (network && bss)
-		__station_connect_network(station, network, bss);
+		__station_connect_network(station, network, bss,
+						STATION_STATE_CONNECTING);
 	else if (station) {
-		dpp->connect_scan_id = scan_active(dpp->wdev_id, NULL, 0,
+		struct scan_parameters params = {0};
+
+		params.ssid = (void *) config->ssid;
+		params.ssid_len = config->ssid_len;
+
+		l_debug("Scanning for %s", config->ssid);
+
+		dpp->connect_scan_id = scan_active_full(dpp->wdev_id, &params,
 						dpp_scan_triggered,
 						dpp_scan_results, dpp,
 						dpp_scan_destroy);
-		if (dpp->connect_scan_id)
+		if (dpp->connect_scan_id) {
+			dpp->config = config;
 			return;
+		}
 	}
 
+	dpp_configuration_free(config);
 	dpp_reset(dpp);
 }
 
@@ -855,7 +1110,7 @@ static void dpp_send_config_response(struct dpp_sm *dpp, uint8_t status)
 	memset(hdr, 0, sizeof(hdr));
 
 	l_put_le16(0x00d0, hdr);
-	memcpy(hdr + 4, dpp->auth_addr, 6);
+	memcpy(hdr + 4, dpp->peer_addr, 6);
 	memcpy(hdr + 10, netdev_get_address(dpp->netdev), 6);
 	memcpy(hdr + 16, broadcast, 6);
 
@@ -917,6 +1172,21 @@ static void dpp_send_config_response(struct dpp_sm *dpp, uint8_t status)
 	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
+static bool dpp_check_config_header(const uint8_t *ptr)
+{
+	/*
+	 * Table 58. General Format of DPP Configuration Request frame
+	 *
+	 * Unfortunately wpa_supplicant hard codes 0x7f as the Query Response
+	 * Info so we need to handle both cases.
+	 */
+	return ptr[0] == IE_TYPE_ADVERTISEMENT_PROTOCOL &&
+			ptr[1] == 0x08 &&
+			(ptr[2] == 0x7f || ptr[2] == 0x00) &&
+			ptr[3] == IE_TYPE_VENDOR_SPECIFIC &&
+			ptr[4] == 5;
+}
+
 static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
 				const void *body, size_t body_len,
 				int rssi, void *user_data)
@@ -934,8 +1204,6 @@ static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
 	const uint8_t *e_nonce = NULL;
 	size_t wrapped_len = 0;
 	_auto_(l_free) uint8_t *unwrapped = NULL;
-	uint8_t hdr_check[] = { IE_TYPE_ADVERTISEMENT_PROTOCOL, 0x08, 0x7f,
-				IE_TYPE_VENDOR_SPECIFIC, 5 };
 	struct json_iter jsiter;
 	_auto_(l_free) char *tech = NULL;
 	_auto_(l_free) char *role = NULL;
@@ -945,7 +1213,10 @@ static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
 		return;
 	}
 
-	if (memcmp(dpp->auth_addr, frame->address_2, 6)) {
+	if (dpp->role != DPP_CAPABILITY_CONFIGURATOR)
+		return;
+
+	if (memcmp(dpp->peer_addr, frame->address_2, 6)) {
 		l_debug("Configuration request not from authenticated peer");
 		return;
 	}
@@ -959,10 +1230,10 @@ static void dpp_handle_config_request_frame(const struct mmpdu_header *frame,
 
 	dpp->diag_token = *ptr++;
 
-	if (memcmp(ptr, hdr_check, sizeof(hdr_check)))
+	if (!dpp_check_config_header(ptr))
 		return;
 
-	ptr += sizeof(hdr_check);
+	ptr += 5;
 
 	if (memcmp(ptr, wifi_alliance_oui, sizeof(wifi_alliance_oui)))
 		return;
@@ -1167,7 +1438,7 @@ static void dpp_handle_config_result_frame(struct dpp_sm *dpp,
 static void send_authenticate_response(struct dpp_sm *dpp)
 {
 	uint8_t hdr[32];
-	uint8_t attrs[256];
+	uint8_t attrs[512];
 	uint8_t *ptr = attrs;
 	uint8_t status = DPP_STATUS_OK;
 	uint64_t r_proto_key[L_ECC_MAX_DIGITS * 2];
@@ -1181,13 +1452,16 @@ static void send_authenticate_response(struct dpp_sm *dpp)
 				sizeof(r_proto_key));
 
 	iov[0].iov_len = dpp_build_header(netdev_get_address(dpp->netdev),
-				dpp->auth_addr,
+				dpp->peer_addr,
 				DPP_FRAME_AUTHENTICATION_RESPONSE, hdr);
 	iov[0].iov_base = hdr;
 
 	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &status, 1);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH,
 				dpp->own_boot_hash, 32);
+	if (dpp->mutual_auth)
+		ptr += dpp_append_attr(ptr, DPP_ATTR_INITIATOR_BOOT_KEY_HASH,
+				dpp->peer_boot_hash, 32);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_PROTOCOL_KEY,
 				r_proto_key, dpp->key_len * 2);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_PROTOCOL_VERSION, &version, 1);
@@ -1241,11 +1515,12 @@ static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
 	const void *unwrap_key;
 	const void *ad0 = body + 2;
 	const void *ad1 = body + 8;
+	struct l_ecc_point *bi = NULL;
 
 	if (dpp->state != DPP_STATE_AUTHENTICATING)
 		return;
 
-	if (memcmp(from, dpp->auth_addr, 6))
+	if (memcmp(from, dpp->peer_addr, 6))
 		return;
 
 	l_debug("authenticate confirm");
@@ -1333,9 +1608,12 @@ static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
 		goto auth_confirm_failed;
 	}
 
+	if (dpp->mutual_auth)
+		bi = dpp->peer_boot_public;
+
 	dpp_derive_i_auth(dpp->r_nonce, dpp->i_nonce, dpp->nonce_len,
 				dpp->own_proto_public, dpp->peer_proto_public,
-				dpp->boot_public, i_auth_check);
+				dpp->boot_public, bi, i_auth_check);
 
 	if (memcmp(i_auth, i_auth_check, i_auth_len)) {
 		l_error("I-Auth did not verify");
@@ -1344,7 +1622,7 @@ static void authenticate_confirm(struct dpp_sm *dpp, const uint8_t *from,
 
 	l_debug("Authentication successful");
 
-	dpp_reset_protocol_timer(dpp);
+	dpp_reset_protocol_timer(dpp, DPP_AUTH_PROTO_TIMEOUT);
 
 	if (dpp->role == DPP_CAPABILITY_ENROLLEE)
 		dpp_configuration_start(dpp, from);
@@ -1368,7 +1646,7 @@ static void dpp_auth_request_failed(struct dpp_sm *dpp,
 	struct iovec iov[2];
 
 	iov[0].iov_len = dpp_build_header(netdev_get_address(dpp->netdev),
-				dpp->auth_addr,
+				dpp->peer_addr,
 				DPP_FRAME_AUTHENTICATION_RESPONSE, hdr);
 	iov[0].iov_base = hdr;
 
@@ -1442,7 +1720,7 @@ static bool dpp_send_authenticate_request(struct dpp_sm *dpp)
 	struct scan_bss *bss = station_get_connected_bss(station);
 
 	/* Got disconnected by the time the peer was discovered */
-	if (!bss) {
+	if (dpp->role == DPP_CAPABILITY_CONFIGURATOR && !bss) {
 		dpp_reset(dpp);
 		return false;
 	}
@@ -1451,7 +1729,7 @@ static bool dpp_send_authenticate_request(struct dpp_sm *dpp)
 				sizeof(i_proto_key));
 
 	iov[0].iov_len = dpp_build_header(netdev_get_address(dpp->netdev),
-				dpp->auth_addr,
+				dpp->peer_addr,
 				DPP_FRAME_AUTHENTICATION_REQUEST, hdr);
 	iov[0].iov_base = hdr;
 
@@ -1463,7 +1741,8 @@ static bool dpp_send_authenticate_request(struct dpp_sm *dpp)
 				i_proto_key, dpp->key_len * 2);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_PROTOCOL_VERSION, &version, 1);
 
-	if (dpp->current_freq != bss->frequency) {
+	if (dpp->role == DPP_CAPABILITY_CONFIGURATOR &&
+					dpp->current_freq != bss->frequency) {
 		uint8_t pair[2] = { 81,
 				band_freq_to_channel(bss->frequency, NULL) };
 
@@ -1482,6 +1761,71 @@ static bool dpp_send_authenticate_request(struct dpp_sm *dpp)
 	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 
 	return true;
+}
+
+static void dpp_send_pkex_exchange_request(struct dpp_sm *dpp)
+{
+	uint8_t hdr[32];
+	uint8_t attrs[256];
+	uint8_t *ptr = attrs;
+	uint64_t m_data[L_ECC_MAX_DIGITS * 2];
+	uint16_t group;
+	struct iovec iov[2];
+	const uint8_t *own_mac = netdev_get_address(dpp->netdev);
+
+	l_put_le16(l_ecc_curve_get_ike_group(dpp->curve), &group);
+
+	iov[0].iov_len = dpp_build_header(own_mac, broadcast,
+				DPP_FRAME_PKEX_VERSION1_XCHG_REQUEST, hdr);
+	iov[0].iov_base = hdr;
+
+	ptr += dpp_append_attr(ptr, DPP_ATTR_PROTOCOL_VERSION,
+				&dpp->pkex_version, 1);
+	ptr += dpp_append_attr(ptr, DPP_ATTR_FINITE_CYCLIC_GROUP,
+				&group, 2);
+
+	if (dpp->pkex_id)
+		ptr += dpp_append_attr(ptr, DPP_ATTR_CODE_IDENTIFIER,
+					dpp->pkex_id, strlen(dpp->pkex_id));
+
+	l_ecc_point_get_data(dpp->pkex_m, m_data, sizeof(m_data));
+
+	ptr += dpp_append_attr(ptr, DPP_ATTR_ENCRYPTED_KEY,
+				m_data, dpp->key_len * 2);
+
+	iov[1].iov_base = attrs;
+	iov[1].iov_len = ptr - attrs;
+
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
+}
+
+static void dpp_send_commit_reveal_request(struct dpp_sm *dpp)
+{
+	struct iovec iov[2];
+	uint8_t hdr[41];
+	uint8_t attrs[512];
+	uint8_t *ptr = attrs;
+	uint8_t zero = 0;
+	uint8_t a_pub[L_ECC_POINT_MAX_BYTES];
+	ssize_t a_len;
+
+	a_len = l_ecc_point_get_data(dpp->boot_public, a_pub, sizeof(a_pub));
+
+	iov[0].iov_len = dpp_build_header(netdev_get_address(dpp->netdev),
+					dpp->peer_addr,
+					DPP_FRAME_PKEX_COMMIT_REVEAL_REQUEST,
+					hdr);
+	iov[0].iov_base = hdr;
+
+	ptr += dpp_append_wrapped_data(hdr + 26, 6, &zero, 1, ptr,
+			sizeof(attrs), dpp->z, dpp->z_len, 2,
+			DPP_ATTR_BOOTSTRAPPING_KEY, a_len, a_pub,
+			DPP_ATTR_INITIATOR_AUTH_TAG, dpp->u_len, dpp->u);
+
+	iov[1].iov_base = attrs;
+	iov[1].iov_len = ptr - attrs;
+
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
 }
 
 static void dpp_roc_started(void *user_data)
@@ -1548,6 +1892,16 @@ static void dpp_roc_started(void *user_data)
 		}
 
 		break;
+	case DPP_STATE_PKEX_EXCHANGE:
+		if (dpp->role == DPP_CAPABILITY_ENROLLEE)
+			dpp_send_pkex_exchange_request(dpp);
+
+		break;
+	case DPP_STATE_PKEX_COMMIT_REVEAL:
+		if (dpp->role == DPP_CAPABILITY_ENROLLEE)
+			dpp_send_commit_reveal_request(dpp);
+
+		break;
 	default:
 		break;
 	}
@@ -1555,7 +1909,7 @@ static void dpp_roc_started(void *user_data)
 
 static void dpp_start_offchannel(struct dpp_sm *dpp, uint32_t freq);
 
-static void dpp_presence_timeout(int error, void *user_data)
+static void dpp_offchannel_timeout(int error, void *user_data)
 {
 	struct dpp_sm *dpp = user_data;
 
@@ -1575,6 +1929,21 @@ static void dpp_presence_timeout(int error, void *user_data)
 		goto protocol_failed;
 
 	switch (dpp->state) {
+	case DPP_STATE_PKEX_EXCHANGE:
+		if (dpp->role != DPP_CAPABILITY_CONFIGURATOR || !dpp->agent)
+			break;
+
+		/*
+		 * We have a pending agent request but it did not arrive in
+		 * time, we cant assume the enrollee will be waiting around
+		 * for our response so cancel the request and continue waiting
+		 * for another request
+		 */
+		if (dpp->agent->pending_id) {
+			dpp_free_pending_pkex_data(dpp);
+			dpp_agent_cancel(dpp);
+		}
+		/* Fall through */
 	case DPP_STATE_PRESENCE:
 		break;
 	case DPP_STATE_NOTHING:
@@ -1582,19 +1951,20 @@ static void dpp_presence_timeout(int error, void *user_data)
 		return;
 	case DPP_STATE_AUTHENTICATING:
 	case DPP_STATE_CONFIGURING:
+	case DPP_STATE_PKEX_COMMIT_REVEAL:
 		goto next_roc;
 	}
 
 	dpp->freqs_idx++;
 
 	if (dpp->freqs_idx >= dpp->freqs_len) {
-		l_debug("Max retries on presence announcements");
+		l_debug("Max retries offchannel");
 		dpp->freqs_idx = 0;
 	}
 
 	dpp->current_freq = dpp->freqs[dpp->freqs_idx];
 
-	l_debug("Presence timeout, moving to next frequency %u, duration %u",
+	l_debug("Offchannel timeout, moving to next frequency %u, duration %u",
 			dpp->current_freq, dpp->dwell);
 
 next_roc:
@@ -1617,15 +1987,15 @@ static void dpp_start_offchannel(struct dpp_sm *dpp, uint32_t freq)
 	 * between canceling and starting the next (e.g. if a scan request is
 	 * sitting in the queue).
 	 *
-	 * Second, dpp_presence_timeout resets dpp->offchannel_id to zero which
-	 * is why the new ID is saved and only set to dpp->offchannel_id once
-	 * the previous offchannel work is cancelled (i.e. destroy() has been
-	 * called).
+	 * Second, dpp_offchannel_timeout resets dpp->offchannel_id to zero
+	 * which is why the new ID is saved and only set to dpp->offchannel_id
+	 * once the previous offchannel work is cancelled (i.e. destroy() has
+	 * been called).
 	 */
 	uint32_t id = offchannel_start(netdev_get_wdev_id(dpp->netdev),
 				WIPHY_WORK_PRIORITY_OFFCHANNEL,
 				freq, dpp->dwell, dpp_roc_started,
-				dpp, dpp_presence_timeout);
+				dpp, dpp_offchannel_timeout);
 
 	if (dpp->offchannel_id)
 		offchannel_cancel(dpp->wdev_id, dpp->offchannel_id);
@@ -1651,6 +2021,8 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	_auto_(l_free) uint8_t *unwrapped = NULL;
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *m = NULL;
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *n = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *l = NULL;
+	struct l_ecc_point *bi = NULL;
 	uint64_t k1[L_ECC_MAX_DIGITS];
 	const void *ad0 = body + 2;
 	const void *ad1 = body + 8;
@@ -1659,7 +2031,8 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 	if (util_is_broadcast_address(from))
 		return;
 
-	if (dpp->state != DPP_STATE_PRESENCE)
+	if (dpp->state != DPP_STATE_PRESENCE &&
+				dpp->state != DPP_STATE_AUTHENTICATING)
 		return;
 
 	l_debug("authenticate request");
@@ -1798,6 +2171,12 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 
 	memcpy(dpp->i_nonce, i_nonce, i_nonce_len);
 
+	if (dpp->mutual_auth) {
+		l = dpp_derive_lr(dpp->boot_private, dpp->proto_private,
+					dpp->peer_boot_public);
+		bi = dpp->peer_boot_public;
+	}
+
 	/* Derive keys k2, ke, and R-Auth for authentication response */
 
 	n = dpp_derive_k2(dpp->peer_proto_public, dpp->proto_private, dpp->k2);
@@ -1806,18 +2185,18 @@ static void authenticate_request(struct dpp_sm *dpp, const uint8_t *from,
 
 	l_getrandom(dpp->r_nonce, dpp->nonce_len);
 
-	if (!dpp_derive_ke(dpp->i_nonce, dpp->r_nonce, m, n, dpp->ke))
+	if (!dpp_derive_ke(dpp->i_nonce, dpp->r_nonce, m, n, l, dpp->ke))
 		goto auth_request_failed;
 
 	if (!dpp_derive_r_auth(dpp->i_nonce, dpp->r_nonce, dpp->nonce_len,
 				dpp->peer_proto_public, dpp->own_proto_public,
-				dpp->boot_public, dpp->auth_tag))
+				bi, dpp->boot_public, dpp->auth_tag))
 		goto auth_request_failed;
 
-	memcpy(dpp->auth_addr, from, 6);
+	memcpy(dpp->peer_addr, from, 6);
 
 	dpp->state = DPP_STATE_AUTHENTICATING;
-	dpp_reset_protocol_timer(dpp);
+	dpp_reset_protocol_timer(dpp, DPP_AUTH_PROTO_TIMEOUT);
 
 	/* Don't send if the frequency is changing */
 	if (!dpp->new_freq)
@@ -1839,13 +2218,16 @@ static void dpp_send_authenticate_confirm(struct dpp_sm *dpp)
 	uint8_t zero = 0;
 
 	iov[0].iov_len = dpp_build_header(netdev_get_address(dpp->netdev),
-					dpp->auth_addr,
+					dpp->peer_addr,
 					DPP_FRAME_AUTHENTICATION_CONFIRM, hdr);
 	iov[0].iov_base = hdr;
 
 	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &zero, 1);
 	ptr += dpp_append_attr(ptr, DPP_ATTR_RESPONDER_BOOT_KEY_HASH,
 					dpp->peer_boot_hash, 32);
+	if (dpp->mutual_auth)
+		ptr += dpp_append_attr(ptr, DPP_ATTR_INITIATOR_BOOT_KEY_HASH,
+					dpp->own_boot_hash, 32);
 
 	ptr += dpp_append_wrapped_data(hdr + 26, 6, attrs, ptr - attrs, ptr,
 			sizeof(attrs), dpp->ke, dpp->key_len, 1,
@@ -1878,6 +2260,8 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 	const void *r_auth = NULL;
 	_auto_(l_ecc_point_free) struct l_ecc_point *r_proto_key = NULL;
 	_auto_(l_ecc_scalar_free) struct l_ecc_scalar *n = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *l = NULL;
+	struct l_ecc_point *bi = NULL;
 	const void *ad0 = body + 2;
 	const void *ad1 = body + 8;
 	uint64_t r_auth_derived[L_ECC_MAX_DIGITS];
@@ -1887,13 +2271,10 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 	if (dpp->state != DPP_STATE_AUTHENTICATING)
 		return;
 
-	if (dpp->role != DPP_CAPABILITY_CONFIGURATOR)
-		return;
-
 	if (!dpp->freqs)
 		return;
 
-	if (memcmp(from, dpp->auth_addr, 6))
+	if (memcmp(from, dpp->peer_addr, 6))
 		return;
 
 	dpp_attr_iter_init(&iter, body + 8, body_len - 8);
@@ -1982,7 +2363,13 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 		return;
 	}
 
-	if (!dpp_derive_ke(i_nonce, r_nonce, dpp->m, n, dpp->ke)) {
+	if (dpp->mutual_auth) {
+		l = dpp_derive_li(dpp->peer_boot_public, r_proto_key,
+					dpp->boot_private);
+		bi = dpp->boot_public;
+	}
+
+	if (!dpp_derive_ke(i_nonce, r_nonce, dpp->m, n, l, dpp->ke)) {
 		l_debug("Failed to derive ke");
 		return;
 	}
@@ -2015,7 +2402,7 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 	}
 
 	if (!dpp_derive_r_auth(i_nonce, r_nonce, dpp->nonce_len,
-				dpp->own_proto_public, r_proto_key,
+				dpp->own_proto_public, r_proto_key, bi,
 				dpp->peer_boot_public, r_auth_derived)) {
 		l_debug("Failed to derive r_auth");
 		return;
@@ -2028,7 +2415,7 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 
 	if (!dpp_derive_i_auth(r_nonce, i_nonce, dpp->nonce_len,
 				r_proto_key, dpp->own_proto_public,
-				dpp->peer_boot_public, dpp->auth_tag)) {
+				dpp->peer_boot_public, bi, dpp->auth_tag)) {
 		l_debug("Could not derive I-Auth");
 		return;
 	}
@@ -2037,6 +2424,10 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 	dpp->current_freq = dpp->new_freq;
 
 	dpp_send_authenticate_confirm(dpp);
+
+	if (dpp->role == DPP_CAPABILITY_ENROLLEE)
+		dpp_configuration_start(dpp, from);
+
 }
 
 static void dpp_handle_presence_announcement(struct dpp_sm *dpp,
@@ -2066,12 +2457,12 @@ static void dpp_handle_presence_announcement(struct dpp_sm *dpp,
 
 	/*
 	 * The URI may not have contained a MAC address, if this announcement
-	 * verifies set auth_addr then.
+	 * verifies set peer_addr then.
 	 */
-	if (!l_memeqzero(dpp->auth_addr, 6) &&
-				memcmp(from, dpp->auth_addr, 6)) {
+	if (!l_memeqzero(dpp->peer_addr, 6) &&
+				memcmp(from, dpp->peer_addr, 6)) {
 		l_debug("Unexpected source "MAC" expected "MAC, MAC_STR(from),
-						MAC_STR(dpp->auth_addr));
+						MAC_STR(dpp->peer_addr));
 		return;
 	}
 
@@ -2106,7 +2497,7 @@ static void dpp_handle_presence_announcement(struct dpp_sm *dpp,
 	 * This is the peer we expected, save away the address and derive the
 	 * initial keys.
 	 */
-	memcpy(dpp->auth_addr, from, 6);
+	memcpy(dpp->peer_addr, from, 6);
 
 	dpp->state = DPP_STATE_AUTHENTICATING;
 
@@ -2122,6 +2513,895 @@ static void dpp_handle_presence_announcement(struct dpp_sm *dpp,
 	 */
 	if (dpp->current_freq != dpp->new_freq)
 		dpp->channel_switch = true;
+}
+
+static void dpp_pkex_bad_group(struct dpp_sm *dpp, uint16_t group)
+{
+	uint16_t own_group = l_ecc_curve_get_ike_group(dpp->curve);
+
+	/*
+	 * TODO: The spec allows group negotiation, but it is not yet
+	 *       implemented.
+	 */
+	if (!group)
+		return;
+	/*
+	 * Section 5.6.2
+	 * "If the Responder's offered group offers less security
+	 * than the Initiator's offered group, then the Initiator should
+	 * ignore this message"
+	 */
+	if (group < own_group) {
+		l_debug("Offered group %u is less secure, ignoring",
+				group);
+		return;
+	}
+	/*
+	 * Section 5.6.2
+	 * "If the Responder's offered group offers equivalent or better
+	 * security than the Initiator's offered group, then the
+	 * Initiator may choose to abort its original request and try
+	 * another exchange using the group offered by the Responder"
+	 */
+	if (group >= own_group) {
+		l_debug("Offered group %u is the same or more secure, "
+			" but group negotiation is not supported", group);
+		return;
+	}
+}
+
+static void dpp_pkex_bad_code(struct dpp_sm *dpp)
+{
+	_auto_(l_ecc_point_free) struct l_ecc_point *qr = NULL;
+
+	qr = dpp_derive_qr(dpp->curve, dpp->pkex_key, dpp->pkex_id,
+				netdev_get_address(dpp->netdev));
+	if (!qr || l_ecc_point_is_infinity(qr)) {
+		l_debug("Qr computed to zero, new code should be provisioned");
+		return;
+	}
+
+	l_debug("Qr computed successfully but responder indicated otherwise");
+}
+
+static void dpp_handle_pkex_exchange_response(struct dpp_sm *dpp,
+					const uint8_t *from,
+					const uint8_t *body, size_t body_len)
+{
+	struct dpp_attr_iter iter;
+	enum dpp_attribute_type type;
+	size_t len;
+	const uint8_t *data;
+	const uint8_t *status = NULL;
+	uint8_t version = 0;
+	const void *identifier = NULL;
+	size_t identifier_len = 0;
+	const void *key = NULL;
+	size_t key_len = 0;
+	uint16_t group = 0;
+	_auto_(l_ecc_point_free) struct l_ecc_point *n = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *j = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *qr = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *k = NULL;
+	const uint8_t *own_addr = netdev_get_address(dpp->netdev);
+
+	l_debug("PKEX response "MAC, MAC_STR(from));
+
+	if (dpp->state != DPP_STATE_PKEX_EXCHANGE)
+		return;
+
+	if (dpp->role != DPP_CAPABILITY_ENROLLEE)
+		return;
+
+	memcpy(dpp->peer_addr, from, 6);
+
+	dpp_attr_iter_init(&iter, body + 8, body_len - 8);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_STATUS:
+			if (len != 1)
+				return;
+
+			status = data;
+			break;
+		case DPP_ATTR_PROTOCOL_VERSION:
+			if (len != 1)
+				return;
+
+			version = l_get_u8(data);
+			break;
+		case DPP_ATTR_CODE_IDENTIFIER:
+			identifier = data;
+			identifier_len = len;
+			break;
+		case DPP_ATTR_ENCRYPTED_KEY:
+			if (len != dpp->key_len * 2)
+				return;
+
+			key = data;
+			key_len = len;
+			break;
+		case DPP_ATTR_FINITE_CYCLIC_GROUP:
+			if (len != 2)
+				return;
+
+			group = l_get_le16(data);
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (!status) {
+		l_debug("No status attribute, ignoring");
+		return;
+	}
+
+	if (!key) {
+		l_debug("No encrypted key, ignoring");
+		return;
+	}
+
+	if (*status != DPP_STATUS_OK)
+		goto handle_status;
+
+	if (dpp->pkex_id) {
+		if (!identifier || identifier_len != strlen(dpp->pkex_id) ||
+					memcmp(dpp->pkex_id, identifier,
+						identifier_len)) {
+			l_debug("mismatch identifier, ignoring");
+			return;
+		}
+	}
+
+	if (version && version != dpp->pkex_version) {
+		l_debug("PKEX version does not match, igoring");
+		return;
+	}
+
+	n = l_ecc_point_from_data(dpp->curve, L_ECC_POINT_TYPE_FULL,
+					key, key_len);
+	if (!n) {
+		l_debug("failed to parse peers encrypted key");
+		goto failed;
+	}
+
+	qr = dpp_derive_qr(dpp->curve, dpp->pkex_key, dpp->pkex_id,
+				dpp->peer_addr);
+	if (!qr)
+		goto failed;
+
+	dpp->y_or_x = l_ecc_point_new(dpp->curve);
+
+	/* Y' = N - Qr */
+	l_ecc_point_inverse(qr);
+	l_ecc_point_add(dpp->y_or_x, n, qr);
+
+	/*
+	 * "The resulting ephemeral key, denoted Y’, is then checked whether it
+	 * is the point-at-infinity. If it is not valid, the protocol ends
+	 * unsuccessfully"
+	 */
+	if (l_ecc_point_is_infinity(dpp->y_or_x)) {
+		l_debug("Y' computed to infinity, failing");
+		goto failed;
+	}
+
+	k = l_ecc_point_new(dpp->curve);
+
+	/* K = Y' * x */
+	l_ecc_point_multiply(k, dpp->pkex_private, dpp->y_or_x);
+
+	dpp_derive_z(own_addr, dpp->peer_addr, n, dpp->pkex_m, k,
+				dpp->pkex_key, dpp->pkex_id,
+				dpp->z, &dpp->z_len);
+
+	/* J = a * Y' */
+	j = l_ecc_point_new(dpp->curve);
+
+	l_ecc_point_multiply(j, dpp->boot_private, dpp->y_or_x);
+
+	if (!dpp_derive_u(j, own_addr, dpp->boot_public, dpp->y_or_x,
+				dpp->pkex_public, dpp->u, &dpp->u_len)) {
+		l_debug("failed to compute u");
+		goto failed;
+	}
+
+	/*
+	 * Now that a response was successfully received, start another
+	 * offchannel with more time for the remainder of the protocol. After
+	 * PKEX, authentication will begin which handles the protocol timeout.
+	 * If the remainder of PKEX (commit-reveal exchange) cannot complete in
+	 * this time it will fail.
+	 */
+	dpp->dwell = (dpp->max_roc < 2000) ? dpp->max_roc : 2000;
+	dpp->state = DPP_STATE_PKEX_COMMIT_REVEAL;
+
+	dpp_property_changed_notify(dpp);
+
+	dpp_start_offchannel(dpp, dpp->current_freq);
+
+	return;
+
+handle_status:
+	switch (*status) {
+	case DPP_STATUS_BAD_GROUP:
+		dpp_pkex_bad_group(dpp, group);
+		break;
+	case DPP_STATUS_BAD_CODE:
+		dpp_pkex_bad_code(dpp);
+		break;
+	default:
+		l_debug("Unhandled status %u", *status);
+		break;
+	}
+
+failed:
+	dpp_reset(dpp);
+}
+
+static bool dpp_pkex_start_authentication(struct dpp_sm *dpp)
+{
+	dpp->uri = dpp_generate_uri(dpp->own_asn1, dpp->own_asn1_len, 2,
+					netdev_get_address(dpp->netdev),
+					&dpp->current_freq, 1, NULL, NULL);
+
+	l_ecdh_generate_key_pair(dpp->curve, &dpp->proto_private,
+					&dpp->own_proto_public);
+
+	l_getrandom(dpp->i_nonce, dpp->nonce_len);
+
+	dpp->peer_asn1 = dpp_point_to_asn1(dpp->peer_boot_public,
+						&dpp->peer_asn1_len);
+
+	dpp->m = dpp_derive_k1(dpp->peer_boot_public, dpp->proto_private,
+				dpp->k1);
+
+	dpp_hash(L_CHECKSUM_SHA256, dpp->peer_boot_hash, 1, dpp->peer_asn1,
+			dpp->peer_asn1_len);
+
+	dpp->state = DPP_STATE_AUTHENTICATING;
+	dpp->mutual_auth = true;
+
+	dpp_property_changed_notify(dpp);
+
+	if (dpp->role == DPP_CAPABILITY_ENROLLEE) {
+		dpp->new_freq = dpp->current_freq;
+
+		return dpp_send_authenticate_request(dpp);
+	}
+
+	return true;
+}
+
+static void dpp_handle_pkex_commit_reveal_response(struct dpp_sm *dpp,
+					const uint8_t *from,
+					const uint8_t *body, size_t body_len)
+{
+	struct dpp_attr_iter iter;
+	enum dpp_attribute_type type;
+	size_t len;
+	const uint8_t *data;
+	const uint8_t *wrapped = NULL;
+	size_t wrapped_len = 0;
+	uint8_t one = 1;
+	_auto_(l_free) uint8_t *unwrapped = NULL;
+	size_t unwrapped_len = 0;
+	const uint8_t *boot_key = NULL;
+	size_t boot_key_len = 0;
+	const uint8_t *r_auth = NULL;
+	uint8_t v[L_ECC_SCALAR_MAX_BYTES];
+	size_t v_len;
+	_auto_(l_ecc_point_free) struct l_ecc_point *l = NULL;
+
+	l_debug("PKEX commit reveal "MAC, MAC_STR(from));
+
+	if (dpp->state != DPP_STATE_PKEX_COMMIT_REVEAL)
+		return;
+
+	if (dpp->role != DPP_CAPABILITY_ENROLLEE)
+		return;
+
+	/*
+	 * The URI may not have contained a MAC address, if this announcement
+	 * verifies set peer_addr then.
+	 */
+	if (memcmp(from, dpp->peer_addr, 6)) {
+		l_debug("Unexpected source "MAC" expected "MAC, MAC_STR(from),
+						MAC_STR(dpp->peer_addr));
+		return;
+	}
+
+	dpp_attr_iter_init(&iter, body + 8, body_len - 8);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_WRAPPED_DATA:
+			wrapped = data;
+			wrapped_len = len;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (!wrapped) {
+		l_debug("No wrapped data");
+		return;
+	}
+
+	unwrapped = dpp_unwrap_attr(body + 2, 6, &one, 1, dpp->z, dpp->z_len,
+					wrapped, wrapped_len, &unwrapped_len);
+	if (!unwrapped) {
+		l_debug("Failed to unwrap Reveal-Commit message");
+		return;
+	}
+
+	dpp_attr_iter_init(&iter, unwrapped, unwrapped_len);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_BOOTSTRAPPING_KEY:
+			if (len != dpp->key_len * 2)
+				return;
+
+			boot_key = data;
+			boot_key_len = len;
+			break;
+		case DPP_ATTR_RESPONDER_AUTH_TAG:
+			if (len != 32)
+				return;
+
+			r_auth = data;
+			break;
+		default:
+			break;
+		}
+	}
+
+	dpp->peer_boot_public = l_ecc_point_from_data(dpp->curve,
+							L_ECC_POINT_TYPE_FULL,
+							boot_key, boot_key_len);
+	if (!dpp->peer_boot_public) {
+		l_debug("Peer public bootstrapping key was invalid");
+		goto failed;
+	}
+
+	/* L = b * X' */
+	l = l_ecc_point_new(dpp->curve);
+
+	l_ecc_point_multiply(l, dpp->pkex_private, dpp->peer_boot_public);
+
+	if (!dpp_derive_v(l, dpp->peer_addr, dpp->peer_boot_public,
+				dpp->pkex_public, dpp->y_or_x, v, &v_len)) {
+		l_debug("Failed to derive v");
+		goto failed;
+	}
+
+	if (memcmp(v, r_auth, v_len)) {
+		l_debug("Bootstrapping data did not verify");
+		goto failed;
+	}
+
+	if (dpp_pkex_start_authentication(dpp))
+		return;
+
+failed:
+	dpp_reset(dpp);
+}
+
+static void dpp_send_bad_group(struct dpp_sm *dpp, const uint8_t *addr)
+{
+	uint8_t hdr[32];
+	uint8_t attrs[256];
+	uint8_t *ptr = attrs;
+	uint16_t group;
+	uint8_t status = DPP_STATUS_BAD_GROUP;
+	struct iovec iov[2];
+	const uint8_t *own_mac = netdev_get_address(dpp->netdev);
+
+	l_put_le16(l_ecc_curve_get_ike_group(dpp->curve), &group);
+
+	iov[0].iov_len = dpp_build_header(own_mac, addr,
+				DPP_FRAME_PKEX_XCHG_RESPONSE, hdr);
+	iov[0].iov_base = hdr;
+
+	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &status, 1);
+	ptr += dpp_append_attr(ptr, DPP_ATTR_PROTOCOL_VERSION,
+				&dpp->pkex_version, 1);
+	ptr += dpp_append_attr(ptr, DPP_ATTR_FINITE_CYCLIC_GROUP, &group, 2);
+
+	iov[1].iov_base = attrs;
+	iov[1].iov_len = ptr - attrs;
+
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
+}
+
+static void dpp_send_bad_code(struct dpp_sm *dpp, const uint8_t *addr)
+{
+	uint8_t hdr[32];
+	uint8_t attrs[256];
+	uint8_t *ptr = attrs;
+	uint8_t status = DPP_STATUS_BAD_CODE;
+	struct iovec iov[2];
+	const uint8_t *own_mac = netdev_get_address(dpp->netdev);
+
+	iov[0].iov_len = dpp_build_header(own_mac, addr,
+				DPP_FRAME_PKEX_XCHG_RESPONSE, hdr);
+	iov[0].iov_base = hdr;
+
+	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &status, 1);
+	ptr += dpp_append_attr(ptr, DPP_ATTR_PROTOCOL_VERSION,
+				&dpp->pkex_version, 1);
+	if (dpp->pkex_id)
+		ptr += dpp_append_attr(ptr, DPP_ATTR_CODE_IDENTIFIER,
+					dpp->pkex_id, strlen(dpp->pkex_id));
+
+	iov[1].iov_base = attrs;
+	iov[1].iov_len = ptr - attrs;
+
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
+}
+
+static void dpp_send_pkex_exchange_response(struct dpp_sm *dpp,
+						struct l_ecc_point *n)
+{
+	uint8_t hdr[32];
+	uint8_t attrs[256];
+	uint8_t *ptr = attrs;
+	uint64_t n_data[L_ECC_MAX_DIGITS * 2];
+	uint16_t group;
+	uint8_t status = DPP_STATUS_OK;
+	struct iovec iov[2];
+	const uint8_t *own_mac = netdev_get_address(dpp->netdev);
+
+	l_put_le16(l_ecc_curve_get_ike_group(dpp->curve), &group);
+
+	iov[0].iov_len = dpp_build_header(own_mac, dpp->peer_addr,
+				DPP_FRAME_PKEX_XCHG_RESPONSE, hdr);
+	iov[0].iov_base = hdr;
+
+	ptr += dpp_append_attr(ptr, DPP_ATTR_STATUS, &status, 1);
+
+	if (dpp->pkex_id)
+		ptr += dpp_append_attr(ptr, DPP_ATTR_CODE_IDENTIFIER,
+					dpp->pkex_id, strlen(dpp->pkex_id));
+
+	l_ecc_point_get_data(n, n_data, sizeof(n_data));
+
+	ptr += dpp_append_attr(ptr, DPP_ATTR_ENCRYPTED_KEY,
+				n_data, dpp->key_len * 2);
+
+	iov[1].iov_base = attrs;
+	iov[1].iov_len = ptr - attrs;
+
+	dpp->state = DPP_STATE_PKEX_COMMIT_REVEAL;
+
+	dpp_property_changed_notify(dpp);
+
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
+}
+
+static void dpp_process_pkex_exchange_request(struct dpp_sm *dpp,
+						struct l_ecc_point *m)
+{
+	_auto_(l_ecc_point_free) struct l_ecc_point *n = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *qr = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *qi = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *k = NULL;
+	const uint8_t *own_addr = netdev_get_address(dpp->netdev);
+
+	/* Qi = H(MAC-Initiator | [identifier | ] code) * Pi */
+	qi = dpp_derive_qi(dpp->curve, dpp->pkex_key, dpp->pkex_id,
+				dpp->peer_addr);
+	if (!qi) {
+		l_debug("could not derive Qi");
+		return;
+	}
+
+	/* X' = M - Qi */
+	dpp->y_or_x = l_ecc_point_new(dpp->curve);
+
+	l_ecc_point_inverse(qi);
+	l_ecc_point_add(dpp->y_or_x, m, qi);
+
+	/*
+	 * "The resulting ephemeral key, denoted X’, is checked whether it is
+	 * the point-at-infinity. If it is not valid, the protocol silently
+	 * fails"
+	 */
+	if (l_ecc_point_is_infinity(dpp->y_or_x)) {
+		l_debug("X' is at infinity, ignore message");
+		dpp_reset(dpp);
+		return;
+	}
+
+	qr = dpp_derive_qr(dpp->curve, dpp->pkex_key, dpp->pkex_id, own_addr);
+	if (!qr || l_ecc_point_is_infinity(qr)) {
+		l_debug("Qr did not derive");
+		l_ecc_point_free(dpp->y_or_x);
+		dpp->y_or_x = NULL;
+		goto bad_code;
+	}
+
+	/*
+	 * "The Responder then generates a random ephemeral keypair, y/Y,
+	 * encrypts Y with Qr to obtain the result, denoted N."
+	 */
+	l_ecdh_generate_key_pair(dpp->curve, &dpp->pkex_private,
+					&dpp->pkex_public);
+
+	/* N = Y + Qr */
+	n = l_ecc_point_new(dpp->curve);
+
+	l_ecc_point_add(n, dpp->pkex_public, qr);
+
+	/* K = y * X' */
+
+	k = l_ecc_point_new(dpp->curve);
+
+	l_ecc_point_multiply(k, dpp->pkex_private, dpp->y_or_x);
+
+	/* z = HKDF(<>, info | M.x | N.x | code, K.x) */
+	dpp_derive_z(dpp->peer_addr, own_addr, n, m, k, dpp->pkex_key,
+				dpp->pkex_id, dpp->z, &dpp->z_len);
+
+	dpp_send_pkex_exchange_response(dpp, n);
+
+	return;
+
+bad_code:
+	dpp_send_bad_code(dpp, dpp->peer_addr);
+	return;
+}
+
+static void dpp_pkex_agent_reply(struct l_dbus_message *message,
+					void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+	const char *error, *text;
+	const char *code;
+
+	dpp->agent->pending_id = 0;
+
+	l_debug("SharedCodeAgent %s path %s replied", dpp->agent->owner,
+			dpp->agent->path);
+
+	if (l_dbus_message_get_error(message, &error, &text)) {
+		l_error("RequestSharedCode(%s) returned %s(\"%s\")",
+				dpp->pkex_id, error, text);
+		goto reset;
+	}
+
+	if (!l_dbus_message_get_arguments(message, "s", &code)) {
+		l_debug("Invalid arguments, check SharedCodeAgent!");
+		goto reset;
+	}
+
+	dpp->pkex_key = l_strdup(code);
+	dpp_process_pkex_exchange_request(dpp, dpp->peer_encr_key);
+
+	return;
+
+reset:
+	dpp_free_pending_pkex_data(dpp);
+}
+
+static bool dpp_pkex_agent_request(struct dpp_sm *dpp)
+{
+	struct l_dbus_message *msg;
+
+	if (!dpp->agent)
+		return false;
+
+	if (L_WARN_ON(dpp->agent->pending_id))
+		return false;
+
+	msg = l_dbus_message_new_method_call(dbus_get_bus(),
+						dpp->agent->owner,
+						dpp->agent->path,
+						IWD_SHARED_CODE_AGENT_INTERFACE,
+						"RequestSharedCode");
+	l_dbus_message_set_arguments(msg, "s", dpp->pkex_id);
+
+
+	dpp->agent->pending_id = l_dbus_send_with_reply(dbus_get_bus(),
+							msg,
+							dpp_pkex_agent_reply,
+							dpp, NULL);
+	return dpp->agent->pending_id != 0;
+}
+
+static void dpp_handle_pkex_exchange_request(struct dpp_sm *dpp,
+					const uint8_t *from,
+					const uint8_t *body, size_t body_len)
+{
+	struct dpp_attr_iter iter;
+	enum dpp_attribute_type type;
+	size_t len;
+	const uint8_t *data;
+	uint8_t version = 0;
+	uint16_t group = 0;
+	const void *id = NULL;
+	size_t id_len = 0;
+	const void *key = NULL;
+	size_t key_len = 0;
+	_auto_(l_ecc_point_free) struct l_ecc_point *m = NULL;
+
+	l_debug("PKEX exchange request "MAC, MAC_STR(from));
+
+	if (dpp->state != DPP_STATE_PKEX_EXCHANGE)
+		return;
+
+	if (dpp->role != DPP_CAPABILITY_CONFIGURATOR)
+		return;
+
+	if (!l_memeqzero(dpp->peer_addr, 6)) {
+		l_debug("Already configuring enrollee, ignoring");
+		return;
+	}
+
+	dpp_attr_iter_init(&iter, body + 8, body_len - 8);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_PROTOCOL_VERSION:
+			if (len != 1)
+				return;
+
+			version = l_get_u8(data);
+			break;
+		case DPP_ATTR_FINITE_CYCLIC_GROUP:
+			if (len != 2)
+				return;
+
+			group = l_get_le16(data);
+			break;
+		case DPP_ATTR_CODE_IDENTIFIER:
+			id = data;
+			id_len = len;
+			break;
+		case DPP_ATTR_ENCRYPTED_KEY:
+			key = data;
+			key_len = len;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (!key || !group) {
+		l_debug("initiator did not provide group or key, ignoring");
+		return;
+	}
+
+	if (group != l_ecc_curve_get_ike_group(dpp->curve)) {
+		l_debug("initiator is not using the same group");
+		goto bad_group;
+	}
+
+	/*
+	 * If the group isn't the same the key length won't match, so check
+	 * this here after we've determined the groups are equal
+	 */
+	if (key_len != dpp->key_len * 2) {
+		l_debug("Unexpected encrypted key length");
+		return;
+	}
+
+	if (version && version != dpp->pkex_version) {
+		l_debug("initiator is not using the same version, ignoring");
+		return;
+	}
+
+	if (dpp->pkex_id) {
+		if (!id || id_len != strlen(dpp->pkex_id) ||
+				memcmp(dpp->pkex_id, id, id_len)) {
+			l_debug("mismatch identifier, ignoring");
+			return;
+		}
+	}
+
+	m = l_ecc_point_from_data(dpp->curve, L_ECC_POINT_TYPE_FULL,
+					key, key_len);
+	if (!m) {
+		l_debug("could not parse key from initiator, ignoring");
+		return;
+	}
+
+	memcpy(dpp->peer_addr, from, 6);
+
+	if (!dpp->pkex_key) {
+		/*
+		 * "If an optional code identifier is used, it shall be a UTF-8
+		 *  string not greater than eighty (80) octets"
+		 */
+		if (!id || id_len > 80 || !l_utf8_validate(id, id_len, NULL)) {
+			l_debug("Configurator started with agent but enrollee "
+				"sent invalid or no identifier, ignoring");
+			return;
+		}
+
+		dpp->pkex_id = l_strndup(id, id_len);
+
+		/* Need to obtain code from agent */
+		if (!dpp_pkex_agent_request(dpp)) {
+			l_debug("Failed to request code from agent!");
+			dpp_free_pending_pkex_data(dpp);
+			return;
+		}
+
+		/* Save the encrypted key/identifier for the agent callback */
+
+		dpp->peer_encr_key = l_steal_ptr(m);
+
+		return;
+	}
+
+	dpp_process_pkex_exchange_request(dpp, m);
+
+	return;
+
+bad_group:
+	dpp_send_bad_group(dpp, from);
+}
+
+static void dpp_send_commit_reveal_response(struct dpp_sm *dpp,
+						const uint8_t *v, size_t v_len)
+{
+	uint8_t hdr[32];
+	uint8_t attrs[256];
+	uint8_t *ptr = attrs;
+	uint8_t one = 1;
+	struct iovec iov[2];
+	const uint8_t *own_mac = netdev_get_address(dpp->netdev);
+	uint8_t b_pub[L_ECC_POINT_MAX_BYTES];
+	size_t b_len;
+
+	b_len = l_ecc_point_get_data(dpp->boot_public, b_pub, sizeof(b_pub));
+
+
+	iov[0].iov_len = dpp_build_header(own_mac, dpp->peer_addr,
+				DPP_FRAME_PKEX_COMMIT_REVEAL_RESPONSE, hdr);
+	iov[0].iov_base = hdr;
+
+	ptr += dpp_append_wrapped_data(hdr + 26, 6, &one, 1, ptr,
+			sizeof(attrs), dpp->z, dpp->z_len, 2,
+			DPP_ATTR_BOOTSTRAPPING_KEY, b_len, b_pub,
+			DPP_ATTR_RESPONDER_AUTH_TAG, v_len, v);
+
+	iov[1].iov_base = attrs;
+	iov[1].iov_len = ptr - attrs;
+
+	dpp_send_frame(dpp, iov, 2, dpp->current_freq);
+}
+
+static void dpp_handle_pkex_commit_reveal_request(struct dpp_sm *dpp,
+					const uint8_t *from,
+					const uint8_t *body, size_t body_len)
+{
+	struct dpp_attr_iter iter;
+	enum dpp_attribute_type type;
+	size_t len;
+	const uint8_t *data;
+	const void *wrapped = NULL;
+	size_t wrapped_len = 0;
+	_auto_(l_free) uint8_t *unwrapped = NULL;
+	size_t unwrapped_len;
+	uint8_t zero = 0;
+	const void *key = 0;
+	size_t key_len = 0;
+	const void *i_auth = NULL;
+	size_t i_auth_len = 0;
+	_auto_(l_ecc_point_free) struct l_ecc_point *j = NULL;
+	_auto_(l_ecc_point_free) struct l_ecc_point *l = NULL;
+	uint8_t u[L_ECC_SCALAR_MAX_BYTES];
+	size_t u_len = 0;
+	uint8_t v[L_ECC_SCALAR_MAX_BYTES];
+	size_t v_len = 0;
+	const uint8_t *own_addr = netdev_get_address(dpp->netdev);
+
+	l_debug("PKEX commit-reveal request "MAC, MAC_STR(from));
+
+	if (dpp->state != DPP_STATE_PKEX_COMMIT_REVEAL)
+		return;
+
+	if (dpp->role != DPP_CAPABILITY_CONFIGURATOR)
+		return;
+
+	dpp_attr_iter_init(&iter, body + 8, body_len - 8);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_WRAPPED_DATA:
+			wrapped = data;
+			wrapped_len = len;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (!wrapped) {
+		l_debug("No wrapped data");
+		return;
+	}
+
+	unwrapped = dpp_unwrap_attr(body + 2, 6, &zero, 1, dpp->z, dpp->z_len,
+					wrapped, wrapped_len, &unwrapped_len);
+	if (!unwrapped) {
+		l_debug("Failed to unwrap attributes");
+		return;
+	}
+
+	dpp_attr_iter_init(&iter, unwrapped, unwrapped_len);
+
+	while (dpp_attr_iter_next(&iter, &type, &len, &data)) {
+		switch (type) {
+		case DPP_ATTR_BOOTSTRAPPING_KEY:
+			if (len != dpp->key_len * 2)
+				return;
+
+			key = data;
+			key_len = len;
+			break;
+		case DPP_ATTR_INITIATOR_AUTH_TAG:
+			if (len != 32)
+				return;
+
+			i_auth = data;
+			i_auth_len = len;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (!key || !i_auth) {
+		l_debug("missing attributes");
+		return;
+	}
+
+	dpp->peer_boot_public = l_ecc_point_from_data(dpp->curve,
+					L_ECC_POINT_TYPE_FULL, key, key_len);
+	if (!dpp->peer_boot_public) {
+		l_debug("peers boostrapping key did not validate");
+		goto failed;
+	}
+
+	/* J' = y * A' */
+	j = l_ecc_point_new(dpp->curve);
+
+	l_ecc_point_multiply(j, dpp->pkex_private, dpp->peer_boot_public);
+
+	dpp_derive_u(j, dpp->peer_addr, dpp->peer_boot_public, dpp->pkex_public,
+			dpp->y_or_x, u, &u_len);
+
+	if (memcmp(u, i_auth, i_auth_len)) {
+		l_debug("Initiator auth tag did not verify");
+		goto failed;
+	}
+
+	/* L' = x * B' */
+	l = l_ecc_point_new(dpp->curve);
+
+	l_ecc_point_multiply(l, dpp->boot_private, dpp->y_or_x);
+
+	if (!dpp_derive_v(l, own_addr, dpp->boot_public, dpp->y_or_x,
+				dpp->pkex_public, v, &v_len)) {
+		l_debug("Failed to derive v");
+		goto failed;
+	}
+
+	dpp_send_commit_reveal_response(dpp, v, v_len);
+
+	dpp_pkex_start_authentication(dpp);
+
+	return;
+
+failed:
+	dpp_reset(dpp);
 }
 
 static void dpp_handle_frame(struct dpp_sm *dpp,
@@ -2158,6 +3438,22 @@ static void dpp_handle_frame(struct dpp_sm *dpp,
 		dpp_handle_presence_announcement(dpp, frame->address_2,
 							body, body_len);
 		break;
+	case DPP_FRAME_PKEX_XCHG_RESPONSE:
+		dpp_handle_pkex_exchange_response(dpp, frame->address_2, body,
+							body_len);
+		break;
+	case DPP_FRAME_PKEX_COMMIT_REVEAL_RESPONSE:
+		dpp_handle_pkex_commit_reveal_response(dpp, frame->address_2,
+							body, body_len);
+		break;
+	case DPP_FRAME_PKEX_VERSION1_XCHG_REQUEST:
+		dpp_handle_pkex_exchange_request(dpp, frame->address_2, body,
+							body_len);
+		break;
+	case DPP_FRAME_PKEX_COMMIT_REVEAL_REQUEST:
+		dpp_handle_pkex_commit_reveal_request(dpp, frame->address_2,
+							body, body_len);
+		break;
 	default:
 		l_debug("Unhandled DPP frame %u", *ptr);
 		break;
@@ -2185,7 +3481,7 @@ static void dpp_frame_timeout(struct l_timeout *timeout, void *user_data)
 	 * send. Just bail out now and the roc_started callback will take care
 	 * of sending this out.
 	 */
-	if (!dpp->roc_started)
+	if (dpp->offchannel_id && !dpp->roc_started)
 		return;
 
 	dpp_frame_retry(dpp);
@@ -2214,9 +3510,15 @@ static void dpp_mlme_notify(struct l_genl_msg *msg, void *user_data)
 	if (!dpp)
 		return;
 
-	if (dpp->state <= DPP_STATE_PRESENCE)
+	/*
+	 * Don't retransmit for presence or PKEX exchange if an enrollee, both
+	 * are broadcast frames which don't expect an ack.
+	 */
+	if (dpp->state == DPP_STATE_NOTHING ||
+			dpp->state == DPP_STATE_PRESENCE ||
+			(dpp->state == DPP_STATE_PKEX_EXCHANGE &&
+			dpp->role == DPP_CAPABILITY_ENROLLEE))
 		return;
-
 
 	if (dpp->frame_cookie != cookie)
 		return;
@@ -2358,19 +3660,87 @@ static void dpp_frame_watch(struct dpp_sm *dpp, uint16_t frame_type,
 					L_UINT_TO_PTR(frame_type), NULL);
 }
 
+/*
+ * Station is unaware of DPP's state so we need to handle a few cases here so
+ * weird stuff doesn't happen:
+ *
+ *   - While configuring we should stay connected, a disconnection/roam should
+ *     stop DPP since it would fail regardless due to the hardware going idle
+ *     or changing channels since configurators assume all comms will be
+ *     on-channel.
+ *   - While enrolling we should stay disconnected. If station connects during
+ *     enrolling it would cause 2x calls to __station_connect_network after
+ *     DPP finishes.
+ *
+ * Other conditions shouldn't ever happen i.e. configuring and going into a
+ * connecting state or enrolling and going to a disconnected/roaming state.
+ */
+static void dpp_station_state_watch(enum station_state state, void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+
+	if (dpp->state == DPP_STATE_NOTHING)
+		return;
+
+	switch (state) {
+	case STATION_STATE_DISCONNECTED:
+	case STATION_STATE_DISCONNECTING:
+	case STATION_STATE_ROAMING:
+	case STATION_STATE_FT_ROAMING:
+	case STATION_STATE_FW_ROAMING:
+		if (L_WARN_ON(dpp->role == DPP_CAPABILITY_ENROLLEE))
+			dpp_reset(dpp);
+
+		if (dpp->role == DPP_CAPABILITY_CONFIGURATOR) {
+			l_debug("Disconnected while configuring, stopping DPP");
+			dpp_reset(dpp);
+		}
+
+		break;
+	case STATION_STATE_CONNECTING:
+	case STATION_STATE_CONNECTED:
+	case STATION_STATE_CONNECTING_AUTO:
+		if (L_WARN_ON(dpp->role == DPP_CAPABILITY_CONFIGURATOR))
+			dpp_reset(dpp);
+
+		if (dpp->role == DPP_CAPABILITY_ENROLLEE) {
+			l_debug("Connecting while enrolling, stopping DPP");
+			dpp_reset(dpp);
+		}
+
+		break;
+
+	/*
+	 * Autoconnect states are fine for enrollees. This makes it nicer for
+	 * the user since they don't need to explicity Disconnect() to disable
+	 * autoconnect, then re-enable it if DPP fails.
+	 */
+	case STATION_STATE_AUTOCONNECT_FULL:
+	case STATION_STATE_AUTOCONNECT_QUICK:
+		if (L_WARN_ON(dpp->role == DPP_CAPABILITY_CONFIGURATOR))
+			dpp_reset(dpp);
+
+		break;
+	}
+}
+
 static void dpp_create(struct netdev *netdev)
 {
 	struct l_dbus *dbus = dbus_get_bus();
 	struct dpp_sm *dpp = l_new(struct dpp_sm, 1);
 	uint8_t dpp_conf_response_prefix[] = { 0x04, 0x0b };
 	uint8_t dpp_conf_request_prefix[] = { 0x04, 0x0a };
+	uint64_t wdev_id = netdev_get_wdev_id(netdev);
+	struct station *station = station_find(netdev_get_ifindex(netdev));
 
 	dpp->netdev = netdev;
 	dpp->state = DPP_STATE_NOTHING;
-	dpp->wdev_id = netdev_get_wdev_id(netdev);
+	dpp->interface = DPP_INTERFACE_UNBOUND;
+	dpp->wdev_id = wdev_id;
 	dpp->curve = l_ecc_curve_from_ike_group(19);
 	dpp->key_len = l_ecc_curve_get_scalar_bytes(dpp->curve);
 	dpp->nonce_len = dpp_nonce_len_from_key_len(dpp->key_len);
+	dpp->max_roc = wiphy_get_max_roc_duration(wiphy_find_by_wdev(wdev_id));
 	dpp->mcast_support = wiphy_has_ext_feature(
 				wiphy_find_by_wdev(dpp->wdev_id),
 				NL80211_EXT_FEATURE_MULTICAST_REGISTRATIONS);
@@ -2385,6 +3755,16 @@ static void dpp_create(struct netdev *netdev)
 
 	l_dbus_object_add_interface(dbus, netdev_get_path(netdev),
 					IWD_DPP_INTERFACE, dpp);
+	l_dbus_object_add_interface(dbus, netdev_get_path(netdev),
+					IWD_DPP_PKEX_INTERFACE, dpp);
+	/*
+	 * Since both interfaces share the dpp_sm set this to 2. Currently both
+	 * interfaces are added/removed in unison so we _could_ simply omit the
+	 * destroy callback on one of them. But for consistency and future
+	 * proofing use a reference count and the final interface being removed
+	 * will destroy the dpp_sm.
+	 */
+	dpp->refcount = 2;
 
 	dpp_frame_watch(dpp, 0x00d0, dpp_prefix, sizeof(dpp_prefix));
 
@@ -2396,6 +3776,9 @@ static void dpp_create(struct netdev *netdev)
 				dpp_conf_request_prefix,
 				sizeof(dpp_conf_request_prefix),
 				dpp_handle_config_request_frame, dpp, NULL);
+
+	dpp->station_watch = station_add_state_watch(station,
+					dpp_station_state_watch, dpp, NULL);
 
 	l_queue_push_tail(dpp_list, dpp);
 }
@@ -2415,6 +3798,9 @@ static void dpp_netdev_watch(struct netdev *netdev,
 		l_dbus_object_remove_interface(dbus_get_bus(),
 						netdev_get_path(netdev),
 						IWD_DPP_INTERFACE);
+		l_dbus_object_remove_interface(dbus_get_bus(),
+						netdev_get_path(netdev),
+						IWD_DPP_PKEX_INTERFACE);
 		break;
 	default:
 		break;
@@ -2464,19 +3850,13 @@ static uint32_t *dpp_add_default_channels(struct dpp_sm *dpp, size_t *len_out)
 static void dpp_start_presence(struct dpp_sm *dpp, uint32_t *limit_freqs,
 					size_t limit_len)
 {
-	uint32_t max_roc = wiphy_get_max_roc_duration(
-					wiphy_find_by_wdev(dpp->wdev_id));
-
-	if (2000 < max_roc)
-		max_roc = 2000;
-
 	if (limit_freqs) {
 		dpp->freqs = l_memdup(limit_freqs, sizeof(uint32_t) * limit_len);
 		dpp->freqs_len = limit_len;
 	} else
 		dpp->freqs = dpp_add_default_channels(dpp, &dpp->freqs_len);
 
-	dpp->dwell = max_roc;
+	dpp->dwell = (dpp->max_roc < 2000) ? dpp->max_roc : 2000;
 	dpp->freqs_idx = 0;
 	dpp->current_freq = dpp->freqs[0];
 
@@ -2491,7 +3871,8 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	uint32_t freq = band_channel_to_freq(6, BAND_FREQ_2_4_GHZ);
 	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
 
-	if (dpp->state != DPP_STATE_NOTHING)
+	if (dpp->state != DPP_STATE_NOTHING ||
+				dpp->interface != DPP_INTERFACE_UNBOUND)
 		return dbus_error_busy(message);
 
 	/*
@@ -2510,6 +3891,7 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 
 	dpp->state = DPP_STATE_PRESENCE;
 	dpp->role = DPP_CAPABILITY_ENROLLEE;
+	dpp->interface = DPP_INTERFACE_DPP;
 
 	l_ecdh_generate_key_pair(dpp->curve, &dpp->proto_private,
 					&dpp->own_proto_public);
@@ -2524,8 +3906,6 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	 * presence procedure can be implemented if it is ever needed.
 	 */
 	dpp_start_presence(dpp, &freq, 1);
-
-	scan_periodic_stop(dpp->wdev_id);
 
 	dpp_property_changed_notify(dpp);
 
@@ -2563,7 +3943,7 @@ static bool dpp_configurator_start_presence(struct dpp_sm *dpp, const char *uri)
 	}
 
 	if (!l_memeqzero(info->mac, 6))
-		memcpy(dpp->auth_addr, info->mac, 6);
+		memcpy(dpp->peer_addr, info->mac, 6);
 
 	if (info->freqs)
 		freqs = scan_freq_set_to_fixed_array(info->freqs, &freqs_len);
@@ -2621,7 +4001,8 @@ static struct l_dbus_message *dpp_start_configurator_common(
 	if (network_get_security(network) != SECURITY_PSK)
 		return dbus_error_not_supported(message);
 
-	if (dpp->state != DPP_STATE_NOTHING)
+	if (dpp->state != DPP_STATE_NOTHING ||
+				dpp->interface != DPP_INTERFACE_UNBOUND)
 		return dbus_error_busy(message);
 
 	l_ecdh_generate_key_pair(dpp->curve, &dpp->proto_private,
@@ -2653,11 +4034,10 @@ static struct l_dbus_message *dpp_start_configurator_common(
 					netdev_get_address(dpp->netdev),
 					&bss->frequency, 1, NULL, NULL);
 	dpp->role = DPP_CAPABILITY_CONFIGURATOR;
+	dpp->interface = DPP_INTERFACE_DPP;
 	dpp->config = dpp_configuration_new(settings,
 						network_get_ssid(network),
 						hs->akm_suite);
-
-	scan_periodic_stop(dpp->wdev_id);
 
 	dpp_property_changed_notify(dpp);
 
@@ -2690,9 +4070,371 @@ static struct l_dbus_message *dpp_dbus_stop(struct l_dbus *dbus,
 {
 	struct dpp_sm *dpp = user_data;
 
+	l_debug("");
+
+	if (dpp->interface != DPP_INTERFACE_DPP)
+		return dbus_error_not_found(message);
+
 	dpp_reset(dpp);
 
 	return l_dbus_message_new_method_return(message);
+}
+
+static void dpp_pkex_scan_trigger(int err, void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+
+	if (err < 0)
+		dpp_reset(dpp);
+}
+
+/*
+ * Section 5.6.1
+ * In lieu of specific channel information obtained in a manner outside
+ * the scope of this specification, PKEX responders shall select one of
+ * the following channels:
+ *  - 2.4 GHz: Channel 6 (2.437 GHz)
+ *  - 5 GHz: Channel 44 (5.220 GHz) if local regulations permit
+ *           operation only in the 5.150 - 5.250 GHz band and Channel
+ *           149 (5.745 GHz) otherwise
+ */
+static uint32_t *dpp_default_freqs(struct dpp_sm *dpp, size_t *out_len)
+{
+	struct wiphy *wiphy = wiphy_find_by_wdev(dpp->wdev_id);
+	uint32_t default_channels[3] = { 2437, 5220, 5745 };
+	uint32_t *freqs_out;
+	size_t len = 0;
+
+	if ((wiphy_get_supported_bands(wiphy) & BAND_FREQ_2_4_GHZ) &&
+			scan_get_band_rank_modifier(BAND_FREQ_2_4_GHZ) != 0)
+		default_channels[len++] = 2437;
+
+	if ((wiphy_get_supported_bands(wiphy) & BAND_FREQ_5_GHZ) &&
+			scan_get_band_rank_modifier(BAND_FREQ_5_GHZ) != 0) {
+		default_channels[len++] = 5220;
+		default_channels[len++] = 5745;
+	}
+
+	if (!len) {
+		l_warn("No bands are allowed, check BandModifier* settings!");
+		return NULL;
+	}
+
+	freqs_out = l_memdup(default_channels, sizeof(uint32_t) * len);
+	*out_len = len;
+
+	return freqs_out;
+}
+
+static bool dpp_pkex_scan_notify(int err, struct l_queue *bss_list,
+					const struct scan_freq_set *freqs,
+					void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+	const struct l_queue_entry *e;
+	_auto_(scan_freq_set_free) struct scan_freq_set *freq_set = NULL;
+
+	if (err < 0)
+		goto failed;
+
+	freq_set = scan_freq_set_new();
+
+	if (!bss_list || l_queue_isempty(bss_list)) {
+		dpp->freqs = dpp_default_freqs(dpp, &dpp->freqs_len);
+		if (!dpp->freqs)
+			goto failed;
+
+		l_debug("No BSS's seen, using default frequency list");
+		goto start;
+	}
+
+	for (e = l_queue_get_entries(bss_list); e; e = e->next) {
+		const struct scan_bss *bss = e->data;
+
+		scan_freq_set_add(freq_set, bss->frequency);
+	}
+
+	l_debug("Found %u frequencies to search for configurator",
+			l_queue_length(bss_list));
+
+	dpp->freqs = scan_freq_set_to_fixed_array(freq_set, &dpp->freqs_len);
+
+start:
+	dpp->current_freq = dpp->freqs[0];
+
+	dpp_reset_protocol_timer(dpp, DPP_PKEX_PROTO_TIMEOUT);
+
+	l_debug("PKEX start enrollee (id=%s)", dpp->pkex_id ?: "unset");
+
+	dpp_start_offchannel(dpp, dpp->current_freq);
+
+	return false;
+
+failed:
+	dpp_reset(dpp);
+	return false;
+}
+
+static void dpp_pkex_scan_destroy(void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+
+	dpp->pkex_scan_id = 0;
+}
+
+static bool dpp_start_pkex_enrollee(struct dpp_sm *dpp, const char *key,
+				const char *identifier)
+{
+	_auto_(l_ecc_point_free) struct l_ecc_point *qi = NULL;
+
+	if (identifier)
+		dpp->pkex_id = l_strdup(identifier);
+
+	dpp->pkex_key = l_strdup(key);
+	memcpy(dpp->peer_addr, broadcast, 6);
+	dpp->role = DPP_CAPABILITY_ENROLLEE;
+	dpp->state = DPP_STATE_PKEX_EXCHANGE;
+	dpp->interface = DPP_INTERFACE_PKEX;
+	/*
+	 * In theory a driver could support a lesser duration than 200ms. This
+	 * complicates things since we would need to tack on additional
+	 * offchannel requests to meet the 200ms requirement. This could be done
+	 * but for now use max_roc or 200ms, whichever is less.
+	 */
+	dpp->dwell = (dpp->max_roc < 200) ? dpp->max_roc : 200;
+	/* "DPP R2 devices are expected to use PKEXv1 by default" */
+	dpp->pkex_version = 1;
+
+	if (!l_ecdh_generate_key_pair(dpp->curve, &dpp->pkex_private,
+					&dpp->pkex_public))
+		goto failed;
+
+	/*
+	 * "If Qi is the point-at-infinity, the code shall be deleted and the
+	 * user should be notified to provision a new code"
+	 */
+	qi = dpp_derive_qi(dpp->curve, dpp->pkex_key, dpp->pkex_id,
+				netdev_get_address(dpp->netdev));
+	if (!qi || l_ecc_point_is_infinity(qi)) {
+		l_debug("Cannot derive Qi, provision a new code");
+		goto failed;
+	}
+
+	dpp->pkex_m = l_ecc_point_new(dpp->curve);
+
+	if (!l_ecc_point_add(dpp->pkex_m, dpp->pkex_public, qi))
+		goto failed;
+
+	dpp_property_changed_notify(dpp);
+
+	/*
+	 * The 'dpp_default_freqs' function returns the default frequencies
+	 * outlined in section 5.6.1. For 2.4/5GHz this is only 3 frequencies
+	 * which is unlikely to result in discovery of a configurator. The spec
+	 * does allow frequencies to be "obtained in a manner outside the scope
+	 * of this specification" which is what is being done here.
+	 *
+	 * This is mainly geared towards IWD-based configurators; banking on the
+	 * fact that they are currently connected to nearby APs. Scanning lets
+	 * us see nearby BSS's which should be the same frequencies as our
+	 * target configurator.
+	 */
+	l_debug("Performing scan for frequencies to start PKEX");
+
+	dpp->pkex_scan_id = scan_active(dpp->wdev_id, NULL, 0,
+				dpp_pkex_scan_trigger, dpp_pkex_scan_notify,
+				dpp, dpp_pkex_scan_destroy);
+	if (!dpp->pkex_scan_id)
+		goto failed;
+
+	return true;
+
+failed:
+	dpp_reset(dpp);
+	return false;
+}
+
+static bool dpp_parse_pkex_args(struct l_dbus_message *message,
+					const char **key_out,
+					const char **id_out)
+{
+	struct l_dbus_message_iter iter;
+	struct l_dbus_message_iter variant;
+	const char *dict_key;
+	const char *key = NULL;
+	const char *id = NULL;
+
+	if (!l_dbus_message_get_arguments(message, "a{sv}", &iter))
+		return false;
+
+	while (l_dbus_message_iter_next_entry(&iter, &dict_key, &variant)) {
+		if (!strcmp(dict_key, "Code")) {
+			if (!l_dbus_message_iter_get_variant(&variant, "s",
+								&key))
+				return false;
+		} else if (!strcmp(dict_key, "Identifier")) {
+			if (!l_dbus_message_iter_get_variant(&variant, "s",
+								&id))
+				return false;
+		}
+	}
+
+	if (!key)
+		return false;
+
+	if (id && strlen(id) > 80)
+		return false;
+
+	*key_out = key;
+	*id_out = id;
+
+	return true;
+}
+
+static struct l_dbus_message *dpp_dbus_pkex_start_enrollee(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+	const char *key;
+	const char *id;
+	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+
+	l_debug("");
+
+	if (dpp->state != DPP_STATE_NOTHING ||
+				dpp->interface != DPP_INTERFACE_UNBOUND)
+		return dbus_error_busy(message);
+
+	if (station && station_get_connected_network(station))
+		return dbus_error_busy(message);
+
+	if (!dpp_parse_pkex_args(message, &key, &id))
+		goto invalid_args;
+
+	if (!dpp_start_pkex_enrollee(dpp, key, id))
+		goto invalid_args;
+
+	return l_dbus_message_new_method_return(message);
+
+invalid_args:
+	return dbus_error_invalid_args(message);
+}
+
+static void pkex_agent_disconnect(struct l_dbus *dbus, void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+
+	l_debug("SharedCodeAgent %s disconnected", dpp->agent->path);
+
+	dpp_reset(dpp);
+}
+
+static void dpp_create_agent(struct dpp_sm *dpp, const char *path,
+					struct l_dbus_message *message)
+{
+	const char *sender = l_dbus_message_get_sender(message);
+
+	dpp->agent = l_new(struct pkex_agent, 1);
+	dpp->agent->owner = l_strdup(sender);
+	dpp->agent->path = l_strdup(path);
+	dpp->agent->disconnect_watch = l_dbus_add_disconnect_watch(
+							dbus_get_bus(),
+							sender,
+							pkex_agent_disconnect,
+							dpp, NULL);
+
+	l_debug("Registered a SharedCodeAgent on path %s", path);
+}
+
+static struct l_dbus_message *dpp_start_pkex_configurator(struct dpp_sm *dpp,
+					const char *key, const char *identifier,
+					const char *agent_path,
+					struct l_dbus_message *message)
+{
+	struct handshake_state *hs = netdev_get_handshake(dpp->netdev);
+	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+	struct network *network = station_get_connected_network(station);
+	struct scan_bss *bss = station_get_connected_bss(station);
+	const struct l_settings *settings;
+
+	if (dpp->state != DPP_STATE_NOTHING ||
+				dpp->interface != DPP_INTERFACE_UNBOUND)
+		return dbus_error_busy(message);
+
+	if (!dpp->mcast_support) {
+		l_debug("Multicast frame registration not supported, cannot "
+			"start a configurator");
+		return dbus_error_not_supported(message);
+	}
+
+	if (!network || !bss)
+		return dbus_error_not_connected(message);
+
+	settings = network_get_settings(network);
+	if (!settings) {
+		l_debug("No settings for network, is this a known network?");
+		return dbus_error_not_configured(message);
+	}
+
+	if (identifier)
+		dpp->pkex_id = l_strdup(identifier);
+
+	if (key)
+		dpp->pkex_key = l_strdup(key);
+
+	if (agent_path)
+		dpp_create_agent(dpp, agent_path, message);
+
+	dpp->role = DPP_CAPABILITY_CONFIGURATOR;
+	dpp->state = DPP_STATE_PKEX_EXCHANGE;
+	dpp->interface = DPP_INTERFACE_PKEX;
+	dpp->current_freq = bss->frequency;
+	dpp->pkex_version = 1;
+	dpp->config = dpp_configuration_new(network_get_settings(network),
+						network_get_ssid(network),
+						hs->akm_suite);
+
+	dpp_reset_protocol_timer(dpp, DPP_PKEX_PROTO_TIMEOUT);
+	dpp_property_changed_notify(dpp);
+
+	if (dpp->pkex_key)
+		l_debug("Starting PKEX configurator for single enrollee");
+	else
+		l_debug("Starting PKEX configurator with agent");
+
+	return l_dbus_message_new_method_return(message);
+}
+
+static struct l_dbus_message *dpp_dbus_pkex_configure_enrollee(
+						struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+	const char *key;
+	const char *id;
+
+	l_debug("");
+
+	if (!dpp_parse_pkex_args(message, &key, &id))
+		return dbus_error_invalid_args(message);
+
+	return dpp_start_pkex_configurator(dpp, key, id, NULL, message);
+}
+
+static struct l_dbus_message *dpp_dbus_pkex_start_configurator(
+						struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+	const char *path;
+
+	if (!l_dbus_message_get_arguments(message, "o", &path))
+		return dbus_error_invalid_args(message);
+
+	return dpp_start_pkex_configurator(dpp, NULL, NULL, path, message);
 }
 
 static void dpp_setup_interface(struct l_dbus_interface *interface)
@@ -2713,9 +4455,44 @@ static void dpp_setup_interface(struct l_dbus_interface *interface)
 	l_dbus_interface_property(interface, "URI", 0, "s", dpp_get_uri, NULL);
 }
 
+static struct l_dbus_message *dpp_dbus_pkex_stop(struct l_dbus *dbus,
+				struct l_dbus_message *message, void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+
+	l_debug("");
+
+	if (dpp->interface != DPP_INTERFACE_PKEX)
+		return dbus_error_not_found(message);
+
+	dpp_reset(dpp);
+
+	return l_dbus_message_new_method_return(message);
+}
+
+static void dpp_setup_pkex_interface(struct l_dbus_interface *interface)
+{
+	l_dbus_interface_method(interface, "StartEnrollee", 0,
+			dpp_dbus_pkex_start_enrollee, "", "a{sv}", "args");
+	l_dbus_interface_method(interface, "Stop", 0,
+			dpp_dbus_pkex_stop, "", "");
+	l_dbus_interface_method(interface, "ConfigureEnrollee", 0,
+			dpp_dbus_pkex_configure_enrollee, "", "a{sv}", "args");
+	l_dbus_interface_method(interface, "StartConfigurator", 0,
+			dpp_dbus_pkex_start_configurator, "", "o", "path");
+
+	l_dbus_interface_property(interface, "Started", 0, "b",
+			dpp_pkex_get_started, NULL);
+	l_dbus_interface_property(interface, "Role", 0, "s",
+			dpp_pkex_get_role, NULL);
+}
+
 static void dpp_destroy_interface(void *user_data)
 {
 	struct dpp_sm *dpp = user_data;
+
+	if (--dpp->refcount)
+		return;
 
 	l_queue_remove(dpp_list, dpp);
 
@@ -2734,6 +4511,9 @@ static int dpp_init(void)
 
 	l_dbus_register_interface(dbus_get_bus(), IWD_DPP_INTERFACE,
 					dpp_setup_interface,
+					dpp_destroy_interface, false);
+	l_dbus_register_interface(dbus_get_bus(), IWD_DPP_PKEX_INTERFACE,
+					dpp_setup_pkex_interface,
 					dpp_destroy_interface, false);
 
 	mlme_watch = l_genl_family_register(nl80211, "mlme", dpp_mlme_notify,
@@ -2754,6 +4534,7 @@ static void dpp_exit(void)
 	l_debug("");
 
 	l_dbus_unregister_interface(dbus_get_bus(), IWD_DPP_INTERFACE);
+	l_dbus_unregister_interface(dbus_get_bus(), IWD_DPP_PKEX_INTERFACE);
 
 	netdev_watch_remove(netdev_watch);
 

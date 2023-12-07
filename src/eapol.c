@@ -2531,7 +2531,7 @@ static void eapol_eap_results_cb(const uint8_t *msk_data, size_t msk_len,
 	if (sm->handshake->support_fils && emsk_data && session_id)
 		erp_cache_add(eap_get_identity(sm->eap), session_id,
 				session_len, emsk_data, emsk_len,
-				(const char *)sm->handshake->ssid);
+				sm->handshake->ssid, sm->handshake->ssid_len);
 
 	return;
 

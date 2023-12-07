@@ -1394,31 +1394,22 @@ static void print_ie_ht_operation(unsigned int level, const char *label,
 }
 
 static void print_spatial_stream_map(unsigned int level, const char *label,
-					const uint8_t *map)
+					const uint8_t *map,
+					const char **stream_map)
 {
-	static const char *spatial_streams[] = {
-		"0 - MCS 0-7 supported",
-		"1 - MCS 0-8 supported",
-		"2 - MCS 0-9 supported",
-		"3 - No MCS support",
-	};
+	unsigned int i;
+	unsigned int j = 0;
 
-	print_attr(level + 1, "%s 1 Streams: %s", label,
-				spatial_streams[bit_field(map[0], 0, 2)]);
-	print_attr(level + 1, "%s 2 Streams: %s", label,
-				spatial_streams[bit_field(map[0], 2, 2)]);
-	print_attr(level + 1, "%s 3 Streams: %s", label,
-				spatial_streams[bit_field(map[0], 4, 2)]);
-	print_attr(level + 1, "%s 4 Streams: %s", label,
-				spatial_streams[bit_field(map[0], 6, 2)]);
-	print_attr(level + 1, "%s 5 Streams: %s", label,
-				spatial_streams[bit_field(map[1], 0, 2)]);
-	print_attr(level + 1, "%s 6 Streams: %s", label,
-				spatial_streams[bit_field(map[1], 2, 2)]);
-	print_attr(level + 1, "%s 7 Streams: %s", label,
-				spatial_streams[bit_field(map[1], 4, 2)]);
-	print_attr(level + 1, "%s 8 Streams: %s", label,
-				spatial_streams[bit_field(map[1], 6, 2)]);
+	for (i = 0; i < 8; i++, j += 2) {
+		unsigned int byte = (i < 4) ? 0 : 1;
+		uint8_t field = bit_field(map[byte], j % 8, 2);
+
+		if (field == 3)
+			continue;
+
+		print_attr(level + 1, "%s %u Streams: %s", label, i + 1,
+				stream_map[field]);
+	}
 }
 
 static void print_ie_vht_operation(unsigned int level, const char *label,
@@ -1430,6 +1421,13 @@ static void print_ie_vht_operation(unsigned int level, const char *label,
 		"2 - 160 Mhz",
 		"3 - 80+80 Mhz",
 	};
+
+	static const char *spatial_streams[] = {
+		"MCS 0-7 supported",
+		"MCS 0-8 supported",
+		"MCS 0-9 supported",
+	};
+
 	uint8_t *bytes = (uint8_t *) data;
 
 	if (size < 5) {
@@ -1443,7 +1441,8 @@ static void print_ie_vht_operation(unsigned int level, const char *label,
 	print_attr(level + 1, "Channel Center Frequency 1: %d", bytes[1]);
 	print_attr(level + 1, "Channel Center Frequency 2: %d", bytes[2]);
 
-	print_spatial_stream_map(level + 1, "Basic VHT-MCS", bytes + 3);
+	print_spatial_stream_map(level + 1, "Basic VHT-MCS", bytes + 3,
+					spatial_streams);
 }
 
 static const char *extended_capabilities_bitfield[80] = {
@@ -1656,6 +1655,13 @@ static void print_ie_vht_capabilities(unsigned int level,
 		[29] = "TX Antenna Pattern Consistency",
 		[30 ... 31] = "Extended NSS BW Support",
 	};
+
+	static const char *spatial_streams[] = {
+		"MCS 0-7 supported",
+		"MCS 0-8 supported",
+		"MCS 0-9 supported",
+	};
+
 	uint8_t info_mask[] = { 0xf0, 0x18, 0x78, 0x30 };
 
 	print_attr(level, "%s: len %u", label, size);
@@ -1666,14 +1672,66 @@ static void print_ie_vht_capabilities(unsigned int level,
 	print_ie_bitfield(level + 1, "VHT Capabilities Info", data, info_mask,
 				4, vht_capabilities_info_bitfield);
 
-	print_spatial_stream_map(level + 1, "RxVHT-MCS", data + 4);
+	print_spatial_stream_map(level + 1, "RxVHT-MCS", data + 4,
+					spatial_streams);
 	print_attr(level + 1, "Rx Highest Supported Long GI Data Rate: %d",
 			l_get_le16(data + 6) & 0x1f);
-	print_spatial_stream_map(level + 1, "TxVHT-MCS", data + 8);
+	print_spatial_stream_map(level + 1, "TxVHT-MCS", data + 8,
+					spatial_streams);
 	print_attr(level + 1, "Tx Highest Supported Long GI Data Rate: %d",
 			l_get_le16(data + 10) & 0x1f);
 	if (test_bit(data + 4, 61))
 		print_attr(level + 1, "VHT Extended NSS BW Capable");
+}
+
+static void print_ie_he_capabilities(unsigned int level,
+					const char *label,
+					const void *data, uint16_t size)
+{
+	const uint8_t *ptr = data;
+	uint8_t width_set = bit_field((ptr + 6)[0], 1, 7);
+	uint8_t mask = 0xff;
+
+	const char *he_channel_width_bitfield[] = {
+		[0] = "40MHz supported (2.4GHz)",
+		[1] = "40MHz/80MHz supported (5GHz/6GHz)",
+		[2] = "160MHz supported (5GHz/6GHz)",
+		[3] = "160MHz/80+80MHz supported (5GHz/6GHz)",
+		[4] = "242-tone RUs (2.4GHz)",
+		[5] = "242-tone RUs (5GHz/6GHz)",
+	};
+
+	static const char *spatial_streams[] = {
+		"MCS 0-7 supported",
+		"MCS 0-9 supported",
+		"MCS 0-11 supported",
+	};
+
+	print_attr(level, "%s: len %u", label, size);
+
+	print_ie_bitfield(level + 1, "HE supported channel width set",
+			&width_set, &mask, 1, he_channel_width_bitfield);
+
+	if (test_bit(&width_set, 1) || test_bit(&width_set, 0)) {
+		print_spatial_stream_map(level + 1, "Rx HE-MCS Map <= 80MHz",
+						data + 17, spatial_streams);
+		print_spatial_stream_map(level + 1, "Tx HE-MCS Map <= 80MHz",
+						data + 19, spatial_streams);
+	}
+
+	if (test_bit(&width_set, 2)) {
+		print_spatial_stream_map(level + 1, "Rx HE-MCS Map 160MHz",
+						data + 21, spatial_streams);
+		print_spatial_stream_map(level + 1, "Tx HE-MCS Map 160MHz",
+						data + 23, spatial_streams);
+	}
+
+	if (test_bit(&width_set, 3)) {
+		print_spatial_stream_map(level + 1, "Rx HE-MCS Map 80+80MHz",
+						data + 25, spatial_streams);
+		print_spatial_stream_map(level + 1, "Tx HE-MCS Map 80+80MHz",
+						data + 27, spatial_streams);
+	}
 }
 
 static void print_ie_rm_enabled_caps(unsigned int level,
@@ -2430,6 +2488,8 @@ static struct attr_entry ie_entry[] = {
 		ATTR_CUSTOM,	{ .function = print_ie_ht_capabilities } },
 	{ IE_TYPE_VHT_CAPABILITIES,		"VHT Capabilities",
 		ATTR_CUSTOM,	{ .function = print_ie_vht_capabilities } },
+	{ IE_TYPE_HE_CAPABILITIES, 		"HE Capabilities",
+		ATTR_CUSTOM,	{ .function = print_ie_he_capabilities } },
 	{ IE_TYPE_RM_ENABLED_CAPABILITIES,	"RM Enabled Capabilities",
 		ATTR_CUSTOM,	{ .function = print_ie_rm_enabled_caps } },
 	{ IE_TYPE_INTERWORKING,			"Interworking",
@@ -2701,7 +2761,7 @@ static void print_wsc_configuration_error(unsigned int level, const char *label,
 		"Message timeout",
 		"Registration session timeout",
 		"Device Password Auth Failure",
-		"60 Ghz channel not supported",
+		"60 GHz channel not supported",
 		"Public Key Hash Mismatch",
 	};
 

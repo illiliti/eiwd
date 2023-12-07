@@ -33,6 +33,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <linux/rtnetlink.h>
 #include <ell/ell.h>
 
 #include <ell/useful.h>

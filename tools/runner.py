@@ -120,9 +120,12 @@ class RunnerCoreArgParse(ArgumentParser):
 				const=True,
 				action='store',
 				help='Use physical adapters for tests (passthrough)')
+
+		# Hidden options only meant to be passed to the kernel
 		self.add_argument('--testhome', help=SUPPRESS)
 		self.add_argument('--monitor-parent', help=SUPPRESS)
 		self.add_argument('--result-parent', help=SUPPRESS)
+		self.add_argument('--timeout', help=SUPPRESS)
 
 		# Prevent --autotest/--unittest from being used together
 		auto_unit_group = self.add_mutually_exclusive_group()
@@ -385,6 +388,8 @@ class QemuRunner(RunnerAbstract):
 
 		self._prepare_outfiles()
 
+		self.args.timeout = 240
+
 		if args.hw:
 			if os.path.isfile(args.hw):
 				hw_conf = ConfigParser()
@@ -542,6 +547,8 @@ class UmlRunner(RunnerAbstract):
 			raise Exception('Cannot locate UML binary %s' % args.kernel)
 
 		self._prepare_outfiles()
+
+		self.args.timeout = 1000
 
 		kern_log = "ignore_loglevel" if "kernel" in args.verbose else "quiet"
 

@@ -160,11 +160,17 @@ static void erp_cache_entry_destroy(void *data)
 
 void erp_cache_add(const char *id, const void *session_id,
 			size_t session_len, const void *emsk, size_t emsk_len,
-			const char *ssid)
+			const uint8_t *ssid, size_t ssid_len)
 {
 	struct erp_cache_entry *entry;
 
 	if (!unlikely(id || session_id || emsk))
+		return;
+
+	if (!util_ssid_is_utf8(ssid_len, ssid))
+		return;
+
+	if (util_ssid_is_hidden(ssid_len, ssid))
 		return;
 
 	entry = l_new(struct erp_cache_entry, 1);
@@ -174,7 +180,7 @@ void erp_cache_add(const char *id, const void *session_id,
 	entry->emsk_len = emsk_len;
 	entry->session_id = l_memdup(session_id, session_len);
 	entry->session_len = session_len;
-	entry->ssid = l_strdup(ssid);
+	entry->ssid = l_strndup((char *) ssid, ssid_len);
 	entry->expire_time = l_time_offset(l_time_now(),
 					ERP_DEFAULT_KEY_LIFETIME_US);
 
@@ -281,8 +287,9 @@ static bool erp_derive_emsk_name(const uint8_t *session_id, size_t session_len,
 	uint16_t eight = L_CPU_TO_BE16(8);
 	char *ascii;
 
-	if (!prf_plus(L_CHECKSUM_SHA256, session_id, session_len, "EMSK",
-				hex, 8, 1, &eight, sizeof(eight)))
+	if (!prf_plus(L_CHECKSUM_SHA256, session_id, session_len,
+				hex, 8, 2, "EMSK", strlen("EMSK") + 1,
+				&eight, sizeof(eight)))
 		return false;
 
 	ascii = l_util_hexstring(hex, 8);
@@ -309,13 +316,15 @@ static bool erp_derive_reauth_keys(const uint8_t *emsk, size_t emsk_len,
 	uint16_t len = L_CPU_TO_BE16(emsk_len);
 	uint8_t cryptosuite = ERP_CRYPTOSUITE_SHA256_128;
 
-	if (!prf_plus(L_CHECKSUM_SHA256, emsk, emsk_len, ERP_RRK_LABEL,
-				r_rk, emsk_len, 1,
+	if (!prf_plus(L_CHECKSUM_SHA256, emsk, emsk_len,
+				r_rk, emsk_len, 2, ERP_RRK_LABEL,
+				strlen(ERP_RRK_LABEL) + 1,
 				&len, sizeof(len)))
 		return false;
 
-	if (!prf_plus(L_CHECKSUM_SHA256, r_rk, emsk_len, ERP_RIK_LABEL,
-				r_ik, emsk_len, 2,
+	if (!prf_plus(L_CHECKSUM_SHA256, r_rk, emsk_len,
+				r_ik, emsk_len, 3, ERP_RIK_LABEL,
+				strlen(ERP_RIK_LABEL) + 1,
 				&cryptosuite, 1, &len, sizeof(len)))
 		return false;
 
@@ -496,8 +505,8 @@ int erp_rx_packet(struct erp_state *erp, const uint8_t *pkt, size_t len)
 	length = L_CPU_TO_BE16(64);
 
 	if (!prf_plus(L_CHECKSUM_SHA256, erp->r_rk, erp->cache->emsk_len,
-				ERP_RMSK_LABEL,
-				erp->rmsk, erp->cache->emsk_len, 2,
+				erp->rmsk, erp->cache->emsk_len, 3,
+				ERP_RMSK_LABEL, strlen(ERP_RMSK_LABEL) + 1,
 				&seq, sizeof(seq),
 				&length, sizeof(length)))
 		goto eap_failed;

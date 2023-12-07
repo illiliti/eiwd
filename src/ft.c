@@ -58,13 +58,14 @@ struct ft_info {
 	uint32_t frequency;
 	uint32_t ds_frequency;
 	uint32_t offchannel_id;
+	/* Status of Authenticate/Action frame response, or error (< 0) */
+	int status;
 
 	struct l_timeout *timeout;
 	struct wiphy_radio_work_item work;
 
 	struct ie_ft_info ft_info;
 
-	bool parsed : 1;
 	bool onchannel : 1;
 };
 
@@ -526,22 +527,23 @@ static int ft_over_ds_parse_action_response(const uint8_t *frame,
 	if (memcmp(spa, hdr->address_1, 6))
 		return -EINVAL;
 
-	status = l_get_le16(frame + 14);
-	if (status != 0)
-		return (int)status;
-
 	if (spa_out)
 		*spa_out = spa;
 
 	if (aa_out)
 		*aa_out = aa;
 
+	status = l_get_le16(frame + 14);
+	if (status != 0)
+		goto done;
+
 	if (ies_out && ies_len) {
 		*ies_out = frame + 16;
 		*ies_len = frame_len - 16;
 	}
 
-	return 0;
+done:
+	return (int)status;
 }
 
 int __ft_rx_associate(uint32_t ifindex, const uint8_t *frame, size_t frame_len)
@@ -825,7 +827,7 @@ void __ft_rx_action(uint32_t ifindex, const uint8_t *frame, size_t frame_len)
 
 	ret = ft_over_ds_parse_action_response(frame, frame_len, &spa, &aa,
 						&ies, &ies_len);
-	if (ret != 0) {
+	if (ret < 0) {
 		l_debug("Could not parse action response");
 		return;
 	}
@@ -836,13 +838,22 @@ void __ft_rx_action(uint32_t ifindex, const uint8_t *frame, size_t frame_len)
 		return;
 	}
 
+
+	if (ret != 0) {
+		l_debug("BSS "MAC" rejected FT action with status=%u",
+				MAC_STR(info->aa), ret);
+		info->status = ret;
+		goto done;
+	}
+
 	if (!ft_parse_ies(info, hs, ies, ies_len)) {
 		l_debug("Could not parse action response IEs");
 		goto ft_error;
 	}
 
-	info->parsed = true;
+	info->status = ret;
 
+done:
 	l_timeout_remove(info->timeout);
 	info->timeout = NULL;
 
@@ -872,6 +883,7 @@ static struct ft_info *ft_info_new(struct handshake_state *hs,
 						target_bss->rsne[1] + 2);
 
 	l_getrandom(info->snonce, 32);
+	info->status = -ENOENT;
 
 	return info;
 }
@@ -1016,6 +1028,7 @@ void __ft_rx_authenticate(uint32_t ifindex, const uint8_t *frame,
 	if (status != 0) {
 		l_debug("BSS "MAC" rejected FT auth with status=%u",
 				MAC_STR(info->aa), status);
+		info->status = status;
 		goto cancel;
 	}
 
@@ -1024,7 +1037,7 @@ void __ft_rx_authenticate(uint32_t ifindex, const uint8_t *frame,
 		goto cancel;
 	}
 
-	info->parsed = true;
+	info->status = status;
 
 cancel:
 	/*
@@ -1164,11 +1177,13 @@ int ft_associate(uint32_t ifindex, const uint8_t *addr)
 	 * Either failed or no response. This may have been an FT-over-DS
 	 * attempt so clear out the entry so FT-over-Air can try again.
 	 */
-	if (!info->parsed) {
+	if (info->status != 0) {
+		int status = info->status;
+
 		l_queue_remove(info_list, info);
 		ft_info_destroy(info);
 
-		return -ENOENT;
+		return status;
 	}
 
 	ft_prepare_handshake(info, hs);

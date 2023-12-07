@@ -644,7 +644,7 @@ static void test_6ghz_freqs(const void *data)
 	uint32_t i;
 	enum band_freq band;
 
-	for (i = 5955; i < 7115; i += 20) {
+	for (i = 5955; i <= 7115; i += 20) {
 		assert(band_freq_to_channel(i, &band) != 0);
 		assert(band == BAND_FREQ_6_GHZ);
 	}
@@ -654,8 +654,8 @@ static void test_conversions(const void *data)
 {
 	/*
 	 * Test a few invalid channels/frequencies that appear valid but are
-	 * not in the E-4 table. The checks in band.c seem to cover 2.4Ghz and
-	 * 6Ghz very well since there are no gaps, but the 5GHz band has some
+	 * not in the E-4 table. The checks in band.c seem to cover 2.4GHz and
+	 * 6GHz very well since there are no gaps, but the 5GHz band has some
 	 * segmentation.
 	 */
 

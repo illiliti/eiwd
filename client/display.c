@@ -633,7 +633,7 @@ static void display_completion_matches(char **matches, int num_matches,
 	l_free(prompt);
 
 	for (index = 1, line_used = 0; matches[index]; index++) {
-		if ((line_used + max_length) > LINE_LEN) {
+		if ((line_used + max_length + 1) >= (LINE_LEN - 1)) {
 			strcpy(&line[line_used], "\n");
 
 			display_text(line);

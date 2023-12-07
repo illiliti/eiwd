@@ -392,10 +392,17 @@ static void ap_del_station(struct sta_state *sta, uint16_t reason,
 				bool disassociate)
 {
 	struct ap_state *ap = sta->ap;
+	uint32_t ifindex = netdev_get_ifindex(ap->netdev);
 	struct ap_event_station_removed_data event_data;
 	bool send_event = false;
+	struct l_genl_msg *msg;
+	uint8_t subtype = disassociate ?
+			MPDU_MANAGEMENT_SUBTYPE_DISASSOCIATION :
+			MPDU_MANAGEMENT_SUBTYPE_DEAUTHENTICATION;
 
-	netdev_del_station(ap->netdev, sta->addr, reason, disassociate);
+	msg = nl80211_build_del_station(ifindex, sta->addr, reason, subtype);
+	l_genl_family_send(ap->nl80211, msg, NULL, NULL, NULL);
+
 	sta->associated = false;
 
 	if (sta->rsna) {
@@ -1202,7 +1209,7 @@ static size_t ap_build_country_ie(struct ap_state *ap, uint8_t *out_buf,
 	 * and use the same TX power. Any deviation from this results in a new
 	 * channel group.
 	 *
-	 * TODO: 6Ghz requires operating triplets, not subband triplets.
+	 * TODO: 6GHz requires operating triplets, not subband triplets.
 	 */
 	for (i = 0; i < len; i++) {
 		const struct band_freq_attrs *attr = &list[i];
@@ -3564,7 +3571,7 @@ static bool ap_validate_band_channel(struct ap_state *ap)
 	freq = band_channel_to_freq(ap->channel, ap->band);
 	if (!freq) {
 		l_error("AP invalid band (%s) and channel (%u) combination",
-			(ap->band & BAND_FREQ_5_GHZ) ? "5Ghz" : "2.4GHz",
+			(ap->band & BAND_FREQ_5_GHZ) ? "5GHz" : "2.4GHz",
 			ap->channel);
 		return false;
 	}

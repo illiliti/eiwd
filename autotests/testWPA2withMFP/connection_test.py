@@ -39,9 +39,6 @@ class Test(unittest.TestCase):
         wd.unregister_psk_agent(psk_agent)
 
     def test_cmac(self):
-        self.hostapd.set_value('group_mgmt_cipher', 'AES-128-CMAC')
-        self.hostapd.reload()
-        self.hostapd.wait_for_event("AP-ENABLED")
         self.validate_connection_success(self.wd)
 
     def test_gmac(self):
@@ -63,6 +60,7 @@ class Test(unittest.TestCase):
         self.validate_connection_success(self.wd)
 
     def setUp(self):
+        self.hostapd.default()
         self.wd = IWD(True)
 
     def tearDown(self):

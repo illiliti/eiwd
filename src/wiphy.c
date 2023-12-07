@@ -138,7 +138,6 @@ struct wiphy {
 
 	bool support_scheduled_scan:1;
 	bool support_rekey_offload:1;
-	bool support_adhoc_rsn:1;
 	bool support_qos_set_map:1;
 	bool support_cmds_auth_assoc:1;
 	bool support_fw_roam:1;
@@ -555,7 +554,7 @@ const struct band_freq_attrs *wiphy_get_frequency_info_list(
 	return bandp->freq_attrs;
 }
 
-bool wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band)
+int wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band)
 {
 	struct band_freq_attrs attr;
 	unsigned int i;
@@ -563,7 +562,7 @@ bool wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band)
 
 	bandp = wiphy_get_band(wiphy, band);
 	if (!bandp)
-		return true;
+		return -ENOTSUP;
 
 	for (i = 0; i < bandp->freqs_len; i++) {
 		attr = bandp->freq_attrs[i];
@@ -572,10 +571,10 @@ bool wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band)
 			continue;
 
 		if (!attr.disabled)
-			return false;
+			return 0;
 	}
 
-	return true;
+	return 1;
 }
 
 bool wiphy_supports_probe_resp_offload(struct wiphy *wiphy)
@@ -662,16 +661,6 @@ uint32_t wiphy_get_max_roc_duration(struct wiphy *wiphy)
 	return wiphy->max_roc_duration;
 }
 
-bool wiphy_supports_adhoc_rsn(struct wiphy *wiphy)
-{
-	return wiphy->support_adhoc_rsn;
-}
-
-bool wiphy_can_offchannel_tx(struct wiphy *wiphy)
-{
-	return wiphy->offchannel_tx_ok;
-}
-
 bool wiphy_supports_qos_set_map(struct wiphy *wiphy)
 {
 	return wiphy->support_qos_set_map;
@@ -728,11 +717,6 @@ bool wiphy_power_save_disabled(struct wiphy *wiphy)
 		return true;
 
 	return false;
-}
-
-const uint8_t *wiphy_get_permanent_address(struct wiphy *wiphy)
-{
-	return wiphy->permanent_addr;
 }
 
 const uint8_t *wiphy_get_extended_capabilities(struct wiphy *wiphy,
@@ -812,12 +796,13 @@ void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6])
 	wiphy_address_constrain(wiphy, addr);
 }
 
-void wiphy_generate_address_from_ssid(struct wiphy *wiphy, const char *ssid,
+void wiphy_generate_address_from_ssid(struct wiphy *wiphy,
+					const uint8_t *ssid, size_t ssid_len,
 					uint8_t addr[static 6])
 {
 	struct l_checksum *sha = l_checksum_new(L_CHECKSUM_SHA256);
 
-	l_checksum_update(sha, ssid, strlen(ssid));
+	l_checksum_update(sha, ssid, ssid_len);
 	l_checksum_update(sha, wiphy->permanent_addr,
 				sizeof(wiphy->permanent_addr));
 	l_checksum_get_digest(sha, addr, mac_randomize_bytes);
@@ -843,7 +828,7 @@ bool wiphy_constrain_freq_set(const struct wiphy *wiphy,
 		if (!band)
 			continue;
 
-		for (i = 0; i < band->freqs_len; i++) {
+		for (i = 1; i <= band->freqs_len; i++) {
 			uint32_t freq;
 
 			if (!band->freq_attrs[i].supported)
@@ -1278,10 +1263,10 @@ static void wiphy_print_basic_info(struct wiphy *wiphy)
 	l_info("\tPermanent Address: "MAC, MAC_STR(wiphy->permanent_addr));
 
 	if (wiphy->band_2g)
-		wiphy_print_band_info(wiphy->band_2g, "2.4Ghz Band");
+		wiphy_print_band_info(wiphy->band_2g, "2.4GHz Band");
 
 	if (wiphy->band_5g)
-		wiphy_print_band_info(wiphy->band_5g, "5Ghz Band");
+		wiphy_print_band_info(wiphy->band_5g, "5GHz Band");
 
 	if (wiphy->band_6g)
 		wiphy_print_band_info(wiphy->band_6g, "6GHz Band");
@@ -1857,9 +1842,6 @@ static void wiphy_parse_attributes(struct wiphy *wiphy,
 				l_warn("Invalid MAX_SCAN_IE_LEN attribute");
 			else
 				wiphy->max_scan_ie_len = *((uint16_t *) data);
-			break;
-		case NL80211_ATTR_SUPPORT_IBSS_RSN:
-			wiphy->support_adhoc_rsn = true;
 			break;
 		case NL80211_ATTR_SUPPORTED_IFTYPES:
 			if (l_genl_attr_recurse(&attr, &nested))

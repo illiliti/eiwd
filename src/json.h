@@ -85,7 +85,7 @@ void json_iter_init(struct json_iter *iter, struct json_contents *c);
  * other types are encountered.
  *
  * JSON_OPTIONAL string values will point to NULL if not found
- * JSON_OPTIONAL objects/primitives can be checked with json_object_is_valid.
+ * JSON_OPTIONAL objects/primitives can be checked with json_iter_is_valid.
  */
 bool json_iter_parse(struct json_iter *iter, enum json_type type, ...);
 

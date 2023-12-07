@@ -45,16 +45,10 @@ class Test(unittest.TestCase):
         wd.unregister_psk_agent(psk_agent)
 
     def test_SAE(self):
-        self.hostapd.set_value('sae_pwe', '0')
-        self.hostapd.set_value('sae_groups', '19')
-        self.hostapd.set_value('vendor_elements', '')
-        self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
         self.validate_connection(self.wd)
 
     def test_SAE_force_group_19(self):
-        self.hostapd.set_value('sae_pwe', '0')
-        self.hostapd.set_value('sae_groups', '19')
         # Vendor data from APs which require group 19 be used first
         # TODO: (for all tests) verify the expected group was used
         self.hostapd.set_value('vendor_elements', 'dd0cf4f5e8050500000000000000')
@@ -63,7 +57,6 @@ class Test(unittest.TestCase):
         self.validate_connection(self.wd)
 
     def test_SAE_Group20(self):
-        self.hostapd.set_value('sae_pwe', '0')
         self.hostapd.set_value('sae_groups', '20')
         self.hostapd.set_value('vendor_elements', '')
         self.hostapd.reload()
@@ -72,7 +65,6 @@ class Test(unittest.TestCase):
 
     def test_SAE_H2E(self):
         self.hostapd.set_value('sae_pwe', '1')
-        self.hostapd.set_value('sae_groups', '19')
         self.hostapd.set_value('vendor_elements', '')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
@@ -87,6 +79,7 @@ class Test(unittest.TestCase):
         self.validate_connection(self.wd)
 
     def setUp(self):
+        self.hostapd.default()
         self.wd = IWD(True)
 
     def tearDown(self):

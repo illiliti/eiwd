@@ -315,7 +315,8 @@ client_iwctl_SOURCES = client/main.c \
 			client/wsc.c client/station.c \
 			client/diagnostic.c client/diagnostic.h \
 			client/daemon.c client/daemon.h \
-			client/dpp.c client/station-debug.c \
+			client/dpp.c client/dpp-pkex.c \
+			client/station-debug.c \
 			src/util.c src/util.h \
 			src/band.c src/band.h
 
@@ -409,6 +410,7 @@ tools_hwsim_SOURCES = tools/hwsim.c src/mpdu.h \
 					src/storage.h src/storage.c \
 					src/common.h src/common.c \
 					src/band.h src/band.c \
+					src/ie.h src/ie.c \
 					src/crypto.h src/crypto.c
 tools_hwsim_LDADD = $(ell_ldadd)
 

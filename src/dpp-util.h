@@ -40,10 +40,10 @@ enum dpp_frame_type {
 	/* 3 - 4 reserved */
 	DPP_FRAME_PEER_DISCOVERY_REQUEST	= 5,
 	DPP_FRAME_PEER_DISCOVERY_RESPONSE	= 6,
-	DPP_FRAME_PKEX_VERSION1_XCHG_REQUST	= 7,
+	DPP_FRAME_PKEX_VERSION1_XCHG_REQUEST	= 7,
 	DPP_FRAME_PKEX_XCHG_RESPONSE		= 8,
 	DPP_FRAME_PKEX_COMMIT_REVEAL_REQUEST	= 9,
-	DPP_FRAME_PKEX_COMMIT_REVEAP_RESPONSE	= 10,
+	DPP_FRAME_PKEX_COMMIT_REVEAL_RESPONSE	= 10,
 	DPP_FRAME_CONFIGURATION_RESULT		= 11,
 	DPP_FRAME_CONNECTION_STATUS_RESULT	= 12,
 	DPP_FRAME_PRESENCE_ANNOUNCEMENT		= 13,
@@ -112,11 +112,15 @@ enum dpp_attribute_type {
 };
 
 struct dpp_configuration {
-	uint8_t ssid[32];
+	char ssid[33];
 	size_t ssid_len;
 	uint32_t akm_suites;
 	char *passphrase;
 	char *psk;		/* hex string */
+
+	/* "3rd party extensions" only applicable for two IWD peers */
+	bool send_hostname : 1;
+	bool hidden : 1;
 };
 
 struct dpp_configuration *dpp_parse_configuration_object(const char *json,
@@ -160,12 +164,14 @@ bool dpp_hash(enum l_checksum_type type, uint8_t *out, unsigned int num, ...);
 bool dpp_derive_r_auth(const void *i_nonce, const void *r_nonce,
 				size_t nonce_len, struct l_ecc_point *i_proto,
 				struct l_ecc_point *r_proto,
+				struct l_ecc_point *i_boot,
 				struct l_ecc_point *r_boot,
 				void *r_auth);
 bool dpp_derive_i_auth(const void *r_nonce, const void *i_nonce,
 				size_t nonce_len, struct l_ecc_point *r_proto,
 				struct l_ecc_point *i_proto,
-				struct l_ecc_point *r_boot, void *i_auth);
+				struct l_ecc_point *r_boot,
+				struct l_ecc_point *i_boot, void *i_auth);
 struct l_ecc_scalar *dpp_derive_k1(const struct l_ecc_point *i_proto_public,
 				const struct l_ecc_scalar *boot_private,
 				void *k1);
@@ -174,10 +180,45 @@ struct l_ecc_scalar *dpp_derive_k2(const struct l_ecc_point *i_proto_public,
 				void *k2);
 bool dpp_derive_ke(const uint8_t *i_nonce, const uint8_t *r_nonce,
 				struct l_ecc_scalar *m, struct l_ecc_scalar *n,
-				void *ke);
+				struct l_ecc_point *l, void *ke);
 
 uint8_t *dpp_point_to_asn1(const struct l_ecc_point *p, size_t *len_out);
 struct l_ecc_point *dpp_point_from_asn1(const uint8_t *asn1, size_t len);
 
 struct dpp_uri_info *dpp_parse_uri(const char *uri);
 void dpp_free_uri_info(struct dpp_uri_info *info);
+
+struct l_ecc_point *dpp_derive_qi(const struct l_ecc_curve *curve,
+					const char *key,
+					const char *identifier,
+					const uint8_t *mac_initiator);
+struct l_ecc_point *dpp_derive_qr(const struct l_ecc_curve *curve,
+					const char *key,
+					const char *identifier,
+					const uint8_t *mac_responder);
+struct l_ecc_point *dpp_derive_li(
+				const struct l_ecc_point *boot_public,
+				const struct l_ecc_point *proto_public,
+				const struct l_ecc_scalar *boot_private);
+struct l_ecc_point *dpp_derive_lr(
+				const struct l_ecc_scalar *boot_private,
+				const struct l_ecc_scalar *proto_private,
+				const struct l_ecc_point *peer_public);
+bool dpp_derive_z(const uint8_t *mac_i, const uint8_t *mac_r,
+				const struct l_ecc_point *n,
+				const struct l_ecc_point *m,
+				const struct l_ecc_point *k,
+				const char *key,
+				const char *identifier,
+				void *z_out, size_t *z_len);
+bool dpp_derive_u(const struct l_ecc_point *j,
+			const uint8_t *mac_i,
+			const struct l_ecc_point *a,
+			const struct l_ecc_point *y,
+			const struct l_ecc_point *x,
+			void *u_out, size_t *u_len);
+bool dpp_derive_v(const struct l_ecc_point *l, const uint8_t *mac,
+			const struct l_ecc_point *b,
+			const struct l_ecc_point *x,
+			const struct l_ecc_point *y,
+			void *v_out, size_t *v_len);

@@ -43,7 +43,7 @@ const void *erp_get_rmsk(struct erp_state *erp, size_t *rmsk_len);
 
 void erp_cache_add(const char *id, const void *session_id, size_t session_len,
 			const void *emsk, size_t emsk_len,
-			const char *ssid);
+			const uint8_t *ssid, size_t ssid_len);
 
 void erp_cache_remove(const char *id);
 

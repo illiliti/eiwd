@@ -109,7 +109,7 @@ const struct band_freq_attrs *wiphy_get_frequency_info_list(
 						enum band_freq band,
 						size_t *size);
 
-bool wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band);
+int wiphy_band_is_disabled(const struct wiphy *wiphy, enum band_freq band);
 
 bool wiphy_supports_probe_resp_offload(struct wiphy *wiphy);
 bool wiphy_can_transition_disable(struct wiphy *wiphy);
@@ -127,8 +127,6 @@ bool wiphy_supports_iftype(struct wiphy *wiphy, uint32_t iftype);
 const uint8_t *wiphy_get_supported_rates(struct wiphy *wiphy,
 						enum band_freq band,
 						unsigned int *out_num);
-bool wiphy_supports_adhoc_rsn(struct wiphy *wiphy);
-bool wiphy_can_offchannel_tx(struct wiphy *wiphy);
 bool wiphy_supports_qos_set_map(struct wiphy *wiphy);
 bool wiphy_supports_firmware_roam(struct wiphy *wiphy);
 const char *wiphy_get_driver(struct wiphy *wiphy);
@@ -136,7 +134,6 @@ const char *wiphy_get_name(struct wiphy *wiphy);
 bool wiphy_uses_default_if(struct wiphy *wiphy);
 bool wiphy_control_port_enabled(struct wiphy *wiphy);
 bool wiphy_power_save_disabled(struct wiphy *wiphy);
-const uint8_t *wiphy_get_permanent_address(struct wiphy *wiphy);
 const uint8_t *wiphy_get_extended_capabilities(struct wiphy *wiphy,
 							uint32_t iftype);
 const uint8_t *wiphy_get_rm_enabled_capabilities(struct wiphy *wiphy);
@@ -149,7 +146,8 @@ const uint8_t *wiphy_get_ht_capabilities(const struct wiphy *wiphy,
 						enum band_freq band,
 						size_t *size);
 void wiphy_generate_random_address(struct wiphy *wiphy, uint8_t addr[static 6]);
-void wiphy_generate_address_from_ssid(struct wiphy *wiphy, const char *ssid,
+void wiphy_generate_address_from_ssid(struct wiphy *wiphy,
+					const uint8_t *ssid, size_t ssid_len,
 					uint8_t addr[static 6]);
 
 int wiphy_estimate_data_rate(struct wiphy *wiphy,

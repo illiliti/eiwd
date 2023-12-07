@@ -1,3 +1,15 @@
+ver 2.10:
+	Fix issue with buffer overflow for 32 byte SSIDs.
+	Fix issue with deauthentication before FT work completes.
+	Fix issue with power save disabling procedure.
+
+ver 2.9:
+	Fix issue with handling certain FT failures.
+	Fix issue with handling user-disabled bands.
+	Fix issue with handling roam on beacon loss event.
+	Add support for PKEX configurator.
+	Add support for PKEX enrollee.
+
 ver 2.8:
 	Fix issue with handling OWE AKM in association reply.
 

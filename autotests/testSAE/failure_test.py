@@ -37,12 +37,15 @@ class Test(unittest.TestCase):
         self.validate_connection(wd, 'InvalidSecret')
 
     def test_no_supported_groups(self):
-        hostapd = HostapdCLI(config='ssidSAE.conf')
-        hostapd.set_value('sae_groups', '1')
-        hostapd.reload()
+        self.hostapd.set_value('sae_groups', '1')
+        self.hostapd.reload()
 
         wd = IWD(True)
         self.validate_connection(wd, 'secret123')
+
+    def setUp(self):
+        self.hostapd = HostapdCLI(config='ssidSAE.conf')
+        self.hostapd.default()
 
     @classmethod
     def setUpClass(cls):

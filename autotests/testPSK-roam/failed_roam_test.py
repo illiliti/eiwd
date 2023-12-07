@@ -41,18 +41,10 @@ class Test(unittest.TestCase):
         self.assertRaises(Exception, testutil.test_ifaces_connected,
                           (prev.ifname, device.name, True, True))
 
-
     # FT-over-Air failure, should stay connected
     def test_ft_over_air_failure(self):
-        self.bss_hostapd[0].set_value('wpa_key_mgmt', 'FT-PSK')
-        self.bss_hostapd[0].set_value('ft_over_ds', '0')
-        self.bss_hostapd[0].reload()
-        self.bss_hostapd[0].wait_for_event("AP-ENABLED")
-
-        self.bss_hostapd[1].set_value('wpa_key_mgmt', 'FT-PSK')
-        self.bss_hostapd[1].set_value('ft_over_ds', '0')
-        self.bss_hostapd[1].reload()
-        self.bss_hostapd[1].wait_for_event("AP-ENABLED")
+        self.rule2.enabled = True
+        self.rule3.enabled = True
 
         wd = IWD(True)
 
@@ -70,11 +62,84 @@ class Test(unittest.TestCase):
         self.rule0.enabled = False
 
         # IWD should then try BSS 2, and succeed
+        device.wait_for_event('ft-roam', timeout=60)
         self.verify_roam(wd, device, self.bss_hostapd[0], self.bss_hostapd[2])
 
         self.bss_hostapd[2].deauthenticate(device.address)
+
+    # FT-over-Air failure with Invalid PMKID, should reassociate
+    def test_ft_over_air_fallback(self):
+        self.rule_bss0.signal = -8000
+        self.rule_bss0.enabled = True
+        self.rule_bss1.signal = -7500
+        self.rule_bss1.enabled = True
+        self.rule_bss2.signal = -6000
+        self.rule_bss2.enabled = True
+
+        # This will cause this BSS to reject any FT roams as its unable to
+        # get keys from other APs
+        self.bss_hostapd[2].set_value('ft_psk_generate_local', '0')
+        self.bss_hostapd[2].reload()
+
+        wd = IWD(True)
+
+        device = wd.list_devices(1)[0]
+
+        self.connect(wd, device, self.bss_hostapd[0])
+
+        # IWD should connect, then attempt a roam to BSS 1, which should
+        # fail and cause a fallback to reassociation
+        device.wait_for_event('ft-fallback-to-reassoc', timeout=60)
+        device.wait_for_event('reassoc-roam', timeout=60)
+
+        self.verify_roam(wd, device, self.bss_hostapd[0], self.bss_hostapd[2])
+
+        # Trigger another roam
+        self.rule_bss2.signal = -8000
+
+        device.wait_for_event('ft-roam', timeout=60)
+
+        # Ensure an FT roam back to a properly configured AP works.
+        self.verify_roam(wd, device, self.bss_hostapd[2], self.bss_hostapd[1])
+
+        self.bss_hostapd[1].deauthenticate(device.address)
         condition = 'obj.state == DeviceState.disconnected'
         wd.wait_for_object_condition(device, condition)
+
+    # FT-over-Air failure with Invalid PMKID. The ranking is such that other
+    # FT candidates are available so it should FT elsewhere rather than
+    # retry with reassociation
+    def test_ft_over_air_fallback_retry_ft(self):
+        self.rule_bss0.signal = -8000
+        self.rule_bss0.enabled = True
+        self.rule_bss1.signal = -7300
+        self.rule_bss1.enabled = True
+        self.rule_bss2.signal = -7100
+        self.rule_bss2.enabled = True
+
+        # This will cause this BSS to reject any FT roams as its unable to
+        # get keys from other APs
+        self.bss_hostapd[2].set_value('ft_psk_generate_local', '0')
+        self.bss_hostapd[2].reload()
+
+        wd = IWD(True)
+
+        device = wd.list_devices(1)[0]
+
+        self.connect(wd, device, self.bss_hostapd[0])
+
+        # IWD should connect, then attempt a roam to BSS 1, which should
+        # fail and cause the rank to be re-computed. This should then put
+        # bss 1 as the next candidate (since the FT factor is removed)
+        device.wait_for_event('ft-fallback-to-reassoc', timeout=60)
+        device.wait_for_event('ft-roam', timeout=60)
+
+        self.verify_roam(wd, device, self.bss_hostapd[0], self.bss_hostapd[1])
+
+        self.bss_hostapd[1].deauthenticate(device.address)
+        condition = 'obj.state == DeviceState.disconnected'
+        wd.wait_for_object_condition(device, condition)
+
 
     def tearDown(self):
         os.system('ip link set "' + self.bss_hostapd[0].ifname + '" down')
@@ -85,6 +150,13 @@ class Test(unittest.TestCase):
         self.rule0.enabled = False
         self.rule1.enabled = False
         self.rule2.enabled = False
+        self.rule3.enabled = False
+        self.rule_bss0.enabled = False
+        self.rule_bss1.enabled = False
+        self.rule_bss2.enabled = False
+
+        for hapd in self.bss_hostapd:
+            hapd.default()
 
     @classmethod
     def setUpClass(cls):
@@ -116,13 +188,18 @@ class Test(unittest.TestCase):
         cls.rule2 = hwsim.rules.create()
         cls.rule2.source = hwsim.get_radio('rad0').addresses[0]
         cls.rule2.signal = -8000
-        cls.rule2.enabled = True
 
         # Causes IWD to first prefer BSS 1 to roam, then BSS 2.
         cls.rule3 = hwsim.rules.create()
         cls.rule3.source = hwsim.get_radio('rad2').addresses[0]
         cls.rule3.signal = -7000
-        cls.rule3.enabled = True
+
+        cls.rule_bss0 = hwsim.rules.create()
+        cls.rule_bss0.source = hwsim.get_radio('rad0').addresses[0]
+        cls.rule_bss1 = hwsim.rules.create()
+        cls.rule_bss1.source = hwsim.get_radio('rad1').addresses[0]
+        cls.rule_bss2 = hwsim.rules.create()
+        cls.rule_bss2.source = hwsim.get_radio('rad2').addresses[0]
 
     @classmethod
     def tearDownClass(cls):
