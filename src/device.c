@@ -290,9 +290,7 @@ static void device_wiphy_state_changed_event(struct wiphy *wiphy,
 static struct device *device_create(struct wiphy *wiphy, struct netdev *netdev)
 {
 	struct device *device;
-#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
-#endif
 	uint32_t ifindex = netdev_get_ifindex(netdev);
 
 	device = l_new(struct device, 1);
@@ -300,11 +298,11 @@ static struct device *device_create(struct wiphy *wiphy, struct netdev *netdev)
 	device->wiphy = wiphy;
 	device->netdev = netdev;
 
-#ifdef HAVE_DBUS
 	if (!l_dbus_object_add_interface(dbus, netdev_get_path(device->netdev),
 					IWD_DEVICE_INTERFACE, device))
 		l_info("Unable to register %s interface", IWD_DEVICE_INTERFACE);
 
+#ifdef HAVE_DBUS
 	if (!l_dbus_object_add_interface(dbus, netdev_get_path(device->netdev),
 					L_DBUS_INTERFACE_PROPERTIES, device))
 		l_info("Unable to register %s interface",
@@ -342,23 +340,23 @@ static void device_netdev_notify(struct netdev *netdev,
 					enum netdev_watch_event event,
 					void *user_data)
 {
-#ifdef HAVE_DBUS
 	struct device *device;
 	struct l_dbus *dbus = dbus_get_bus();
 	const char *path = netdev_get_path(netdev);
 
+#ifdef HAVE_DBUS
 	device = l_dbus_object_get_data(dbus, path, IWD_DEVICE_INTERFACE);
 
 	if (!device && event != NETDEV_WATCH_EVENT_NEW)
 		return;
+#else
+    device = NULL;
 #endif
 
 	switch (event) {
 	case NETDEV_WATCH_EVENT_NEW:
-#ifdef HAVE_DBUS
 		if (L_WARN_ON(device))
 			break;
-#endif
 
 		if (netdev_get_iftype(netdev) == NETDEV_IFTYPE_P2P_CLIENT ||
 				netdev_get_iftype(netdev) ==
@@ -367,10 +365,10 @@ static void device_netdev_notify(struct netdev *netdev,
 
 		device_create(netdev_get_wiphy(netdev), netdev);
 		break;
-#ifdef HAVE_DBUS
 	case NETDEV_WATCH_EVENT_DEL:
 		l_dbus_unregister_object(dbus, path);
 		break;
+#ifdef HAVE_DBUS
 	case NETDEV_WATCH_EVENT_UP:
 		device->powered = true;
 
@@ -383,6 +381,7 @@ static void device_netdev_notify(struct netdev *netdev,
 		l_dbus_property_changed(dbus, path,
 					IWD_DEVICE_INTERFACE, "Powered");
 		break;
+#endif
 	case NETDEV_WATCH_EVENT_NAME_CHANGE:
 		l_dbus_property_changed(dbus, path,
 					IWD_DEVICE_INTERFACE, "Name");
@@ -391,7 +390,6 @@ static void device_netdev_notify(struct netdev *netdev,
 		l_dbus_property_changed(dbus, path,
 					IWD_DEVICE_INTERFACE, "Address");
 		break;
-#endif
 	default:
 		break;
 	}
@@ -406,13 +404,11 @@ static void destroy_device_interface(void *user_data)
 
 static int device_init(void)
 {
-#ifdef HAVE_DBUS
 	if (!l_dbus_register_interface(dbus_get_bus(),
 					IWD_DEVICE_INTERFACE,
 					setup_device_interface,
 					destroy_device_interface, false))
 		return -EPERM;
-#endif
 
 	netdev_watch = netdev_watch_add(device_netdev_notify, NULL, NULL);
 
@@ -422,9 +418,7 @@ static int device_init(void)
 static void device_exit(void)
 {
 	netdev_watch_remove(netdev_watch);
-#ifdef HAVE_DBUS
 	l_dbus_unregister_interface(dbus_get_bus(), IWD_DEVICE_INTERFACE);
-#endif
 }
 
 IWD_MODULE(device, device_init, device_exit)

@@ -220,24 +220,24 @@ static void known_network_register_dbus(struct network_info *network)
 		l_info("Unable to register %s interface",
 						IWD_KNOWN_NETWORK_INTERFACE);
 
+#ifdef HAVE_DBUS
 	if (!l_dbus_object_add_interface(dbus_get_bus(), path,
 					L_DBUS_INTERFACE_PROPERTIES, network))
 		l_info("Unable to register %s interface",
 						L_DBUS_INTERFACE_PROPERTIES);
+#endif
 }
 
 static void known_network_set_autoconnect(struct network_info *network,
-							bool autoconnect)
+bool autoconnect)
 {
 	if (network->config.is_autoconnectable == autoconnect)
 		return;
 
 	network->config.is_autoconnectable = autoconnect;
 
-#ifdef HAVE_DBUS
 	l_dbus_property_changed(dbus_get_bus(), known_network_get_path(network),
 				IWD_KNOWN_NETWORK_INTERFACE, "AutoConnect");
-#endif
 }
 
 static int known_network_touch(struct network_info *info)
@@ -437,12 +437,10 @@ void known_network_set_connected_time(struct network_info *network,
 
 	network->config.connected_time = connected_time;
 
-#ifdef HAVE_DBUS
 	l_dbus_property_changed(dbus_get_bus(),
 				known_network_get_path(network),
 				IWD_KNOWN_NETWORK_INTERFACE,
 				"LastConnectedTime");
-#endif
 
 	l_queue_remove(known_networks, network);
 	l_queue_insert(known_networks, network, connected_time_compare, NULL);
@@ -461,12 +459,10 @@ void known_network_update(struct network_info *network,
 		else if (!old->is_hidden && new->is_hidden)
 			num_known_hidden_networks++;
 
-#ifdef HAVE_DBUS
 		l_dbus_property_changed(dbus_get_bus(),
 					known_network_get_path(network),
 					IWD_KNOWN_NETWORK_INTERFACE,
 					"Hidden");
-#endif
 
 		old->is_hidden = new->is_hidden;
 	}
@@ -733,10 +729,8 @@ void known_networks_remove(struct network_info *network)
 		num_known_hidden_networks--;
 
 	l_queue_remove(known_networks, network);
-#ifdef HAVE_DBUS
 	l_dbus_unregister_object(dbus_get_bus(),
 					known_network_get_path(network));
-#endif
 
 	WATCHLIST_NOTIFY(&known_network_watches,
 				known_networks_watch_func_t,
@@ -756,9 +750,7 @@ void known_networks_remove(struct network_info *network)
 void known_networks_add(struct network_info *network)
 {
 	l_queue_insert(known_networks, network, connected_time_compare, NULL);
-#ifdef HAVE_DBUS
 	known_network_register_dbus(network);
-#endif
 
 	WATCHLIST_NOTIFY(&known_network_watches,
 				known_networks_watch_func_t,
@@ -1055,15 +1047,12 @@ void known_networks_watch_remove(uint32_t id)
 
 static int known_networks_init(void)
 {
-#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
-#endif
 	DIR *dir;
 	struct dirent *dirent;
 
 	L_AUTO_FREE_VAR(char *, storage_dir) = storage_get_path(NULL);
 
-#ifdef HAVE_DBUS
 	if (!l_dbus_register_interface(dbus, IWD_KNOWN_NETWORK_INTERFACE,
 						setup_known_network_interface,
 						NULL, false)) {
@@ -1071,14 +1060,11 @@ static int known_networks_init(void)
 				IWD_KNOWN_NETWORK_INTERFACE);
 		return -EPERM;
 	}
-#endif
 
 	dir = opendir(storage_dir);
 	if (!dir) {
 		l_info("Unable to open %s: %s", storage_dir, strerror(errno));
-#ifdef HAVE_DBUS
 		l_dbus_unregister_interface(dbus, IWD_KNOWN_NETWORK_INTERFACE);
-#endif
 		return -ENOENT;
 	}
 
@@ -1129,18 +1115,14 @@ static int known_networks_init(void)
 
 static void known_networks_exit(void)
 {
-#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
-#endif
 
 	l_dir_watch_destroy(storage_dir_watch);
 
 	l_queue_destroy(known_networks, network_info_free);
 	known_networks = NULL;
 
-#ifdef HAVE_DBUS
 	l_dbus_unregister_interface(dbus, IWD_KNOWN_NETWORK_INTERFACE);
-#endif
 
 	watchlist_destroy(&known_network_watches);
 }

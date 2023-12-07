@@ -40,10 +40,11 @@
 
 #include "linux/nl80211.h"
 
+#include "src/dbus.h"
+#include "src/agent.h"
 #include "src/iwd.h"
 #include "src/module.h"
 #include "src/wiphy.h"
-#include "src/dbus.h"
 #include "src/eap.h"
 #include "src/eapol.h"
 #include "src/rfkill.h"
@@ -84,9 +85,8 @@ static void iwd_shutdown(void)
 		return;
 	}
 
-#ifdef HAVE_DBUS
 	dbus_shutdown();
-#endif
+
 	netdev_shutdown();
 
 	timeout = l_timeout_create(1, main_loop_quit, NULL, NULL);

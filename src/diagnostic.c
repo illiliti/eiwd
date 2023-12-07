@@ -26,8 +26,8 @@
 
 #include <ell/ell.h>
 
-#include "src/diagnostic.h"
 #include "src/dbus.h"
+#include "src/diagnostic.h"
 #include "src/ie.h"
 
 /*

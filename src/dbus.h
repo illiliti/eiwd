@@ -19,8 +19,9 @@
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  *
  */
-
 #include <stdbool.h>
+#include "ell/dbus.h"
+#include "ell/dbus-service.h"
 
 #define IWD_SERVICE "net.connman.iwd"
 
@@ -88,3 +89,29 @@ struct l_dbus_message *dbus_error_from_errno(int err,
 bool dbus_init(struct l_dbus *dbus);
 void dbus_exit(void);
 void dbus_shutdown(void);
+
+#ifndef HAVE_DBUS
+bool fake_dbus_register_interface(const char *interface,
+                                  l_dbus_interface_setup_func_t setup_func,
+                                  l_dbus_destroy_func_t destroy);
+bool fake_dbus_unregister_interface(const char *interface);
+bool fake_dbus_object_add_interface(const char *object, const char *interface, void *user_data);
+bool fake_dbus_object_remove_interface(const char *object, const char *interface);
+
+#define l_dbus_register_interface(dbus, interface, setup_func, destroy, handle_old_style_properties) \
+    fake_dbus_register_interface(interface, setup_func, destroy)
+#define l_dbus_unregister_interface(dbus, interface) fake_dbus_unregister_interface(interface)
+#define l_dbus_object_add_interface(dbus, object, interface, user_data) fake_dbus_object_add_interface(object, interface, user_data)
+#define l_dbus_object_remove_interface(dbus, object, interface) fake_dbus_object_remove_interface(object, interface)
+
+/* Stub dbus-service.h */
+#define l_dbus_interface_method(...) (false)
+#define l_dbus_interface_signal(...) (false)
+#define l_dbus_interface_property(...) (false)
+#define l_dbus_property_changed(...) (false)
+
+#undef L_DBUS_INTERFACE_DBUS
+#undef L_DBUS_INTERFACE_INTROSPECTABLE
+#undef L_DBUS_INTERFACE_PROPERTIES
+#undef L_DBUS_INTERFACE_OBJECT_MANAGER
+#endif

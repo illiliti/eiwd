@@ -30,7 +30,6 @@
 #include <errno.h>
 
 #include <ell/ell.h>
-#include <ell/dbus.h>
 
 #include "src/dbus.h"
 #include "src/simauth.h"

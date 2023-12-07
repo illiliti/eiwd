@@ -4779,7 +4779,6 @@ static void ap_netdev_watch(struct netdev *netdev,
 {
 	switch (event) {
 	case NETDEV_WATCH_EVENT_UP:
-#ifdef HAVE_DBUS
 	case NETDEV_WATCH_EVENT_NEW:
 		if (netdev_get_iftype(netdev) == NETDEV_IFTYPE_AP &&
 				netdev_get_is_up(netdev))
@@ -4789,7 +4788,6 @@ static void ap_netdev_watch(struct netdev *netdev,
 	case NETDEV_WATCH_EVENT_DEL:
 		ap_remove_interface(netdev);
 		break;
-#endif
 	default:
 		break;
 	}
@@ -4801,13 +4799,11 @@ static int ap_init(void)
 
 	netdev_watch = netdev_watch_add(ap_netdev_watch, NULL, NULL);
 
-#ifdef HAVE_DBUS
 	l_dbus_register_interface(dbus_get_bus(), IWD_AP_INTERFACE,
 			ap_setup_interface, ap_destroy_interface, false);
 	l_dbus_register_interface(dbus_get_bus(), IWD_AP_DIAGNOSTIC_INTERFACE,
 			ap_setup_diagnostic_interface,
 			ap_diagnostic_interface_destroy, false);
-#endif
 
 	/*
 	 * Enable network configuration and DHCP only if
@@ -4838,9 +4834,7 @@ static int ap_init(void)
 static void ap_exit(void)
 {
 	netdev_watch_remove(netdev_watch);
-#ifdef HAVE_DBUS
 	l_dbus_unregister_interface(dbus_get_bus(), IWD_AP_INTERFACE);
-#endif
 
 	l_strv_free(global_addr4_strs);
 }

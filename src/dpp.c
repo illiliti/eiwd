@@ -3781,10 +3781,11 @@ static void dpp_create(struct netdev *netdev)
 					dpp_station_state_watch, dpp, NULL);
 
 	l_queue_push_tail(dpp_list, dpp);
+
 }
 
 static void dpp_netdev_watch(struct netdev *netdev,
-				enum netdev_watch_event event, void *userdata)
+                               enum netdev_watch_event event, void *userdata)
 {
 	switch (event) {
 	case NETDEV_WATCH_EVENT_NEW:

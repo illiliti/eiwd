@@ -63,6 +63,7 @@
 #include "src/fils.h"
 #include "src/auth-proto.h"
 #include "src/frame-xchg.h"
+#include "src/dbus.h"
 #include "src/diagnostic.h"
 #include "src/band.h"
 

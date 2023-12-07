@@ -764,10 +764,8 @@ void network_set_info(struct network *network, struct network_info *info)
 		network->info = NULL;
 	}
 
-#ifdef HAVE_DBUS
 	l_dbus_property_changed(dbus_get_bus(), network_get_path(network),
 					IWD_NETWORK_INTERFACE, "KnownNetwork");
-#endif
 }
 
 void network_set_force_default_owe_group(struct network *network)
@@ -1796,7 +1794,6 @@ static bool network_property_get_known_network(struct l_dbus *dbus,
 
 bool network_register(struct network *network, const char *path)
 {
-#ifdef HAVE_DBUS
 	if (!l_dbus_object_add_interface(dbus_get_bus(), path,
 					IWD_NETWORK_INTERFACE, network)) {
 		l_info("Unable to register %s interface",
@@ -1804,6 +1801,7 @@ bool network_register(struct network *network, const char *path)
 		return false;
 	}
 
+#ifdef HAVE_DBUS
 	if (!l_dbus_object_add_interface(dbus_get_bus(), path,
 					L_DBUS_INTERFACE_PROPERTIES, network))
 		l_info("Unable to register %s interface",
@@ -1817,9 +1815,7 @@ bool network_register(struct network *network, const char *path)
 
 static void network_unregister(struct network *network, int reason)
 {
-#ifdef HAVE_DBUS
 	struct l_dbus *dbus = dbus_get_bus();
-#endif
 
 	if (network->connect_after_anqp)
 		dbus_pending_reply(&network->connect_after_anqp,
@@ -1832,9 +1828,7 @@ static void network_unregister(struct network *network, int reason)
 	agent_request_cancel(network->agent_request, reason);
 	network_settings_close(network);
 
-#ifdef HAVE_DBUS
 	l_dbus_unregister_object(dbus, network->object_path);
-#endif
 
 	l_free(network->object_path);
 	network->object_path = NULL;
@@ -2102,12 +2096,10 @@ static void setup_network_interface(struct l_dbus_interface *interface)
 
 static int network_init(void)
 {
-#ifdef HAVE_DBUS
 	if (!l_dbus_register_interface(dbus_get_bus(), IWD_NETWORK_INTERFACE,
 					setup_network_interface, NULL, false))
 		l_error("Unable to register %s interface",
 						IWD_NETWORK_INTERFACE);
-#endif
 
 	known_networks_watch =
 		known_networks_watch_add(known_networks_changed, NULL, NULL);
@@ -2125,9 +2117,7 @@ static void network_exit(void)
 	station_remove_event_watch(event_watch);
 	event_watch = 0;
 
-#ifdef HAVE_DBUS
 	l_dbus_unregister_interface(dbus_get_bus(), IWD_NETWORK_INTERFACE);
-#endif
 }
 
 IWD_MODULE(network, network_init, network_exit)

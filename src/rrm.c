@@ -36,6 +36,7 @@
 #include "src/iwd.h"
 #include "src/ie.h"
 #include "src/util.h"
+#include "src/dbus.h"
 #include "src/station.h"
 #include "src/scan.h"
 #include "src/nl80211util.h"
