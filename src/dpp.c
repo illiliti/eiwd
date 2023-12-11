@@ -391,6 +391,7 @@ static void dpp_agent_release(struct dpp_sm *dpp)
 						dpp->agent->path,
 						IWD_SHARED_CODE_AGENT_INTERFACE,
 						"Release");
+	l_dbus_message_set_arguments(msg, "");
 	l_dbus_message_set_no_reply(msg, true);
 	l_dbus_send(dbus_get_bus(), msg);
 }
