@@ -201,9 +201,9 @@ class SignalAgent(dbus.service.Object):
         return self._path
 
     @dbus.service.method(IWD_SIGNAL_AGENT_INTERFACE,
-                         in_signature='', out_signature='')
-    def Release(self):
-        print("SignalAgent released")
+                         in_signature='o', out_signature='')
+    def Release(self, path):
+        print("SignalAgent released %s" % path)
 
     @dbus.service.method(IWD_SIGNAL_AGENT_INTERFACE,
                          in_signature='oy', out_signature='')
