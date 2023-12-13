@@ -1,3 +1,8 @@
+ver 2.11:
+	Fix issue with handling iovecs with multiple IEs.
+	Fix issue with handling SAE password identifiers.
+	Fix issue with handling agent release method call.
+
 ver 2.10:
 	Fix issue with buffer overflow for 32 byte SSIDs.
 	Fix issue with deauthentication before FT work completes.
