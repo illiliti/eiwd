@@ -35,12 +35,23 @@ class Test(unittest.TestCase):
         wd.wait_for_object_condition(ordered_network.network_object, condition)
 
     def test_SAE(self):
+        IWD.copy_to_storage("ssidSAE.psk.default", name="ssidSAE.psk")
         self.hostapd.wait_for_event("AP-ENABLED")
 
         wd = IWD(True)
         self.validate_connection(wd)
 
     def test_SAE_H2E(self):
+        IWD.copy_to_storage("ssidSAE.psk.default", name="ssidSAE.psk")
+        self.hostapd.set_value('sae_pwe', '1')
+        self.hostapd.set_value('sae_groups', '20')
+        self.hostapd.reload()
+        self.hostapd.wait_for_event("AP-ENABLED")
+        wd = IWD(True)
+        self.validate_connection(wd)
+
+    def test_SAE_H2E_password_identifier(self):
+        IWD.copy_to_storage("ssidSAE.psk.identifier", name="ssidSAE.psk")
         self.hostapd.set_value('sae_pwe', '1')
         self.hostapd.set_value('sae_groups', '20')
         self.hostapd.reload()
@@ -51,15 +62,12 @@ class Test(unittest.TestCase):
     def setUp(self):
         self.hostapd.default()
 
+    def tearDown(self):
+        IWD.clear_storage()
+
     @classmethod
     def setUpClass(cls):
         cls.hostapd = HostapdCLI(config='ssidSAE.conf')
-        IWD.copy_to_storage('ssidSAE.psk')
-        pass
-
-    @classmethod
-    def tearDownClass(cls):
-        IWD.clear_storage()
 
 if __name__ == '__main__':
     unittest.main(exit=True)
