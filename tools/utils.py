@@ -34,6 +34,9 @@ class Process(subprocess.Popen):
 
 		logfile = args[0]
 
+		if not shutil.which(args[0]):
+			raise Exception("%s is not found on system" % args[0])
+
 		if Process.is_verbose(args[0], log=False):
 			self.verbose = True
 
