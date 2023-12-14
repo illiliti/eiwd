@@ -582,7 +582,6 @@ int network_handshake_setup(struct network *network, struct scan_bss *bss,
 }
 
 static int network_settings_load_pt_ecc(struct network *network,
-					const char *path,
 					unsigned int group,
 					struct l_ecc_point **out_pt)
 {
@@ -607,7 +606,7 @@ static int network_settings_load_pt_ecc(struct network *network,
 		return 0;
 
 bad_format:
-	l_error("%s: invalid %s format", path, key);
+	l_error("%s profile: invalid %s format", network->ssid, key);
 
 generate:
 	if (!network->passphrase)
@@ -686,12 +685,10 @@ static int network_load_psk(struct network *network, struct scan_bss *bss)
 	network->passphrase = l_steal_ptr(passphrase);
 	network->password_identifier = l_steal_ptr(password_id);
 
-	if (network_settings_load_pt_ecc(network, path,
-						19, &network->sae_pt_19) > 0)
+	if (network_settings_load_pt_ecc(network, 19, &network->sae_pt_19) > 0)
 		network->sync_settings = true;
 
-	if (network_settings_load_pt_ecc(network, path,
-						20, &network->sae_pt_20) > 0)
+	if (network_settings_load_pt_ecc(network, 20, &network->sae_pt_20) > 0)
 		network->sync_settings = true;
 
 	network->psk = l_steal_ptr(psk);
