@@ -70,6 +70,7 @@ struct network {
 	struct network_info *info;
 	unsigned char *psk;
 	char *passphrase;
+	char *password_identifier;
 	struct l_ecc_point *sae_pt_19; /* SAE PT for Group 19 */
 	struct l_ecc_point *sae_pt_20; /* SAE PT for Group 20 */
 	unsigned int agent_request;
@@ -122,6 +123,13 @@ static void network_reset_passphrase(struct network *network)
 				strlen(network->passphrase));
 		l_free(network->passphrase);
 		network->passphrase = NULL;
+	}
+
+	if (network->password_identifier) {
+		explicit_bzero(network->password_identifier,
+				strlen(network->password_identifier));
+		l_free(network->password_identifier);
+		network->password_identifier = NULL;
 	}
 
 	if (network->sae_pt_19) {
@@ -317,7 +325,8 @@ static struct l_ecc_point *network_generate_sae_pt(struct network *network,
 	l_debug("Generating PT for Group %u", group);
 
 	pt = crypto_derive_sae_pt_ecc(group, network->ssid,
-						network->passphrase, NULL);
+						network->passphrase,
+						network->password_identifier);
 	if (!pt)
 		l_warn("SAE PT generation for Group %u failed", group);
 
@@ -462,6 +471,10 @@ static int network_set_handshake_secrets_psk(struct network *network,
 
 		handshake_state_set_passphrase(hs, network->passphrase);
 
+		if (network->password_identifier)
+			handshake_state_set_password_identifier(hs,
+						network->password_identifier);
+
 		if (ie_rsnxe_capable(hs->authenticator_rsnxe,
 							IE_RSNX_SAE_H2E)) {
 			l_debug("Authenticator is SAE H2E capable");
@@ -495,6 +508,19 @@ int network_handshake_setup(struct network *network, struct scan_bss *bss,
 
 	switch (network->security) {
 	case SECURITY_PSK:
+		/* Check the BSS password ID settings match our configuration */
+		if (bss->sae_pw_id_exclusive && !network->password_identifier) {
+			l_error("[Security].PasswordIdentifier is not set but "
+				"BSS requires SAE password identifiers");
+			return -ENOKEY;
+		}
+
+		if (!bss->sae_pw_id_used && network->password_identifier) {
+			l_error("[Security].PasswordIdentifier set but BSS "
+				"does not not use password identifiers");
+			return -ENOKEY;
+		}
+
 		r = network_set_handshake_secrets_psk(network, hs);
 		if (r < 0)
 			return r;
@@ -631,6 +657,9 @@ static int network_load_psk(struct network *network, struct scan_bss *bss)
 	_auto_(l_free) char *passphrase =
 			l_settings_get_string(network->settings,
 						"Security", "Passphrase");
+	_auto_(l_free) char *password_id =
+			l_settings_get_string(network->settings, "Security",
+						"PasswordIdentifier");
 	_auto_(l_free) char *path =
 		storage_get_network_file_path(security, ssid);
 
@@ -655,6 +684,7 @@ static int network_load_psk(struct network *network, struct scan_bss *bss)
 	network_reset_passphrase(network);
 	network_reset_psk(network);
 	network->passphrase = l_steal_ptr(passphrase);
+	network->password_identifier = l_steal_ptr(password_id);
 
 	if (network_settings_load_pt_ecc(network, path,
 						19, &network->sae_pt_19) > 0)
@@ -725,6 +755,11 @@ static void network_settings_save(struct network *network,
 	if (network->passphrase)
 		l_settings_set_string(settings, "Security", "Passphrase",
 					network->passphrase);
+
+	if (network->password_identifier)
+		l_settings_set_string(settings, "Security",
+					"PasswordIdentifier",
+					network->password_identifier);
 
 	if (network->sae_pt_19)
 		network_settings_save_sae_pt_ecc(settings, network->sae_pt_19);
