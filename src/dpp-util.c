@@ -1376,8 +1376,9 @@ bool dpp_derive_z(const uint8_t *mac_i, const uint8_t *mac_r,
 	hkdf_extract(sha, NULL, 0, 1, prk, k_x, bytes);
 
 	/* HKDF-Extract (since it doesn't take non-string arguments)*/
-	prf_plus(sha, prk, bytes, z_out, bytes, 5, mac_i, 6, mac_r, 6, m_x,
-			bytes, n_x, bytes, key, strlen(key));
+	prf_plus(sha, prk, bytes, z_out, bytes, 5,
+		mac_i, (size_t) 6, mac_r, (size_t) 6, m_x, bytes,
+		n_x, bytes, key, strlen(key));
 
 	*z_len = bytes;
 
