@@ -2033,6 +2033,8 @@ static void known_networks_changed(enum known_networks_event event,
 	case KNOWN_NETWORKS_EVENT_REMOVED:
 		station_foreach(emit_known_network_removed, (void *) info);
 		break;
+	case KNOWN_NETWORKS_EVENT_UPDATED:
+		break;
 	}
 }
 

@@ -468,6 +468,10 @@ void known_network_update(struct network_info *network,
 	known_network_set_autoconnect(network, new->is_autoconnectable);
 
 	memcpy(&network->config, new, sizeof(struct network_config));
+
+	WATCHLIST_NOTIFY(&known_network_watches,
+				known_networks_watch_func_t,
+				KNOWN_NETWORKS_EVENT_UPDATED, network);
 }
 
 bool known_networks_foreach(known_networks_foreach_func_t function,

@@ -35,6 +35,7 @@ struct network_info;
 enum known_networks_event {
 	KNOWN_NETWORKS_EVENT_ADDED,
 	KNOWN_NETWORKS_EVENT_REMOVED,
+	KNOWN_NETWORKS_EVENT_UPDATED,
 };
 
 struct network_info_ops {
