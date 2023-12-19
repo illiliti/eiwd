@@ -26,11 +26,11 @@ class Test(unittest.TestCase):
         self.wpas.dpp_stop_listen()
         self.wpas.dpp_configurator_remove()
 
-    def start_iwd_pkex_configurator(self, device, agent=False):
+    def start_iwd_pkex_configurator(self, device, agent=False, profile='ssidCCMP.psk'):
         self.hapd.reload()
         self.hapd.wait_for_event('AP-ENABLED')
 
-        IWD.copy_to_storage('ssidCCMP.psk')
+        IWD.copy_to_storage(profile)
         device.autoconnect = True
 
         condition = 'obj.state == DeviceState.connected'
@@ -186,6 +186,71 @@ class Test(unittest.TestCase):
 
         self.agent = None
 
+    def test_existing_network(self):
+        self.hapd.reload()
+        self.hapd.wait_for_event('AP-ENABLED')
+        IWD.copy_to_storage("existingProfile.psk", "/tmp/ns0/", "ssidCCMP.psk")
+
+        # Scan first so a network object exists, and its a known network
+        self.device[1].scan()
+        self.wd.wait_for_object_condition(self.device[1], 'obj.scanning == True')
+        self.wd.wait_for_object_condition(self.device[1], 'obj.scanning == False')
+
+        self.start_iwd_pkex_configurator(self.device[0])
+
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
+        self.device[1].autoconnect = False
+
+        condition = 'obj.state == DeviceState.connected'
+        self.wd.wait_for_object_condition(self.device[1], condition)
+
+        # Check additional settings were carried over
+        with open('/tmp/ns0/ssidCCMP.psk', 'r') as f:
+            settings = f.read()
+
+        self.assertIn("SendHostname=true", settings)
+
+    def test_existing_hidden_network(self):
+        self.hapd_hidden.reload()
+        self.hapd_hidden.wait_for_event('AP-ENABLED')
+        IWD.copy_to_storage("existingProfile.psk", "/tmp/ns0/", "ssidHidden.psk")
+
+        # Scan first so a network object exists, and its a known network
+        self.device[1].scan()
+        self.wd.wait_for_object_condition(self.device[1], 'obj.scanning == True')
+        self.wd.wait_for_object_condition(self.device[1], 'obj.scanning == False')
+
+        self.start_iwd_pkex_configurator(self.device[0], profile='ssidHidden.psk')
+
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
+        self.device[1].autoconnect = False
+
+        condition = 'obj.state == DeviceState.connected'
+        self.wd.wait_for_object_condition(self.device[1], condition)
+
+        # Check additional settings were carried over
+        with open('/tmp/ns0/ssidHidden.psk', 'r') as f:
+            settings = f.read()
+
+        self.assertIn("Hidden=true", settings)
+
+    def test_hidden_network(self):
+        self.hapd_hidden.reload()
+        self.hapd_hidden.wait_for_event('AP-ENABLED')
+        self.start_iwd_pkex_configurator(self.device[0], profile='ssidHidden.psk')
+
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
+        self.device[1].autoconnect = False
+
+        condition = 'obj.state == DeviceState.connected'
+        self.wd.wait_for_object_condition(self.device[1], condition)
+
+        # Check additional settings were carried over
+        with open('/tmp/ns0/ssidHidden.psk', 'r') as f:
+            settings = f.read()
+
+        self.assertIn("Hidden=true", settings)
+
     def setUp(self):
         ns0 = ctx.get_namespace('ns0')
         self.wpas = Wpas('wpas.conf')
@@ -197,6 +262,8 @@ class Test(unittest.TestCase):
         self.device.append(self.wd_ns0.list_devices(1)[0])
         self.hapd = HostapdCLI('hostapd.conf')
         self.hapd.disable()
+        self.hapd_hidden = HostapdCLI('ssidHidden.conf')
+        self.hapd_hidden.disable()
         self.hwsim = Hwsim()
 
         self.rule_xchg_resp = self.hwsim.rules.create()
@@ -240,6 +307,7 @@ class Test(unittest.TestCase):
         self.hapd = None
         self.rule_xchg_resp = None
         IWD.clear_storage()
+        IWD.clear_storage('/tmp/ns0')
 
     @classmethod
     def setUpClass(cls):
