@@ -7280,12 +7280,6 @@ static void nlmon_message(struct nlmon *nlmon, const struct timeval *tv,
 		return;
 	}
 
-	if (!nlmon->read && nlmsg->nlmsg_type != nlmon->id) {
-		if (nlmsg->nlmsg_type == GENL_ID_CTRL)
-			store_message(nlmon, tv, nlmsg);
-		return;
-	}
-
 	if (nlmsg->nlmsg_flags & NLM_F_REQUEST) {
 		const struct genlmsghdr *genlmsg = NLMSG_DATA(nlmsg);
 		uint32_t flags = nlmsg->nlmsg_flags & ~NLM_F_REQUEST;
@@ -8137,13 +8131,15 @@ void nlmon_print_rtnl(struct nlmon *nlmon, const struct timeval *tv,
 	int64_t aligned_size = NLMSG_ALIGN(size);
 	const struct nlmsghdr *nlmsg;
 
-	if (nlmon->nortnl)
-		return;
-
 	update_time_offset(tv);
 
 	for (nlmsg = data; NLMSG_OK(nlmsg, aligned_size);
 				nlmsg = NLMSG_NEXT(nlmsg, aligned_size)) {
+		store_netlink(nlmon, tv, NETLINK_ROUTE, nlmsg);
+
+		if (nlmon->nortnl)
+			continue;
+
 		switch (nlmsg->nlmsg_type) {
 		case NLMSG_NOOP:
 		case NLMSG_OVERRUN:
@@ -8177,7 +8173,12 @@ void nlmon_print_genl(struct nlmon *nlmon, const struct timeval *tv,
 
 	for (nlmsg = data; NLMSG_OK(nlmsg, size);
 				nlmsg = NLMSG_NEXT(nlmsg, size)) {
-		if (nlmsg->nlmsg_type == GENL_ID_CTRL)
+		if (nlmsg->nlmsg_type == GENL_ID_CTRL) {
+			store_message(nlmon, tv, nlmsg);
+			continue;
+		}
+
+		if (!nlmon->read && nlmsg->nlmsg_type != nlmon->id)
 			continue;
 
 		nlmon_message(nlmon, tv, nlmsg);
@@ -8187,7 +8188,6 @@ void nlmon_print_genl(struct nlmon *nlmon, const struct timeval *tv,
 static bool nlmon_receive(struct l_io *io, void *user_data)
 {
 	struct nlmon *nlmon = user_data;
-	struct nlmsghdr *nlmsg;
 	struct msghdr msg;
 	struct sockaddr_ll sll;
 	struct iovec iov;
@@ -8198,7 +8198,6 @@ static bool nlmon_receive(struct l_io *io, void *user_data)
 	unsigned char buf[8192];
 	unsigned char control[32];
 	ssize_t bytes_read;
-	int64_t nlmsg_len;
 	int fd;
 
 	fd = l_io_get_fd(io);
@@ -8241,20 +8240,13 @@ static bool nlmon_receive(struct l_io *io, void *user_data)
 		}
 	}
 
-	nlmsg_len = bytes_read;
-
-	for (nlmsg = iov.iov_base; NLMSG_OK(nlmsg, nlmsg_len);
-				nlmsg = NLMSG_NEXT(nlmsg, nlmsg_len)) {
-		switch (proto_type) {
-		case NETLINK_ROUTE:
-			store_netlink(nlmon, tv, proto_type, nlmsg);
-
-			nlmon_print_rtnl(nlmon, tv, nlmsg, nlmsg->nlmsg_len);
-			break;
-		case NETLINK_GENERIC:
-			nlmon_message(nlmon, tv, nlmsg);
-			break;
-		}
+	switch (proto_type) {
+	case NETLINK_ROUTE:
+		nlmon_print_rtnl(nlmon, tv, iov.iov_base, bytes_read);
+		break;
+	case NETLINK_GENERIC:
+		nlmon_print_genl(nlmon, tv, iov.iov_base, bytes_read);
+		break;
 	}
 
 	return true;
