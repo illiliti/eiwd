@@ -7359,35 +7359,6 @@ void nlmon_destroy(struct nlmon *nlmon)
 	l_free(nlmon);
 }
 
-static void genl_ctrl(struct nlmon *nlmon, const void *data, uint32_t len)
-{
-	const struct genlmsghdr *genlmsg = data;
-	const struct nlattr *nla;
-	char name[GENL_NAMSIZ];
-	uint16_t id = 0;
-
-	if (genlmsg->cmd != CTRL_CMD_NEWFAMILY)
-		return;
-
-	for (nla = data + GENL_HDRLEN; NLA_OK(nla, len);
-						nla = NLA_NEXT(nla, len)) {
-		switch (nla->nla_type & NLA_TYPE_MASK) {
-		case CTRL_ATTR_FAMILY_ID:
-			id = *((uint16_t *) NLA_DATA(nla));
-			break;
-		case CTRL_ATTR_FAMILY_NAME:
-			strncpy(name, NLA_DATA(nla), GENL_NAMSIZ - 1);
-			break;
-		}
-	}
-
-	if (id == 0)
-		return;
-
-	if (!strcmp(name, NL80211_GENL_NAME))
-		nlmon->id = id;
-}
-
 static const char *scope_to_string(uint8_t scope)
 {
 	switch (scope) {
@@ -8208,10 +8179,9 @@ void nlmon_print_genl(struct nlmon *nlmon, const struct timeval *tv,
 	for (nlmsg = data; NLMSG_OK(nlmsg, size);
 				nlmsg = NLMSG_NEXT(nlmsg, size)) {
 		if (nlmsg->nlmsg_type == GENL_ID_CTRL)
-			genl_ctrl(nlmon, NLMSG_DATA(nlmsg),
-						NLMSG_PAYLOAD(nlmsg, 0));
-		else
-			nlmon_message(nlmon, tv, NULL, nlmsg);
+			continue;
+
+		nlmon_message(nlmon, tv, NULL, nlmsg);
 	}
 }
 
