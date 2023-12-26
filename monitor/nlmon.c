@@ -7240,7 +7240,6 @@ static void store_message(struct nlmon *nlmon, const struct timeval *tv,
 }
 
 static void nlmon_message(struct nlmon *nlmon, const struct timeval *tv,
-					const struct tpacket_auxdata *tp,
 					const struct nlmsghdr *nlmsg)
 {
 	struct nlmon_req *req;
@@ -8181,7 +8180,7 @@ void nlmon_print_genl(struct nlmon *nlmon, const struct timeval *tv,
 		if (nlmsg->nlmsg_type == GENL_ID_CTRL)
 			continue;
 
-		nlmon_message(nlmon, tv, NULL, nlmsg);
+		nlmon_message(nlmon, tv, nlmsg);
 	}
 }
 
@@ -8194,9 +8193,7 @@ static bool nlmon_receive(struct l_io *io, void *user_data)
 	struct iovec iov;
 	struct cmsghdr *cmsg;
 	struct timeval copy_tv;
-	struct tpacket_auxdata copy_tp;
 	const struct timeval *tv = NULL;
-	const struct tpacket_auxdata *tp = NULL;
 	uint16_t proto_type;
 	unsigned char buf[8192];
 	unsigned char control[32];
@@ -8242,12 +8239,6 @@ static bool nlmon_receive(struct l_io *io, void *user_data)
 			memcpy(&copy_tv, CMSG_DATA(cmsg), sizeof(copy_tv));
 			tv = &copy_tv;
 		}
-
-		if (cmsg->cmsg_level == SOL_PACKET &&
-					cmsg->cmsg_type != PACKET_AUXDATA) {
-			memcpy(&copy_tp, CMSG_DATA(cmsg), sizeof(copy_tp));
-			tp = &copy_tp;
-		}
 	}
 
 	nlmsg_len = bytes_read;
@@ -8261,7 +8252,7 @@ static bool nlmon_receive(struct l_io *io, void *user_data)
 			nlmon_print_rtnl(nlmon, tv, nlmsg, nlmsg->nlmsg_len);
 			break;
 		case NETLINK_GENERIC:
-			nlmon_message(nlmon, tv, tp, nlmsg);
+			nlmon_message(nlmon, tv, nlmsg);
 			break;
 		}
 	}
