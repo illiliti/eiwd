@@ -96,7 +96,6 @@ enum msg_type {
 
 struct nlmon {
 	uint16_t id;
-	struct l_io *io;
 	struct l_io *pae_io;
 	struct l_queue *req_list;
 	struct pcap *pcap;
@@ -8185,154 +8184,6 @@ void nlmon_print_genl(struct nlmon *nlmon, const struct timeval *tv,
 	}
 }
 
-static bool nlmon_receive(struct l_io *io, void *user_data)
-{
-	struct nlmon *nlmon = user_data;
-	struct msghdr msg;
-	struct sockaddr_ll sll;
-	struct iovec iov;
-	struct cmsghdr *cmsg;
-	struct timeval copy_tv;
-	const struct timeval *tv = NULL;
-	uint16_t proto_type;
-	unsigned char buf[8192];
-	unsigned char control[32];
-	ssize_t bytes_read;
-	int fd;
-
-	fd = l_io_get_fd(io);
-	if (fd < 0)
-		return false;
-
-	memset(&sll, 0, sizeof(sll));
-
-	memset(&iov, 0, sizeof(iov));
-	iov.iov_base = buf;
-	iov.iov_len = sizeof(buf);
-
-	memset(&msg, 0, sizeof(msg));
-	msg.msg_name = &sll;
-	msg.msg_namelen = sizeof(sll);
-	msg.msg_iov = &iov;
-	msg.msg_iovlen = 1;
-	msg.msg_control = control;
-	msg.msg_controllen = sizeof(control);
-
-	bytes_read = recvmsg(fd, &msg, 0);
-	if (bytes_read < 0) {
-		if (errno != EAGAIN && errno != EINTR)
-			return false;
-
-		return true;
-	}
-
-	if (sll.sll_hatype != ARPHRD_NETLINK)
-		return true;
-
-	proto_type = ntohs(sll.sll_protocol);
-
-	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg;
-				cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-		if (cmsg->cmsg_level == SOL_SOCKET &&
-					cmsg->cmsg_type == SCM_TIMESTAMP) {
-			memcpy(&copy_tv, CMSG_DATA(cmsg), sizeof(copy_tv));
-			tv = &copy_tv;
-		}
-	}
-
-	switch (proto_type) {
-	case NETLINK_ROUTE:
-		nlmon_print_rtnl(nlmon, tv, iov.iov_base, bytes_read);
-		break;
-	case NETLINK_GENERIC:
-		nlmon_print_genl(nlmon, tv, iov.iov_base, bytes_read);
-		break;
-	}
-
-	return true;
-}
-
-/*
- * BPF filter to match skb->dev->type == 824 (ARPHRD_NETLINK) and
- * either match skb->protocol == 0x0000 (NETLINK_ROUTE) or match
- * skb->protocol == 0x0010 (NETLINK_GENERIC).
- */
-static struct sock_filter mon_filter[] = {
-	{ 0x28,  0,  0, 0xfffff01c },	/* ldh #hatype		*/
-	{ 0x15,  0,  3, 0x00000338 },	/* jne #824, drop	*/
-	{ 0x28,  0,  0, 0xfffff000 },	/* ldh #proto		*/
-	{ 0x15,  2,  0, 0000000000 },	/* jeq #0x0000, pass	*/
-	{ 0x15,  1,  0, 0x00000010 },	/* jeq #0x0010, pass	*/
-	{ 0x06,  0,  0, 0000000000 },	/* drop: ret #0		*/
-	{ 0x06,  0,  0, 0xffffffff },	/* pass: ret #-1	*/
-};
-
-static const struct sock_fprog mon_fprog = { .len = 7, .filter = mon_filter };
-
-static struct l_io *open_packet(const char *name)
-{
-	struct l_io *io;
-	struct sockaddr_ll sll;
-	struct packet_mreq mr;
-	struct ifreq ifr;
-	int fd, opt = 1;
-
-	fd = socket(PF_PACKET, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
-	if (fd < 0) {
-		perror("Failed to create packet socket");
-		return NULL;
-	}
-
-	strncpy(ifr.ifr_name, name, IFNAMSIZ - 1);
-
-	if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0) {
-		perror("Failed to get monitor index");
-		close(fd);
-		return NULL;
-	}
-
-	memset(&sll, 0, sizeof(sll));
-	sll.sll_family = AF_PACKET;
-	sll.sll_protocol = htons(ETH_P_ALL);
-	sll.sll_ifindex = ifr.ifr_ifindex;
-
-	if (bind(fd, (struct sockaddr *) &sll, sizeof(sll)) < 0) {
-		perror("Failed to bind packet socket");
-		close(fd);
-		return NULL;
-	}
-
-	memset(&mr, 0, sizeof(mr));
-	mr.mr_ifindex = ifr.ifr_ifindex;
-	mr.mr_type = PACKET_MR_ALLMULTI;
-
-	if (setsockopt(fd, SOL_PACKET, PACKET_ADD_MEMBERSHIP,
-						&mr, sizeof(mr)) < 0) {
-		perror("Failed to enable all multicast");
-		close(fd);
-		return NULL;
-	}
-
-	if (setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER,
-					&mon_fprog, sizeof(mon_fprog)) < 0) {
-		perror("Failed to enable monitor filter");
-		close(fd);
-		return NULL;
-	}
-
-	if (setsockopt(fd, SOL_SOCKET, SO_TIMESTAMP, &opt, sizeof(opt)) < 0) {
-		perror("Failed to enable monitor timestamps");
-		close(fd);
-		return NULL;
-	}
-
-	io = l_io_new(fd);
-
-	l_io_set_close_on_destroy(io, true);
-
-	return io;
-}
-
 void nlmon_print_pae(struct nlmon *nlmon, const struct timeval *tv,
 					uint8_t type, int index,
 					const void *data, uint32_t size)
@@ -8460,28 +8311,21 @@ static struct l_io *open_pae(void)
 	return io;
 }
 
-struct nlmon *nlmon_open(const char *ifname, uint16_t id, const char *pathname,
+struct nlmon *nlmon_open(uint16_t id, const char *pathname,
 				const struct nlmon_config *config)
 {
 	struct nlmon *nlmon;
-	struct l_io *io, *pae_io;
+	struct l_io *pae_io;
 	struct pcap *pcap;
 
-	io = open_packet(ifname);
-	if (!io)
-		return NULL;
-
 	pae_io = open_pae();
-	if (!pae_io) {
-		l_io_destroy(io);
+	if (!pae_io)
 		return NULL;
-	}
 
 	if (pathname) {
 		pcap = pcap_create(pathname);
 		if (!pcap) {
 			l_io_destroy(pae_io);
-			l_io_destroy(io);
 			return NULL;
 		}
 	} else
@@ -8490,11 +8334,9 @@ struct nlmon *nlmon_open(const char *ifname, uint16_t id, const char *pathname,
 
 	nlmon = nlmon_create(id, config);
 
-	nlmon->io = io;
 	nlmon->pae_io = pae_io;
 	nlmon->pcap = pcap;
 
-	l_io_set_read_handler(nlmon->io, nlmon_receive, nlmon, NULL);
 	l_io_set_read_handler(nlmon->pae_io, pae_receive, nlmon, NULL);
 
 	wlan_iface_list = l_hashmap_new();
@@ -8507,7 +8349,6 @@ void nlmon_close(struct nlmon *nlmon)
 	if (!nlmon)
 		return;
 
-	l_io_destroy(nlmon->io);
 	l_io_destroy(nlmon->pae_io);
 	l_queue_destroy(nlmon->req_list, nlmon_req_free);
 
