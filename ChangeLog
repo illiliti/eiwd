@@ -1,3 +1,8 @@
+ver 2.12:
+	Fix issue with DPP extra settings not being used.
+	Fix issue with DPP and PRF+ handling on AARCH64.
+	Add support for SAE password identifiers.
+
 ver 2.11:
 	Fix issue with handling iovecs with multiple IEs.
 	Fix issue with handling SAE password identifiers.
