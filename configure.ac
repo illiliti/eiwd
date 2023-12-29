@@ -44,7 +44,7 @@ AC_ARG_ENABLE(optimization, AS_HELP_STRING([--disable-optimization],
 
 if (test "${enable_optimization}" != "no"); then
 	CFLAGS="$CFLAGS -O2"
-	CFLAGS+=" -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
+	CFLAGS="$CFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
 fi
 
 AC_ARG_ENABLE(debug, AS_HELP_STRING([--enable-debug],
