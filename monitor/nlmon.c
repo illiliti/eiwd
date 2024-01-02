@@ -5127,6 +5127,16 @@ static void print_probe_response(unsigned int level,
 			(const uint8_t *) mmpdu + len - resp->ies);
 }
 
+static void print_probe_request(unsigned int level,
+				const struct mmpdu_header *mmpdu, size_t len)
+{
+	const struct mmpdu_probe_request *req = mmpdu_body(mmpdu);
+
+	print_attr(level, "Subtype: Probe Request");
+	print_ie(level + 1, "Probe Request IEs", req->ies,
+			(const uint8_t *) mmpdu + len - req->ies);
+}
+
 static void print_beacon(unsigned int level,
 				const struct mmpdu_header *mmpdu, size_t len)
 {
@@ -5164,7 +5174,10 @@ static void print_frame_type(unsigned int level, const char *label,
 
 	switch (subtype) {
 	case 0x00:
-		str = "Association request";
+		if (mpdu)
+			str = "Association request";
+		else
+			str = "Association request (invalid MPDU)";
 		break;
 	case 0x01:
 		if (mpdu)
@@ -5173,19 +5186,28 @@ static void print_frame_type(unsigned int level, const char *label,
 			str = "Association response";
 		break;
 	case 0x02:
-		str = "Reassociation request";
+		if (mpdu)
+			str = "Reassociation request";
+		else
+			str = "Reassociation request (invalid MPDU)";
 		break;
 	case 0x03:
-		str = "Reassociation response";
+		if (mpdu)
+			str = "Reassociation response";
+		else
+			str = "Reassociation response (invalid MPDU)";
 		break;
 	case 0x04:
-		str = "Probe request";
+		if (mpdu)
+			print_probe_request(level + 1, mpdu, size);
+		else
+			str = "Probe request (invalid MPDU)";
 		break;
 	case 0x05:
 		if (mpdu)
 			print_probe_response(level + 1, mpdu, size);
 		else
-			str = "Probe response";
+			str = "Probe response (invalid MPDU)";
 		break;
 	case 0x06:
 		str = "Timing Advertisement";
@@ -5194,25 +5216,28 @@ static void print_frame_type(unsigned int level, const char *label,
 		if (mpdu)
 			print_beacon(level + 1, mpdu, size);
 		else
-			str = "Beacon";
+			str = "Beacon (invalid MPDU)";
 		break;
 	case 0x09:
 		str = "ATIM";
 		break;
 	case 0x0a:
-		str = "Disassociation";
+		if (mpdu)
+			str = "Disassociation";
+		else
+			str = "Disassociation (invalid MPDU)";
 		break;
 	case 0x0b:
 		if (mpdu)
 			print_authentication_mgmt_frame(level + 1, mpdu, size);
 		else
-			str = "Authentication";
+			str = "Authentication (invalid MPDU)";
 		break;
 	case 0x0c:
 		if (mpdu)
 			print_deauthentication_mgmt_frame(level + 1, mpdu);
 		else
-			str = "Deauthentication";
+			str = "Deauthentication (invalid MPDU)";
 		break;
 	case 0x0d:
 	case 0x0e:
