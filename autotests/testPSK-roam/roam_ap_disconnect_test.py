@@ -14,8 +14,7 @@ class Test(unittest.TestCase):
     # Tests a crash reported where multiple roam scans combined with an AP
     # disconnect result in a crash getting scan results.
     #
-    def validate(self):
-        wd = IWD(True)
+    def validate(self, wd):
         device = wd.list_devices(1)[0]
 
         ordered_network = device.get_ordered_network('TestFT', full_scan=True)
@@ -43,14 +42,15 @@ class Test(unittest.TestCase):
         wd.wait_for_object_condition(device, condition)
 
     def test_ap_disconnect_no_neighbors(self):
-        self.validate()
+        self.validate(self.wd)
 
     def test_ap_disconnect_neighbors(self):
         HostapdCLI.group_neighbors(*self.bss_hostapd)
 
-        self.validate()
+        self.validate(self.wd)
 
     def setUp(self):
+        self.wd = IWD(True)
         self.bss_hostapd[0].reload()
         self.bss_hostapd[0].wait_for_event("AP-ENABLED")
 
@@ -62,6 +62,9 @@ class Test(unittest.TestCase):
 
         self.bss_hostapd[0].remove_neighbor(self.bss_hostapd[1].bssid)
         self.bss_hostapd[1].remove_neighbor(self.bss_hostapd[0].bssid)
+
+        self.wd.stop()
+        self.wd = None
 
     @classmethod
     def setUpClass(cls):

@@ -91,13 +91,9 @@ class Test(unittest.TestCase):
         wd.wait_for_object_condition(device, condition)
 
     def test_ft_psk(self):
-        wd = IWD(True)
-
-        self.validate_connection(wd)
+        self.validate_connection(self.wd)
 
     def test_ft_psk_over_ds(self):
-        wd = IWD(True)
-
         self.bss_hostapd[0].set_value('ft_over_ds', '1')
         self.bss_hostapd[0].reload()
         self.bss_hostapd[0].wait_for_event("AP-ENABLED")
@@ -106,11 +102,9 @@ class Test(unittest.TestCase):
         self.bss_hostapd[1].reload()
         self.bss_hostapd[1].wait_for_event("AP-ENABLED")
 
-        self.validate_connection(wd, over_ds=True)
+        self.validate_connection(self.wd, over_ds=True)
 
     def test_reassociate_psk(self):
-        wd = IWD(True)
-
         self.bss_hostapd[0].set_value('wpa_key_mgmt', 'WPA-PSK')
         self.bss_hostapd[0].reload()
         self.bss_hostapd[0].wait_for_event("AP-ENABLED")
@@ -119,12 +113,10 @@ class Test(unittest.TestCase):
         self.bss_hostapd[1].reload()
         self.bss_hostapd[1].wait_for_event("AP-ENABLED")
 
-        self.validate_connection(wd)
+        self.validate_connection(self.wd)
 
     def test_roam_packet_loss(self):
-        wd = IWD(True)
-
-        self.validate_connection(wd, pkt_loss=True)
+        self.validate_connection(self.wd, pkt_loss=True)
 
     def tearDown(self):
         os.system('ip link set "' + self.bss_hostapd[0].ifname + '" down')
@@ -138,6 +130,12 @@ class Test(unittest.TestCase):
 
         for hapd in self.bss_hostapd:
             hapd.default()
+
+        self.wd.stop()
+        self.wd = None
+
+    def setUp(self):
+        self.wd = IWD(True)
 
     @classmethod
     def setUpClass(cls):
@@ -178,8 +176,9 @@ class Test(unittest.TestCase):
     def tearDownClass(cls):
         IWD.clear_storage()
         cls.bss_hostapd = None
-        cls.rule0.enabled = False
         cls.rule0.remove()
+        cls.rule1.remove()
+        cls.rule2.remove()
 
 if __name__ == '__main__':
     unittest.main(exit=True)

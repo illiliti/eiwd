@@ -227,6 +227,9 @@ class Test(unittest.TestCase):
         cls.bss_hostapd = None
         cls.rule0.remove()
         cls.rule1.remove()
+        cls.rule2.remove()
+        cls.rule3.remove()
+        cls.assoc_rule.remove()
 
 if __name__ == '__main__':
     unittest.main(exit=True)
