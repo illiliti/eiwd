@@ -144,9 +144,10 @@ class Test(unittest.TestCase):
         IWD.copy_to_storage('TestFT.psk')
 
         cls.bss_hostapd = [ HostapdCLI(config='ft-psk-ccmp-1.conf'),
-                            HostapdCLI(config='ft-psk-ccmp-2.conf'),
-                            HostapdCLI(config='ft-psk-ccmp-3.conf') ]
-        cls.bss_hostapd[2].disable()
+                            HostapdCLI(config='ft-psk-ccmp-2.conf') ]
+
+        unused = HostapdCLI(config='ft-psk-ccmp-3.conf')
+        unused.disable()
 
         rad0 = hwsim.get_radio('rad0')
         rad3 = hwsim.get_radio('rad3')
