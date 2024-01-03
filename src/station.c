@@ -3406,6 +3406,16 @@ static void station_beacon_lost(struct station *station)
 	station_roam_timeout_rearm(station, LOSS_ROAM_RATE_LIMIT);
 }
 
+static void station_event_roaming(struct station *station)
+{
+	if (station->netconfig && station->state != STATION_STATE_CONNECTED) {
+		netconfig_reset(station->netconfig);
+		station->netconfig_after_roam = true;
+	}
+
+	station_enter_state(station, STATION_STATE_FW_ROAMING);
+}
+
 static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 					void *event_data, void *user_data)
 {
@@ -3433,7 +3443,7 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 			station_signal_agent_notify(station);
 		break;
 	case NETDEV_EVENT_ROAMING:
-		station_enter_state(station, STATION_STATE_FW_ROAMING);
+		station_event_roaming(station);
 		break;
 	case NETDEV_EVENT_ROAMED:
 		station_event_roamed(station, (struct scan_bss *) event_data);
