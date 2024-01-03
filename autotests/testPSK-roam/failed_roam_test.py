@@ -60,7 +60,7 @@ class Test(unittest.TestCase):
         self.rule0.enabled = False
 
         # IWD should then try BSS 2, and succeed
-        device.wait_for_event('ft-roam', timeout=60)
+        device.wait_for_event('ft-roaming', timeout=60)
         self.verify_roam(self.wd, device, self.bss_hostapd[0], self.bss_hostapd[2])
 
         self.bss_hostapd[2].deauthenticate(device.address)
@@ -75,7 +75,7 @@ class Test(unittest.TestCase):
 
         self.connect(self.wd, device, self.bss_hostapd[0])
 
-        device.wait_for_event('ft-roam', timeout=60)
+        device.wait_for_event('ft-roaming', timeout=60)
 
         condition = 'obj.state == DeviceState.disconnected'
         self.wd.wait_for_object_condition(device, condition)
@@ -101,14 +101,14 @@ class Test(unittest.TestCase):
         # IWD should connect, then attempt a roam to BSS 1, which should
         # fail and cause a fallback to reassociation
         device.wait_for_event('ft-fallback-to-reassoc', timeout=60)
-        device.wait_for_event('reassoc-roam', timeout=60)
+        device.wait_for_event('roaming', timeout=60)
 
         self.verify_roam(self.wd, device, self.bss_hostapd[0], self.bss_hostapd[2])
 
         # Trigger another roam
         self.rule_bss2.signal = -8000
 
-        device.wait_for_event('ft-roam', timeout=60)
+        device.wait_for_event('ft-roaming', timeout=60)
 
         # Ensure an FT roam back to a properly configured AP works.
         self.verify_roam(self.wd, device, self.bss_hostapd[2], self.bss_hostapd[1])
@@ -141,7 +141,7 @@ class Test(unittest.TestCase):
         # fail and cause the rank to be re-computed. This should then put
         # bss 1 as the next candidate (since the FT factor is removed)
         device.wait_for_event('ft-fallback-to-reassoc', timeout=60)
-        device.wait_for_event('ft-roam', timeout=60)
+        device.wait_for_event('ft-roaming', timeout=60)
 
         self.verify_roam(self.wd, device, self.bss_hostapd[0], self.bss_hostapd[1])
 
