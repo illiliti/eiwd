@@ -1554,6 +1554,8 @@ static void station_enter_state(struct station *station,
 			station_state_to_string(station->state),
 			station_state_to_string(state));
 
+	station_debug_event(station, station_state_to_string(state));
+
 	disconnected = !station_is_busy(station);
 
 	if ((disconnected && state > STATION_STATE_AUTOCONNECT_FULL) ||
@@ -2212,8 +2214,6 @@ static int station_transition_reassociate(struct station *station,
 	station->preparing_roam = false;
 	station_enter_state(station, STATION_STATE_ROAMING);
 
-	station_debug_event(station, "reassoc-roam");
-
 	return 0;
 }
 
@@ -2355,8 +2355,6 @@ try_next:
 		station->connected_bss = bss;
 		station->preparing_roam = false;
 		station_enter_state(station, STATION_STATE_FT_ROAMING);
-
-		station_debug_event(station, "ft-roam");
 
 		break;
 	case -EINVAL:
