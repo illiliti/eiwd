@@ -162,18 +162,27 @@ static const char *get_freq_tostr(const void *data)
 static void update_pairwise(void *data, struct l_dbus_message_iter *variant)
 {
 	struct ap *ap = data;
+	struct l_dbus_message_iter array;
 	char *value;
+	char **strv;
+
 
 	if (ap->pairwise)
 		l_free(ap->pairwise);
 
-	if (!l_dbus_message_iter_get_variant(variant, "s", &value)) {
+	if (!l_dbus_message_iter_get_variant(variant, "as", &array)) {
 		ap->pairwise = NULL;
 
 		return;
 	}
 
-	ap->pairwise = l_strdup(value);
+	strv = l_strv_new();
+
+	while (l_dbus_message_iter_next_entry(&array, &value))
+		strv = l_strv_append(strv, value);
+
+	ap->pairwise = l_strjoinv(strv, ' ');
+	l_strv_free(strv);
 }
 
 static const char *get_pairwise_tostr(const void *data)
