@@ -654,6 +654,7 @@ static void wsc_check_can_connect(struct wsc_station_dbus *wsc,
 	case STATION_STATE_CONNECTING:
 	case STATION_STATE_CONNECTING_AUTO:
 	case STATION_STATE_CONNECTED:
+	case STATION_STATE_NETCONFIG:
 		if (station_disconnect(wsc->station) < 0)
 			goto error;
 

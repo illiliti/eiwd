@@ -3761,6 +3761,7 @@ static void dpp_station_state_watch(enum station_state state, void *user_data)
 	case STATION_STATE_CONNECTING:
 	case STATION_STATE_CONNECTED:
 	case STATION_STATE_CONNECTING_AUTO:
+	case STATION_STATE_NETCONFIG:
 		if (L_WARN_ON(dpp->role == DPP_CAPABILITY_CONFIGURATOR))
 			dpp_reset(dpp);
 

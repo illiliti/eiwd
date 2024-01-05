@@ -45,6 +45,7 @@ enum station_state {
 	STATION_STATE_ROAMING,		/* Reassociation */
 	STATION_STATE_FT_ROAMING,	/* Fast transition */
 	STATION_STATE_FW_ROAMING,	/* Firmware roamed by itself */
+	STATION_STATE_NETCONFIG,
 };
 
 enum station_event {
