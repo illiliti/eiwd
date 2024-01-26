@@ -64,6 +64,9 @@
 #include "src/eap-tls-common.h"
 #include "src/storage.h"
 
+#define STATION_RECENT_NETWORK_LIMIT	5
+#define STATION_RECENT_FREQS_LIMIT	5
+
 static struct l_queue *station_list;
 static uint32_t netdev_watch;
 static uint32_t mfp_setting;
@@ -1438,7 +1441,9 @@ static int station_quick_scan_trigger(struct station *station)
 		return -EAGAIN;
 	}
 
-	known_freq_set = known_networks_get_recent_frequencies(5);
+	known_freq_set = known_networks_get_recent_frequencies(
+						STATION_RECENT_NETWORK_LIMIT,
+						STATION_RECENT_FREQS_LIMIT);
 	if (!known_freq_set)
 		return -ENODATA;
 
@@ -2761,7 +2766,8 @@ static int station_roam_scan_known_freqs(struct station *station)
 	const struct network_info *info = network_get_info(
 						station->connected_network);
 	struct scan_freq_set *freqs = network_info_get_roam_frequencies(info,
-					station->connected_bss->frequency, 5);
+					station->connected_bss->frequency,
+					STATION_RECENT_FREQS_LIMIT);
 	int r = -ENODATA;
 
 	if (!freqs)
