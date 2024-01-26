@@ -61,6 +61,8 @@ void network_set_info(struct network *network, struct network_info *info);
 void network_set_force_default_owe_group(struct network *network);
 bool network_get_force_default_owe_group(struct network *network);
 
+bool network_update_known_frequencies(struct network *network);
+
 int network_can_connect_bss(struct network *network,
 						const struct scan_bss *bss);
 int network_autoconnect(struct network *network, struct scan_bss *bss);

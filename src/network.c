@@ -802,21 +802,13 @@ const struct network_info *network_get_info(const struct network *network)
 	return network->info;
 }
 
-static void add_known_frequency(void *data, void *user_data)
-{
-	struct scan_bss *bss = data;
-	struct network_info *info = user_data;
-
-	known_network_add_frequency(info, bss->frequency);
-}
-
 void network_set_info(struct network *network, struct network_info *info)
 {
 	if (info) {
 		network->info = info;
 		network->info->seen_count++;
 
-		l_queue_foreach(network->bss_list, add_known_frequency, info);
+		network_update_known_frequencies(network);
 	} else {
 		network->info->seen_count--;
 		network->info = NULL;
@@ -1083,6 +1075,33 @@ static bool match_hotspot_network(const struct network_info *info,
 		return false;
 
 	network_set_info(network, (struct network_info *) info);
+
+	return true;
+}
+
+bool network_update_known_frequencies(struct network *network)
+{
+	const struct l_queue_entry *e;
+	struct l_queue *reversed;
+
+	if (!network->info)
+		return false;
+
+	reversed = l_queue_new();
+
+	for (e = l_queue_get_entries(network->bss_list); e; e = e->next) {
+		struct scan_bss *bss = e->data;
+
+		l_queue_push_head(reversed, bss);
+	}
+
+	for (e = l_queue_get_entries(reversed); e; e = e->next) {
+		struct scan_bss *bss = e->data;
+
+		known_network_add_frequency(network->info, bss->frequency);
+	}
+
+	l_queue_destroy(reversed, NULL);
 
 	return true;
 }
