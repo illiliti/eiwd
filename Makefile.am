@@ -265,6 +265,7 @@ src_iwd_SOURCES = src/main.c linux/nl80211.h src/iwd.h src/missing.h \
 					src/dpp-util.h src/dpp-util.c \
 					src/json.h src/json.c \
 					src/dpp.c \
+					src/udev.c \
 					$(eap_sources) \
 					$(builtin_sources)
 
