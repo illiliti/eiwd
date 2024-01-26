@@ -1112,9 +1112,6 @@ bool network_bss_add(struct network *network, struct scan_bss *bss)
 									NULL))
 		return false;
 
-	if (network->info)
-		known_network_add_frequency(network->info, bss->frequency);
-
 	/* Done if BSS is not HS20 or we already have network_info set */
 	if (!bss->hs20_capable)
 		return true;

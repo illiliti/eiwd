@@ -350,6 +350,8 @@ static bool process_network(const void *key, void *data, void *user_data)
 		l_queue_insert(station->networks_sorted, network,
 				network_rank_compare, NULL);
 
+		network_update_known_frequencies(network);
+
 		return false;
 	}
 
@@ -798,6 +800,8 @@ static bool station_owe_transition_results(int err, struct l_queue *bss_list,
 free:
 		scan_bss_free(bss);
 	}
+
+	network_update_known_frequencies(network);
 
 	l_queue_destroy(bss_list, NULL);
 
@@ -3683,6 +3687,8 @@ next:
 		dbus_pending_reply(&msg, dbus_error_service_set_overlap(msg));
 		return true;
 	}
+
+	network_update_known_frequencies(network_psk ?: network_open);
 
 	error = network_connect_new_hidden_network(network_psk ?: network_open,
 							msg);
