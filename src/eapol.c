@@ -2092,6 +2092,10 @@ static void eapol_handle_ptk_4_of_4(struct eapol_sm *sm,
 	if (L_BE64_TO_CPU(ek->key_replay_counter) != sm->replay_counter)
 		return;
 
+	/* Ensure we received Message 2 and thus have a PTK to verify MIC */
+	if (!sm->handshake->have_snonce)
+		return;
+
 	kck = handshake_state_get_kck(sm->handshake);
 
 	if (!eapol_verify_mic(sm->handshake->akm_suite, kck, ek,
