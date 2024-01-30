@@ -2636,6 +2636,12 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 		util_address_to_string(current_bss->addr),
 		util_ssid_to_utf8(current_bss->ssid_len, current_bss->ssid));
 
+	/*
+	 * Reverse now so the known frequency list gets updated in the correct
+	 * order (via network_bss_update).
+	 */
+	l_queue_reverse(bss_list);
+
 	while ((bss = l_queue_pop_head(bss_list))) {
 		double rank;
 		uint32_t kbps100 = DIV_ROUND_CLOSEST(bss->data_rate, 100000);
