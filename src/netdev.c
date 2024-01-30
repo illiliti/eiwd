@@ -4734,7 +4734,7 @@ static void netdev_unprot_disconnect_event(struct l_genl_msg *msg,
 	uint16_t type;
 	uint16_t len;
 	const void *data;
-	uint8_t reason_code;
+	uint16_t reason_code;
 
 	if (!netdev->connected)
 		return;
