@@ -50,6 +50,8 @@
 #include "src/netconfig.h"
 #include "src/sysfs.h"
 
+#define DHCP_ATTEMPTS 4
+
 /*
  * Routing priority offset, configurable in main.conf. The route with lower
  * priority offset is preferred.
@@ -696,6 +698,7 @@ struct netconfig *netconfig_new(uint32_t ifindex)
 	int dhcp_priority = L_LOG_INFO;
 	struct l_dhcp6_client *dhcp6;
 	struct l_icmp6_client *icmp6;
+	struct l_dhcp_client *dhcp;
 
 	l_debug("Creating netconfig for interface: %d", ifindex);
 
@@ -723,8 +726,8 @@ struct netconfig *netconfig_new(uint32_t ifindex)
 	l_netconfig_set_event_handler(netconfig->nc, netconfig_event_handler,
 					netconfig, NULL);
 
-	l_dhcp_client_set_debug(l_netconfig_get_dhcp_client(netconfig->nc),
-				do_debug, "[DHCPv4] ", NULL, dhcp_priority);
+	dhcp = l_netconfig_get_dhcp_client(netconfig->nc);
+	l_dhcp_client_set_max_attempts(dhcp, DHCP_ATTEMPTS);
 
 	dhcp6 = l_netconfig_get_dhcp6_client(netconfig->nc);
 	l_dhcp6_client_set_lla_randomized(dhcp6, true);
@@ -735,6 +738,8 @@ struct netconfig *netconfig_new(uint32_t ifindex)
 	if (debug_level) {
 		l_dhcp6_client_set_debug(dhcp6, do_debug, "[DHCPv6] ", NULL);
 		l_icmp6_client_set_debug(icmp6, do_debug, "[ICMPv6] ", NULL);
+		l_dhcp_client_set_debug(dhcp, do_debug, "[DHCPv4] ", NULL,
+					dhcp_priority);
 	}
 
 	return netconfig;
