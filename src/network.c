@@ -70,6 +70,7 @@ struct network {
 	struct network_info *info;
 	unsigned char *psk;
 	char *passphrase;
+	char *password_identifier;
 	struct l_ecc_point *sae_pt_19; /* SAE PT for Group 19 */
 	struct l_ecc_point *sae_pt_20; /* SAE PT for Group 20 */
 	unsigned int agent_request;
@@ -122,6 +123,13 @@ static void network_reset_passphrase(struct network *network)
 				strlen(network->passphrase));
 		l_free(network->passphrase);
 		network->passphrase = NULL;
+	}
+
+	if (network->password_identifier) {
+		explicit_bzero(network->password_identifier,
+				strlen(network->password_identifier));
+		l_free(network->password_identifier);
+		network->password_identifier = NULL;
 	}
 
 	if (network->sae_pt_19) {
@@ -317,7 +325,8 @@ static struct l_ecc_point *network_generate_sae_pt(struct network *network,
 	l_debug("Generating PT for Group %u", group);
 
 	pt = crypto_derive_sae_pt_ecc(group, network->ssid,
-						network->passphrase, NULL);
+						network->passphrase,
+						network->password_identifier);
 	if (!pt)
 		l_warn("SAE PT generation for Group %u failed", group);
 
@@ -462,6 +471,10 @@ static int network_set_handshake_secrets_psk(struct network *network,
 
 		handshake_state_set_passphrase(hs, network->passphrase);
 
+		if (network->password_identifier)
+			handshake_state_set_password_identifier(hs,
+						network->password_identifier);
+
 		if (ie_rsnxe_capable(hs->authenticator_rsnxe,
 							IE_RSNX_SAE_H2E)) {
 			l_debug("Authenticator is SAE H2E capable");
@@ -495,6 +508,19 @@ int network_handshake_setup(struct network *network, struct scan_bss *bss,
 
 	switch (network->security) {
 	case SECURITY_PSK:
+		/* Check the BSS password ID settings match our configuration */
+		if (bss->sae_pw_id_exclusive && !network->password_identifier) {
+			l_error("[Security].PasswordIdentifier is not set but "
+				"BSS requires SAE password identifiers");
+			return -ENOKEY;
+		}
+
+		if (!bss->sae_pw_id_used && network->password_identifier) {
+			l_error("[Security].PasswordIdentifier set but BSS "
+				"does not not use password identifiers");
+			return -ENOKEY;
+		}
+
 		r = network_set_handshake_secrets_psk(network, hs);
 		if (r < 0)
 			return r;
@@ -556,7 +582,6 @@ int network_handshake_setup(struct network *network, struct scan_bss *bss,
 }
 
 static int network_settings_load_pt_ecc(struct network *network,
-					const char *path,
 					unsigned int group,
 					struct l_ecc_point **out_pt)
 {
@@ -581,7 +606,7 @@ static int network_settings_load_pt_ecc(struct network *network,
 		return 0;
 
 bad_format:
-	l_error("%s: invalid %s format", path, key);
+	l_error("%s profile: invalid %s format", network->ssid, key);
 
 generate:
 	if (!network->passphrase)
@@ -594,8 +619,34 @@ generate:
 	return -EIO;
 }
 
-static int network_load_psk(struct network *network, bool need_passphrase)
+static inline bool __bss_is_sae(const struct scan_bss *bss,
+						const struct ie_rsn_info *rsn)
 {
+	if (rsn->akm_suites & IE_RSN_AKM_SUITE_SAE_SHA256)
+		return true;
+
+	return false;
+}
+
+static bool bss_is_sae(const struct scan_bss *bss)
+{
+	struct ie_rsn_info rsn;
+
+	memset(&rsn, 0, sizeof(rsn));
+	scan_bss_get_rsn_info(bss, &rsn);
+
+	return __bss_is_sae(bss, &rsn);
+}
+
+static int network_load_psk(struct network *network, struct scan_bss *bss)
+{
+	/*
+	 * A legacy psk file may only contain the PreSharedKey entry. For SAE
+	 * networks the raw Passphrase is required. So in this case where
+	 * the psk is found but no Passphrase, we ask the agent.  The psk file
+	 * will then be re-written to contain the raw passphrase.
+	 */
+	bool is_sae = bss_is_sae(bss);
 	const char *ssid = network_get_ssid(network);
 	enum security security = network_get_security(network);
 	size_t psk_len;
@@ -605,6 +656,9 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 	_auto_(l_free) char *passphrase =
 			l_settings_get_string(network->settings,
 						"Security", "Passphrase");
+	_auto_(l_free) char *password_id =
+			l_settings_get_string(network->settings, "Security",
+						"PasswordIdentifier");
 	_auto_(l_free) char *path =
 		storage_get_network_file_path(security, ssid);
 
@@ -616,7 +670,7 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 	}
 
 	/* PSK can be generated from the passphrase but not the other way */
-	if (!psk || need_passphrase) {
+	if (!psk || is_sae) {
 		if (!passphrase)
 			return -ENOKEY;
 
@@ -629,13 +683,12 @@ static int network_load_psk(struct network *network, bool need_passphrase)
 	network_reset_passphrase(network);
 	network_reset_psk(network);
 	network->passphrase = l_steal_ptr(passphrase);
+	network->password_identifier = l_steal_ptr(password_id);
 
-	if (network_settings_load_pt_ecc(network, path,
-						19, &network->sae_pt_19) > 0)
+	if (network_settings_load_pt_ecc(network, 19, &network->sae_pt_19) > 0)
 		network->sync_settings = true;
 
-	if (network_settings_load_pt_ecc(network, path,
-						20, &network->sae_pt_20) > 0)
+	if (network_settings_load_pt_ecc(network, 20, &network->sae_pt_20) > 0)
 		network->sync_settings = true;
 
 	network->psk = l_steal_ptr(psk);
@@ -700,6 +753,11 @@ static void network_settings_save(struct network *network,
 		l_settings_set_string(settings, "Security", "Passphrase",
 					network->passphrase);
 
+	if (network->password_identifier)
+		l_settings_set_string(settings, "Security",
+					"PasswordIdentifier",
+					network->password_identifier);
+
 	if (network->sae_pt_19)
 		network_settings_save_sae_pt_ecc(settings, network->sae_pt_19);
 
@@ -744,21 +802,13 @@ const struct network_info *network_get_info(const struct network *network)
 	return network->info;
 }
 
-static void add_known_frequency(void *data, void *user_data)
-{
-	struct scan_bss *bss = data;
-	struct network_info *info = user_data;
-
-	known_network_add_frequency(info, bss->frequency);
-}
-
 void network_set_info(struct network *network, struct network_info *info)
 {
 	if (info) {
 		network->info = info;
 		network->info->seen_count++;
 
-		l_queue_foreach(network->bss_list, add_known_frequency, info);
+		network_update_known_frequencies(network);
 	} else {
 		network->info->seen_count--;
 		network->info = NULL;
@@ -778,25 +828,6 @@ void network_set_force_default_owe_group(struct network *network)
 bool network_get_force_default_owe_group(struct network *network)
 {
 	return network->force_default_owe_group;
-}
-
-static inline bool __bss_is_sae(const struct scan_bss *bss,
-						const struct ie_rsn_info *rsn)
-{
-	if (rsn->akm_suites & IE_RSN_AKM_SUITE_SAE_SHA256)
-		return true;
-
-	return false;
-}
-
-static bool bss_is_sae(const struct scan_bss *bss)
-{
-	struct ie_rsn_info rsn;
-
-	memset(&rsn, 0, sizeof(rsn));
-	scan_bss_get_rsn_info(bss, &rsn);
-
-	return __bss_is_sae(bss, &rsn);
 }
 
 int network_can_connect_bss(struct network *network, const struct scan_bss *bss)
@@ -961,7 +992,7 @@ int network_autoconnect(struct network *network, struct scan_bss *bss)
 
 	switch (security) {
 	case SECURITY_PSK:
-		ret = network_load_psk(network, bss_is_sae(bss));
+		ret = network_load_psk(network, bss);
 		if (ret < 0)
 			goto close_settings;
 
@@ -1050,14 +1081,38 @@ static bool match_hotspot_network(const struct network_info *info,
 	return true;
 }
 
+bool network_update_known_frequencies(struct network *network)
+{
+	const struct l_queue_entry *e;
+	struct l_queue *reversed;
+
+	if (!network->info)
+		return false;
+
+	reversed = l_queue_new();
+
+	for (e = l_queue_get_entries(network->bss_list); e; e = e->next) {
+		struct scan_bss *bss = e->data;
+
+		l_queue_push_head(reversed, bss);
+	}
+
+	for (e = l_queue_get_entries(reversed); e; e = e->next) {
+		struct scan_bss *bss = e->data;
+
+		known_network_add_frequency(network->info, bss->frequency);
+	}
+
+	l_queue_destroy(reversed, NULL);
+
+	return true;
+}
+
 bool network_bss_add(struct network *network, struct scan_bss *bss)
 {
 	if (!l_queue_insert(network->bss_list, bss, scan_bss_rank_compare,
 									NULL))
 		return false;
-
-	if (network->info)
-		known_network_add_frequency(network->info, bss->frequency);
 
 	/* Done if BSS is not HS20 or we already have network_info set */
 	if (!bss->hs20_capable)
@@ -1287,20 +1342,13 @@ static struct l_dbus_message *network_connect_psk(struct network *network,
 					struct l_dbus_message *message)
 {
 	struct station *station = network->station;
-	/*
-	 * A legacy psk file may only contain the PreSharedKey entry. For SAE
-	 * networks the raw Passphrase is required. So in this case where
-	 * the psk is found but no Passphrase, we ask the agent.  The psk file
-	 * will then be re-written to contain the raw passphrase.
-	 */
-	bool need_passphrase = bss_is_sae(bss);
 
 	if (!network_settings_load(network)) {
 		network->settings = l_settings_new();
 		network->ask_passphrase = true;
 	} else if (!network->ask_passphrase)
 		network->ask_passphrase =
-			network_load_psk(network, need_passphrase) < 0;
+			network_load_psk(network, bss) < 0;
 
 	l_debug("ask_passphrase: %s",
 		network->ask_passphrase ? "true" : "false");
@@ -2014,6 +2062,8 @@ static void known_networks_changed(enum known_networks_event event,
 		break;
 	case KNOWN_NETWORKS_EVENT_REMOVED:
 		station_foreach(emit_known_network_removed, (void *) info);
+		break;
+	case KNOWN_NETWORKS_EVENT_UPDATED:
 		break;
 	}
 }

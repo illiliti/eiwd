@@ -96,7 +96,6 @@ enum msg_type {
 
 struct nlmon {
 	uint16_t id;
-	struct l_io *io;
 	struct l_io *pae_io;
 	struct l_queue *req_list;
 	struct pcap *pcap;
@@ -5128,6 +5127,16 @@ static void print_probe_response(unsigned int level,
 			(const uint8_t *) mmpdu + len - resp->ies);
 }
 
+static void print_probe_request(unsigned int level,
+				const struct mmpdu_header *mmpdu, size_t len)
+{
+	const struct mmpdu_probe_request *req = mmpdu_body(mmpdu);
+
+	print_attr(level, "Subtype: Probe Request");
+	print_ie(level + 1, "Probe Request IEs", req->ies,
+			(const uint8_t *) mmpdu + len - req->ies);
+}
+
 static void print_beacon(unsigned int level,
 				const struct mmpdu_header *mmpdu, size_t len)
 {
@@ -5165,7 +5174,10 @@ static void print_frame_type(unsigned int level, const char *label,
 
 	switch (subtype) {
 	case 0x00:
-		str = "Association request";
+		if (mpdu)
+			str = "Association request";
+		else
+			str = "Association request (invalid MPDU)";
 		break;
 	case 0x01:
 		if (mpdu)
@@ -5174,19 +5186,28 @@ static void print_frame_type(unsigned int level, const char *label,
 			str = "Association response";
 		break;
 	case 0x02:
-		str = "Reassociation request";
+		if (mpdu)
+			str = "Reassociation request";
+		else
+			str = "Reassociation request (invalid MPDU)";
 		break;
 	case 0x03:
-		str = "Reassociation response";
+		if (mpdu)
+			str = "Reassociation response";
+		else
+			str = "Reassociation response (invalid MPDU)";
 		break;
 	case 0x04:
-		str = "Probe request";
+		if (mpdu)
+			print_probe_request(level + 1, mpdu, size);
+		else
+			str = "Probe request (invalid MPDU)";
 		break;
 	case 0x05:
 		if (mpdu)
 			print_probe_response(level + 1, mpdu, size);
 		else
-			str = "Probe response";
+			str = "Probe response (invalid MPDU)";
 		break;
 	case 0x06:
 		str = "Timing Advertisement";
@@ -5195,25 +5216,28 @@ static void print_frame_type(unsigned int level, const char *label,
 		if (mpdu)
 			print_beacon(level + 1, mpdu, size);
 		else
-			str = "Beacon";
+			str = "Beacon (invalid MPDU)";
 		break;
 	case 0x09:
 		str = "ATIM";
 		break;
 	case 0x0a:
-		str = "Disassociation";
+		if (mpdu)
+			str = "Disassociation";
+		else
+			str = "Disassociation (invalid MPDU)";
 		break;
 	case 0x0b:
 		if (mpdu)
 			print_authentication_mgmt_frame(level + 1, mpdu, size);
 		else
-			str = "Authentication";
+			str = "Authentication (invalid MPDU)";
 		break;
 	case 0x0c:
 		if (mpdu)
 			print_deauthentication_mgmt_frame(level + 1, mpdu);
 		else
-			str = "Deauthentication";
+			str = "Deauthentication (invalid MPDU)";
 		break;
 	case 0x0d:
 	case 0x0e:
@@ -7240,7 +7264,6 @@ static void store_message(struct nlmon *nlmon, const struct timeval *tv,
 }
 
 static void nlmon_message(struct nlmon *nlmon, const struct timeval *tv,
-					const struct tpacket_auxdata *tp,
 					const struct nlmsghdr *nlmsg)
 {
 	struct nlmon_req *req;
@@ -7278,12 +7301,6 @@ static void nlmon_message(struct nlmon *nlmon, const struct timeval *tv,
 						NULL, sizeof(status));
 			nlmon_req_free(req);
 		}
-		return;
-	}
-
-	if (!nlmon->read && nlmsg->nlmsg_type != nlmon->id) {
-		if (nlmsg->nlmsg_type == GENL_ID_CTRL)
-			store_message(nlmon, tv, nlmsg);
 		return;
 	}
 
@@ -7357,35 +7374,6 @@ void nlmon_destroy(struct nlmon *nlmon)
 	l_queue_destroy(nlmon->req_list, nlmon_req_free);
 
 	l_free(nlmon);
-}
-
-static void genl_ctrl(struct nlmon *nlmon, const void *data, uint32_t len)
-{
-	const struct genlmsghdr *genlmsg = data;
-	const struct nlattr *nla;
-	char name[GENL_NAMSIZ];
-	uint16_t id = 0;
-
-	if (genlmsg->cmd != CTRL_CMD_NEWFAMILY)
-		return;
-
-	for (nla = data + GENL_HDRLEN; NLA_OK(nla, len);
-						nla = NLA_NEXT(nla, len)) {
-		switch (nla->nla_type & NLA_TYPE_MASK) {
-		case CTRL_ATTR_FAMILY_ID:
-			id = *((uint16_t *) NLA_DATA(nla));
-			break;
-		case CTRL_ATTR_FAMILY_NAME:
-			strncpy(name, NLA_DATA(nla), GENL_NAMSIZ - 1);
-			break;
-		}
-	}
-
-	if (id == 0)
-		return;
-
-	if (!strcmp(name, NL80211_GENL_NAME))
-		nlmon->id = id;
 }
 
 static const char *scope_to_string(uint8_t scope)
@@ -8167,13 +8155,15 @@ void nlmon_print_rtnl(struct nlmon *nlmon, const struct timeval *tv,
 	int64_t aligned_size = NLMSG_ALIGN(size);
 	const struct nlmsghdr *nlmsg;
 
-	if (nlmon->nortnl)
-		return;
-
 	update_time_offset(tv);
 
 	for (nlmsg = data; NLMSG_OK(nlmsg, aligned_size);
 				nlmsg = NLMSG_NEXT(nlmsg, aligned_size)) {
+		store_netlink(nlmon, tv, NETLINK_ROUTE, nlmsg);
+
+		if (nlmon->nortnl)
+			continue;
+
 		switch (nlmsg->nlmsg_type) {
 		case NLMSG_NOOP:
 		case NLMSG_OVERRUN:
@@ -8207,177 +8197,16 @@ void nlmon_print_genl(struct nlmon *nlmon, const struct timeval *tv,
 
 	for (nlmsg = data; NLMSG_OK(nlmsg, size);
 				nlmsg = NLMSG_NEXT(nlmsg, size)) {
-		if (nlmsg->nlmsg_type == GENL_ID_CTRL)
-			genl_ctrl(nlmon, NLMSG_DATA(nlmsg),
-						NLMSG_PAYLOAD(nlmsg, 0));
-		else
-			nlmon_message(nlmon, tv, NULL, nlmsg);
-	}
-}
-
-static bool nlmon_receive(struct l_io *io, void *user_data)
-{
-	struct nlmon *nlmon = user_data;
-	struct nlmsghdr *nlmsg;
-	struct msghdr msg;
-	struct sockaddr_ll sll;
-	struct iovec iov;
-	struct cmsghdr *cmsg;
-	struct timeval copy_tv;
-	struct tpacket_auxdata copy_tp;
-	const struct timeval *tv = NULL;
-	const struct tpacket_auxdata *tp = NULL;
-	uint16_t proto_type;
-	unsigned char buf[8192];
-	unsigned char control[32];
-	ssize_t bytes_read;
-	int64_t nlmsg_len;
-	int fd;
-
-	fd = l_io_get_fd(io);
-	if (fd < 0)
-		return false;
-
-	memset(&sll, 0, sizeof(sll));
-
-	memset(&iov, 0, sizeof(iov));
-	iov.iov_base = buf;
-	iov.iov_len = sizeof(buf);
-
-	memset(&msg, 0, sizeof(msg));
-	msg.msg_name = &sll;
-	msg.msg_namelen = sizeof(sll);
-	msg.msg_iov = &iov;
-	msg.msg_iovlen = 1;
-	msg.msg_control = control;
-	msg.msg_controllen = sizeof(control);
-
-	bytes_read = recvmsg(fd, &msg, 0);
-	if (bytes_read < 0) {
-		if (errno != EAGAIN && errno != EINTR)
-			return false;
-
-		return true;
-	}
-
-	if (sll.sll_hatype != ARPHRD_NETLINK)
-		return true;
-
-	proto_type = ntohs(sll.sll_protocol);
-
-	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg;
-				cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-		if (cmsg->cmsg_level == SOL_SOCKET &&
-					cmsg->cmsg_type == SCM_TIMESTAMP) {
-			memcpy(&copy_tv, CMSG_DATA(cmsg), sizeof(copy_tv));
-			tv = &copy_tv;
+		if (nlmsg->nlmsg_type == GENL_ID_CTRL) {
+			store_message(nlmon, tv, nlmsg);
+			continue;
 		}
 
-		if (cmsg->cmsg_level == SOL_PACKET &&
-					cmsg->cmsg_type != PACKET_AUXDATA) {
-			memcpy(&copy_tp, CMSG_DATA(cmsg), sizeof(copy_tp));
-			tp = &copy_tp;
-		}
+		if (!nlmon->read && nlmsg->nlmsg_type != nlmon->id)
+			continue;
+
+		nlmon_message(nlmon, tv, nlmsg);
 	}
-
-	nlmsg_len = bytes_read;
-
-	for (nlmsg = iov.iov_base; NLMSG_OK(nlmsg, nlmsg_len);
-				nlmsg = NLMSG_NEXT(nlmsg, nlmsg_len)) {
-		switch (proto_type) {
-		case NETLINK_ROUTE:
-			store_netlink(nlmon, tv, proto_type, nlmsg);
-
-			nlmon_print_rtnl(nlmon, tv, nlmsg, nlmsg->nlmsg_len);
-			break;
-		case NETLINK_GENERIC:
-			nlmon_message(nlmon, tv, tp, nlmsg);
-			break;
-		}
-	}
-
-	return true;
-}
-
-/*
- * BPF filter to match skb->dev->type == 824 (ARPHRD_NETLINK) and
- * either match skb->protocol == 0x0000 (NETLINK_ROUTE) or match
- * skb->protocol == 0x0010 (NETLINK_GENERIC).
- */
-static struct sock_filter mon_filter[] = {
-	{ 0x28,  0,  0, 0xfffff01c },	/* ldh #hatype		*/
-	{ 0x15,  0,  3, 0x00000338 },	/* jne #824, drop	*/
-	{ 0x28,  0,  0, 0xfffff000 },	/* ldh #proto		*/
-	{ 0x15,  2,  0, 0000000000 },	/* jeq #0x0000, pass	*/
-	{ 0x15,  1,  0, 0x00000010 },	/* jeq #0x0010, pass	*/
-	{ 0x06,  0,  0, 0000000000 },	/* drop: ret #0		*/
-	{ 0x06,  0,  0, 0xffffffff },	/* pass: ret #-1	*/
-};
-
-static const struct sock_fprog mon_fprog = { .len = 7, .filter = mon_filter };
-
-static struct l_io *open_packet(const char *name)
-{
-	struct l_io *io;
-	struct sockaddr_ll sll;
-	struct packet_mreq mr;
-	struct ifreq ifr;
-	int fd, opt = 1;
-
-	fd = socket(PF_PACKET, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
-	if (fd < 0) {
-		perror("Failed to create packet socket");
-		return NULL;
-	}
-
-	strncpy(ifr.ifr_name, name, IFNAMSIZ - 1);
-
-	if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0) {
-		perror("Failed to get monitor index");
-		close(fd);
-		return NULL;
-	}
-
-	memset(&sll, 0, sizeof(sll));
-	sll.sll_family = AF_PACKET;
-	sll.sll_protocol = htons(ETH_P_ALL);
-	sll.sll_ifindex = ifr.ifr_ifindex;
-
-	if (bind(fd, (struct sockaddr *) &sll, sizeof(sll)) < 0) {
-		perror("Failed to bind packet socket");
-		close(fd);
-		return NULL;
-	}
-
-	memset(&mr, 0, sizeof(mr));
-	mr.mr_ifindex = ifr.ifr_ifindex;
-	mr.mr_type = PACKET_MR_ALLMULTI;
-
-	if (setsockopt(fd, SOL_PACKET, PACKET_ADD_MEMBERSHIP,
-						&mr, sizeof(mr)) < 0) {
-		perror("Failed to enable all multicast");
-		close(fd);
-		return NULL;
-	}
-
-	if (setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER,
-					&mon_fprog, sizeof(mon_fprog)) < 0) {
-		perror("Failed to enable monitor filter");
-		close(fd);
-		return NULL;
-	}
-
-	if (setsockopt(fd, SOL_SOCKET, SO_TIMESTAMP, &opt, sizeof(opt)) < 0) {
-		perror("Failed to enable monitor timestamps");
-		close(fd);
-		return NULL;
-	}
-
-	io = l_io_new(fd);
-
-	l_io_set_close_on_destroy(io, true);
-
-	return io;
 }
 
 void nlmon_print_pae(struct nlmon *nlmon, const struct timeval *tv,
@@ -8507,28 +8336,21 @@ static struct l_io *open_pae(void)
 	return io;
 }
 
-struct nlmon *nlmon_open(const char *ifname, uint16_t id, const char *pathname,
+struct nlmon *nlmon_open(uint16_t id, const char *pathname,
 				const struct nlmon_config *config)
 {
 	struct nlmon *nlmon;
-	struct l_io *io, *pae_io;
+	struct l_io *pae_io;
 	struct pcap *pcap;
 
-	io = open_packet(ifname);
-	if (!io)
-		return NULL;
-
 	pae_io = open_pae();
-	if (!pae_io) {
-		l_io_destroy(io);
+	if (!pae_io)
 		return NULL;
-	}
 
 	if (pathname) {
 		pcap = pcap_create(pathname);
 		if (!pcap) {
 			l_io_destroy(pae_io);
-			l_io_destroy(io);
 			return NULL;
 		}
 	} else
@@ -8537,11 +8359,9 @@ struct nlmon *nlmon_open(const char *ifname, uint16_t id, const char *pathname,
 
 	nlmon = nlmon_create(id, config);
 
-	nlmon->io = io;
 	nlmon->pae_io = pae_io;
 	nlmon->pcap = pcap;
 
-	l_io_set_read_handler(nlmon->io, nlmon_receive, nlmon, NULL);
 	l_io_set_read_handler(nlmon->pae_io, pae_receive, nlmon, NULL);
 
 	wlan_iface_list = l_hashmap_new();
@@ -8554,7 +8374,6 @@ void nlmon_close(struct nlmon *nlmon)
 	if (!nlmon)
 		return;
 
-	l_io_destroy(nlmon->io);
 	l_io_destroy(nlmon->pae_io);
 	l_queue_destroy(nlmon->req_list, nlmon_req_free);
 

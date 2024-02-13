@@ -37,7 +37,7 @@ class Test(unittest.TestCase):
         self.validate_connection(wd, 'InvalidSecret')
 
     def test_no_supported_groups(self):
-        self.hostapd.set_value('sae_groups', '1')
+        self.hostapd.set_value('sae_groups', '21')
         self.hostapd.reload()
 
         wd = IWD(True)

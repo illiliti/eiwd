@@ -201,9 +201,9 @@ class SignalAgent(dbus.service.Object):
         return self._path
 
     @dbus.service.method(IWD_SIGNAL_AGENT_INTERFACE,
-                         in_signature='', out_signature='')
-    def Release(self):
-        print("SignalAgent released")
+                         in_signature='o', out_signature='')
+    def Release(self, path):
+        print("SignalAgent released %s" % path)
 
     @dbus.service.method(IWD_SIGNAL_AGENT_INTERFACE,
                          in_signature='oy', out_signature='')
@@ -1362,6 +1362,10 @@ class IWD(AsyncOpAbstract):
             IWD._default_instance = weakref.ref(self)
 
         self.psk_agents = []
+
+    def stop(self):
+        if self.namespace.is_process_running('iwd'):
+            self._iwd_proc.kill()
 
     def __del__(self):
         for agent in self.psk_agents:

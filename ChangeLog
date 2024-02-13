@@ -1,3 +1,23 @@
+ver 2.14:
+	Fix issue with accepting PTK 4/4 after receiving PTK 2/4.
+	Fix issue with frequency limit for quick scans.
+	Fix issue with limiting DHCPv4 attempts.
+
+ver 2.13:
+	Fix issue with handling netconfig and roaming conditions.
+	Fix issue with logging requirement for CMD_EXTERNAL_AUTH.
+	Fix issue with using OpenSSL 3.2 installations.
+
+ver 2.12:
+	Fix issue with DPP extra settings not being used.
+	Fix issue with DPP and PRF+ handling on AARCH64.
+	Add support for SAE password identifiers.
+
+ver 2.11:
+	Fix issue with handling iovecs with multiple IEs.
+	Fix issue with handling SAE password identifiers.
+	Fix issue with handling agent release method call.
+
 ver 2.10:
 	Fix issue with buffer overflow for 32 byte SSIDs.
 	Fix issue with deauthentication before FT work completes.

@@ -209,7 +209,7 @@ static bool mac_per_ssid;
 
 static unsigned int iov_ie_append(struct iovec *iov,
 					unsigned int n_iov, unsigned int c,
-					const uint8_t *ie)
+					const uint8_t *ie, size_t len)
 {
 	if (L_WARN_ON(c >= n_iov))
 		return n_iov;
@@ -218,7 +218,7 @@ static unsigned int iov_ie_append(struct iovec *iov,
 		return c;
 
 	iov[c].iov_base = (void *) ie;
-	iov[c].iov_len = ie[1] + 2;
+	iov[c].iov_len = len;
 
 	return c + 1u;
 }
@@ -286,19 +286,22 @@ static unsigned int netdev_populate_common_ies(struct netdev *netdev,
 
 	extended_capabilities = wiphy_get_extended_capabilities(netdev->wiphy,
 								netdev->type);
-	c_iov = iov_ie_append(iov, n_iov, c_iov, extended_capabilities);
+	c_iov = iov_ie_append(iov, n_iov, c_iov, extended_capabilities,
+				IE_LEN(extended_capabilities));
 
 	rm_enabled_capabilities =
 		wiphy_get_rm_enabled_capabilities(netdev->wiphy);
-	c_iov = iov_ie_append(iov, n_iov, c_iov, rm_enabled_capabilities);
+	c_iov = iov_ie_append(iov, n_iov, c_iov, rm_enabled_capabilities,
+				IE_LEN(rm_enabled_capabilities));
 
 	if (rm_enabled_capabilities)
 		l_genl_msg_append_attr(msg, NL80211_ATTR_USE_RRM, 0, NULL);
 
-	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->vendor_ies);
+	c_iov = iov_ie_append(iov, n_iov, c_iov,
+				hs->vendor_ies, hs->vendor_ies_len);
 
-	if (hs->fils_ip_req_ie)
-		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->fils_ip_req_ie);
+	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->fils_ip_req_ie,
+				IE_LEN(hs->fils_ip_req_ie));
 
 	return c_iov;
 }
@@ -1406,16 +1409,13 @@ static void netdev_connect_ok(struct netdev *netdev)
 			scan_bss_free(netdev->fw_roam_bss);
 
 		netdev->fw_roam_bss = NULL;
-	} else if (netdev->in_ft) {
-		if (netdev->event_filter)
-			netdev->event_filter(netdev, NETDEV_EVENT_FT_ROAMED,
-						NULL, netdev->user_data);
-		netdev->in_ft = false;
 	} else if (netdev->connect_cb) {
 		netdev->connect_cb(netdev, NETDEV_RESULT_OK, NULL,
 					netdev->user_data);
 		netdev->connect_cb = NULL;
-	}
+		netdev->in_ft = false;
+	} else
+		l_warn("Connection event without a connect callback!");
 
 	netdev_rssi_polling_update(netdev);
 
@@ -2447,9 +2447,7 @@ static void netdev_driver_connected(struct netdev *netdev)
 
 static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 						struct handshake_state *hs,
-						const uint8_t *prev_bssid,
-						const struct iovec *vendor_ies,
-						size_t num_vendor_ies)
+						const uint8_t *prev_bssid)
 {
 	struct netdev_handshake_state *nhs =
 		l_container_of(hs, struct netdev_handshake_state, super);
@@ -2502,7 +2500,8 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 
 	if (is_rsn) {
 		nl80211_append_rsn_attributes(msg, hs);
-		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_ie);
+		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_ie,
+					IE_LEN(hs->supplicant_ie));
 	}
 
 	if (is_rsn || hs->settings_8021x) {
@@ -2517,19 +2516,13 @@ static struct l_genl_msg *netdev_build_cmd_connect(struct netdev *netdev,
 
 	if (netdev->owe_sm) {
 		owe_build_dh_ie(netdev->owe_sm, owe_dh_ie, &dh_ie_len);
-		c_iov = iov_ie_append(iov, n_iov, c_iov, owe_dh_ie);
+		c_iov = iov_ie_append(iov, n_iov, c_iov, owe_dh_ie, dh_ie_len);
 	}
 
-	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->mde);
+	c_iov = iov_ie_append(iov, n_iov, c_iov, hs->mde, IE_LEN(hs->mde));
 	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
 
 	mpdu_sort_ies(subtype, iov, c_iov);
-
-	if (vendor_ies && !L_WARN_ON(n_iov - c_iov < num_vendor_ies)) {
-		memcpy(iov + c_iov, vendor_ies,
-					sizeof(*vendor_ies) * num_vendor_ies);
-		c_iov += num_vendor_ies;
-	}
 
 	if (c_iov)
 		l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
@@ -2566,8 +2559,7 @@ static bool netdev_retry_owe(struct netdev *netdev)
 	if (!owe_next_group(netdev->owe_sm))
 		return false;
 
-	connect_cmd = netdev_build_cmd_connect(netdev,
-					netdev->handshake, NULL, NULL, 0);
+	connect_cmd = netdev_build_cmd_connect(netdev, netdev->handshake, NULL);
 
 	netdev->connect_cmd_id = l_genl_family_send(nl80211, connect_cmd,
 						netdev_cmd_connect_cb, netdev,
@@ -2782,7 +2774,7 @@ process_resp_ies:
 			 */
 			if (ie_parse_fast_bss_transition_from_data(fte,
 					fte[1] + 2, kck_len, &ft_info) >= 0) {
-				handshake_state_set_fte(hs, fte);
+				handshake_state_set_authenticator_fte(hs, fte);
 				handshake_state_set_kh_ids(hs,
 							ft_info.r0khid,
 							ft_info.r0khid_len,
@@ -3267,9 +3259,11 @@ static void netdev_sae_tx_associate(void *user_data)
 
 	msg = netdev_build_cmd_associate_common(netdev);
 
-	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_ie);
-	n_used = iov_ie_append(iov, n_iov, n_used, hs->mde);
-	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_rsnxe);
+	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_ie,
+						IE_LEN(hs->supplicant_ie));
+	n_used = iov_ie_append(iov, n_iov, n_used, hs->mde, IE_LEN(hs->mde));
+	n_used = iov_ie_append(iov, n_iov, n_used, hs->supplicant_rsnxe,
+					IE_LEN(hs->supplicant_rsnxe));
 	n_used = netdev_populate_common_ies(netdev, hs, msg,
 							iov, n_iov, n_used);
 	mpdu_sort_ies(subtype, iov, n_used);
@@ -3801,8 +3795,6 @@ static void netdev_connect_common(struct netdev *netdev,
 					const struct scan_bss *bss,
 					const struct scan_bss *prev_bss,
 					struct handshake_state *hs,
-					const struct iovec *vendor_ies,
-					size_t num_vendor_ies,
 					netdev_event_func_t event_filter,
 					netdev_connect_cb_t cb, void *user_data)
 {
@@ -3860,8 +3852,7 @@ static void netdev_connect_common(struct netdev *netdev,
 		break;
 	default:
 build_cmd_connect:
-		cmd_connect = netdev_build_cmd_connect(netdev, hs, prev_bssid,
-						vendor_ies, num_vendor_ies);
+		cmd_connect = netdev_build_cmd_connect(netdev, hs, prev_bssid);
 
 		if (!is_offload(hs) && (is_rsn || hs->settings_8021x)) {
 			sm = eapol_sm_new(hs);
@@ -3894,8 +3885,6 @@ build_cmd_connect:
 
 int netdev_connect(struct netdev *netdev, const struct scan_bss *bss,
 				struct handshake_state *hs,
-				const struct iovec *vendor_ies,
-				size_t num_vendor_ies,
 				netdev_event_func_t event_filter,
 				netdev_connect_cb_t cb, void *user_data)
 {
@@ -3912,9 +3901,8 @@ int netdev_connect(struct netdev *netdev, const struct scan_bss *bss,
 	if (netdev_handshake_state_setup_connection_type(hs) < 0)
 		return -ENOTSUP;
 
-	netdev_connect_common(netdev, bss, NULL, hs, vendor_ies,
-					num_vendor_ies, event_filter, cb,
-					user_data);
+	netdev_connect_common(netdev, bss, NULL, hs,
+				event_filter, cb, user_data);
 
 	return 0;
 }
@@ -4019,7 +4007,7 @@ int netdev_reassociate(struct netdev *netdev, const struct scan_bss *target_bss,
 	netdev->connected = false;
 	netdev->in_reassoc = true;
 
-	netdev_connect_common(netdev, target_bss, orig_bss, hs, NULL, 0,
+	netdev_connect_common(netdev, target_bss, orig_bss, hs,
 					event_filter, cb, user_data);
 
 	if (netdev->ap)
@@ -4214,13 +4202,14 @@ static int netdev_tx_ft_frame(uint32_t ifindex, uint16_t frame_type,
 	return 0;
 }
 
-static int netdev_ft_tx_associate(uint32_t ifindex, uint32_t freq,
-					const uint8_t *prev_bssid,
-					struct iovec *ft_iov, size_t n_ft_iov)
+int netdev_ft_reassociate(struct netdev *netdev,
+				const struct scan_bss *target_bss,
+				const struct scan_bss *orig_bss,
+				netdev_event_func_t event_filter,
+				netdev_connect_cb_t cb, void *user_data)
 {
-	struct netdev *netdev = netdev_find(ifindex);
-	struct netdev_handshake_state *nhs;
 	struct handshake_state *hs = netdev->handshake;
+	struct netdev_handshake_state *nhs;
 	struct l_genl_msg *msg;
 	struct iovec iov[64];
 	unsigned int n_iov = L_ARRAY_SIZE(iov);
@@ -4232,11 +4221,14 @@ static int netdev_ft_tx_associate(uint32_t ifindex, uint32_t freq,
 	 * At this point there is no going back with FT so reset all the flags
 	 * needed to associate with a new BSS.
 	 */
-	netdev->frequency = freq;
+	netdev->frequency = target_bss->frequency;
 	netdev->handshake->active_tk_index = 0;
 	netdev->associated = false;
 	netdev->operational = false;
 	netdev->in_ft = true;
+	netdev->event_filter = event_filter;
+	netdev->connect_cb = cb;
+	netdev->user_data = user_data;
 
 	/*
 	 * Cancel commands that could be running because of EAPoL activity
@@ -4280,15 +4272,22 @@ static int netdev_ft_tx_associate(uint32_t ifindex, uint32_t freq,
 
 	c_iov = netdev_populate_common_ies(netdev, hs, msg, iov, n_iov, c_iov);
 
-	if (!L_WARN_ON(n_iov - c_iov < n_ft_iov)) {
-		memcpy(iov + c_iov, ft_iov, sizeof(*ft_iov) * n_ft_iov);
-		c_iov += n_ft_iov;
-	}
+	if (hs->supplicant_ie)
+		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_ie,
+					IE_LEN(hs->supplicant_ie));
+
+	if (hs->supplicant_fte)
+		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->supplicant_fte,
+					IE_LEN(hs->supplicant_fte));
+
+	if (hs->mde)
+		c_iov = iov_ie_append(iov, n_iov, c_iov, hs->mde,
+					IE_LEN(hs->mde));
 
 	mpdu_sort_ies(subtype, iov, c_iov);
 
 	l_genl_msg_append_attr(msg, NL80211_ATTR_PREV_BSSID, ETH_ALEN,
-				prev_bssid);
+				orig_bss->addr);
 	l_genl_msg_append_attrv(msg, NL80211_ATTR_IE, iov, c_iov);
 
 	netdev->connect_cmd_id = l_genl_family_send(nl80211, msg,
@@ -4735,7 +4734,7 @@ static void netdev_unprot_disconnect_event(struct l_genl_msg *msg,
 	uint16_t type;
 	uint16_t len;
 	const void *data;
-	uint8_t reason_code;
+	uint16_t reason_code;
 
 	if (!netdev->connected)
 		return;
@@ -4763,7 +4762,8 @@ static void netdev_unprot_disconnect_event(struct l_genl_msg *msg,
 
 	reason_code = l_get_le16(mmpdu_body(hdr));
 
-	l_info("disconnect event, src="MAC" dest="MAC" bssid="MAC" reason=%u",
+	l_info("unprotected disconnect event, src="MAC" dest="MAC
+			 " bssid="MAC" reason=%u",
 			MAC_STR(hdr->address_2), MAC_STR(hdr->address_1),
 			MAC_STR(hdr->address_3), reason_code);
 
@@ -6265,7 +6265,6 @@ static int netdev_init(void)
 	__eapol_set_install_pmk_func(netdev_set_pmk);
 
 	__ft_set_tx_frame_func(netdev_tx_ft_frame);
-	__ft_set_tx_associate_func(netdev_ft_tx_associate);
 
 	unicast_watch = l_genl_add_unicast_watch(genl, NL80211_GENL_NAME,
 						netdev_unicast_notify,

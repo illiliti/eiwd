@@ -33,7 +33,7 @@ struct nlmon_config {
 	bool read_only;
 };
 
-struct nlmon *nlmon_open(const char *ifname, uint16_t id, const char *pathname,
+struct nlmon *nlmon_open(uint16_t id, const char *pathname,
 				const struct nlmon_config *config);
 void nlmon_close(struct nlmon *nlmon);
 

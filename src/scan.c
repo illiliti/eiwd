@@ -1404,10 +1404,24 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 			 * Currently only Proxy ARP bit (12) is checked, and if
 			 * not found, this is not a fatal error.
 			 */
-			if (iter.len < 2)
-				break;
+			if (iter.len >= 2)
+				bss->proxy_arp = test_bit(iter.data, 12);
 
-			bss->proxy_arp = test_bit(iter.data, 12);
+			/*
+			 * 802.11-2020 Table 9-153
+			 *
+			 * The spec merely mentions the "exclusive" bit and
+			 * doesn't enforce a requirement to check it anywhere.
+			 * But if set it would indicate the AP will only accept
+			 * auths when a password ID is used so store this in
+			 * order to fail early if no ID is set.
+			 */
+			if (iter.len >= 11) {
+				bss->sae_pw_id_used = test_bit(iter.data, 81);
+				bss->sae_pw_id_exclusive =
+							test_bit(iter.data, 82);
+			}
+
 		}
 	}
 

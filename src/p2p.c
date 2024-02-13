@@ -1500,23 +1500,22 @@ static void p2p_handshake_event(struct handshake_state *hs,
 static void p2p_try_connect_group(struct p2p_device *dev)
 {
 	struct scan_bss *bss = dev->conn_wsc_bss;
-	struct handshake_state *hs = NULL;
+	_auto_(handshake_state_free) struct handshake_state *hs = NULL;
 	struct iovec ie_iov[16];
 	int ie_num = 0;
 	int r;
-	struct p2p_association_req info = {};
+	struct p2p_association_req info = {
+		.capability = dev->capability,
+		.device_info = dev->device_info,
+	};
 	struct ie_rsn_info bss_info = {};
 	struct ie_rsn_info rsn_info = {};
 	uint8_t rsne_buf[256];
 	uint8_t wfd_ie[32];
+	_auto_(l_free) uint8_t *req_ie =
+		p2p_build_association_req(&info, &ie_iov[ie_num].iov_len);
 
-	info.capability = dev->capability;
-	info.device_info = dev->device_info;
-
-	ie_iov[0].iov_base = p2p_build_association_req(&info,
-							&ie_iov[0].iov_len);
-	L_WARN_ON(!ie_iov[0].iov_base);
-	ie_num = 1;
+	ie_iov[ie_num++].iov_base = req_ie;
 
 	if (dev->conn_own_wfd) {
 		ie_iov[ie_num].iov_base = wfd_ie;
@@ -1555,30 +1554,25 @@ static void p2p_try_connect_group(struct p2p_device *dev)
 	handshake_state_set_event_func(hs, p2p_handshake_event, dev);
 	handshake_state_set_ssid(hs, bss->ssid, bss->ssid_len);
 	handshake_state_set_pmk(hs, dev->conn_psk, 32);
+	handshake_state_set_vendor_ies(hs, ie_iov, ie_num);
 
 	if (dev->conn_peer_capability.group_caps & P2P_GROUP_CAP_IP_ALLOCATION)
 		hs->support_ip_allocation = true;
 
-	r = netdev_connect(dev->conn_netdev, bss, hs, ie_iov, ie_num,
+	r = netdev_connect(dev->conn_netdev, bss, hs,
 				p2p_netdev_event, p2p_netdev_connect_cb, dev);
 	if (r < 0) {
 		l_error("netdev_connect error: %s (%i)", strerror(-r), -r);
 		goto error;
 	}
 
+	l_steal_ptr(hs);
 	dev->conn_retry_count++;
-
-done:
-	l_free(ie_iov[0].iov_base);
 	return;
 
 error:
 not_supported:
-	if (hs)
-		handshake_state_free(hs);
-
 	p2p_connect_failed(dev);
-	goto done;
 }
 
 static void p2p_peer_provision_done(int err, struct wsc_credentials_info *creds,

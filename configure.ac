@@ -1,5 +1,5 @@
 AC_PREREQ([2.69])
-AC_INIT([iwd],[2.10])
+AC_INIT([iwd],[2.14])
 
 AC_CONFIG_HEADERS(config.h)
 AC_CONFIG_AUX_DIR(build-aux)
@@ -44,7 +44,7 @@ AC_ARG_ENABLE(optimization, AS_HELP_STRING([--disable-optimization],
 
 if (test "${enable_optimization}" != "no"); then
 	CFLAGS="$CFLAGS -O2"
-	CFLAGS+=" -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
+	CFLAGS="$CFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
 fi
 
 AC_ARG_ENABLE(debug, AS_HELP_STRING([--enable-debug],
@@ -302,7 +302,7 @@ if (test "${enable_external_ell}" = "yes"); then
 			test "${enable_monitor}" != "no" ||
 			test "${enable_wired}" = "yes" ||
 			test "${enable_hwsim}" = "yes"); then
-		ell_min_version="0.61"
+		ell_min_version="0.62"
 	else
 		ell_min_version="0.5"
 	fi

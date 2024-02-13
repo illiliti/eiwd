@@ -64,6 +64,9 @@
 #include "src/eap-tls-common.h"
 #include "src/storage.h"
 
+#define STATION_RECENT_NETWORK_LIMIT	5
+#define STATION_RECENT_FREQS_LIMIT	5
+
 static struct l_queue *station_list;
 static uint32_t netdev_watch;
 static uint32_t mfp_setting;
@@ -351,6 +354,8 @@ static bool process_network(const void *key, void *data, void *user_data)
 
 		l_queue_insert(station->networks_sorted, network,
 				network_rank_compare, NULL);
+
+		network_update_known_frequencies(network);
 
 		return false;
 	}
@@ -800,6 +805,8 @@ static bool station_owe_transition_results(int err, struct l_queue *bss_list,
 free:
 		scan_bss_free(bss);
 	}
+
+	network_update_known_frequencies(network);
 
 	l_queue_destroy(bss_list, NULL);
 
@@ -1436,7 +1443,9 @@ static int station_quick_scan_trigger(struct station *station)
 		return -EAGAIN;
 	}
 
-	known_freq_set = known_networks_get_recent_frequencies(5);
+	known_freq_set = known_networks_get_recent_frequencies(
+						STATION_RECENT_NETWORK_LIMIT,
+						STATION_RECENT_FREQS_LIMIT);
 	if (!known_freq_set)
 		return -ENODATA;
 
@@ -1499,6 +1508,8 @@ static const char *station_state_to_string(enum station_state state)
 		return "ft-roaming";
 	case STATION_STATE_FW_ROAMING:
 		return "fw-roaming";
+	case STATION_STATE_NETCONFIG:
+		return "connecting (netconfig)";
 	}
 
 	return "invalid";
@@ -1559,6 +1570,8 @@ static void station_enter_state(struct station *station,
 			station_state_to_string(state));
 
 #ifdef HAVE_DBUS
+	station_debug_event(station, station_state_to_string(state));
+
 	disconnected = !station_is_busy(station);
 
 	if ((disconnected && state > STATION_STATE_AUTOCONNECT_FULL) ||
@@ -1643,6 +1656,7 @@ static void station_enter_state(struct station *station,
 		station_set_drop_unicast_l2_multicast(station, false);
 		break;
 	case STATION_STATE_DISCONNECTING:
+	case STATION_STATE_NETCONFIG:
 		break;
 	case STATION_STATE_ROAMING:
 	case STATION_STATE_FT_ROAMING:
@@ -1779,6 +1793,7 @@ static void station_reset_connection_state(struct station *station)
 	if (station->state == STATION_STATE_CONNECTED ||
 			station->state == STATION_STATE_CONNECTING ||
 			station->state == STATION_STATE_CONNECTING_AUTO ||
+			station->state == STATION_STATE_NETCONFIG ||
 			station_is_roaming(station))
 		network_disconnected(network);
 }
@@ -2054,8 +2069,7 @@ static void station_netconfig_event_handler(enum netconfig_event event,
 			dbus_pending_reply(&station->connect_pending, reply);
 		}
 
-		if (L_IN_SET(station->state, STATION_STATE_CONNECTING,
-				STATION_STATE_CONNECTING_AUTO))
+		if (station->state == STATION_STATE_NETCONFIG)
 			network_connect_failed(station->connected_network,
 						false);
 
@@ -2081,9 +2095,14 @@ static bool netconfig_after_roam(struct station *station)
 					network_get_settings(network)))
 		return false;
 
-	return netconfig_configure(station->netconfig,
+	if (!netconfig_configure(station->netconfig,
 					station_netconfig_event_handler,
-					station);
+					station))
+		return false;
+
+	station_enter_state(station, STATION_STATE_NETCONFIG);
+
+	return true;
 }
 
 static void station_roamed(struct station *station)
@@ -2195,7 +2214,8 @@ static void station_reassociate_cb(struct netdev *netdev,
 
 	l_debug("%u, result: %d", netdev_get_ifindex(station->netdev), result);
 
-	if (station->state != STATION_STATE_ROAMING)
+	if (station->state != STATION_STATE_ROAMING &&
+			station->state != STATION_STATE_FT_ROAMING)
 		return;
 
 	if (result == NETDEV_RESULT_OK)
@@ -2224,8 +2244,6 @@ static int station_transition_reassociate(struct station *station,
 	station->connected_bss = bss;
 	station->preparing_roam = false;
 	station_enter_state(station, STATION_STATE_ROAMING);
-
-	station_debug_event(station, "reassoc-roam");
 
 	return 0;
 }
@@ -2328,7 +2346,8 @@ static bool station_ft_work_ready(struct wiphy_radio_work_item *item)
 	if (!bss)
 		goto try_next;
 
-	ret = ft_associate(netdev_get_ifindex(station->netdev), bss->addr);
+	ret = ft_handshake_setup(netdev_get_ifindex(station->netdev),
+					bss->addr);
 	switch (ret) {
 	case MMPDU_STATUS_CODE_INVALID_PMKID:
 		/*
@@ -2357,12 +2376,26 @@ try_next:
 		station_transition_start(station);
 		break;
 	case 0:
+		ret = netdev_ft_reassociate(station->netdev, bss,
+					station->connected_bss,
+					station_netdev_event,
+					station_reassociate_cb, station);
+		if (ret < 0)
+			goto disassociate;
+
 		station->connected_bss = bss;
 		station->preparing_roam = false;
 		station_enter_state(station, STATION_STATE_FT_ROAMING);
 
-		station_debug_event(station, "ft-roam");
-
+		break;
+	case -EINVAL:
+		/*
+		 * Likely an impossible situation, but since ft_handshake_setup
+		 * rederived the handshake keys we can't do anything but
+		 * disconnect.
+		 */
+disassociate:
+		station_disassociated(station);
 		break;
 	default:
 		if (ret > 0)
@@ -2617,6 +2650,12 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 		util_address_to_string(current_bss->addr),
 		util_ssid_to_utf8(current_bss->ssid_len, current_bss->ssid));
 
+	/*
+	 * Reverse now so the known frequency list gets updated in the correct
+	 * order (via network_bss_update).
+	 */
+	l_queue_reverse(bss_list);
+
 	while ((bss = l_queue_pop_head(bss_list))) {
 		double rank;
 		uint32_t kbps100 = DIV_ROUND_CLOSEST(bss->data_rate, 100000);
@@ -2747,7 +2786,8 @@ static int station_roam_scan_known_freqs(struct station *station)
 	const struct network_info *info = network_get_info(
 						station->connected_network);
 	struct scan_freq_set *freqs = network_info_get_roam_frequencies(info,
-					station->connected_bss->frequency, 5);
+					station->connected_bss->frequency,
+					STATION_RECENT_FREQS_LIMIT);
 	int r = -ENODATA;
 
 	if (!freqs)
@@ -3248,6 +3288,8 @@ static void station_connect_ok(struct station *station)
 						station_netconfig_event_handler,
 						station)))
 			return;
+
+		station_enter_state(station, STATION_STATE_NETCONFIG);
 	} else
 		station_enter_state(station, STATION_STATE_CONNECTED);
 }
@@ -3340,6 +3382,7 @@ static void station_disconnect_event(struct station *station, void *event_data)
 	case STATION_STATE_CONNECTED:
 	case STATION_STATE_FT_ROAMING:
 	case STATION_STATE_FW_ROAMING:
+	case STATION_STATE_NETCONFIG:
 		station_disassociated(station);
 		return;
 	default:
@@ -3402,6 +3445,16 @@ static void station_beacon_lost(struct station *station)
 	station_roam_timeout_rearm(station, LOSS_ROAM_RATE_LIMIT);
 }
 
+static void station_event_roaming(struct station *station)
+{
+	if (station->netconfig && station->state != STATION_STATE_CONNECTED) {
+		netconfig_reset(station->netconfig);
+		station->netconfig_after_roam = true;
+	}
+
+	station_enter_state(station, STATION_STATE_FW_ROAMING);
+}
+
 static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 					void *event_data, void *user_data)
 {
@@ -3429,7 +3482,7 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 			station_signal_agent_notify(station);
 		break;
 	case NETDEV_EVENT_ROAMING:
-		station_enter_state(station, STATION_STATE_FW_ROAMING);
+		station_event_roaming(station);
 		break;
 	case NETDEV_EVENT_ROAMED:
 		station_event_roamed(station, (struct scan_bss *) event_data);
@@ -3439,12 +3492,6 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 		break;
 	case NETDEV_EVENT_PACKET_LOSS_NOTIFY:
 		station_packets_lost(station, l_get_u32(event_data));
-		break;
-	case NETDEV_EVENT_FT_ROAMED:
-		if (L_WARN_ON(station->state != STATION_STATE_FT_ROAMING))
-			return;
-
-		station_roamed(station);
 		break;
 	case NETDEV_EVENT_BEACON_LOSS_NOTIFY:
 		station_beacon_lost(station);
@@ -3467,7 +3514,7 @@ int __station_connect_network(struct station *station, struct network *network,
 	if (!hs)
 		return -ENOTSUP;
 
-	r = netdev_connect(station->netdev, bss, hs, NULL, 0,
+	r = netdev_connect(station->netdev, bss, hs,
 				station_netdev_event,
 				station_connect_cb, station);
 	if (r < 0) {
@@ -3678,6 +3725,8 @@ next:
 		dbus_pending_reply(&msg, dbus_error_service_set_overlap(msg));
 		return true;
 	}
+
+	network_update_known_frequencies(network_psk ?: network_open);
 
 	error = network_connect_new_hidden_network(network_psk ?: network_open,
 							msg);
@@ -4068,8 +4117,10 @@ static struct l_dbus_message *station_dbus_scan(struct l_dbus *dbus,
 	if (station->dbus_scan_id)
 		return dbus_error_busy(message);
 
-	if (station->state == STATION_STATE_CONNECTING ||
-			station->state == STATION_STATE_CONNECTING_AUTO)
+	if (L_IN_SET(station->state, STATION_STATE_CONNECTING,
+				STATION_STATE_CONNECTING_AUTO,
+				STATION_STATE_NETCONFIG) ||
+				station_is_roaming(station))
 		return dbus_error_busy(message);
 
 	station->dbus_scan_subset_idx = 0;
@@ -4280,6 +4331,7 @@ static bool station_property_get_state(struct l_dbus *dbus,
 		break;
 	case STATION_STATE_CONNECTING:
 	case STATION_STATE_CONNECTING_AUTO:
+	case STATION_STATE_NETCONFIG:
 		statestr = "connecting";
 		break;
 	case STATION_STATE_CONNECTED:
@@ -4291,7 +4343,14 @@ static bool station_property_get_state(struct l_dbus *dbus,
 	case STATION_STATE_ROAMING:
 	case STATION_STATE_FT_ROAMING:
 	case STATION_STATE_FW_ROAMING:
-		statestr = "roaming";
+		/*
+		 * Stay in a connecting state if roaming before netconfig
+		 * has finished
+		 */
+		if (station->netconfig_after_roam)
+			statestr = "connecting";
+		else
+			statestr = "roaming";
 		break;
 	}
 
@@ -5031,8 +5090,10 @@ static struct l_dbus_message *station_debug_scan(struct l_dbus *dbus,
 	if (station->dbus_scan_id)
 		return dbus_error_busy(message);
 
-	if (station->state == STATION_STATE_CONNECTING ||
-			station->state == STATION_STATE_CONNECTING_AUTO)
+	if (L_IN_SET(station->state, STATION_STATE_CONNECTING,
+				STATION_STATE_CONNECTING_AUTO,
+				STATION_STATE_NETCONFIG) ||
+				station_is_roaming(station))
 		return dbus_error_busy(message);
 
 	if (!l_dbus_message_get_arguments(message, "aq", &iter))

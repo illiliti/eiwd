@@ -43,7 +43,6 @@
 static const unsigned int FT_ONCHANNEL_TIME = 300u; /* ms */
 
 static ft_tx_frame_func_t tx_frame = NULL;
-static ft_tx_associate_func_t tx_assoc = NULL;
 static struct l_queue *info_list = NULL;
 
 struct ft_info {
@@ -222,117 +221,6 @@ static bool ft_parse_associate_resp_frame(const uint8_t *frame, size_t frame_len
 	*out_status = L_LE16_TO_CPU(body->status_code);
 
 	return true;
-}
-
-static int ft_tx_reassociate(uint32_t ifindex, uint32_t freq,
-				const uint8_t *prev_bssid)
-{
-	struct netdev *netdev = netdev_find(ifindex);
-	struct handshake_state *hs = netdev_get_handshake(netdev);
-	struct iovec iov[3];
-	int iov_elems = 0;
-	uint32_t kck_len = handshake_state_get_kck_len(hs);
-	bool is_rsn = hs->supplicant_ie != NULL;
-	uint8_t *rsne = NULL;
-
-	if (is_rsn) {
-		struct ie_rsn_info rsn_info;
-
-		/*
-		 * Rebuild the RSNE to include the PMKR1Name and append
-		 * MDE + FTE.
-		 *
-		 * 12.8.4: "If present, the RSNE shall be set as follows:
-		 * - Version field shall be set to 1.
-		 * - PMKID Count field shall be set to 1.
-		 * - PMKID field shall contain the PMKR1Name.
-		 * - All other fields shall be as specified in 8.4.2.27
-		 *   and 11.5.3."
-		 */
-		if (ie_parse_rsne_from_data(hs->supplicant_ie,
-						hs->supplicant_ie[1] + 2,
-						&rsn_info) < 0)
-			goto error;
-
-		rsn_info.num_pmkids = 1;
-		rsn_info.pmkids = hs->pmk_r1_name;
-
-		/* Always set OCVC false for FT for now */
-		rsn_info.ocvc = false;
-
-		rsne = alloca(256);
-		ie_build_rsne(&rsn_info, rsne);
-
-		iov[iov_elems].iov_base = rsne;
-		iov[iov_elems].iov_len = rsne[1] + 2;
-		iov_elems += 1;
-	}
-
-	/* The MDE advertised by the BSS must be passed verbatim */
-	iov[iov_elems].iov_base = (void *) hs->mde;
-	iov[iov_elems].iov_len = hs->mde[1] + 2;
-	iov_elems += 1;
-
-	if (is_rsn) {
-		struct ie_ft_info ft_info;
-		uint8_t *fte;
-
-		/*
-		 * 12.8.4: "If present, the FTE shall be set as follows:
-		 * - ANonce, SNonce, R0KH-ID, and R1KH-ID shall be set to
-		 *   the values contained in the second message of this
-		 *   sequence.
-		 * - The Element Count field of the MIC Control field shall
-		 *   be set to the number of elements protected in this
-		 *   frame (variable).
-		 * [...]
-		 * - All other fields shall be set to 0."
-		 */
-
-		memset(&ft_info, 0, sizeof(ft_info));
-
-		ft_info.mic_element_count = 3;
-		memcpy(ft_info.r0khid, hs->r0khid, hs->r0khid_len);
-		ft_info.r0khid_len = hs->r0khid_len;
-		memcpy(ft_info.r1khid, hs->r1khid, 6);
-		ft_info.r1khid_present = true;
-		memcpy(ft_info.anonce, hs->anonce, 32);
-		memcpy(ft_info.snonce, hs->snonce, 32);
-
-		/*
-		 * IEEE 802.11-2020 Section 13.7.1 FT reassociation in an RSN
-		 *
-		 * "If dot11RSNAOperatingChannelValidationActivated is true and
-		 *  the FTO indicates OCVC capability, the target AP shall
-		 *  ensure that OCI subelement of the FTE matches by ensuring
-		 *  that all of the following are true:
-		 *      - OCI subelement is present
-		 *      - Channel information in the OCI matches current
-		 *        operating channel parameters (see 12.2.9)"
-		 */
-		if (hs->supplicant_ocvc && hs->chandef) {
-			oci_from_chandef(hs->chandef, ft_info.oci);
-			ft_info.oci_present = true;
-		}
-
-		fte = alloca(256);
-		ie_build_fast_bss_transition(&ft_info, kck_len, fte);
-
-		if (!ft_calculate_fte_mic(hs, 5, rsne, fte, NULL, ft_info.mic))
-			goto error;
-
-		/* Rebuild the FT IE now with the MIC included */
-		ie_build_fast_bss_transition(&ft_info, kck_len, fte);
-
-		iov[iov_elems].iov_base = fte;
-		iov[iov_elems].iov_len = fte[1] + 2;
-		iov_elems += 1;
-	}
-
-	return tx_assoc(ifindex, freq, prev_bssid, iov, iov_elems);
-
-error:
-	return -EINVAL;
 }
 
 static bool ft_verify_rsne(const uint8_t *rsne, const uint8_t *pmk_r0_name,
@@ -762,11 +650,6 @@ void __ft_set_tx_frame_func(ft_tx_frame_func_t func)
 	tx_frame = func;
 }
 
-void __ft_set_tx_associate_func(ft_tx_associate_func_t func)
-{
-	tx_assoc = func;
-}
-
 static bool ft_parse_ies(struct ft_info *info, struct handshake_state *hs,
 			const uint8_t *ies, size_t ies_len)
 {
@@ -904,9 +787,15 @@ static void ft_info_destroy(void *data)
 	l_free(info);
 }
 
-static void ft_prepare_handshake(struct ft_info *info,
+static bool ft_prepare_handshake(struct ft_info *info,
 					struct handshake_state *hs)
 {
+	uint32_t kck_len = handshake_state_get_kck_len(hs);
+	struct ie_rsn_info rsn_info;
+	struct ie_ft_info ft_info;
+	uint8_t *fte;
+	uint8_t *rsne;
+
 	handshake_state_set_authenticator_address(hs, info->aa);
 
 	memcpy(hs->mde + 2, info->mde, 3);
@@ -914,7 +803,7 @@ static void ft_prepare_handshake(struct ft_info *info,
 	handshake_state_set_chandef(hs, NULL);
 
 	if (!hs->supplicant_ie)
-		return;
+		return true;
 
 	if (info->authenticator_ie)
 		handshake_state_set_authenticator_ie(hs,
@@ -922,7 +811,7 @@ static void ft_prepare_handshake(struct ft_info *info,
 
 	memcpy(hs->snonce, info->snonce, sizeof(hs->snonce));
 
-	handshake_state_set_fte(hs, info->fte);
+	handshake_state_set_authenticator_fte(hs, info->fte);
 
 	handshake_state_set_anonce(hs, info->ft_info.anonce);
 
@@ -931,6 +820,80 @@ static void ft_prepare_handshake(struct ft_info *info,
 						info->ft_info.r1khid);
 
 	handshake_state_derive_ptk(hs);
+
+	/*
+	 * Rebuild the RSNE to include the PMKR1Name and append
+	 * MDE + FTE.
+	 *
+	 * 12.8.4: "If present, the RSNE shall be set as follows:
+	 * - Version field shall be set to 1.
+	 * - PMKID Count field shall be set to 1.
+	 * - PMKID field shall contain the PMKR1Name.
+	 * - All other fields shall be as specified in 8.4.2.27
+	 *   and 11.5.3."
+	 */
+	if (ie_parse_rsne_from_data(hs->supplicant_ie,
+					hs->supplicant_ie[1] + 2,
+					&rsn_info) < 0)
+		return false;
+
+	rsn_info.num_pmkids = 1;
+	rsn_info.pmkids = hs->pmk_r1_name;
+	/* Always set OCVC false for FT for now */
+	rsn_info.ocvc = false;
+	rsne = alloca(256);
+
+	ie_build_rsne(&rsn_info, rsne);
+	handshake_state_set_supplicant_ie(hs, rsne);
+
+	/*
+	 * 12.8.4: "If present, the FTE shall be set as follows:
+	 * - ANonce, SNonce, R0KH-ID, and R1KH-ID shall be set to
+	 *   the values contained in the second message of this
+	 *   sequence.
+	 * - The Element Count field of the MIC Control field shall
+	 *   be set to the number of elements protected in this
+	 *   frame (variable).
+	 * [...]
+	 * - All other fields shall be set to 0."
+	 */
+	memset(&ft_info, 0, sizeof(ft_info));
+	ft_info.mic_element_count = 3;
+	memcpy(ft_info.r0khid, hs->r0khid, hs->r0khid_len);
+	ft_info.r0khid_len = hs->r0khid_len;
+	memcpy(ft_info.r1khid, hs->r1khid, 6);
+	ft_info.r1khid_present = true;
+	memcpy(ft_info.anonce, hs->anonce, 32);
+	memcpy(ft_info.snonce, hs->snonce, 32);
+
+	/*
+	 * IEEE 802.11-2020 Section 13.7.1 FT reassociation in an RSN
+	 *
+	 * "If dot11RSNAOperatingChannelValidationActivated is true and
+	 *  the FTO indicates OCVC capability, the target AP shall
+	 *  ensure that OCI subelement of the FTE matches by ensuring
+	 *  that all of the following are true:
+	 *      - OCI subelement is present
+	 *      - Channel information in the OCI matches current
+	 *        operating channel parameters (see 12.2.9)"
+	 */
+	if (hs->supplicant_ocvc && hs->chandef) {
+		oci_from_chandef(hs->chandef, ft_info.oci);
+		ft_info.oci_present = true;
+	}
+
+	fte = alloca(256);
+	ie_build_fast_bss_transition(&ft_info, kck_len, fte);
+
+	if (!ft_calculate_fte_mic(hs, 5, rsne, fte, NULL, ft_info.mic))
+		return false;
+
+	/* Rebuild the FT IE now with the MIC included */
+	ie_build_fast_bss_transition(&ft_info, kck_len, fte);
+
+	handshake_state_set_supplicant_fte(hs, fte);
+
+	return true;
 }
 
 static bool ft_send_action(struct wiphy_radio_work_item *work)
@@ -1093,7 +1056,7 @@ static void ft_authenticate_destroy(int error, void *user_data)
 /*
  * There is no callback here because its assumed that another work item will
  * be inserted following this call which will check if authentication succeeded
- * via ft_associate.
+ * via ft_handshake_setup.
  *
  * If the netdev goes away while authentication is in-flight station will clear
  * the authentications during cleanup, and in turn cancel the offchannel
@@ -1155,21 +1118,14 @@ int ft_authenticate_onchannel(uint32_t ifindex, const struct scan_bss *target)
 	return 0;
 }
 
-int ft_associate(uint32_t ifindex, const uint8_t *addr)
+int ft_handshake_setup(uint32_t ifindex, const uint8_t *target)
 {
 	struct netdev *netdev = netdev_find(ifindex);
 	struct handshake_state *hs = netdev_get_handshake(netdev);
 	struct ft_info *info;
-	int ret;
+	int ret = 0;
 
-	/*
-	 * TODO: Since FT-over-DS is done early, before the time of roaming, it
-	 *       may end up that a completely new BSS is the best candidate and
-	 *       we haven't yet authenticated. We could actually authenticate
-	 *       at this point, but for now just assume the caller will choose
-	 *       a different BSS.
-	 */
-	info = ft_info_find(ifindex, addr);
+	info = ft_info_find(ifindex, target);
 	if (!info)
 		return -ENOENT;
 
@@ -1186,9 +1142,15 @@ int ft_associate(uint32_t ifindex, const uint8_t *addr)
 		return status;
 	}
 
-	ft_prepare_handshake(info, hs);
-
-	ret = ft_tx_reassociate(ifindex, info->frequency, info->prev_bssid);
+	/*
+	 * This shouldn't ever fail:
+	 *  - supplicant_ie has already been validated long ago
+	 *  - l_checksum_* shouldn't fail since we presumable have kernel
+	 *    support, how else could we have made it this far.
+	 * But just in case...
+	 */
+	if (L_WARN_ON(!ft_prepare_handshake(info, hs)))
+		ret = -EINVAL;
 
 	/* After this no previous auths will be valid */
 	ft_clear_authentications(ifindex);

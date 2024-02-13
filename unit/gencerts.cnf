@@ -16,7 +16,6 @@ authorityKeyIdentifier = keyid:always,issuer:always
 [ cert_ext ]
 basicConstraints = CA:FALSE
 subjectKeyIdentifier = hash
-authorityKeyIdentifier = keyid:always,issuer:always
 
 [ server_ext ]
 basicConstraints = CA:FALSE

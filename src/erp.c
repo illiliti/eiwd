@@ -325,7 +325,7 @@ static bool erp_derive_reauth_keys(const uint8_t *emsk, size_t emsk_len,
 	if (!prf_plus(L_CHECKSUM_SHA256, r_rk, emsk_len,
 				r_ik, emsk_len, 3, ERP_RIK_LABEL,
 				strlen(ERP_RIK_LABEL) + 1,
-				&cryptosuite, 1, &len, sizeof(len)))
+				&cryptosuite, (size_t) 1, &len, sizeof(len)))
 		return false;
 
 	return true;
