@@ -1375,7 +1375,7 @@ static void netdev_deauthenticate_event(struct l_genl_msg *msg,
 			MAC_STR(hdr->address_3), reason_code);
 
 	netdev_connect_failed(netdev, NETDEV_RESULT_AUTHENTICATION_FAILED,
-					MMPDU_STATUS_CODE_UNSPECIFIED);
+					reason_code);
 }
 
 static void netdev_operstate_cb(int error, uint16_t type,
