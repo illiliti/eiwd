@@ -2639,7 +2639,8 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 	}
 
 	if (timeout) {
-		l_warn("connect event timed out, reason=%u", timeout_reason);
+		iwd_notice(IWD_NOTICE_CONNECT_TIMEOUT, "reason: %u",
+				timeout_reason);
 		goto error;
 	}
 
@@ -2931,7 +2932,7 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 	while (l_genl_attr_next(&attr, &type, &len, &data)) {
 		switch (type) {
 		case NL80211_ATTR_TIMED_OUT:
-			l_warn("authentication event timed out");
+			iwd_notice(IWD_NOTICE_AUTH_TIMEOUT);
 
 			if (auth_proto_auth_timeout(netdev->ap))
 				return;
@@ -3032,7 +3033,7 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 	while (l_genl_attr_next(&attr, &type, &len, &data)) {
 		switch (type) {
 		case NL80211_ATTR_TIMED_OUT:
-			l_warn("association timed out");
+			iwd_notice(IWD_NOTICE_ASSOC_TIMEOUT);
 
 			if (auth_proto_assoc_timeout(netdev->ap))
 				return;
