@@ -42,3 +42,17 @@ const char *iwd_get_iface_blacklist(void);
 const char *iwd_get_phy_whitelist(void);
 const char *iwd_get_phy_blacklist(void);
 bool iwd_is_developer_mode(void);
+
+#define IWD_NOTICE_STATE		"state"
+#define IWD_NOTICE_CONNECT_INFO		"connect-info"
+#define IWD_NOTICE_ROAM_INFO		"roam-info"
+#define IWD_NOTICE_DISCONNECT_INFO	"disconnect-info"
+#define IWD_NOTICE_FT_ROAM_FAILED	"ft-roam-failed"
+#define IWD_NOTICE_CONNECT_FAILED	"connect-failed"
+#define IWD_NOTICE_AUTH_TIMEOUT		"authentication-timeout"
+#define IWD_NOTICE_ASSOC_TIMEOUT	"association-timeout"
+#define IWD_NOTICE_CONNECT_TIMEOUT	"connect-timeout"
+#define IWD_NOTICE_ROAM_SCAN		"roam-scan"
+
+#define iwd_notice(event, ...) \
+	l_notice("event: " event ", " __VA_ARGS__)
