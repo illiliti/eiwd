@@ -1561,9 +1561,9 @@ static void station_enter_state(struct station *station,
 	bool disconnected;
 	int ret;
 
-	l_debug("Old State: %s, new state: %s",
-			station_state_to_string(station->state),
-			station_state_to_string(state));
+	iwd_notice(IWD_NOTICE_STATE, "old: %s, new: %s",
+					station_state_to_string(station->state),
+					station_state_to_string(state));
 
 	station_debug_event(station, station_state_to_string(state));
 
@@ -2352,12 +2352,16 @@ static bool station_ft_work_ready(struct wiphy_radio_work_item *item)
 				roam_bss_rank_compare, NULL);
 
 		station_debug_event(station, "ft-fallback-to-reassoc");
+		iwd_notice(IWD_NOTICE_FT_ROAM_FAILED, "status: %d",
+					MMPDU_STATUS_CODE_INVALID_PMKID);
 
 		station_transition_start(station);
 		l_steal_ptr(rbss);
 		break;
 	case -ENOENT:
 		station_debug_event(station, "ft-roam-failed");
+		iwd_notice(IWD_NOTICE_FT_ROAM_FAILED,
+				"status: authentication timeout");
 try_next:
 		station_transition_start(station);
 		break;
@@ -2384,8 +2388,10 @@ disassociate:
 		station_disassociated(station);
 		break;
 	default:
-		if (ret > 0)
+		if (ret > 0) {
+			iwd_notice(IWD_NOTICE_FT_ROAM_FAILED, "status: %d", ret);
 			goto try_next;
+		}
 
 		station_roam_failed(station);
 		break;
@@ -2457,8 +2463,10 @@ static bool station_try_next_transition(struct station *station,
 	struct handshake_state *new_hs;
 	struct ie_rsn_info cur_rsne, target_rsne;
 
-	l_debug("%u, target %s", netdev_get_ifindex(station->netdev),
-			util_address_to_string(bss->addr));
+	iwd_notice(IWD_NOTICE_ROAM_INFO, "bss: "MAC", signal: %d, load: %d/255",
+					MAC_STR(bss->addr),
+					bss->signal_strength / 100,
+					bss->utilization);
 
 	/* Reset AP roam flag, at this point the roaming behaves the same */
 	station->ap_directed_roaming = false;
@@ -2561,6 +2569,7 @@ static void station_roam_scan_triggered(int err, void *user_data)
 	}
 
 	station_debug_event(station, "roam-scan-triggered");
+	iwd_notice(IWD_NOTICE_ROAM_SCAN);
 
 	/*
 	 * Do not update the Scanning property as we won't be updating the
@@ -3159,6 +3168,8 @@ static bool station_retry_owe_default_group(struct station *station)
 static bool station_retry_with_reason(struct station *station,
 					uint16_t reason_code)
 {
+	iwd_notice(IWD_NOTICE_CONNECT_FAILED, "reason: %u", reason_code);
+
 	/*
 	 * We don't want to cause a retry and blacklist if the password was
 	 * incorrect. Otherwise we would just continue to fail.
@@ -3208,6 +3219,8 @@ static bool station_retry_with_status(struct station *station,
 						station->connected_bss);
 	else
 		blacklist_add_bss(station->connected_bss->addr);
+
+	iwd_notice(IWD_NOTICE_CONNECT_FAILED, "status: %u", status_code);
 
 	return station_try_next_bss(station);
 }
@@ -3369,6 +3382,8 @@ static void station_disconnect_event(struct station *station, void *event_data)
 	case STATION_STATE_FT_ROAMING:
 	case STATION_STATE_FW_ROAMING:
 	case STATION_STATE_NETCONFIG:
+		iwd_notice(IWD_NOTICE_DISCONNECT_INFO, "reason: %u",
+					l_get_u16(event_data));
 		station_disassociated(station);
 		return;
 	default:
@@ -3508,7 +3523,12 @@ int __station_connect_network(struct station *station, struct network *network,
 		return r;
 	}
 
-	l_debug("connecting to BSS "MAC, MAC_STR(bss->addr));
+	iwd_notice(IWD_NOTICE_CONNECT_INFO, "ssid: %s, bss: "MAC", "
+					"signal: %d, load: %d/255",
+					network_get_ssid(network),
+					MAC_STR(bss->addr),
+					bss->signal_strength / 100,
+					bss->utilization);
 
 	station->connected_bss = bss;
 	station->connected_network = network;
