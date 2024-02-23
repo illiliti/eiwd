@@ -23,6 +23,8 @@ Methods		dict GetDiagnostics()
 
 			Frequency - Frequency of currently connected BSS.
 
+			Channel - The WLAN channel number of currently connected BSS.
+
 			Security - The chosen security for the connection.
 
 			RSSI [optional] - The RSSI of the currently connected BSS.
