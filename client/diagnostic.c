@@ -93,6 +93,7 @@ static const struct diagnostic_dict_mapping diagnostic_mapping[] = {
 	{ "RxMCS", 'y' },
 	{ "TxMCS", 'y' },
 	{ "Frequency", 'u' },
+	{ "Channel", 'q' },
 	{ "Security", 's' },
 	{ NULL }
 };
@@ -109,6 +110,7 @@ void diagnostic_display(struct l_dbus_message_iter *dict,
 	while (l_dbus_message_iter_next_entry(dict, &key, &variant)) {
 		const char *s_value;
 		uint32_t u_value;
+		uint16_t q_value;
 		int16_t n_value;
 		uint8_t y_value;
 		int bytes;
@@ -143,6 +145,14 @@ void diagnostic_display(struct l_dbus_message_iter *dict,
 				goto parse_error;
 
 			bytes = sprintf(display_text, "%u", u_value);
+			break;
+
+		case 'q':
+			if (!l_dbus_message_iter_get_variant(&variant, "q",
+							&q_value))
+				goto parse_error;
+
+			bytes = sprintf(display_text, "%u", q_value);
 			break;
 
 		case 'n':
