@@ -1,3 +1,8 @@
+ver 2.15:
+	Fix issue with notice events for connection timeouts.
+	Fix issue with reason code and deauthenticate event.
+	Fix issue with handling basename() functionality.
+
 ver 2.14:
 	Fix issue with accepting PTK 4/4 after receiving PTK 2/4.
 	Fix issue with frequency limit for quick scans.
