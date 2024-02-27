@@ -390,7 +390,7 @@ bool aes_siv_decrypt(const void *key, size_t key_len, const void *in,
 	if (in_len < 16)
 		return false;
 
-	if (ad)
+	if (ad && num_ad)
 		memcpy(iov, ad, sizeof(struct iovec) * num_ad);
 
 	iov[num_ad].iov_base = (void *)out;
