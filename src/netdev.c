@@ -2559,6 +2559,10 @@ static bool netdev_retry_owe(struct netdev *netdev)
 	if (!owe_next_group(netdev->owe_sm))
 		return false;
 
+	if (netdev->event_filter)
+		netdev->event_filter(netdev, NETDEV_EVENT_ECC_GROUP_RETRY,
+					NULL, netdev->user_data);
+
 	connect_cmd = netdev_build_cmd_connect(netdev, netdev->handshake, NULL);
 
 	netdev->connect_cmd_id = l_genl_family_send(nl80211, connect_cmd,
@@ -2965,6 +2969,17 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 		status_code = L_CPU_TO_LE16(auth->status);
 
 		ret = auth_proto_rx_authenticate(netdev->ap, frame, frame_len);
+
+		/*
+		 * Allows station to persist settings so it does not retry
+		 * the higher order ECC group again
+		 */
+		if (status_code ==
+				MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP &&
+				netdev->event_filter)
+			netdev->event_filter(netdev,
+						NETDEV_EVENT_ECC_GROUP_RETRY,
+						NULL, netdev->user_data);
 
 		/* We have sent another CMD_AUTHENTICATE / CMD_ASSOCIATE */
 		if (ret == 0 || ret == -EAGAIN)
