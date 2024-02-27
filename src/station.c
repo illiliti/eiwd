@@ -3152,7 +3152,7 @@ static bool station_retry_owe_default_group(struct station *station)
 		return false;
 
 	/* If we already forced group 19, allow the BSS to be blacklisted */
-	if (network_get_force_default_owe_group(station->connected_network))
+	if (network_get_force_default_ecc_group(station->connected_network))
 		return false;
 
 	l_warn("Failed to connect to OWE BSS "MAC" possibly because the AP is "
@@ -3160,7 +3160,7 @@ static bool station_retry_owe_default_group(struct station *station)
 		"Retrying with group 19 as a workaround",
 		MAC_STR(station->connected_bss->addr));
 
-	network_set_force_default_owe_group(station->connected_network);
+	network_set_force_default_ecc_group(station->connected_network);
 
 	return true;
 }

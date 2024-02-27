@@ -89,7 +89,7 @@ struct network {
 	bool provisioning_hidden:1;
 	uint8_t transition_disable; /* Temporary cache until info is set */
 	bool have_transition_disable:1;
-	bool force_default_owe_group:1;
+	bool force_default_ecc_group:1;
 	int rank;
 	/* Holds DBus Connect() message if it comes in before ANQP finishes */
 	struct l_dbus_message *connect_after_anqp;
@@ -271,8 +271,12 @@ struct network *network_create(struct station *station, const char *ssid,
 	network->security = security;
 
 	network->info = known_networks_find(ssid, security);
-	if (network->info)
+	if (network->info) {
 		network->info->seen_count++;
+		if (network->info->config.ecc_group ==
+						KNOWN_NETWORK_ECC_GROUP_DEFAULT)
+			network->force_default_ecc_group = true;
+	}
 
 	network->bss_list = l_queue_new();
 	network->blacklist = l_queue_new();
@@ -553,7 +557,7 @@ int network_handshake_setup(struct network *network, struct scan_bss *bss,
 	}
 
 	if (hs->akm_suite == IE_RSN_AKM_SUITE_OWE)
-		hs->force_default_owe_group = network->force_default_owe_group;
+		hs->force_default_owe_group = network->force_default_ecc_group;
 
 	/*
 	 * The randomization options in the provisioning file are dependent on
@@ -818,14 +822,34 @@ void network_set_info(struct network *network, struct network_info *info)
 					IWD_NETWORK_INTERFACE, "KnownNetwork");
 }
 
-void network_set_force_default_owe_group(struct network *network)
+void network_set_force_default_ecc_group(struct network *network)
 {
-	network->force_default_owe_group = true;
+	/* No network info, likely a failed OWE connection */
+	if (!network->info) {
+		network->force_default_ecc_group = true;
+		return;
+	}
+
+	/* Profile explicitly wants to try the most secure group */
+	if (network->info->config.ecc_group ==
+					KNOWN_NETWORK_ECC_GROUP_MOST_SECURE)
+		return;
+
+	l_debug("Forcing default group for %s", network->ssid);
+
+	network->force_default_ecc_group = true;
+	network->info->config.ecc_group = KNOWN_NETWORK_ECC_GROUP_DEFAULT;
 }
 
-bool network_get_force_default_owe_group(struct network *network)
+bool network_get_force_default_ecc_group(struct network *network)
 {
-	return network->force_default_owe_group;
+	if (!network->info)
+		return network->force_default_ecc_group;
+
+	if (network->info->config.ecc_group == KNOWN_NETWORK_ECC_GROUP_DEFAULT)
+		return true;
+
+	return false;
 }
 
 int network_can_connect_bss(struct network *network, const struct scan_bss *bss)
