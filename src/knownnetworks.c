@@ -123,6 +123,17 @@ void __network_config_parse(const struct l_settings *settings,
 
 		l_strfreev(modes);
 	}
+
+	if (l_settings_has_key(settings, NET_USE_DEFAULT_ECC_GROUP)) {
+		if (l_settings_get_bool(settings,
+					NET_USE_DEFAULT_ECC_GROUP, &b)) {
+			config->ecc_group = b ? KNOWN_NETWORK_ECC_GROUP_DEFAULT
+					: KNOWN_NETWORK_ECC_GROUP_MOST_SECURE;
+		} else
+			l_warn("[%s].%s is not a boolean value",
+					NET_USE_DEFAULT_ECC_GROUP);
+	} else
+		config->ecc_group = KNOWN_NETWORK_ECC_GROUP_AUTO;
 }
 
 void __network_info_init(struct network_info *info,
