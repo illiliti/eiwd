@@ -3834,9 +3834,6 @@ static void netdev_connect_common(struct netdev *netdev,
 			}
 		}
 
-		if (bss->force_default_sae_group)
-			sae_sm_set_force_group_19(netdev->ap);
-
 		break;
 	case IE_RSN_AKM_SUITE_OWE:
 		netdev->owe_sm = owe_sm_new(hs);
