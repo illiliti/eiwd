@@ -306,6 +306,22 @@ class HostapdCLI(object):
 
         return ret
 
+    def sta_status(self, address):
+        ret = {}
+
+        cmd = self.cmdline + ['sta', address]
+        proc = ctx.start_process(cmd)
+        proc.wait()
+        status = proc.out.strip().split('\n')
+
+        # Pop address
+        status.pop(0)
+        for kv in status:
+            k, v = kv.split('=', 1)
+            ret[k] = v
+
+        return ret
+
     @property
     def bssid(self):
         return self._get_status()['bssid[0]']
