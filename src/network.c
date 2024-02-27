@@ -556,8 +556,8 @@ int network_handshake_setup(struct network *network, struct scan_bss *bss,
 		handshake_state_set_protocol_version(hs, eapol_proto_version);
 	}
 
-	if (hs->akm_suite == IE_RSN_AKM_SUITE_OWE)
-		hs->force_default_owe_group = network->force_default_ecc_group;
+	hs->force_default_ecc_group = network->force_default_ecc_group ||
+						bss->force_default_sae_group;
 
 	/*
 	 * The randomization options in the provisioning file are dependent on
