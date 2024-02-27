@@ -331,8 +331,10 @@ static void test_key_derivation(const void *data)
 
 	if (vector->i_asn1) {
 		HEX2BUF(vector->i_asn1, tmp, sizeof(tmp));
+		l_free(asn1);
 		asn1 = dpp_point_to_asn1(i_boot_public, &asn1_len);
 
+		l_free(from_asn1);
 		from_asn1 = dpp_point_from_asn1(asn1, asn1_len);
 
 		assert(l_ecc_points_are_equal(from_asn1, i_boot_public));
