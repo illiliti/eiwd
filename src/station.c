@@ -2533,6 +2533,8 @@ static void station_transition_start(struct station *station)
 	while ((rbss = l_queue_peek_head(station->roam_bss_list))) {
 		struct scan_bss *bss = network_bss_find_by_addr(
 					station->connected_network, rbss->addr);
+		if (L_WARN_ON(!bss))
+			continue;
 
 		roaming = station_try_next_transition(station, bss,
 							rbss->ft_failed);
