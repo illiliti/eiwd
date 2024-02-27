@@ -695,6 +695,8 @@ static void eap_wsc_send_m5(struct eap_state *eap,
 	size_t encrypted_len;
 	bool r;
 
+	memset(m5.authenticator, 0, sizeof(m5.authenticator));
+
 	memcpy(m5es.e_snonce1, wsc->local_snonce1, sizeof(wsc->local_snonce1));
 	pdu = wsc_build_m5_encrypted_settings(&m5es, &pdu_len);
 	explicit_bzero(m5es.e_snonce1, sizeof(wsc->local_snonce1));
@@ -796,6 +798,8 @@ static void eap_wsc_send_m3(struct eap_state *eap,
 	struct iovec iov[4];
 	uint8_t *pdu;
 	size_t pdu_len;
+
+	memset(m3.authenticator, 0, sizeof(m3.authenticator));
 
 	len = strlen(wsc->device_password);
 
@@ -975,6 +979,8 @@ static void eap_wsc_r_send_m8(struct eap_state *eap,
 	unsigned int auth_types =
 		wsc->m1->auth_type_flags & wsc->m2->auth_type_flags;
 
+	memset(m8.authenticator, 0, sizeof(m8.authenticator));
+
 	if (auth_types & WSC_AUTHENTICATION_TYPE_OPEN)
 		memcpy(&creds[creds_cnt++], &wsc->open_cred,
 			sizeof(struct wsc_credential));
@@ -1021,6 +1027,9 @@ static void eap_wsc_r_handle_m7(struct eap_state *eap,
 	size_t decrypted_len;
 	struct wsc_m7_encrypted_settings m7es;
 	enum wsc_configuration_error error = WSC_CONFIGURATION_ERROR_NO_ERROR;
+
+	memset(m7es.authenticator, 0, sizeof(m7es.authenticator));
+	memset(m7.authenticator, 0, sizeof(m7.authenticator));
 
 	/* Spec unclear what to do here, see comments in eap_wsc_send_nack */
 	if (wsc_parse_m7(pdu, len, &m7, &encrypted) != 0)
@@ -1084,6 +1093,9 @@ static void eap_wsc_r_send_m6(struct eap_state *eap,
 	size_t encrypted_len;
 	bool r;
 
+	memset(m6es.authenticator, 0, sizeof(m6es.authenticator));
+	memset(m6.authenticator, 0, sizeof(m6.authenticator));
+
 	memcpy(m6es.r_snonce2, wsc->local_snonce2, sizeof(wsc->local_snonce2));
 	pdu = wsc_build_m6_encrypted_settings(&m6es, &pdu_len);
 	explicit_bzero(m6es.r_snonce2, sizeof(wsc->local_snonce2));
@@ -1122,6 +1134,8 @@ static void eap_wsc_r_handle_m5(struct eap_state *eap,
 	size_t decrypted_len;
 	struct wsc_m5_encrypted_settings m5es;
 	enum wsc_configuration_error error = WSC_CONFIGURATION_ERROR_NO_ERROR;
+
+	memset(m5es.authenticator, 0, sizeof(m5es.authenticator));
 
 	/* Spec unclear what to do here, see comments in eap_wsc_send_nack */
 	if (wsc_parse_m5(pdu, len, &m5, &encrypted) != 0)
@@ -1187,6 +1201,9 @@ static void eap_wsc_r_send_m4(struct eap_state *eap,
 	size_t len;
 	size_t len_half1;
 	struct iovec iov[4];
+
+	memset(m4es.authenticator, 0, sizeof(m4es.authenticator));
+	memset(m4.authenticator, 0, sizeof(m4.authenticator));
 
 	memcpy(m4es.r_snonce1, wsc->local_snonce1, sizeof(wsc->local_snonce1));
 	pdu = wsc_build_m4_encrypted_settings(&m4es, &pdu_len);
