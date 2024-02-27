@@ -13,7 +13,7 @@ import testutil
 
 class Test(unittest.TestCase):
 
-    def validate_connection(self, wd):
+    def validate_connection(self, wd, ssid, hostapd, expected_group):
         psk_agent = PSKAgent("secret123")
         wd.register_psk_agent(psk_agent)
 
@@ -23,11 +23,11 @@ class Test(unittest.TestCase):
 
         device.disconnect()
 
-        network = device.get_ordered_network('ssidSAE', full_scan=True)
+        network = device.get_ordered_network(ssid, full_scan=True)
 
         self.assertEqual(network.type, NetworkType.psk)
 
-        network.network_object.connect()
+        network.network_object.connect(wait=False)
 
         condition = 'obj.state == DeviceState.connected'
         wd.wait_for_object_condition(device, condition)
@@ -35,7 +35,11 @@ class Test(unittest.TestCase):
         wd.wait(2)
 
         testutil.test_iface_operstate(intf=device.name)
-        testutil.test_ifaces_connected(if0=device.name, if1=self.hostapd.ifname)
+        testutil.test_ifaces_connected(if0=device.name, if1=hostapd.ifname)
+
+        sta_status = hostapd.sta_status(device.address)
+
+        self.assertEqual(int(sta_status["sae_group"]), expected_group)
 
         device.disconnect()
 
@@ -46,37 +50,31 @@ class Test(unittest.TestCase):
 
     def test_SAE(self):
         self.hostapd.wait_for_event("AP-ENABLED")
-        self.validate_connection(self.wd)
+        self.validate_connection(self.wd, "ssidSAE", self.hostapd, 19)
 
     def test_SAE_force_group_19(self):
         # Vendor data from APs which require group 19 be used first
-        # TODO: (for all tests) verify the expected group was used
-        self.hostapd.set_value('vendor_elements', 'dd0cf4f5e8050500000000000000')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
-        self.validate_connection(self.wd)
+        self.validate_connection(self.wd, "ssidSAE-default-group", self.hostapd_defgroup, 19)
 
     def test_SAE_Group20(self):
         self.hostapd.set_value('sae_groups', '20')
-        self.hostapd.set_value('vendor_elements', '')
         self.hostapd.reload()
         self.hostapd.wait_for_event("AP-ENABLED")
-        self.validate_connection(self.wd)
+        self.validate_connection(self.wd, "ssidSAE", self.hostapd, 20)
 
     def test_SAE_H2E(self):
-        self.hostapd.set_value('sae_pwe', '1')
-        self.hostapd.set_value('vendor_elements', '')
-        self.hostapd.reload()
-        self.hostapd.wait_for_event("AP-ENABLED")
-        self.validate_connection(self.wd)
+        self.hostapd_h2e.set_value('sae_groups', '19')
+        self.hostapd_h2e.reload()
+        self.hostapd_h2e.wait_for_event("AP-ENABLED")
+        self.validate_connection(self.wd, "ssidSAE-H2E", self.hostapd_h2e, 19)
 
     def test_SAE_H2E_Group20(self):
-        self.hostapd.set_value('sae_pwe', '1')
-        self.hostapd.set_value('sae_groups', '20')
-        self.hostapd.set_value('vendor_elements', '')
-        self.hostapd.reload()
-        self.hostapd.wait_for_event("AP-ENABLED")
-        self.validate_connection(self.wd)
+        self.hostapd_h2e.set_value('sae_groups', '20')
+        self.hostapd_h2e.reload()
+        self.hostapd_h2e.wait_for_event("AP-ENABLED")
+        self.validate_connection(self.wd, "ssidSAE-H2E", self.hostapd_h2e, 20)
 
     def setUp(self):
         self.hostapd.default()
@@ -89,6 +87,8 @@ class Test(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.hostapd = HostapdCLI(config='ssidSAE.conf')
+        cls.hostapd_h2e = HostapdCLI(config='ssidSAE-H2E.conf')
+        cls.hostapd_defgroup = HostapdCLI(config='ssidSAE-default-group.conf')
 
     @classmethod
     def tearDownClass(cls):
