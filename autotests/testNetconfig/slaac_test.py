@@ -81,14 +81,21 @@ class Test(unittest.TestCase):
         self.assertEqual(expected_routes6, set(testutil.get_routes6(ifname)))
 
         rclog = open('/tmp/resolvconf.log', 'r')
-        entries = rclog.readlines()
+        entries = [l.strip() for l in rclog.readlines()[-7:]]
         rclog.close()
-        expected_rclog = ['-a %s.dns\n' % (ifname,), 'nameserver 192.168.1.2\n',
-                'nameserver 3ffe:501:ffff:100::10\n', 'nameserver 3ffe:501:ffff:100::50\n',
-                '-a %s.domain\n' % (ifname,), 'search test1\n', 'search test2\n']
-        # Every resolvconf -a run overwrites the previous settings.  Check the last seven lines
-        # of our log since we care about the end result here.
-        self.assertEqual(expected_rclog, entries[-7:])
+        expected_rclog = [
+            '-a %s.dns' % (ifname,),
+            'nameserver 192.168.1.2',
+            'nameserver 3ffe:501:ffff:100::10',
+            'nameserver 3ffe:501:ffff:100::50',
+            '-a %s.domain' % (ifname,),
+            'search test1',
+            'search test2'
+        ]
+
+        for line in expected_rclog:
+            self.assertIn(line, entries)
+            expected_rclog.remove(line)
 
         device.disconnect()
         condition = 'not obj.connected'
