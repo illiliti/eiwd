@@ -376,6 +376,9 @@ static bool extract_p2p_group_info(const uint8_t *attr, size_t len,
 		desc = l_new(struct p2p_client_info_descriptor, 1);
 		l_queue_push_tail(*out, desc);
 
+		if (desc_len < 24)
+			goto error;
+
 		memcpy(desc->device_addr, attr + 0, 6);
 		memcpy(desc->interface_addr, attr + 6, 6);
 		desc->device_caps = attr[12];
