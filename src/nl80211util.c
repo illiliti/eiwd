@@ -136,9 +136,7 @@ static bool extract_nested(const void *data, uint16_t len, void *o)
 	const struct l_genl_attr *outer = data;
 	struct l_genl_attr *nested = o;
 
-	l_genl_attr_recurse(outer, nested);
-
-	return true;
+	return l_genl_attr_recurse(outer, nested);
 }
 
 static bool extract_u8(const void *data, uint16_t len, void *o)
