@@ -175,23 +175,27 @@ class Process(subprocess.Popen):
 	def process_io(self, source, condition):
 		if condition & GLib.IO_HUP:
 			self.hup = True
+			self.wait()
+			bt = self.out.partition("++++++++ backtrace ++++++++")
+			if bt[1]:
+				raise Exception(f"Process {self.args[0]} crashed!\n{bt[1] + bt[2]}")
 
 		data = source.read()
 
 		if not data:
-			return True
+			return not self.hup
 
 		try:
 			data = data.decode('utf-8')
 		except:
-			return True
+			return not self.hup
 
 		# Save data away in case the caller needs it (e.g. list_sta)
 		self.out += data
 
 		self._write_io(self, data)
 
-		return True
+		return not self.hup
 
 	def _append_outfile(self, file, append=True):
 		gid = int(os.environ.get('SUDO_GID', os.getgid()))
