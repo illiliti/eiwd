@@ -1484,7 +1484,7 @@ static void ap_handshake_event(struct handshake_state *hs,
 	}
 	case HANDSHAKE_EVENT_REKEY_COMPLETE:
 		ap_set_sta_rekey_timer(ap, sta);
-		return;
+		break;
 	default:
 		break;
 	}
