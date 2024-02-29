@@ -541,7 +541,8 @@ static void p2p_clear_advertised_service_descriptor(void *data)
 static bool extract_p2p_advertised_service_info(const uint8_t *attr, size_t len,
 						void *data)
 {
-	struct l_queue **out = data;
+	struct l_queue **q = data;
+	struct l_queue *out = NULL;
 
 	while (len) {
 		struct p2p_advertised_service_descriptor *desc;
@@ -557,11 +558,11 @@ static bool extract_p2p_advertised_service_info(const uint8_t *attr, size_t len,
 		if (!l_utf8_validate((const char *) attr + 7, name_len, NULL))
 			goto error;
 
-		if (!*out)
-			*out = l_queue_new();
+		if (!out)
+			out = l_queue_new();
 
 		desc = l_new(struct p2p_advertised_service_descriptor, 1);
-		l_queue_push_tail(*out, desc);
+		l_queue_push_tail(out, desc);
 
 		desc->advertisement_id = l_get_le32(attr + 0);
 		desc->wsc_config_methods = l_get_be16(attr + 4);
@@ -572,10 +573,12 @@ static bool extract_p2p_advertised_service_info(const uint8_t *attr, size_t len,
 		len -= 7 + name_len;
 	}
 
+	*q = out;
+
 	return true;
 
 error:
-	l_queue_destroy(*out, p2p_clear_advertised_service_descriptor);
+	l_queue_destroy(out, p2p_clear_advertised_service_descriptor);
 	return false;
 }
 
