@@ -776,7 +776,7 @@ done:
 /* Section 4.2.1 */
 int p2p_parse_beacon(const uint8_t *pdu, size_t len, struct p2p_beacon *out)
 {
-	struct p2p_beacon d = {};
+	struct p2p_beacon d = {0};
 	int r;
 
 	r = p2p_parse_attrs(pdu, len,
@@ -797,7 +797,7 @@ int p2p_parse_beacon(const uint8_t *pdu, size_t len, struct p2p_beacon *out)
 int p2p_parse_probe_req(const uint8_t *pdu, size_t len,
 			struct p2p_probe_req *out)
 {
-	struct p2p_probe_req d = {};
+	struct p2p_probe_req d = {0};
 	int r;
 
 	r = p2p_parse_attrs(pdu, len,
@@ -828,7 +828,7 @@ int p2p_parse_probe_req(const uint8_t *pdu, size_t len,
 int p2p_parse_probe_resp(const uint8_t *pdu, size_t len,
 				struct p2p_probe_resp *out)
 {
-	struct p2p_probe_resp d = {};
+	struct p2p_probe_resp d = {0};
 	int r;
 
 	r = p2p_parse_attrs(pdu, len,
@@ -853,7 +853,7 @@ int p2p_parse_probe_resp(const uint8_t *pdu, size_t len,
 int p2p_parse_association_req(const uint8_t *pdu, size_t len,
 				struct p2p_association_req *out)
 {
-	struct p2p_association_req d = {};
+	struct p2p_association_req d = {0};
 	int r;
 
 	r = p2p_parse_attrs(pdu, len,
@@ -876,7 +876,7 @@ int p2p_parse_association_req(const uint8_t *pdu, size_t len,
 int p2p_parse_association_resp(const uint8_t *pdu, size_t len,
 				struct p2p_association_resp *out)
 {
-	struct p2p_association_resp d = {};
+	struct p2p_association_resp d = {0};
 	int r;
 
 	r = p2p_parse_attrs(pdu, len,
@@ -939,7 +939,7 @@ int p2p_parse_disassociation(const uint8_t *pdu, size_t len,
 int p2p_parse_go_negotiation_req(const uint8_t *pdu, size_t len,
 					struct p2p_go_negotiation_req *out)
 {
-	struct p2p_go_negotiation_req d = {};
+	struct p2p_go_negotiation_req d = {0};
 	int r;
 	struct p2p_go_intent_attr go_intent;
 	uint8_t *wsc_data;
@@ -1001,7 +1001,7 @@ error:
 int p2p_parse_go_negotiation_resp(const uint8_t *pdu, size_t len,
 					struct p2p_go_negotiation_resp *out)
 {
-	struct p2p_go_negotiation_resp d = {};
+	struct p2p_go_negotiation_resp d = {0};
 	int r;
 	struct p2p_go_intent_attr go_intent;
 	uint8_t *wsc_data;
@@ -1062,7 +1062,7 @@ error:
 int p2p_parse_go_negotiation_confirmation(const uint8_t *pdu, size_t len,
 				struct p2p_go_negotiation_confirmation *out)
 {
-	struct p2p_go_negotiation_confirmation d = {};
+	struct p2p_go_negotiation_confirmation d = {0};
 	int r;
 
 	if (len < 1)
@@ -1096,7 +1096,7 @@ error:
 int p2p_parse_invitation_req(const uint8_t *pdu, size_t len,
 				struct p2p_invitation_req *out)
 {
-	struct p2p_invitation_req d = {};
+	struct p2p_invitation_req d = {0};
 	int r;
 	uint8_t *wsc_data;
 	ssize_t wsc_len;
@@ -1151,7 +1151,7 @@ error:
 int p2p_parse_invitation_resp(const uint8_t *pdu, size_t len,
 				struct p2p_invitation_resp *out)
 {
-	struct p2p_invitation_resp d = {};
+	struct p2p_invitation_resp d = {0};
 	int r;
 
 	if (len < 1)
@@ -1185,7 +1185,7 @@ error:
 int p2p_parse_device_disc_req(const uint8_t *pdu, size_t len,
 				struct p2p_device_discoverability_req *out)
 {
-	struct p2p_device_discoverability_req d = {};
+	struct p2p_device_discoverability_req d = {0};
 	int r;
 
 	if (len < 1)
@@ -1210,7 +1210,7 @@ int p2p_parse_device_disc_req(const uint8_t *pdu, size_t len,
 int p2p_parse_device_disc_resp(const uint8_t *pdu, size_t len,
 				struct p2p_device_discoverability_resp *out)
 {
-	struct p2p_device_discoverability_resp d = {};
+	struct p2p_device_discoverability_resp d = {0};
 	int r;
 
 	if (len < 1)
@@ -1234,7 +1234,7 @@ int p2p_parse_device_disc_resp(const uint8_t *pdu, size_t len,
 int p2p_parse_provision_disc_req(const uint8_t *pdu, size_t len,
 				struct p2p_provision_discovery_req *out)
 {
-	struct p2p_provision_discovery_req d = {};
+	struct p2p_provision_discovery_req d = {0};
 	int r;
 	uint8_t *wsc_data;
 	ssize_t wsc_len;
@@ -1309,7 +1309,7 @@ error:
 int p2p_parse_provision_disc_resp(const uint8_t *pdu, size_t len,
 				struct p2p_provision_discovery_resp *out)
 {
-	struct p2p_provision_discovery_resp d = {};
+	struct p2p_provision_discovery_resp d = {0};
 	int r;
 	uint8_t *wsc_data;
 	ssize_t wsc_len;
@@ -1389,7 +1389,7 @@ error:
 int p2p_parse_notice_of_absence(const uint8_t *pdu, size_t len,
 				struct p2p_notice_of_absence *out)
 {
-	struct p2p_notice_of_absence d = {};
+	struct p2p_notice_of_absence d = {0};
 	int r;
 
 	if (len < 1)
@@ -1411,7 +1411,7 @@ int p2p_parse_notice_of_absence(const uint8_t *pdu, size_t len,
 int p2p_parse_presence_req(const uint8_t *pdu, size_t len,
 				struct p2p_presence_req *out)
 {
-	struct p2p_presence_req d = {};
+	struct p2p_presence_req d = {0};
 	int r;
 
 	if (len < 1)
@@ -1437,7 +1437,7 @@ int p2p_parse_presence_req(const uint8_t *pdu, size_t len,
 int p2p_parse_presence_resp(const uint8_t *pdu, size_t len,
 				struct p2p_presence_resp *out)
 {
-	struct p2p_presence_resp d = {};
+	struct p2p_presence_resp d = {0};
 	int r;
 
 	if (len < 1)
