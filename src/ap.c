@@ -455,7 +455,8 @@ static void ap_del_station(struct sta_state *sta, uint16_t reason,
 		sta->ip_alloc_lease = NULL;
 		l_dhcp_server_expire_by_mac(ap->netconfig_dhcp, sta->addr);
 
-		ap_event_done(ap, prev);
+		if (ap_event_done(ap, prev))
+			return;
 	}
 
 	/*
