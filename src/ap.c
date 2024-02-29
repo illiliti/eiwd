@@ -1247,8 +1247,10 @@ static size_t ap_build_country_ie(struct ap_state *ap, uint8_t *out_buf,
 	}
 
 	/* finish final group */
-	*pos++ = nchans;
-	*pos++ = last->tx_power;
+	if (last) {
+		*pos++ = nchans;
+		*pos++ = last->tx_power;
+	}
 
 	len = pos - out_buf - 2;
 
