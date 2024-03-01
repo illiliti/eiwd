@@ -531,6 +531,9 @@ static bool eap_mschapv2_load_settings(struct eap_state *eap,
 		snprintf(setting, sizeof(setting), "%sPassword-Hash", prefix);
 		hash = l_settings_get_bytes(settings, "Security", setting,
 						&hash_len);
+		if (!hash)
+			goto error;
+
 		memcpy(state->password_hash, hash, 16);
 		explicit_bzero(hash, 16);
 		l_free(hash);
