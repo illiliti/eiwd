@@ -230,7 +230,8 @@ static void display_refresh_check_feasibility(void)
 {
 	const struct winsize ws;
 
-	ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
+	if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) < 0)
+		return;
 
 	if (ws.ws_col < LINE_LEN - 1) {
 		if (display_refresh.enabled) {
@@ -564,8 +565,6 @@ void display_table_row(const char *margin, unsigned int ncolumns, ...)
 		str += entry_append(e, str);
 	}
 
-	va_end(va);
-
 	display("%s\n", buf);
 	str = buf;
 
@@ -591,6 +590,8 @@ void display_table_row(const char *margin, unsigned int ncolumns, ...)
 	}
 
 done:
+	va_end(va);
+
 	for (i = 0; i < ncolumns; i++) {
 		if (entries[i].color)
 			l_free(entries[i].color);
