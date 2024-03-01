@@ -1689,7 +1689,7 @@ static void print_ie_he_capabilities(unsigned int level,
 {
 	const uint8_t *ptr = data;
 	uint8_t width_set = bit_field((ptr + 6)[0], 1, 7);
-	uint8_t mask = 0xff;
+	uint8_t mask = 0x1f;
 
 	const char *he_channel_width_bitfield[] = {
 		[0] = "40MHz supported (2.4GHz)",
