@@ -2368,7 +2368,7 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 		}
 	}
 
-	if (status != DPP_STATUS_OK || !r_boot_hash || !r_proto ) {
+	if (status != DPP_STATUS_OK || !r_boot_hash || !r_proto || !wrapped) {
 		l_debug("Auth response bad status or missing attributes");
 		return;
 	}
