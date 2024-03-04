@@ -1178,9 +1178,6 @@ static int build_ciphers_common(const struct ie_rsn_info *info, uint8_t *to,
 	countptr = to + pos;
 	pos += 2;
 
-	akm_suite = IE_RSN_AKM_SUITE_8021X;
-	count = 0;
-
 	for (count = 0, akm_suite = IE_RSN_AKM_SUITE_8021X;
 			akm_suite <= IE_RSN_AKM_SUITE_OSEN;
 				akm_suite <<= 1) {
