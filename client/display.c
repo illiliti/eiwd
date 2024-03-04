@@ -194,7 +194,7 @@ void display_refresh_set_cmd(const char *family, const char *entity,
 
 		for (i = 0; i < argc; i++) {
 			bool needs_quotes = false;
-			char *p = argv[i];
+			char *p;
 
 			for (p = argv[i]; *p != '\0'; p++) {
 				if (*p != ' ')
