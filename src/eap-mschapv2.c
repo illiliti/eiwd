@@ -445,7 +445,6 @@ static int eap_mschapv2_check_settings(struct l_settings *settings,
 	if (!identity) {
 		secret = l_queue_find(secrets, eap_secret_info_match, setting);
 		if (secret) {
-			identity = l_strdup(secret->value);
 			password = l_strdup(secret->value +
 						strlen(secret->value) + 1);
 
