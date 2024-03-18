@@ -221,6 +221,8 @@ class Test(unittest.TestCase):
         cls.rule_bss2 = hwsim.rules.create()
         cls.rule_bss2.source = hwsim.get_radio('rad2').addresses[0]
 
+        HostapdCLI.group_neighbors(*cls.bss_hostapd)
+
     @classmethod
     def tearDownClass(cls):
         IWD.clear_storage()

@@ -6,6 +6,7 @@ import traceback
 import shutil
 import dbus
 
+from datetime import datetime
 from gi.repository import GLib
 from weakref import WeakValueDictionary
 from re import fullmatch
@@ -125,7 +126,11 @@ class Process(subprocess.Popen):
 	@staticmethod
 	def _write_io(instance, data, stdout=True):
 		for f in instance.write_fds:
-			f.write(data)
+			for c in data:
+				f.write(c)
+				if c == '\n':
+					stamp = datetime.strftime(datetime.now(), "%Y-%m-%d %H:%M:%S.%f")
+					f.write(stamp + ': ')
 
 			# Write out a separator so multiple process calls per
 			# test are easer to read.
@@ -170,23 +175,27 @@ class Process(subprocess.Popen):
 	def process_io(self, source, condition):
 		if condition & GLib.IO_HUP:
 			self.hup = True
+			self.wait()
+			bt = self.out.partition("++++++++ backtrace ++++++++")
+			if bt[1]:
+				raise Exception(f"Process {self.args[0]} crashed!\n{bt[1] + bt[2]}")
 
 		data = source.read()
 
 		if not data:
-			return True
+			return not self.hup
 
 		try:
 			data = data.decode('utf-8')
 		except:
-			return True
+			return not self.hup
 
 		# Save data away in case the caller needs it (e.g. list_sta)
 		self.out += data
 
 		self._write_io(self, data)
 
-		return True
+		return not self.hup
 
 	def _append_outfile(self, file, append=True):
 		gid = int(os.environ.get('SUDO_GID', os.getgid()))

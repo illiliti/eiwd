@@ -63,6 +63,7 @@ static const char *nointerfaces;
 static const char *phys;
 static const char *nophys;
 static const char *debugopt;
+static const char *logger;
 static bool developeropt;
 static bool terminating;
 static bool nl80211_complete;
@@ -166,6 +167,7 @@ static const struct option main_options[] = {
 	{ "nointerfaces", required_argument, NULL, 'I' },
 	{ "phys",         required_argument, NULL, 'p' },
 	{ "nophys",       required_argument, NULL, 'P' },
+	{ "logger",       required_argument, NULL, 'l' },
 	{ "debug",        optional_argument, NULL, 'd' },
 	{ "help",         no_argument,       NULL, 'h' },
 	{ }
@@ -478,7 +480,7 @@ int main(int argc, char *argv[])
 	for (;;) {
 		int opt;
 
-		opt = getopt_long(argc, argv, "Ei:I:p:P:d::vh",
+		opt = getopt_long(argc, argv, "Ei:I:p:P:d::vhl:",
 							main_options, NULL);
 		if (opt < 0)
 			break;
@@ -507,6 +509,9 @@ int main(int argc, char *argv[])
 			else
 				debugopt = "*";
 			break;
+		case 'l':
+			logger = optarg;
+			break;
 		case 'v':
 			printf("%s\n", VERSION);
 			return EXIT_SUCCESS;
@@ -523,7 +528,12 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
-	l_log_set_stderr();
+	if (logger && !strcmp(logger, "syslog"))
+		l_log_set_syslog();
+	else if (logger && !strcmp(logger, "journal"))
+		l_log_set_journal();
+	else
+		l_log_set_stderr();
 
 	if (check_crypto() < 0)
 		return EXIT_FAILURE;

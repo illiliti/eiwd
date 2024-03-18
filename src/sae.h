@@ -30,8 +30,6 @@ typedef void (*sae_tx_associate_func_t)(void *user_data);
 
 bool sae_sm_is_h2e(struct auth_proto *ap);
 
-void sae_sm_set_force_group_19(struct auth_proto *ap);
-
 struct auth_proto *sae_sm_new(struct handshake_state *hs,
 				sae_tx_authenticate_func_t tx_auth,
 				sae_tx_associate_func_t tx_assoc,

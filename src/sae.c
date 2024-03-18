@@ -1459,13 +1459,6 @@ bool sae_sm_is_h2e(struct auth_proto *ap)
 	return sm->sae_type != CRYPTO_SAE_LOOPING;
 }
 
-void sae_sm_set_force_group_19(struct auth_proto *ap)
-{
-	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
-
-	sm->force_default_group = true;
-}
-
 static void sae_free(struct auth_proto *ap)
 {
 	struct sae_sm *sm = l_container_of(ap, struct sae_sm, ap);
@@ -1501,6 +1494,7 @@ struct auth_proto *sae_sm_new(struct handshake_state *hs,
 	sm->user_data = user_data;
 	sm->handshake = hs;
 	sm->state = SAE_STATE_NOTHING;
+	sm->force_default_group = hs->force_default_ecc_group;
 
 	sm->ap.start = sae_start;
 	sm->ap.free = sae_free;

@@ -1,0 +1,5 @@
+[Security]
+Passphrase=secret123
+
+[Settings]
+UseDefaultEccGroup=false

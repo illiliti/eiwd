@@ -455,7 +455,8 @@ static void ap_del_station(struct sta_state *sta, uint16_t reason,
 		sta->ip_alloc_lease = NULL;
 		l_dhcp_server_expire_by_mac(ap->netconfig_dhcp, sta->addr);
 
-		ap_event_done(ap, prev);
+		if (ap_event_done(ap, prev))
+			return;
 	}
 
 	/*
@@ -1247,8 +1248,10 @@ static size_t ap_build_country_ie(struct ap_state *ap, uint8_t *out_buf,
 	}
 
 	/* finish final group */
-	*pos++ = nchans;
-	*pos++ = last->tx_power;
+	if (last) {
+		*pos++ = nchans;
+		*pos++ = last->tx_power;
+	}
 
 	len = pos - out_buf - 2;
 
@@ -1482,7 +1485,7 @@ static void ap_handshake_event(struct handshake_state *hs,
 	}
 	case HANDSHAKE_EVENT_REKEY_COMPLETE:
 		ap_set_sta_rekey_timer(ap, sta);
-		return;
+		break;
 	default:
 		break;
 	}
@@ -2961,7 +2964,7 @@ static void ap_handle_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 	uint16_t type;
 	uint16_t len;
 	const void *data;
-	uint8_t mac[6];
+	const uint8_t *mac = NULL;
 	uint8_t *assoc_rsne = NULL;
 
 	if (!l_genl_attr_init(&attr, msg))
@@ -2981,12 +2984,12 @@ static void ap_handle_new_station(struct ap_state *ap, struct l_genl_msg *msg)
 			if (len != 6)
 				goto cleanup;
 
-			memcpy(mac, data, 6);
+			mac = data;
 			break;
 		}
 	}
 
-	if (!assoc_rsne)
+	if (!assoc_rsne || !mac)
 		goto cleanup;
 
 	/*

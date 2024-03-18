@@ -73,10 +73,10 @@ class Interface:
 		Process(['ip', 'link', 'set', self.name, state], namespace=self.ns.name).wait()
 
 class Radio:
-	def __init__(self, name, default_ns):
+	def __init__(self, name, default_ns, used_by='iwd'):
 		self.name = name
 		# hostapd will reset this if this radio is used by it
-		self.use = 'iwd'
+		self.use = used_by
 		self.interface = None
 		self.ns = default_ns
 
@@ -131,15 +131,18 @@ class VirtualRadio(Radio):
 
 		self.hwsim = config.hwsim.Hwsim()
 
+		used_by = 'iwd'
+
 		if cfg:
 			self.disable_iftype = cfg.get('iftype_disable', None)
 			self.disable_cipher = cfg.get('cipher_disable', None)
+			used_by = cfg.get('reserve', 'iwd')
 
 		self._radio = self.hwsim.radios.create(name, p2p_device=True,
 					iftype_disable=self.disable_iftype,
 					cipher_disable=self.disable_cipher)
 
-		super().__init__(self._radio.name, default_ns)
+		super().__init__(self._radio.name, default_ns, used_by)
 
 	def __del__(self):
 		super().__del__()

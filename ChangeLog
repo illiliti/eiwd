@@ -1,3 +1,17 @@
+ver 2.16:
+	Fix issue with uninitialized variable and DPP encrypt.
+	Fix issue with Access Point mode and ATTR_MAC validation.
+	Fix issue with Access Point mode and frequency attributes.
+	Fix issue with P2P and handling client info description.
+	Fix issue with P2P and handling parsing of service info.
+	Fix issue with netconfig and handling domain list.
+	Add support for forcing a default ECC group.
+
+ver 2.15:
+	Fix issue with notice events for connection timeouts.
+	Fix issue with reason code and deauthenticate event.
+	Fix issue with handling basename() functionality.
+
 ver 2.14:
 	Fix issue with accepting PTK 4/4 after receiving PTK 2/4.
 	Fix issue with frequency limit for quick scans.

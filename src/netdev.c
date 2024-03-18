@@ -1375,7 +1375,7 @@ static void netdev_deauthenticate_event(struct l_genl_msg *msg,
 			MAC_STR(hdr->address_3), reason_code);
 
 	netdev_connect_failed(netdev, NETDEV_RESULT_AUTHENTICATION_FAILED,
-					MMPDU_STATUS_CODE_UNSPECIFIED);
+					reason_code);
 }
 
 static void netdev_operstate_cb(int error, uint16_t type,
@@ -2559,6 +2559,10 @@ static bool netdev_retry_owe(struct netdev *netdev)
 	if (!owe_next_group(netdev->owe_sm))
 		return false;
 
+	if (netdev->event_filter)
+		netdev->event_filter(netdev, NETDEV_EVENT_ECC_GROUP_RETRY,
+					NULL, netdev->user_data);
+
 	connect_cmd = netdev_build_cmd_connect(netdev, netdev->handshake, NULL);
 
 	netdev->connect_cmd_id = l_genl_family_send(nl80211, connect_cmd,
@@ -2639,7 +2643,8 @@ static void netdev_connect_event(struct l_genl_msg *msg, struct netdev *netdev)
 	}
 
 	if (timeout) {
-		l_warn("connect event timed out, reason=%u", timeout_reason);
+		iwd_notice(IWD_NOTICE_CONNECT_TIMEOUT, "reason: %u",
+				timeout_reason);
 		goto error;
 	}
 
@@ -2931,7 +2936,7 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 	while (l_genl_attr_next(&attr, &type, &len, &data)) {
 		switch (type) {
 		case NL80211_ATTR_TIMED_OUT:
-			l_warn("authentication event timed out");
+			iwd_notice(IWD_NOTICE_AUTH_TIMEOUT);
 
 			if (auth_proto_auth_timeout(netdev->ap))
 				return;
@@ -2964,6 +2969,17 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 		status_code = L_CPU_TO_LE16(auth->status);
 
 		ret = auth_proto_rx_authenticate(netdev->ap, frame, frame_len);
+
+		/*
+		 * Allows station to persist settings so it does not retry
+		 * the higher order ECC group again
+		 */
+		if (status_code ==
+				MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP &&
+				netdev->event_filter)
+			netdev->event_filter(netdev,
+						NETDEV_EVENT_ECC_GROUP_RETRY,
+						NULL, netdev->user_data);
 
 		/* We have sent another CMD_AUTHENTICATE / CMD_ASSOCIATE */
 		if (ret == 0 || ret == -EAGAIN)
@@ -3032,7 +3048,7 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 	while (l_genl_attr_next(&attr, &type, &len, &data)) {
 		switch (type) {
 		case NL80211_ATTR_TIMED_OUT:
-			l_warn("association timed out");
+			iwd_notice(IWD_NOTICE_ASSOC_TIMEOUT);
 
 			if (auth_proto_assoc_timeout(netdev->ap))
 				return;
@@ -3832,9 +3848,6 @@ static void netdev_connect_common(struct netdev *netdev,
 								own_rsnxe);
 			}
 		}
-
-		if (bss->force_default_sae_group)
-			sae_sm_set_force_group_19(netdev->ap);
 
 		break;
 	case IE_RSN_AKM_SUITE_OWE:

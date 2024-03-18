@@ -27,6 +27,7 @@
 #define NET_ADDRESS_OVERRIDE SETTINGS, "AddressOverride"
 #define NET_TRANSITION_DISABLE SETTINGS, "TransitionDisable"
 #define NET_TRANSITION_DISABLE_MODES SETTINGS, "DisabledTransitionModes"
+#define NET_USE_DEFAULT_ECC_GROUP SETTINGS, "UseDefaultEccGroup"
 
 enum security;
 struct scan_freq_set;
@@ -36,6 +37,12 @@ enum known_networks_event {
 	KNOWN_NETWORKS_EVENT_ADDED,
 	KNOWN_NETWORKS_EVENT_REMOVED,
 	KNOWN_NETWORKS_EVENT_UPDATED,
+};
+
+enum known_network_ecc_group {
+	KNOWN_NETWORK_ECC_GROUP_AUTO = 0,
+	KNOWN_NETWORK_ECC_GROUP_DEFAULT,
+	KNOWN_NETWORK_ECC_GROUP_MOST_SECURE,
 };
 
 struct network_info_ops {
@@ -72,6 +79,7 @@ struct network_config {
 	uint8_t sta_addr[6];
 	bool have_transition_disable : 1;
 	uint8_t transition_disable;
+	enum known_network_ecc_group ecc_group;
 };
 
 struct network_info {

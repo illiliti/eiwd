@@ -45,7 +45,7 @@ struct owe_sm {
 
 static bool owe_reset(struct owe_sm *owe)
 {
-	if (owe->hs->force_default_owe_group) {
+	if (owe->hs->force_default_ecc_group) {
 		if (owe->retry != 0) {
 			l_warn("Forced default OWE group but was rejected!");
 			return false;

@@ -311,7 +311,7 @@ static void netconfig_domains_update(struct netconfig *netconfig)
 		resolve_set_domains(netconfig->resolve, domains);
 
 	l_strv_free(netconfig->domains);
-	netconfig->dns_list = l_steal_ptr(domains);
+	netconfig->domains = l_steal_ptr(domains);
 }
 
 static void netconfig_rtnl_commit(struct netconfig *netconfig, uint8_t family,

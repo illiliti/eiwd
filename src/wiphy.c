@@ -1896,6 +1896,7 @@ static bool wiphy_get_driver_name(struct wiphy *wiphy)
 	unsigned int j;
 	const struct l_settings *config = iwd_get_config();
 	char **flag_list;
+	char *driver;
 
 	driver_link = l_strdup_printf("/sys/class/ieee80211/%s/device/driver",
 					wiphy->name);
@@ -1907,7 +1908,9 @@ static bool wiphy_get_driver_name(struct wiphy *wiphy)
 	}
 
 	driver_path[len] = '\0';
-	wiphy->driver_str = l_strdup(basename(driver_path));
+
+	driver = memrchr(driver_path, '/', len);
+	wiphy->driver_str = l_strdup(driver ? driver + 1 : driver_path);
 
 	for (i = 0; i < L_ARRAY_SIZE(driver_infos); i++)
 		if (!fnmatch(driver_infos[i].prefix, wiphy->driver_str, 0))

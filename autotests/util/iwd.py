@@ -303,6 +303,9 @@ class StationDebug(IWDDBusAbstract):
         return ctx.non_block_wait(self._poll_event, timeout, event,
                                     exception=TimeoutError("waiting for event"))
 
+    def event_ocurred(self, event):
+        return self._poll_event(event)
+
 class DeviceProvisioning(IWDDBusAbstract):
     '''
         Class represents net.connman.iwd.DeviceProvisioning
@@ -855,6 +858,9 @@ class Device(IWDDBusAbstract):
 
     def wait_for_event(self, event, timeout=10):
         self._station_debug.wait_for_event(event, timeout)
+
+    def event_ocurred(self, event):
+        return self._station_debug.event_ocurred(event)
 
     def dpp_start_enrollee(self):
         ret = self._device_provisioning.start_enrollee()

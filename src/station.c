@@ -1565,9 +1565,9 @@ static void station_enter_state(struct station *station,
 	bool disconnected;
 	int ret;
 
-	l_debug("Old State: %s, new state: %s",
-			station_state_to_string(station->state),
-			station_state_to_string(state));
+	iwd_notice(IWD_NOTICE_STATE, "old: %s, new: %s",
+					station_state_to_string(station->state),
+					station_state_to_string(state));
 
 #ifdef HAVE_DBUS
 	station_debug_event(station, station_state_to_string(state));
@@ -2366,12 +2366,16 @@ static bool station_ft_work_ready(struct wiphy_radio_work_item *item)
 				roam_bss_rank_compare, NULL);
 
 		station_debug_event(station, "ft-fallback-to-reassoc");
+		iwd_notice(IWD_NOTICE_FT_ROAM_FAILED, "status: %d",
+					MMPDU_STATUS_CODE_INVALID_PMKID);
 
 		station_transition_start(station);
 		l_steal_ptr(rbss);
 		break;
 	case -ENOENT:
 		station_debug_event(station, "ft-roam-failed");
+		iwd_notice(IWD_NOTICE_FT_ROAM_FAILED,
+				"status: authentication timeout");
 try_next:
 		station_transition_start(station);
 		break;
@@ -2398,8 +2402,10 @@ disassociate:
 		station_disassociated(station);
 		break;
 	default:
-		if (ret > 0)
+		if (ret > 0) {
+			iwd_notice(IWD_NOTICE_FT_ROAM_FAILED, "status: %d", ret);
 			goto try_next;
+		}
 
 		station_roam_failed(station);
 		break;
@@ -2471,8 +2477,10 @@ static bool station_try_next_transition(struct station *station,
 	struct handshake_state *new_hs;
 	struct ie_rsn_info cur_rsne, target_rsne;
 
-	l_debug("%u, target %s", netdev_get_ifindex(station->netdev),
-			util_address_to_string(bss->addr));
+	iwd_notice(IWD_NOTICE_ROAM_INFO, "bss: "MAC", signal: %d, load: %d/255",
+					MAC_STR(bss->addr),
+					bss->signal_strength / 100,
+					bss->utilization);
 
 	/* Reset AP roam flag, at this point the roaming behaves the same */
 	station->ap_directed_roaming = false;
@@ -2539,6 +2547,8 @@ static void station_transition_start(struct station *station)
 	while ((rbss = l_queue_peek_head(station->roam_bss_list))) {
 		struct scan_bss *bss = network_bss_find_by_addr(
 					station->connected_network, rbss->addr);
+		if (L_WARN_ON(!bss))
+			continue;
 
 		roaming = station_try_next_transition(station, bss,
 							rbss->ft_failed);
@@ -2575,6 +2585,7 @@ static void station_roam_scan_triggered(int err, void *user_data)
 	}
 
 	station_debug_event(station, "roam-scan-triggered");
+	iwd_notice(IWD_NOTICE_ROAM_SCAN);
 
 	/*
 	 * Do not update the Scanning property as we won't be updating the
@@ -3157,7 +3168,7 @@ static bool station_retry_owe_default_group(struct station *station)
 		return false;
 
 	/* If we already forced group 19, allow the BSS to be blacklisted */
-	if (network_get_force_default_owe_group(station->connected_network))
+	if (network_get_force_default_ecc_group(station->connected_network))
 		return false;
 
 	l_warn("Failed to connect to OWE BSS "MAC" possibly because the AP is "
@@ -3165,7 +3176,7 @@ static bool station_retry_owe_default_group(struct station *station)
 		"Retrying with group 19 as a workaround",
 		MAC_STR(station->connected_bss->addr));
 
-	network_set_force_default_owe_group(station->connected_network);
+	network_set_force_default_ecc_group(station->connected_network);
 
 	return true;
 }
@@ -3173,6 +3184,8 @@ static bool station_retry_owe_default_group(struct station *station)
 static bool station_retry_with_reason(struct station *station,
 					uint16_t reason_code)
 {
+	iwd_notice(IWD_NOTICE_CONNECT_FAILED, "reason: %u", reason_code);
+
 	/*
 	 * We don't want to cause a retry and blacklist if the password was
 	 * incorrect. Otherwise we would just continue to fail.
@@ -3222,6 +3235,8 @@ static bool station_retry_with_status(struct station *station,
 						station->connected_bss);
 	else
 		blacklist_add_bss(station->connected_bss->addr);
+
+	iwd_notice(IWD_NOTICE_CONNECT_FAILED, "status: %u", status_code);
 
 	return station_try_next_bss(station);
 }
@@ -3383,6 +3398,8 @@ static void station_disconnect_event(struct station *station, void *event_data)
 	case STATION_STATE_FT_ROAMING:
 	case STATION_STATE_FW_ROAMING:
 	case STATION_STATE_NETCONFIG:
+		iwd_notice(IWD_NOTICE_DISCONNECT_INFO, "reason: %u",
+					l_get_u16(event_data));
 		station_disassociated(station);
 		return;
 	default:
@@ -3455,6 +3472,18 @@ static void station_event_roaming(struct station *station)
 	station_enter_state(station, STATION_STATE_FW_ROAMING);
 }
 
+static void station_ecc_group_retry(struct station *station)
+{
+	struct network *network = station_get_connected_network(station);
+
+	if (L_WARN_ON(!network))
+		return;
+
+	station_debug_event(station, "ecc-group-rejected");
+
+	network_set_force_default_ecc_group(network);
+}
+
 static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 					void *event_data, void *user_data)
 {
@@ -3496,6 +3525,9 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 	case NETDEV_EVENT_BEACON_LOSS_NOTIFY:
 		station_beacon_lost(station);
 		break;
+	case NETDEV_EVENT_ECC_GROUP_RETRY:
+		station_ecc_group_retry(station);
+		break;
 	}
 }
 
@@ -3522,7 +3554,12 @@ int __station_connect_network(struct station *station, struct network *network,
 		return r;
 	}
 
-	l_debug("connecting to BSS "MAC, MAC_STR(bss->addr));
+	iwd_notice(IWD_NOTICE_CONNECT_INFO, "ssid: %s, bss: "MAC", "
+					"signal: %d, load: %d/255",
+					network_get_ssid(network),
+					MAC_STR(bss->addr),
+					bss->signal_strength / 100,
+					bss->utilization);
 
 	station->connected_bss = bss;
 	station->connected_network = network;
@@ -4736,11 +4773,15 @@ static void station_get_diagnostic_cb(
 	struct l_dbus_message *reply;
 	struct l_dbus_message_builder *builder;
 	struct handshake_state *hs = netdev_get_handshake(station->netdev);
+	uint16_t channel_num;
 
 	if (!info) {
 		reply = dbus_error_aborted(station->get_station_pending);
 		goto done;
 	}
+
+	channel_num = band_freq_to_channel(station->connected_bss->frequency,
+						NULL);
 
 	reply = l_dbus_message_new_method_return(station->get_station_pending);
 
@@ -4752,6 +4793,10 @@ static void station_get_diagnostic_cb(
 					util_address_to_string(info->addr));
 	dbus_append_dict_basic(builder, "Frequency", 'u',
 				&station->connected_bss->frequency);
+
+	if (channel_num != 0)
+		dbus_append_dict_basic(builder, "Channel", 'q', &channel_num);
+
 	dbus_append_dict_basic(builder, "Security", 's',
 				diagnostic_akm_suite_to_security(hs->akm_suite,
 								hs->wpa_ie));
