@@ -90,7 +90,7 @@ int band_estimate_nonht_rate(const struct band *band,
 	int i;
 
 	if (!supported_rates && !ext_supported_rates)
-		return -EINVAL;
+		return -ENOTSUP;
 
 	/*
 	 * Start at the back of the array.  Rates are generally given in
@@ -607,7 +607,7 @@ int band_estimate_he_rx_rate(const struct band *band, const uint8_t *hec,
 	uint8_t width_set;
 
 	if (!hec || !band->he_capabilities)
-		return -EBADMSG;
+		return -ENOTSUP;
 
 	for (entry = l_queue_get_entries(band->he_capabilities);
 						entry; entry = entry->next) {
