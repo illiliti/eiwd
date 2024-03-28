@@ -989,6 +989,7 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 	const void *he_capabilities = NULL;
 	const struct band *bandp;
 	enum band_freq band;
+	int ret;
 
 	if (band_freq_to_channel(bss->frequency, &band) == 0)
 		return -ENOTSUP;
@@ -1005,7 +1006,7 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 		switch (tag) {
 		case IE_TYPE_SUPPORTED_RATES:
 			if (iter.len > 8)
-				return -EBADMSG;
+				continue;
 
 			supported_rates = iter.data - 2;
 			break;
@@ -1014,31 +1015,33 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 			break;
 		case IE_TYPE_HT_CAPABILITIES:
 			if (iter.len != 26)
-				return -EBADMSG;
+				continue;
 
 			ht_capabilities = iter.data - 2;
 			break;
 		case IE_TYPE_HT_OPERATION:
 			if (iter.len != 22)
-				return -EBADMSG;
+				continue;
 
 			ht_operation = iter.data - 2;
 			break;
 		case IE_TYPE_VHT_CAPABILITIES:
 			if (iter.len != 12)
-				return -EBADMSG;
+				continue;
 
 			vht_capabilities = iter.data - 2;
 			break;
 		case IE_TYPE_VHT_OPERATION:
 			if (iter.len != 5)
-				return -EBADMSG;
+				continue;
 
 			vht_operation = iter.data - 2;
 			break;
 		case IE_TYPE_HE_CAPABILITIES:
-			if (!ie_validate_he_capabilities(iter.data, iter.len))
-				return -EBADMSG;
+			if (!ie_validate_he_capabilities(iter.data, iter.len)) {
+				l_warn("invalid HE capabilities");
+				continue;
+			}
 
 			he_capabilities = iter.data;
 			break;
@@ -1047,26 +1050,39 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 		}
 	}
 
-	if (!band_estimate_he_rx_rate(bandp, he_capabilities,
+	ret = band_estimate_he_rx_rate(bandp, he_capabilities,
 					bss->signal_strength / 100,
-					out_data_rate))
+					out_data_rate);
+	if (!ret)
 		return 0;
+	else if (ret != -ENOTSUP)
+		l_warn("error parsing HE capabilities");
 
-	if (!band_estimate_vht_rx_rate(bandp, vht_capabilities, vht_operation,
+	ret = band_estimate_vht_rx_rate(bandp, vht_capabilities, vht_operation,
 					ht_capabilities, ht_operation,
 					bss->signal_strength / 100,
-					out_data_rate))
+					out_data_rate);
+	if (!ret)
 		return 0;
+	else if (ret != -ENOTSUP)
+		l_warn("error parsing VHT capabilities");
 
-	if (!band_estimate_ht_rx_rate(bandp, ht_capabilities, ht_operation,
+	ret = band_estimate_ht_rx_rate(bandp, ht_capabilities, ht_operation,
 					bss->signal_strength / 100,
-					out_data_rate))
+					out_data_rate);
+	if (!ret)
 		return 0;
+	else if (ret != -ENOTSUP)
+		l_warn("error parsing HT capabilities");
 
-	return band_estimate_nonht_rate(bandp, supported_rates,
+	ret = band_estimate_nonht_rate(bandp, supported_rates,
 						ext_supported_rates,
 						bss->signal_strength / 100,
 						out_data_rate);
+	if (ret != 0 && ret != -ENOTSUP)
+		l_warn("error parsing non-HT rates");
+
+	return ret;
 }
 
 bool wiphy_regdom_is_updating(struct wiphy *wiphy)
