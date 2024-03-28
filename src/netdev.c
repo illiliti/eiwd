@@ -3935,6 +3935,8 @@ int netdev_disconnect(struct netdev *netdev,
 {
 	struct l_genl_msg *disconnect;
 	bool send_disconnect = true;
+	bool deauth = false;
+	uint8_t aa[6];
 
 	if (!(netdev->ifi_flags & IFF_UP))
 		return -ENETDOWN;
@@ -3953,8 +3955,8 @@ int netdev_disconnect(struct netdev *netdev,
 		 * 1. We do not actually have a connect in progress (work.id
 		 *    is zero), then we can bail out early with an error.
 		 * 2. We have sent CMD_CONNECT but not fully connected. The
-		 *    CMD_CONNECT needs to be canceled and a disconnect should
-		 *    be sent.
+		 *    CMD_CONNECT needs to be canceled and a disconnect or
+		 *    deauth should be sent.
 		 * 3. Queued up the connect work, but haven't sent CMD_CONNECT
 		 *    to the kernel. This case we do not need to send a
 		 *    disconnect.
@@ -3969,6 +3971,11 @@ int netdev_disconnect(struct netdev *netdev,
 							netdev->work.id))
 			send_disconnect = false;
 
+		if (netdev->handshake && !netdev->associated) {
+			memcpy(aa, netdev->handshake->aa, 6);
+			deauth = true;
+		}
+
 		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
 					MMPDU_REASON_CODE_UNSPECIFIED);
 	} else {
@@ -3976,8 +3983,14 @@ int netdev_disconnect(struct netdev *netdev,
 	}
 
 	if (send_disconnect) {
-		disconnect = nl80211_build_disconnect(netdev->index,
+		if (deauth)
+			disconnect = nl80211_build_deauthenticate(
+					netdev->index, aa,
 					MMPDU_REASON_CODE_DEAUTH_LEAVING);
+		else
+			disconnect = nl80211_build_disconnect(netdev->index,
+					MMPDU_REASON_CODE_DEAUTH_LEAVING);
+
 		netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
 					disconnect, netdev_cmd_disconnect_cb,
 					netdev, NULL);
