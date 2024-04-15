@@ -1039,7 +1039,8 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 			break;
 		case IE_TYPE_HE_CAPABILITIES:
 			if (!ie_validate_he_capabilities(iter.data, iter.len)) {
-				l_warn("invalid HE capabilities");
+				l_warn("invalid HE capabilities for "MAC,
+					MAC_STR(bss->addr));
 				continue;
 			}
 
