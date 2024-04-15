@@ -444,7 +444,7 @@ const struct he_test_data he_all_mcs_unsupported = {
 	.freq = BAND_FREQ_5_GHZ,
 	.rssi = -20,
 	.expected_rate = 1201000000ULL * 8ULL,
-	.expected_return = -EBADMSG,
+	.expected_return = -ENETUNREACH,
 	.capabilities = {
 		.he_mcs_set = { MCS_UNSUP, MCS_UNSUP,
 				MCS_UNSUP, MCS_UNSUP,
