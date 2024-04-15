@@ -678,7 +678,7 @@ int band_estimate_he_rx_rate(const struct band *band, const uint8_t *hec,
 	}
 
 	if (!rate)
-		return -EBADMSG;
+		return -ENETUNREACH;
 
 	*out_data_rate = rate;
 
