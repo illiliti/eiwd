@@ -1056,7 +1056,7 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 					out_data_rate);
 	if (!ret)
 		return 0;
-	else if (ret != -ENOTSUP)
+	else if (ret != -ENOTSUP && ret != -ENETUNREACH)
 		l_warn("error parsing HE capabilities");
 
 	ret = band_estimate_vht_rx_rate(bandp, vht_capabilities, vht_operation,
@@ -1065,7 +1065,7 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 					out_data_rate);
 	if (!ret)
 		return 0;
-	else if (ret != -ENOTSUP)
+	else if (ret != -ENOTSUP && ret != -ENETUNREACH)
 		l_warn("error parsing VHT capabilities");
 
 	ret = band_estimate_ht_rx_rate(bandp, ht_capabilities, ht_operation,
@@ -1073,14 +1073,14 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 					out_data_rate);
 	if (!ret)
 		return 0;
-	else if (ret != -ENOTSUP)
+	else if (ret != -ENOTSUP && ret != -ENETUNREACH)
 		l_warn("error parsing HT capabilities");
 
 	ret = band_estimate_nonht_rate(bandp, supported_rates,
 						ext_supported_rates,
 						bss->signal_strength / 100,
 						out_data_rate);
-	if (ret != 0 && ret != -ENOTSUP)
+	if (ret != 0 && ret != -ENOTSUP && ret != -ENETUNREACH)
 		l_warn("error parsing non-HT rates");
 
 	return ret;
