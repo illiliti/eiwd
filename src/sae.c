@@ -887,9 +887,14 @@ static int sae_process_confirm(struct sae_sm *sm, const uint8_t *from,
 
 	sm->state = SAE_STATE_ACCEPTED;
 
-	sae_debug("Sending Associate to "MAC, MAC_STR(sm->handshake->aa));
-
-	sm->tx_assoc(sm->user_data);
+	if (!sm->handshake->authenticator) {
+		sae_debug("Sending Associate to "
+				MAC, MAC_STR(sm->handshake->aa));
+		sm->tx_assoc(sm->user_data);
+	} else {
+		if (!sae_send_confirm(sm))
+			return -EPROTO;
+	}
 
 	return 0;
 }
@@ -1039,16 +1044,37 @@ static int sae_verify_committed(struct sae_sm *sm, uint16_t transaction,
 	unsigned int skip;
 	struct ie_tlv_iter iter;
 
-	/*
-	 * Upon receipt of a Con event...
-	 * Then the protocol instance checks the value of Sync. If it
-	 * is greater than dot11RSNASAESync, the protocol instance shall send a
-	 * Del event to the parent process and transition back to Nothing state.
-	 * If Sync is not greater than dot11RSNASAESync, the protocol instance
-	 * shall increment Sync, transmit the last SAE Commit message sent to
-	 * the peer...
-	 */
-	if (transaction == SAE_STATE_CONFIRMED) {
+	if (sm->handshake->authenticator &&
+			transaction == SAE_STATE_CONFIRMED) {
+		enum l_checksum_type hash =
+			crypto_sae_hash_from_ecc_prime_len(sm->sae_type,
+				l_ecc_curve_get_scalar_bytes(sm->curve));
+		size_t hash_len = l_checksum_digest_length(hash);
+
+		if (len < hash_len + 2) {
+			l_error("SAE: Confirm packet too short");
+			return -EBADMSG;
+		}
+
+		/*
+		 * TODO: Add extra functionality such as supporting
+		 * anti-clogging tokens and tracking rejected groups. Note
+		 * that the cryptographic confirm field value will be checked
+		 * at a later point.
+		 */
+
+		return 0;
+	} else if (transaction == SAE_STATE_CONFIRMED) {
+		/*
+		 * Upon receipt of a Con event...
+		 * Then the protocol instance checks the value of Sync. If it
+		 * is greater than dot11RSNASAESync, the protocol instance
+		 * shall send a Del event to the parent process and transition
+		 * back to Nothing state.
+		 * If Sync is not greater than dot11RSNASAESync, the protocol
+		 * instance shall increment Sync, transmit the last SAE Commit
+		 * message sent to the peer...
+		 */
 		if (sm->sync > SAE_SYNC_MAX)
 			return -ETIMEDOUT;
 
