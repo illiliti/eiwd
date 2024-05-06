@@ -421,7 +421,6 @@ static void test_bad_confirm(const void *arg)
 	handshake_state_set_supplicant_address(hs2, aa);
 	handshake_state_set_authenticator_address(hs2, spa);
 	handshake_state_set_passphrase(hs2, passphrase);
-	handshake_state_set_authenticator(hs2, true);
 
 	ap1 = sae_sm_new(hs1, end_to_end_tx_func, test_tx_assoc_func, td1);
 	ap2 = sae_sm_new(hs2, end_to_end_tx_func, test_tx_assoc_func, td2);
@@ -496,7 +495,6 @@ static void test_confirm_after_accept(const void *arg)
 	handshake_state_set_supplicant_address(hs2, aa);
 	handshake_state_set_authenticator_address(hs2, spa);
 	handshake_state_set_passphrase(hs2, passphrase);
-	handshake_state_set_authenticator(hs2, true);
 
 	ap1 = sae_sm_new(hs1, end_to_end_tx_func, test_tx_assoc_func, td1);
 	ap2 = sae_sm_new(hs2, end_to_end_tx_func, test_tx_assoc_func, td2);
@@ -581,7 +579,6 @@ static void test_end_to_end(const void *arg)
 	handshake_state_set_supplicant_address(hs2, aa);
 	handshake_state_set_authenticator_address(hs2, spa);
 	handshake_state_set_passphrase(hs2, passphrase);
-	handshake_state_set_authenticator(hs2, true);
 
 	ap1 = sae_sm_new(hs1, end_to_end_tx_func, test_tx_assoc_func, td1);
 	ap2 = sae_sm_new(hs2, end_to_end_tx_func, test_tx_assoc_func, td2);
