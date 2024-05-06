@@ -1560,6 +1560,7 @@ static void eapol_handle_ptk_2_of_4(struct eapol_sm *sm,
 	size_t ptk_size;
 	const uint8_t *kck;
 	const uint8_t *aa = sm->handshake->aa;
+	enum l_checksum_type type;
 
 	l_debug("ifindex=%u", sm->handshake->ifindex);
 
@@ -1571,12 +1572,16 @@ static void eapol_handle_ptk_2_of_4(struct eapol_sm *sm,
 
 	ptk_size = handshake_state_get_ptk_size(sm->handshake);
 
+	type = L_CHECKSUM_SHA1;
+	if (sm->handshake->akm_suite == IE_RSN_AKM_SUITE_SAE_SHA256)
+		type = L_CHECKSUM_SHA256;
+
 	if (!crypto_derive_pairwise_ptk(sm->handshake->pmk,
 					sm->handshake->pmk_len,
 					sm->handshake->spa, aa,
 					sm->handshake->anonce, ek->key_nonce,
 					sm->handshake->ptk, ptk_size,
-					L_CHECKSUM_SHA1))
+					type))
 		return;
 
 	kck = handshake_state_get_kck(sm->handshake);
