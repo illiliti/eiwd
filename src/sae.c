@@ -682,10 +682,8 @@ static bool sae_send_confirm(struct sae_sm *sm)
 	return true;
 }
 
-static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
-					const uint8_t *frame, size_t len)
+static int sae_calculate_keys(struct sae_sm *sm)
 {
-	uint8_t *ptr = (uint8_t *) frame;
 	unsigned int nbytes = l_ecc_curve_get_scalar_bytes(sm->curve);
 	enum l_checksum_type hash =
 		crypto_sae_hash_from_ecc_prime_len(sm->sae_type, nbytes);
@@ -700,39 +698,6 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	uint8_t tmp[L_ECC_SCALAR_MAX_BYTES];
 	struct l_ecc_scalar *tmp_scalar;
 	struct l_ecc_scalar *order;
-
-	ptr += 2;
-
-	sm->p_scalar = l_ecc_scalar_new(sm->curve, ptr, nbytes);
-	if (!sm->p_scalar) {
-		l_error("Server sent invalid P_Scalar during commit");
-		return sae_reject(sm, SAE_STATE_COMMITTED,
-				MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP);
-	}
-
-	ptr += nbytes;
-
-	sm->p_element = l_ecc_point_from_data(sm->curve, L_ECC_POINT_TYPE_FULL,
-						ptr, nbytes * 2);
-	if (!sm->p_element) {
-		l_error("Server sent invalid P_Element during commit");
-		return sae_reject(sm, SAE_STATE_COMMITTED,
-				MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP);
-	}
-
-	/*
-	 * If they match those sent as part of the protocol instance's own
-	 * SAE Commit message, the frame shall be silently discarded (because
-	 * it is evidence of a reflection attack) and the t0 (retransmission)
-	 * timer shall be set.
-	 */
-	if (l_ecc_scalars_are_equal(sm->p_scalar, sm->scalar) ||
-			l_ecc_points_are_equal(sm->p_element, sm->element)) {
-		l_warn("peer scalar or element matched own, discarding frame");
-		return -ENOMSG;
-	}
-
-	sm->sc++;
 
 	/*
 	 * K = scalar-op(rand, (element-op(scalar-op(peer-commit-scalar, PWE),
@@ -821,6 +786,54 @@ static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
 	l_ecc_scalar_free(tmp_scalar);
 	/* don't set the handshakes pmkid until confirm is verified */
 	memcpy(sm->pmkid, tmp, 16);
+
+	return 0;
+}
+
+
+static int sae_process_commit(struct sae_sm *sm, const uint8_t *from,
+					const uint8_t *frame, size_t len)
+{
+	uint8_t *ptr = (uint8_t *) frame;
+	unsigned int nbytes = l_ecc_curve_get_scalar_bytes(sm->curve);
+	int r;
+
+	ptr += 2;
+
+	sm->p_scalar = l_ecc_scalar_new(sm->curve, ptr, nbytes);
+	if (!sm->p_scalar) {
+		l_error("Server sent invalid P_Scalar during commit");
+		return sae_reject(sm, SAE_STATE_COMMITTED,
+				MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP);
+	}
+
+	ptr += nbytes;
+
+	sm->p_element = l_ecc_point_from_data(sm->curve, L_ECC_POINT_TYPE_FULL,
+						ptr, nbytes * 2);
+	if (!sm->p_element) {
+		l_error("Server sent invalid P_Element during commit");
+		return sae_reject(sm, SAE_STATE_COMMITTED,
+				MMPDU_STATUS_CODE_UNSUPP_FINITE_CYCLIC_GROUP);
+	}
+
+	/*
+	 * If they match those sent as part of the protocol instance's own
+	 * SAE Commit message, the frame shall be silently discarded (because
+	 * it is evidence of a reflection attack) and the t0 (retransmission)
+	 * timer shall be set.
+	 */
+	if (l_ecc_scalars_are_equal(sm->p_scalar, sm->scalar) ||
+			l_ecc_points_are_equal(sm->p_element, sm->element)) {
+		l_warn("peer scalar or element matched own, discarding frame");
+		return -ENOMSG;
+	}
+
+	sm->sc++;
+
+	r = sae_calculate_keys(sm);
+	if (r != 0)
+		return r;
 
 	if (!sae_send_confirm(sm))
 		return -EPROTO;
