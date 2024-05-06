@@ -838,6 +838,21 @@ void handshake_state_set_gtk(struct handshake_state *s, const uint8_t *key,
 	memcpy(s->gtk_rsc, rsc, 6);
 }
 
+void handshake_state_set_igtk(struct handshake_state *s, const uint8_t *key,
+				unsigned int key_index, const uint8_t *rsc)
+{
+	enum crypto_cipher cipher =
+		ie_rsn_cipher_suite_to_cipher(s->group_management_cipher);
+	int key_len = crypto_cipher_key_len(cipher);
+
+	if (!key_len)
+		return;
+
+	memcpy(s->igtk, key, key_len);
+	s->igtk_index = key_index;
+	memcpy(s->igtk_rsc, rsc, 6);
+}
+
 /*
  * This function performs a match of the RSN/WPA IE obtained from the scan
  * results vs the RSN/WPA IE obtained as part of the 4-way handshake.  If they
@@ -1024,6 +1039,25 @@ void handshake_util_build_gtk_kde(enum crypto_cipher cipher, const uint8_t *key,
 	to += 4;
 	*to++ = key_index;
 	*to++ = 0;
+	memcpy(to, key, key_len);
+}
+
+void handshake_util_build_igtk_kde(enum crypto_cipher cipher, const uint8_t *key,
+					unsigned int key_index, uint8_t *to)
+{
+	size_t key_len = crypto_cipher_key_len(cipher);
+
+	*to++ = IE_TYPE_VENDOR_SPECIFIC;
+	*to++ = 12 + key_len;
+	l_put_be32(HANDSHAKE_KDE_IGTK, to);
+	to += 4;
+	*to++ = key_index;
+	*to++ = 0;
+
+	/** Initialize PN to zero **/
+	memset(to, 0, 6);
+	to += 6;
+
 	memcpy(to, key, key_len);
 }
 
