@@ -387,6 +387,23 @@ error:
 	return NULL;
 }
 
+static int padded_aes_wrap(const uint8_t *kek, uint8_t *key_data,
+				size_t *key_data_len,
+				struct eapol_key *out_frame, size_t mic_len)
+{
+	if (*key_data_len < 16 || *key_data_len % 8)
+		key_data[(*key_data_len)++] = 0xdd;
+	while (*key_data_len < 16 || *key_data_len % 8)
+		key_data[(*key_data_len)++] = 0x00;
+
+	if (!aes_wrap(kek, key_data, *key_data_len,
+				EAPOL_KEY_DATA(out_frame, mic_len)))
+		return -ENOPROTOOPT;
+
+	*key_data_len += 8;
+	return 0;
+}
+
 /*
  * Pad and encrypt the plaintext Key Data contents in @key_data using
  * the encryption scheme required by @out_frame->key_descriptor_version,
@@ -395,12 +412,12 @@ error:
  * Note that for efficiency @key_data is being modified, including in
  * case of failure, so it must be sufficiently larger than @key_data_len.
  */
-static int eapol_encrypt_key_data(const uint8_t *kek, uint8_t *key_data,
-				size_t key_data_len,
+static int eapol_encrypt_key_data(enum ie_rsn_akm_suite akm, const uint8_t *kek,
+				uint8_t *key_data, size_t key_data_len,
 				struct eapol_key *out_frame, size_t mic_len)
 {
 	uint8_t key[32];
-	bool ret;
+	int ret;
 
 	switch (out_frame->key_descriptor_version) {
 	case EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_MD5_ARC4:
@@ -426,18 +443,23 @@ static int eapol_encrypt_key_data(const uint8_t *kek, uint8_t *key_data,
 		break;
 	case EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_SHA1_AES:
 	case EAPOL_KEY_DESCRIPTOR_VERSION_AES_128_CMAC_AES:
-		if (key_data_len < 16 || key_data_len % 8)
-			key_data[key_data_len++] = 0xdd;
-		while (key_data_len < 16 || key_data_len % 8)
-			key_data[key_data_len++] = 0x00;
-
-		if (!aes_wrap(kek, key_data, key_data_len,
-					EAPOL_KEY_DATA(out_frame, mic_len)))
-			return -ENOPROTOOPT;
-
-		key_data_len += 8;
+		ret = padded_aes_wrap(kek, key_data, &key_data_len,
+					out_frame, mic_len);
+		if (ret < 0)
+			return ret;
 
 		break;
+	case EAPOL_KEY_DESCRIPTOR_VERSION_AKM_DEFINED:
+		switch (akm) {
+		case IE_RSN_AKM_SUITE_SAE_SHA256:
+			ret = padded_aes_wrap(kek, key_data, &key_data_len,
+						out_frame, mic_len);
+			if (ret < 0)
+				return ret;
+			break;
+		default:
+			return -ENOTSUP;
+		}
 	}
 
 	l_put_be16(key_data_len, EAPOL_KEY_DATA(out_frame, mic_len) - 2);
@@ -1467,8 +1489,9 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 	}
 
 	kek = handshake_state_get_kek(sm->handshake);
-	key_data_len = eapol_encrypt_key_data(kek, key_data_buf,
-						key_data_len, ek, sm->mic_len);
+	key_data_len = eapol_encrypt_key_data(sm->handshake->akm_suite, kek,
+						key_data_buf, key_data_len, ek,
+						sm->mic_len);
 	explicit_bzero(key_data_buf, sizeof(key_data_buf));
 
 	if (key_data_len < 0)
