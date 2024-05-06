@@ -1456,6 +1456,19 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 		key_data_len += gtk_kde[1] + 2;
 	}
 
+	if (sm->handshake->mfp) {
+		enum crypto_cipher group_management_cipher =
+			ie_rsn_cipher_suite_to_cipher(
+				sm->handshake->group_management_cipher);
+		uint8_t *igtk_kde = key_data_buf + key_data_len;
+
+		handshake_util_build_igtk_kde(group_management_cipher,
+						sm->handshake->igtk,
+						sm->handshake->igtk_index,
+						igtk_kde);
+		key_data_len += igtk_kde[1] + 2;
+	}
+
 	if (sm->handshake->support_ip_allocation &&
 			!sm->handshake->client_ip_addr) {
 		handshake_event(sm->handshake, HANDSHAKE_EVENT_P2P_IP_REQUEST);
