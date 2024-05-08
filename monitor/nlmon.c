@@ -2452,6 +2452,86 @@ static void print_reduced_neighbor_report(unsigned int level, const char *label,
 	}
 }
 
+static void print_neighbor_report(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	struct ie_tlv_iter iter;
+	struct ie_neighbor_report_info info;
+
+	const char *phy_type_table[] = {
+		[0] = NULL,
+		[1] = NULL,
+		[2] = "DSSS",
+		[3] = NULL,
+		[4] = "OFDM",
+		[5] = "HDRSSS",
+		[6] = "ERP",
+		[7] = "HT",
+		[8] = "DMG",
+		[9] = "VHT",
+		[10] = "TVHT",
+		[11] = "S1G",
+		[12] = "CDMG",
+		[13] = "CMMG",
+		[14] = "HE"
+	};
+
+	ie_tlv_iter_init(&iter, data - 2, size + 2);
+
+	if (!ie_tlv_iter_next(&iter))
+		return;
+
+	if (ie_parse_neighbor_report(&iter, &info) < 0) {
+		print_attr(level, "Invalid Neighbor report");
+		return;
+	}
+
+	print_attr(level, "Neighbor Report for "MAC, MAC_STR(info.addr));
+	print_attr(level + 1, "Operating Class: %u", info.oper_class);
+	print_attr(level + 1, "Channel Number: %u", info.channel_num);
+
+	if (info.phy_type <= 14 && phy_type_table[info.phy_type])
+		print_attr(level + 1, "Phy Type: %s",
+				phy_type_table[info.phy_type]);
+	else
+		print_attr(level + 1, "Phy Type: Unknown (%u)", info.phy_type);
+
+	if (info.bss_transition_pref_present)
+		print_attr(level + 1, "BSS Transition Preference: %u",
+				info.bss_transition_pref);
+
+	switch (info.reachable) {
+	case 1:
+		print_attr(level + 1, "Reachability: Not Reachable");
+		break;
+	case 2:
+		print_attr(level + 1, "Reachability: Unknown");
+		break;
+	case 3:
+		print_attr(level + 1, "Reachability: Reachable");
+		break;
+	default:
+		break;
+	}
+
+	print_attr(level + 1, "BSSID Information");
+
+	if (info.security)
+		print_attr(level + 2, "Security bit set");
+	if (info.key_scope)
+		print_attr(level + 2, "Key scope bit set");
+	if (info.spectrum_mgmt)
+		print_attr(level + 2, "Spectrum Mgmt bit set");
+	if (info.qos)
+		print_attr(level + 2, "QoS bit set");
+	if (info.apsd)
+		print_attr(level + 2, "APSD bit set");
+	if (info.md)
+		print_attr(level + 2, "MD bit set");
+	if (info.ht)
+		print_attr(level + 2, "HT bit set");
+}
+
 static struct attr_entry ie_entry[] = {
 	{ IE_TYPE_SSID,				"SSID",
 		ATTR_CUSTOM,	{ .function = print_ie_ssid } },
@@ -2520,6 +2600,8 @@ static struct attr_entry ie_entry[] = {
 		ATTR_CUSTOM,	{ .function = print_reduced_neighbor_report } },
 	{ IE_TYPE_RSNX,				"RSNX",
 		ATTR_CUSTOM,	{ .function = print_rsnx } },
+	{ IE_TYPE_NEIGHBOR_REPORT,		"Neighbor Report",
+		ATTR_CUSTOM,	{ .function = print_neighbor_report } },
 	{ },
 };
 
@@ -4979,6 +5061,7 @@ static void print_rm_action_frame(unsigned int level, const uint8_t *body,
 		print_rm_request(level + 1, body + 1, body_len - 1);
 		break;
 	case 1:
+	case 5:
 		print_rm_report(level + 1, body + 1, body_len - 1);
 		break;
 	}
