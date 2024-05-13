@@ -1242,9 +1242,6 @@ static void scan_parse_vendor_specific(struct scan_bss *bss, const void *data,
 		bss->cost_flags = cost_flags;
 		return;
 	}
-
-	if (is_ie_default_sae_group_oui(data, len))
-		bss->force_default_sae_group = true;
 }
 
 /*
