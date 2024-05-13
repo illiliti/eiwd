@@ -1509,32 +1509,6 @@ bool is_ie_wpa_ie(const uint8_t *data, uint8_t len)
 	return false;
 }
 
-/*
- * List of vendor OUIs (prefixed with a length byte) which require forcing
- * the default SAE group.
- */
-static const uint8_t use_default_sae_group_ouis[][5] = {
-	{ 0x04, 0xf4, 0xf5, 0xe8, 0x05 },
-};
-
-bool is_ie_default_sae_group_oui(const uint8_t *data, uint16_t len)
-{
-	unsigned int i;
-	const uint8_t *oui;
-
-	for (i = 0; i < L_ARRAY_SIZE(use_default_sae_group_ouis); i++) {
-		oui = use_default_sae_group_ouis[i];
-
-		if (len < oui[0])
-			continue;
-
-		if (!memcmp(oui + 1, data, oui[0]))
-			return true;
-	}
-
-	return false;
-}
-
 int ie_parse_wpa(struct ie_tlv_iter *iter, struct ie_rsn_info *out_info)
 {
 	const uint8_t *data = iter->data;

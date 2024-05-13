@@ -634,7 +634,6 @@ int ie_parse_wpa_from_data(const uint8_t *data, size_t len,
 						struct ie_rsn_info *info);
 bool is_ie_wfa_ie(const uint8_t *data, uint8_t len, uint8_t oi_type);
 bool is_ie_wpa_ie(const uint8_t *data, uint8_t len);
-bool is_ie_default_sae_group_oui(const uint8_t *data, uint16_t len);
 
 bool ie_build_wpa(const struct ie_rsn_info *info, uint8_t *to);
 
