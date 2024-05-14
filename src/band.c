@@ -1485,15 +1485,48 @@ static const uint8_t oper_class_cn_to_global[] = {
 	/* 128 - 130 is a 1 to 1 mapping */
 };
 
-enum band_freq band_oper_class_to_band(const uint8_t *country,
-					uint8_t oper_class)
+/*
+ * Annex C describes the country string encoding.
+ *
+ * If it is a country, the first two octets of this string is the two character
+ * country code as described in document ISO 3166-1. The third octet is one of
+ * the following:
+ *  1. an ASCII space character, if the regulations under which the station is
+ *     operating encompass all environments for the current frequency band in
+ *     the country,
+ *  2. an ASCII 'O' character, if the regulations under which the station is
+ *     operating are for an outdoor environment only, or
+ *  3. an ASCII 'I' character, if the regulations under which the station is
+ *     operating are for an indoor environment only.
+ *  4. an ASCII 'X' character, if the station is operating under a noncountry
+ *     entity. The first two octets of the noncountry entity is two ASCII 'XX'
+ *     characters.
+ *  5. the hexadecimal representation of the Operating Class table number
+ *     currently in use, from the set of tables defined in Annex E, e.g.,
+ *     Table E-1 is represented as x'01'.
+ */
+static enum band_freq oper_class_to_band(const uint8_t *country,
+					uint8_t oper_class,
+					bool ignore_country3)
 {
 	unsigned int i;
 	int table = 0;
 
-	if (country && country[2] >= 1 && country[2] <= 5)
+	/*
+	 * If a country is set, and the 3rd byte maps to some E-* table in the
+	 * spec use that (case 5). Only caveat here is some APs erroneously set
+	 * this 3rd byte. To work around we can fall back to case 1, where only
+	 * the first two characters are used to lookup the table.
+	 */
+	if (!ignore_country3 && country && country[2] >= 1 && country[2] <= 5)
 		table = country[2];
 	else if (country) {
+		/*
+		 * Assuming case 1, although its unlikely you would handle
+		 * cases 2 (O) or 3 (I) any differently. Case 4 (X) is unlikely
+		 * and we really wouldn't have enough information to correctly
+		 * determine the band in some obscure non-country domain.
+		 */
 		for (i = 0; i < L_ARRAY_SIZE(oper_class_us_codes); i++)
 			if (!memcmp(oper_class_us_codes[i], country, 2)) {
 				/* Use table E-1 */
@@ -1540,6 +1573,25 @@ enum band_freq band_oper_class_to_band(const uint8_t *country,
 		return oper_class_to_band_global[oper_class];
 	else
 		return 0;
+}
+
+enum band_freq band_oper_class_to_band(const uint8_t *country,
+					uint8_t oper_class)
+{
+	enum band_freq band = oper_class_to_band(country, oper_class, false);
+	if (!band) {
+		/* Fallback with no country string won't change anything */
+		if (!country)
+			return 0;
+
+		l_warn("Failed to find band with country string '%c%c %u' and "
+			"oper class %u, trying fallback",
+			country[0], country[1], country[2], oper_class);
+
+		return oper_class_to_band(country, oper_class, true);
+	}
+
+	return band;
 }
 
 const char *band_chandef_width_to_string(enum band_chandef_width width)
