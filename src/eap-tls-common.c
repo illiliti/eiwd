@@ -500,10 +500,9 @@ static int eap_tls_init_request_assembly(struct eap_state *eap,
 	tls_msg_len = l_get_be32(pkt);
 	len -= 4;
 
-	if (!tls_msg_len || tls_msg_len > EAP_TLS_PDU_MAX_LEN) {
-		l_warn("%s: Fragmented pkt size is outside of allowed"
-				" boundaries [1, %u]", eap_get_method_name(eap),
-							EAP_TLS_PDU_MAX_LEN);
+	if (tls_msg_len > EAP_TLS_PDU_MAX_LEN) {
+		l_warn("%s: Fragmented pkt size is larger than %u.",
+				eap_get_method_name(eap), EAP_TLS_PDU_MAX_LEN);
 
 		return -EINVAL;
 	}
