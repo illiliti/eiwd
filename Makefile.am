@@ -64,7 +64,8 @@ ell_headers = ell/util.h \
 			ell/acd.h \
 			ell/cleanup.h \
 			ell/netconfig.h \
-			ell/sysctl.h
+			ell/sysctl.h \
+			ell/notifylist.h
 
 ell_sources = ell/private.h \
 			ell/missing.h \
@@ -145,7 +146,8 @@ ell_sources = ell/private.h \
 			ell/dhcp6-transport.c \
 			ell/acd.c \
 			ell/netconfig.c \
-			ell/sysctl.c
+			ell/sysctl.c \
+			ell/notifylist.c
 
 ell_shared = ell/useful.h ell/asn1-private.h
 
