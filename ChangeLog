@@ -1,3 +1,9 @@
+ver 2.18:
+	Fix issue with handling BSS with invalid HE capabilities.
+	Fix issue with neighbor reports with invalid country codes.
+	Fix issue with EAP-TTLS Start packets with L flag set.
+	Add support for enabling SAE for AP mode operation.
+
 ver 2.17:
 	Fix issue with handling deauthenticate on disconnect.
 	Fix issue with handling of rate estimation errors.
