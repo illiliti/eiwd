@@ -159,6 +159,7 @@ static attr_handler handler_for_nl80211(int type)
 	case NL80211_ATTR_WIPHY:
 	case NL80211_ATTR_IFTYPE:
 	case NL80211_ATTR_KEY_TYPE:
+	case NL80211_ATTR_SCAN_FLAGS:
 		return extract_uint32;
 	case NL80211_ATTR_WDEV:
 	case NL80211_ATTR_COOKIE:
