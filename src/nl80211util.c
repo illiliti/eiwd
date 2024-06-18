@@ -181,6 +181,7 @@ static attr_handler handler_for_type(enum nl80211_attrs type)
 	case NL80211_ATTR_FRAME:
 		return extract_iovec;
 	case NL80211_ATTR_WIPHY_BANDS:
+	case NL80211_ATTR_SURVEY_INFO:
 		return extract_nested;
 	case NL80211_ATTR_KEY_IDX:
 		return extract_u8;
