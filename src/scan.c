@@ -1344,6 +1344,8 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 						NULL) < 0)
 				l_warn("Unable to parse BSS Load IE for "
 					MAC, MAC_STR(bss->addr));
+			else
+				bss->have_utilization = true;
 
 			break;
 		case IE_TYPE_VENDOR_SPECIFIC:
@@ -1533,7 +1535,6 @@ static struct scan_bss *scan_parse_attr_bss(struct l_genl_attr *attr,
 	size_t beacon_ies_len;
 
 	bss = l_new(struct scan_bss, 1);
-	bss->utilization = 127;
 	bss->source_frame = SCAN_BSS_BEACON;
 
 	while (l_genl_attr_next(attr, &type, &len, &data)) {
@@ -1704,10 +1705,12 @@ static void scan_bss_compute_rank(struct scan_bss *bss)
 		rank *= RANK_6G_FACTOR;
 
 	/* Rank loaded APs lower and lightly loaded APs higher */
-	if (bss->utilization >= 192)
-		rank *= RANK_HIGH_UTILIZATION_FACTOR;
-	else if (bss->utilization <= 63)
-		rank *= RANK_LOW_UTILIZATION_FACTOR;
+	if (bss->have_utilization) {
+		if (bss->utilization >= 192)
+			rank *= RANK_HIGH_UTILIZATION_FACTOR;
+		else if (bss->utilization <= 63)
+			rank *= RANK_LOW_UTILIZATION_FACTOR;
+	}
 
 	if (bss->have_snr) {
 		if (bss->snr <= 15)
@@ -1734,7 +1737,6 @@ struct scan_bss *scan_bss_new_from_probe_req(const struct mmpdu_header *mpdu,
 
 	bss = l_new(struct scan_bss, 1);
 	memcpy(bss->addr, mpdu->address_2, 6);
-	bss->utilization = 127;
 	bss->source_frame = SCAN_BSS_PROBE_REQ;
 	bss->frequency = frequency;
 	bss->signal_strength = rssi;

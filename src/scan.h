@@ -91,6 +91,7 @@ struct scan_bss {
 	bool sae_pw_id_used : 1;
 	bool sae_pw_id_exclusive : 1;
 	bool have_snr : 1;
+	bool have_utilization : 1;
 };
 
 struct scan_parameters {
