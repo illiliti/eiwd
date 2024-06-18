@@ -28,6 +28,7 @@ struct band_freq_attrs;
 struct handshake_state;
 
 int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...);
+int nl80211_parse_nested(struct l_genl_attr *attr, int type, int tag, ...);
 
 struct l_genl_msg *nl80211_build_deauthenticate(uint32_t ifindex,
 						const uint8_t addr[static 6],

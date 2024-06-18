@@ -193,6 +193,20 @@ static attr_handler handler_for_nl80211(int type)
 	return NULL;
 }
 
+static attr_handler handler_for_survey_info(int type)
+{
+	switch (type) {
+	case NL80211_SURVEY_INFO_NOISE:
+		return extract_u8;
+	case NL80211_SURVEY_INFO_FREQUENCY:
+		return extract_uint32;
+	default:
+		break;
+	}
+
+	return NULL;
+}
+
 struct attr_entry {
 	uint16_t type;
 	void *data;
@@ -291,6 +305,29 @@ int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
 	va_start(args, tag);
 
 	ret = parse_attrs(&attr, handler_for_nl80211, tag, args);
+
+	va_end(args);
+
+	return ret;
+}
+
+int nl80211_parse_nested(struct l_genl_attr *attr, int type, int tag, ...)
+{
+	handler_for_type handler;
+	va_list args;
+	int ret;
+
+	switch (type) {
+	case NL80211_ATTR_SURVEY_INFO:
+		handler = handler_for_survey_info;
+		break;
+	default:
+		return -ENOTSUP;
+	}
+
+	va_start(args, tag);
+
+	ret = parse_attrs(attr, handler, tag, args);
 
 	va_end(args);
 
