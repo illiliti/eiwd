@@ -402,6 +402,27 @@ static int bss_signal_strength_compare(const void *a, const void *b, void *user)
 	return (bss->signal_strength > new_bss->signal_strength) ? 1 : -1;
 }
 
+static void station_print_scan_bss(const struct scan_bss *bss)
+{
+	uint32_t kbps100 = DIV_ROUND_CLOSEST(bss->data_rate, 100000);
+	char optional[64] = {0};
+	char *ptr = optional;
+
+	if (bss->have_snr)
+		ptr += sprintf(ptr, ", snr: %d", bss->snr);
+
+	if (bss->have_utilization)
+		ptr += sprintf(ptr, ", load: %u/255", bss->utilization);
+
+	l_debug("Processing BSS '%s' with SSID: %s, freq: %u, rank: %u, "
+			"strength: %i, data_rate: %u.%u%s",
+			util_address_to_string(bss->addr),
+			util_ssid_to_utf8(bss->ssid_len, bss->ssid),
+			bss->frequency, bss->rank, bss->signal_strength,
+			kbps100 / 10, kbps100 % 10,
+			optional);
+}
+
 /*
  * Returns the network object the BSS was added to or NULL if ignored.
  */
@@ -412,14 +433,8 @@ static struct network *station_add_seen_bss(struct station *station,
 	enum security security;
 	const char *path;
 	char ssid[33];
-	uint32_t kbps100 = DIV_ROUND_CLOSEST(bss->data_rate, 100000);
 
-	l_debug("Processing BSS '%s' with SSID: %s, freq: %u, rank: %u, "
-			"strength: %i, data_rate: %u.%u",
-			util_address_to_string(bss->addr),
-			util_ssid_to_utf8(bss->ssid_len, bss->ssid),
-			bss->frequency, bss->rank, bss->signal_strength,
-			kbps100 / 10, kbps100 % 10);
+	station_print_scan_bss(bss);
 
 	if (util_ssid_is_hidden(bss->ssid_len, bss->ssid)) {
 		l_debug("BSS has hidden SSID");
@@ -2655,15 +2670,9 @@ static bool station_roam_scan_notify(int err, struct l_queue *bss_list,
 
 	while ((bss = l_queue_pop_head(bss_list))) {
 		double rank;
-		uint32_t kbps100 = DIV_ROUND_CLOSEST(bss->data_rate, 100000);
 		struct roam_bss *rbss;
 
-		l_debug("Processing BSS '%s' with SSID: %s, freq: %u, rank: %u,"
-				" strength: %i, data_rate: %u.%u",
-				util_address_to_string(bss->addr),
-				util_ssid_to_utf8(bss->ssid_len, bss->ssid),
-				bss->frequency, bss->rank, bss->signal_strength,
-				kbps100 / 10, kbps100 % 10);
+		station_print_scan_bss(bss);
 
 		/* Skip the BSS we are connected to */
 		if (!memcmp(bss->addr, station->connected_bss->addr, 6))
