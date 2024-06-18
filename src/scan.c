@@ -132,6 +132,18 @@ struct scan_context {
 	 */
 	unsigned int get_fw_scan_cmd_id;
 	struct wiphy *wiphy;
+
+	unsigned int get_survey_cmd_id;
+};
+
+struct scan_survey {
+	int8_t noise;
+};
+
+struct scan_survey_results {
+	struct scan_survey survey_2_4[14];
+	struct scan_survey survey_5[196];
+	struct scan_survey survey_6[233];
 };
 
 struct scan_results {
@@ -140,6 +152,9 @@ struct scan_results {
 	uint64_t time_stamp;
 	struct scan_request *sr;
 	struct scan_freq_set *freqs;
+	struct scan_survey_results survey;
+
+	bool survey_parsed : 1;
 };
 
 static bool start_next_scan_request(struct wiphy_radio_work_item *item);
@@ -216,6 +231,9 @@ static void scan_context_free(struct scan_context *sc)
 
 	if (sc->get_fw_scan_cmd_id && nl80211)
 		l_genl_family_cancel(nl80211, sc->get_fw_scan_cmd_id);
+
+	if (sc->get_survey_cmd_id && nl80211)
+		l_genl_family_cancel(nl80211, sc->get_survey_cmd_id);
 
 	wiphy_state_watch_remove(sc->wiphy, sc->wiphy_watch_id);
 
@@ -1663,6 +1681,8 @@ static void scan_bss_compute_rank(struct scan_bss *bss)
 {
 	static const double RANK_HIGH_UTILIZATION_FACTOR = 0.8;
 	static const double RANK_LOW_UTILIZATION_FACTOR = 1.2;
+	static const double RANK_HIGH_SNR_FACTOR = 1.2;
+	static const double RANK_LOW_SNR_FACTOR = 0.8;
 	double rank;
 	uint32_t irank;
 	/*
@@ -1688,6 +1708,13 @@ static void scan_bss_compute_rank(struct scan_bss *bss)
 		rank *= RANK_HIGH_UTILIZATION_FACTOR;
 	else if (bss->utilization <= 63)
 		rank *= RANK_LOW_UTILIZATION_FACTOR;
+
+	if (bss->have_snr) {
+		if (bss->snr <= 15)
+			rank *= RANK_LOW_SNR_FACTOR;
+		else if (bss->snr >= 30)
+			rank *= RANK_HIGH_SNR_FACTOR;
+	}
 
 	irank = rank;
 
@@ -1824,6 +1851,41 @@ int scan_bss_rank_compare(const void *a, const void *b, void *user_data)
 	return (bss->rank > new_bss->rank) ? 1 : -1;
 }
 
+static bool scan_survey_get_snr(struct scan_results *results,
+					uint32_t freq, int32_t signal,
+					int8_t *snr)
+{
+	uint8_t channel;
+	enum band_freq band;
+	int8_t noise = 0;
+
+	if (!results->survey_parsed)
+		return false;
+
+	channel = band_freq_to_channel(freq, &band);
+	if (L_WARN_ON(!channel))
+		return false;
+
+	switch (band) {
+	case BAND_FREQ_2_4_GHZ:
+		noise = results->survey.survey_2_4[channel].noise;
+		break;
+	case BAND_FREQ_5_GHZ:
+		noise = results->survey.survey_5[channel].noise;
+		break;
+	case BAND_FREQ_6_GHZ:
+		noise = results->survey.survey_6[channel].noise;
+		break;
+	}
+
+	if (noise) {
+		*snr = signal - noise;
+		return true;
+	}
+
+	return false;
+}
+
 static void get_scan_callback(struct l_genl_msg *msg, void *user_data)
 {
 	struct scan_results *results = user_data;
@@ -1848,6 +1910,10 @@ static void get_scan_callback(struct l_genl_msg *msg, void *user_data)
 	if (!bss->time_stamp)
 		bss->time_stamp = results->time_stamp -
 					seen_ms_ago * L_USEC_PER_MSEC;
+
+	bss->have_snr = scan_survey_get_snr(results, bss->frequency,
+						bss->signal_strength / 100,
+						&bss->snr);
 
 	scan_bss_compute_rank(bss);
 	l_queue_insert(results->bss_list, bss, scan_bss_rank_compare, NULL);
@@ -1925,11 +1991,88 @@ static void get_scan_done(void *user)
 	l_free(results);
 }
 
+static void get_survey_callback(struct l_genl_msg *msg, void *user_data)
+{
+	struct scan_results *results = user_data;
+	struct scan_survey_results *survey = &results->survey;
+	struct l_genl_attr attr;
+	uint32_t freq;
+	int8_t noise;
+	uint8_t channel;
+	enum band_freq band;
+
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_SURVEY_INFO, &attr,
+				NL80211_ATTR_UNSPEC) < 0)
+		return;
+
+	if (nl80211_parse_nested(&attr, NL80211_ATTR_SURVEY_INFO,
+					NL80211_SURVEY_INFO_FREQUENCY, &freq,
+					NL80211_SURVEY_INFO_NOISE, &noise,
+					NL80211_ATTR_UNSPEC) < 0)
+		return;
+
+	channel = band_freq_to_channel(freq, &band);
+	if (!channel)
+		return;
+
+	/* At least one frequency was surveyed */
+	results->survey_parsed = true;
+
+	switch (band) {
+	case BAND_FREQ_2_4_GHZ:
+		survey->survey_2_4[channel].noise = noise;
+		break;
+	case BAND_FREQ_5_GHZ:
+		survey->survey_5[channel].noise = noise;
+		break;
+	case BAND_FREQ_6_GHZ:
+		survey->survey_6[channel].noise = noise;
+		break;
+	}
+}
+
+static void get_results(struct scan_results *results)
+{
+	struct l_genl_msg *scan_msg;
+
+	scan_msg = l_genl_msg_new_sized(NL80211_CMD_GET_SCAN, 8);
+
+	l_genl_msg_append_attr(scan_msg, NL80211_ATTR_WDEV, 8,
+					&results->sc->wdev_id);
+	results->sc->get_scan_cmd_id = l_genl_family_dump(nl80211, scan_msg,
+						get_scan_callback,
+						results, get_scan_done);
+}
+
+static void get_survey_done(void *user_data)
+{
+	struct scan_results *results = user_data;
+	struct scan_context *sc = results->sc;
+
+	sc->get_survey_cmd_id = 0;
+
+	get_results(results);
+}
+
+static bool scan_survey(struct scan_results *results)
+{
+	struct scan_context *sc = results->sc;
+	struct l_genl_msg *survey_msg;
+
+	survey_msg = l_genl_msg_new(NL80211_CMD_GET_SURVEY);
+	l_genl_msg_append_attr(survey_msg, NL80211_ATTR_WDEV, 8,
+				&sc->wdev_id);
+	sc->get_survey_cmd_id = l_genl_family_dump(nl80211, survey_msg,
+						get_survey_callback, results,
+						get_survey_done);
+
+	return sc->get_survey_cmd_id != 0;
+}
+
 static void scan_get_results(struct scan_context *sc, struct scan_request *sr,
 				struct scan_freq_set *freqs)
 {
 	struct scan_results *results;
-	struct l_genl_msg *scan_msg;
 
 	results = l_new(struct scan_results, 1);
 	results->sc = sc;
@@ -1938,13 +2081,12 @@ static void scan_get_results(struct scan_context *sc, struct scan_request *sr,
 	results->bss_list = l_queue_new();
 	results->freqs = freqs;
 
-	scan_msg = l_genl_msg_new_sized(NL80211_CMD_GET_SCAN, 8);
+	if (scan_survey(results))
+		return;
+	else
+		l_warn("failed to start a scan survey");
 
-	l_genl_msg_append_attr(scan_msg, NL80211_ATTR_WDEV, 8,
-					&sc->wdev_id);
-	sc->get_scan_cmd_id = l_genl_family_dump(nl80211, scan_msg,
-						get_scan_callback,
-						results, get_scan_done);
+	get_results(results);
 }
 
 static void scan_wiphy_watch(struct wiphy *wiphy,

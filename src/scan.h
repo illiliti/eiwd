@@ -75,6 +75,7 @@ struct scan_bss {
 	uint64_t parent_tsf;
 	uint8_t *wfd;		/* Concatenated WFD IEs */
 	ssize_t wfd_size;	/* Size of Concatenated WFD IEs */
+	int8_t snr;
 	bool mde_present : 1;
 	bool cc_present : 1;
 	bool cap_rm_neighbor_report : 1;
@@ -89,6 +90,7 @@ struct scan_bss {
 	bool dpp_configurator : 1;
 	bool sae_pw_id_used : 1;
 	bool sae_pw_id_exclusive : 1;
+	bool have_snr : 1;
 };
 
 struct scan_parameters {
