@@ -2898,7 +2898,7 @@ static bool kernel_will_retry_auth(uint16_t status_code,
 
 static void netdev_ensure_eapol_registered(struct netdev *netdev)
 {
-	if (L_WARN_ON(netdev->sm))
+	if (netdev->sm)
 		return;
 
 	netdev->sm = eapol_sm_new(netdev->handshake);
