@@ -2021,16 +2021,14 @@ static struct scan_context *scan_context_new(uint64_t wdev_id)
 
 static bool scan_parse_flush_flag_from_msg(struct l_genl_msg *msg)
 {
-	struct l_genl_attr attr;
-	uint16_t type, len;
-	const void *data;
+	uint32_t flags;
 
-	if (!l_genl_attr_init(&attr, msg))
+	if (nl80211_parse_attrs(msg, NL80211_ATTR_SCAN_FLAGS, &flags,
+					NL80211_ATTR_UNSPEC) < 0)
 		return false;
 
-	while (l_genl_attr_next(&attr, &type, &len, &data))
-		if (type == NL80211_SCAN_FLAG_FLUSH)
-			return true;
+	if (flags & NL80211_SCAN_FLAG_FLUSH)
+		return true;
 
 	return false;
 }
