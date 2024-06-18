@@ -37,6 +37,7 @@
 #include "src/util.h"
 
 typedef bool (*attr_handler)(const void *data, uint16_t len, void *o);
+typedef attr_handler (*handler_for_type)(int type);
 
 static bool extract_ifindex(const void *data, uint16_t len, void *o)
 {
@@ -150,7 +151,7 @@ static bool extract_u8(const void *data, uint16_t len, void *o)
 	return true;
 }
 
-static attr_handler handler_for_type(enum nl80211_attrs type)
+static attr_handler handler_for_nl80211(int type)
 {
 	switch (type) {
 	case NL80211_ATTR_IFINDEX:
@@ -199,10 +200,9 @@ struct attr_entry {
 	bool present : 1;
 };
 
-int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
+static int parse_attrs(struct l_genl_attr *attr, handler_for_type handler,
+			int tag, va_list args)
 {
-	struct l_genl_attr attr;
-	va_list args;
 	struct l_queue *entries;
 	const struct l_queue_entry *e;
 	struct attr_entry *entry;
@@ -211,10 +211,6 @@ int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
 	const void *data;
 	int ret;
 
-	if (!l_genl_attr_init(&attr, msg))
-		return -EINVAL;
-
-	va_start(args, tag);
 	entries = l_queue_new();
 	ret = -ENOSYS;
 
@@ -223,7 +219,7 @@ int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
 
 		entry->type = tag;
 		entry->data = va_arg(args, void *);
-		entry->handler = handler_for_type(tag);
+		entry->handler = handler(tag);
 		l_queue_push_tail(entries, entry);
 
 		if (!entry->handler)
@@ -232,9 +228,7 @@ int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
 		tag = va_arg(args, enum nl80211_attrs);
 	}
 
-	va_end(args);
-
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+	while (l_genl_attr_next(attr, &type, &len, &data)) {
 		for (e = l_queue_get_entries(entries); e; e = e->next) {
 			entry = e->data;
 
@@ -252,7 +246,7 @@ int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
 
 		/* For nested attributes use the outer attribute as data */
 		if (entry->handler == extract_nested)
-			data = &attr;
+			data = attr;
 
 		if (!entry->handler(data, len, entry->data)) {
 			ret = -EINVAL;
@@ -282,6 +276,24 @@ int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
 
 done:
 	l_queue_destroy(entries, l_free);
+	return ret;
+}
+
+int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
+{
+	struct l_genl_attr attr;
+	va_list args;
+	int ret;
+
+	if (!l_genl_attr_init(&attr, msg))
+		return -EINVAL;
+
+	va_start(args, tag);
+
+	ret = parse_attrs(&attr, handler_for_nl80211, tag, args);
+
+	va_end(args);
+
 	return ret;
 }
 
