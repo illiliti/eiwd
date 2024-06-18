@@ -433,7 +433,7 @@ unit_tests += unit/test-cmac-aes \
 		unit/test-ie unit/test-util unit/test-ssid-security \
 		unit/test-arc4 unit/test-wsc unit/test-eap-mschapv2 \
 		unit/test-eap-sim unit/test-sae unit/test-p2p unit/test-band \
-		unit/test-dpp unit/test-json
+		unit/test-dpp unit/test-json unit/test-nl80211util
 endif
 
 if CLIENT
@@ -582,6 +582,13 @@ unit_test_dpp_LDADD = $(ell_ldadd)
 
 unit_test_json_SOURCES = unit/test-json.c src/json.h src/json.c shared/jsmn.h
 unit_test_json_LDADD = $(ell_ldadd)
+
+unit_test_nl80211util_SOURCES = unit/test-nl80211util.c \
+				src/nl80211util.h src/nl80211util.c \
+				src/band.h src/band.c \
+				src/ie.h src/ie.c \
+				src/util.h src/util.c
+unit_test_nl80211util_LDADD = $(ell_ldadd)
 endif
 
 if CLIENT
