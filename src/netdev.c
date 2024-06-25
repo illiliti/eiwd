@@ -1328,12 +1328,10 @@ static void netdev_cmd_disconnect_cb(struct l_genl_msg *msg, void *user_data)
 static void netdev_deauthenticate_event(struct l_genl_msg *msg,
 							struct netdev *netdev)
 {
-	struct l_genl_attr attr;
-	uint16_t type, len;
-	const void *data;
 	const struct mmpdu_header *hdr = NULL;
 	const struct mmpdu_deauthentication *deauth;
 	uint16_t reason_code;
+	struct iovec iov;
 
 	l_debug("");
 
@@ -1349,17 +1347,11 @@ static void netdev_deauthenticate_event(struct l_genl_msg *msg,
 	 * deauthenticating immediately afterwards
 	 */
 
-	if (L_WARN_ON(!l_genl_attr_init(&attr, msg)))
+	if (L_WARN_ON(nl80211_parse_attrs(msg, NL80211_ATTR_FRAME, &iov,
+						NL80211_ATTR_UNSPEC) < 0))
 		return;
 
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
-		switch (type) {
-		case NL80211_ATTR_FRAME:
-			hdr = mpdu_validate(data, len);
-			break;
-		}
-	}
-
+	hdr = mpdu_validate(iov.iov_base, iov.iov_len);
 	if (L_WARN_ON(!hdr))
 		return;
 
