@@ -184,6 +184,7 @@ static attr_handler handler_for_nl80211(int type)
 		return extract_iovec;
 	case NL80211_ATTR_WIPHY_BANDS:
 	case NL80211_ATTR_SURVEY_INFO:
+	case NL80211_ATTR_KEY:
 		return extract_nested;
 	case NL80211_ATTR_KEY_IDX:
 		return extract_u8;
@@ -201,6 +202,18 @@ static attr_handler handler_for_survey_info(int type)
 		return extract_u8;
 	case NL80211_SURVEY_INFO_FREQUENCY:
 		return extract_uint32;
+	default:
+		break;
+	}
+
+	return NULL;
+}
+
+static attr_handler handler_for_key(int type)
+{
+	switch (type) {
+	case NL80211_KEY_SEQ:
+		return extract_iovec;
 	default:
 		break;
 	}
@@ -321,6 +334,9 @@ int nl80211_parse_nested(struct l_genl_attr *attr, int type, int tag, ...)
 	switch (type) {
 	case NL80211_ATTR_SURVEY_INFO:
 		handler = handler_for_survey_info;
+		break;
+	case NL80211_ATTR_KEY:
+		handler = handler_for_key;
 		break;
 	default:
 		return -ENOTSUP;
@@ -568,46 +584,29 @@ struct l_genl_msg *nl80211_build_get_key(uint32_t ifindex, uint8_t key_index)
 
 const void *nl80211_parse_get_key_seq(struct l_genl_msg *msg)
 {
-	struct l_genl_attr attr, nested;
-	uint16_t type, len;
-	const void *data;
+	struct l_genl_attr nested;
+	struct iovec iov;
 
-	if (l_genl_msg_get_error(msg) < 0 || !l_genl_attr_init(&attr, msg)) {
+	if (l_genl_msg_get_error(msg) < 0 ||
+			nl80211_parse_attrs(msg, NL80211_ATTR_KEY, &nested,
+						NL80211_ATTR_UNSPEC) < 0) {
 		l_error("GET_KEY failed for the GTK: %i",
 			l_genl_msg_get_error(msg));
 		return NULL;
 	}
 
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
-		if (type != NL80211_ATTR_KEY)
-			continue;
-
-		break;
-	}
-
-	if (type != NL80211_ATTR_KEY || !l_genl_attr_recurse(&attr, &nested)) {
+	if (nl80211_parse_nested(&nested, NL80211_ATTR_KEY, NL80211_KEY_SEQ,
+					&iov, NL80211_ATTR_UNSPEC)) {
 		l_error("Can't recurse into ATTR_KEY in GET_KEY reply");
 		return NULL;
 	}
 
-	while (l_genl_attr_next(&nested, &type, &len, &data)) {
-		if (type != NL80211_KEY_SEQ)
-			continue;
-
-		break;
-	}
-
-	if (type != NL80211_KEY_SEQ) {
-		l_error("KEY_SEQ not returned in GET_KEY reply");
-		return NULL;
-	}
-
-	if (len != 6) {
+	if (iov.iov_len != 6) {
 		l_error("KEY_SEQ length != 6 in GET_KEY reply");
 		return NULL;
 	}
 
-	return data;
+	return iov.iov_base;
 }
 
 struct l_genl_msg *nl80211_build_cmd_frame(uint32_t ifindex,
