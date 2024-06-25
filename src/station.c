@@ -3486,10 +3486,10 @@ static void station_netdev_event(struct netdev *netdev, enum netdev_event event,
 
 	switch (event) {
 	case NETDEV_EVENT_AUTHENTICATING:
-		l_debug("Authenticating");
+		station_debug_event(station, "authenticating");
 		break;
 	case NETDEV_EVENT_ASSOCIATING:
-		l_debug("Associating");
+		station_debug_event(station, "associating");
 		break;
 	case NETDEV_EVENT_DISCONNECT_BY_AP:
 	case NETDEV_EVENT_DISCONNECT_BY_SME:
