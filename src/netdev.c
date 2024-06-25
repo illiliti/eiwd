@@ -2422,10 +2422,6 @@ static void netdev_driver_connected(struct netdev *netdev)
 {
 	netdev->connected = true;
 
-	if (netdev->event_filter)
-		netdev->event_filter(netdev, NETDEV_EVENT_ASSOCIATING, NULL,
-					netdev->user_data);
-
 	/*
 	 * We register the eapol state machine here, in case the PAE
 	 * socket receives EAPoL packets before the nl80211 socket
@@ -2919,6 +2915,10 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 		return;
 	}
 
+	if (netdev->event_filter)
+		netdev->event_filter(netdev, NETDEV_EVENT_AUTHENTICATING,
+					NULL, netdev->user_data);
+
 	/*
 	 * During Fast Transition we use the authenticate event to start the
 	 * reassociation step because the FTE necessary before we can build
@@ -3039,6 +3039,10 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 
 	if (!netdev->connected || netdev->aborting)
 		return;
+
+	if (netdev->event_filter)
+		netdev->event_filter(netdev, NETDEV_EVENT_ASSOCIATING,
+					NULL, netdev->user_data);
 
 	if (!netdev->ap && !netdev->in_ft) {
 		netdev->associated = true;
