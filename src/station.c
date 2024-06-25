@@ -2449,6 +2449,8 @@ static bool station_fast_transition(struct station *station,
 		goto done;
 	}
 
+	station_debug_event(station, "ft-authenticating");
+
 	if (station->connected_bss->frequency == bss->frequency) {
 		ft_authenticate_onchannel(netdev_get_ifindex(station->netdev),
 						bss);
