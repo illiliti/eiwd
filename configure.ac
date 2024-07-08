@@ -1,5 +1,5 @@
 AC_PREREQ([2.69])
-AC_INIT([iwd],[2.18])
+AC_INIT([iwd],[2.19])
 
 AC_CONFIG_HEADERS(config.h)
 AC_CONFIG_AUX_DIR(build-aux)

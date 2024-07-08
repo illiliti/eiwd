@@ -1,3 +1,7 @@
+ver 2.19:
+	Fix issue with handling flush flag for external scans.
+	Fix issue with handling SNR calculation in ranking.
+
 ver 2.18:
 	Fix issue with handling BSS with invalid HE capabilities.
 	Fix issue with neighbor reports with invalid country codes.
