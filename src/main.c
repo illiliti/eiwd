@@ -531,6 +531,8 @@ int main(int argc, char *argv[])
 	else
 		l_log_set_stderr();
 
+	l_log_set_ident("iwd");
+
 	if (check_crypto() < 0)
 		return EXIT_FAILURE;
 
