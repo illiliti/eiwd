@@ -3311,6 +3311,7 @@ static void station_connect_cb(struct netdev *netdev, enum netdev_result result,
 {
 	struct station *station = user_data;
 	bool continue_autoconnect;
+	uint16_t reason = MMPDU_REASON_CODE_UNSPECIFIED;
 
 	l_debug("%u, result: %d", netdev_get_ifindex(station->netdev), result);
 
@@ -3320,9 +3321,22 @@ static void station_connect_cb(struct netdev *netdev, enum netdev_result result,
 		station_connect_ok(station);
 		return;
 	case NETDEV_RESULT_DISCONNECTED:
+		reason = l_get_u16(event_data);
+
+		iwd_notice(IWD_NOTICE_DISCONNECT_INFO, "reason: %u", reason);
+
+		/* Disconnected while connecting */
+		network_blacklist_add(station->connected_network,
+						station->connected_bss);
+		if (station_try_next_bss(station))
+			return;
+
+		break;
 	case NETDEV_RESULT_HANDSHAKE_FAILED:
+		reason = l_get_u16(event_data);
+
 		/* reason code in this case */
-		if (station_retry_with_reason(station, l_get_u16(event_data)))
+		if (station_retry_with_reason(station, reason))
 			return;
 
 		break;
@@ -3383,17 +3397,12 @@ static void station_disconnect_event(struct station *station, void *event_data)
 	/*
 	 * If we're connecting, AP deauthenticated us, most likely because
 	 * we provided the wrong password or otherwise failed authentication
-	 * during the handshaking phase.  Treat this as a connection failure
+	 * during the handshaking phase. Connection failures should be handled
+	 * within station_connect_cb/station_reassociate_cb apart from netconfig
+	 * and FW roams.
 	 */
 	switch (station->state) {
-	case STATION_STATE_CONNECTING:
-	case STATION_STATE_CONNECTING_AUTO:
-		station_connect_cb(station->netdev,
-					NETDEV_RESULT_HANDSHAKE_FAILED,
-					event_data, station);
-		return;
 	case STATION_STATE_CONNECTED:
-	case STATION_STATE_FT_ROAMING:
 	case STATION_STATE_FW_ROAMING:
 	case STATION_STATE_NETCONFIG:
 		iwd_notice(IWD_NOTICE_DISCONNECT_INFO, "reason: %u",
