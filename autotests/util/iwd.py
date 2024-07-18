@@ -299,6 +299,9 @@ class StationDebug(IWDDBusAbstract):
 
         return False
 
+    def clear_events(self):
+        self._events = []
+
     def wait_for_event(self, event, timeout=10):
         return ctx.non_block_wait(self._poll_event, timeout, event,
                                     exception=TimeoutError("waiting for event"))
@@ -858,6 +861,9 @@ class Device(IWDDBusAbstract):
 
     def wait_for_event(self, event, timeout=10):
         self._station_debug.wait_for_event(event, timeout)
+
+    def clear_events(self):
+        self._station_debug.clear_events()
 
     def event_ocurred(self, event):
         return self._station_debug.event_ocurred(event)
