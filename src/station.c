@@ -3319,6 +3319,7 @@ static void station_connect_cb(struct netdev *netdev, enum netdev_result result,
 		blacklist_remove_bss(station->connected_bss->addr);
 		station_connect_ok(station);
 		return;
+	case NETDEV_RESULT_DISCONNECTED:
 	case NETDEV_RESULT_HANDSHAKE_FAILED:
 		/* reason code in this case */
 		if (station_retry_with_reason(station, l_get_u16(event_data)))

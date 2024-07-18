@@ -36,6 +36,7 @@ enum netdev_result {
 	NETDEV_RESULT_HANDSHAKE_FAILED,
 	NETDEV_RESULT_KEY_SETTING_FAILED,
 	NETDEV_RESULT_ABORTED,
+	NETDEV_RESULT_DISCONNECTED,
 };
 
 enum netdev_event {
@@ -86,6 +87,7 @@ typedef void (*netdev_command_cb_t)(struct netdev *netdev, int result,
  * NETDEV_RESULT_HANDSHAKE_FAILED - MMPDU_REASON_CODE
  * NETDEV_RESULT_KEY_SETTING_FAILED - unused
  * NETDEV_RESULT_ABORTED - unused.
+ * NETDEV_RESULT_DISCONNECTED - MMPDU_REASON_CODE
  */
 typedef void (*netdev_connect_cb_t)(struct netdev *netdev,
 					enum netdev_result result,

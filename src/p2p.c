@@ -1366,6 +1366,7 @@ static void p2p_netdev_connect_cb(struct netdev *netdev,
 	case NETDEV_RESULT_ASSOCIATION_FAILED:
 	case NETDEV_RESULT_HANDSHAKE_FAILED:
 	case NETDEV_RESULT_KEY_SETTING_FAILED:
+	case NETDEV_RESULT_DISCONNECTED:
 		/*
 		 * In the AUTHENTICATION_FAILED and ASSOCIATION_FAILED
 		 * cases there's nothing to disconnect.  In the
