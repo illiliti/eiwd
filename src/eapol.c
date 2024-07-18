@@ -1036,8 +1036,6 @@ static void __send_eapol_start(struct eapol_sm *sm, bool noencrypt)
 	uint8_t buf[sizeof(struct eapol_frame)];
 	struct eapol_frame *frame = (struct eapol_frame *) buf;
 
-	handshake_event(sm->handshake, HANDSHAKE_EVENT_STARTED);
-
 	frame->header.protocol_version = EAPOL_PROTOCOL_VERSION_2001;
 	frame->header.packet_type = 1;
 	l_put_be16(0, &frame->header.packet_len);
@@ -2857,6 +2855,8 @@ bool eapol_start(struct eapol_sm *sm)
 						sm->handshake->ssid_len);
 		eap_set_peer_id(sm->eap, network_id);
 	}
+
+	handshake_event(sm->handshake, HANDSHAKE_EVENT_STARTED);
 
 	sm->started = true;
 
