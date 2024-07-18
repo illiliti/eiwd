@@ -247,6 +247,9 @@ class Test(unittest.TestCase):
         cls.rule2.remove()
         cls.rule3.remove()
         cls.assoc_rule.remove()
+        cls.rule_bss0.remove()
+        cls.rule_bss1.remove()
+        cls.rule_bss2.remove()
 
 if __name__ == '__main__':
     unittest.main(exit=True)
