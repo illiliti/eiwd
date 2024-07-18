@@ -1015,6 +1015,7 @@ static void station_handshake_event(struct handshake_state *hs,
 	switch (event) {
 	case HANDSHAKE_EVENT_STARTED:
 		l_debug("Handshaking");
+		station_debug_event(station, "handshake-started");
 		break;
 	case HANDSHAKE_EVENT_SETTING_KEYS:
 		l_debug("Setting keys");
