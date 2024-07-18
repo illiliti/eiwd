@@ -3368,7 +3368,13 @@ static void station_connect_cb(struct netdev *netdev, enum netdev_result result,
 	continue_autoconnect = station->state == STATION_STATE_CONNECTING_AUTO;
 
 	if (station->state == STATION_STATE_CONNECTING) {
-		bool during_eapol = result == NETDEV_RESULT_HANDSHAKE_FAILED;
+		/*
+		 * Either a handshake failure (generated internally) or a 4-way
+		 * handshake timeout should trigger the PSK to be asked for
+		 * again. Set during_eapol accordingly.
+		 */
+		bool during_eapol = result == NETDEV_RESULT_HANDSHAKE_FAILED ||
+			reason == MMPDU_REASON_CODE_4WAY_HANDSHAKE_TIMEOUT;
 		network_connect_failed(station->connected_network,
 								during_eapol);
 	}
