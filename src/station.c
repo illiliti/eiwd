@@ -1835,7 +1835,7 @@ static uint32_t station_freq_from_neighbor_report(const uint8_t *country,
 			band = BAND_FREQ_5_GHZ;
 		else {
 			l_debug("Ignored: 0 oper class with an unusual "
-				"channel number");
+				"channel number %u", info->channel_num);
 
 			return 0;
 		}
