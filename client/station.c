@@ -175,8 +175,8 @@ static void display_addresses(const char *device_name)
 				continue;
 
 			have_address = true;
-			display("%s%*s  %-*s%-*s\n", MARGIN, 8, "", 20,
-				"IPv6 address", 47, addrstr);
+			display_table_row(MARGIN, 3, 8, "", 20,
+						"IPv6 address", 47, addrstr);
 		} else if (cur->ifa_addr->sa_family == AF_INET) {
 			struct sockaddr_in *si =
 					(struct sockaddr_in *) cur->ifa_addr;
