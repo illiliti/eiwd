@@ -3927,12 +3927,34 @@ static void dpp_start_presence(struct dpp_sm *dpp, uint32_t *limit_freqs,
 	dpp_start_offchannel(dpp, dpp->current_freq);
 }
 
+static void dpp_start_enrollee(struct dpp_sm *dpp)
+{
+	uint32_t freq = band_channel_to_freq(6, BAND_FREQ_2_4_GHZ);
+
+	dpp->uri = dpp_generate_uri(dpp->own_asn1, dpp->own_asn1_len, 2,
+					netdev_get_address(dpp->netdev), &freq,
+					1, NULL, NULL);
+
+	l_ecdh_generate_key_pair(dpp->curve, &dpp->proto_private,
+					&dpp->own_proto_public);
+
+	l_debug("DPP Start Enrollee: %s", dpp->uri);
+
+	/*
+	 * Going off spec here. Select a single channel to send presence
+	 * announcements on. This will be advertised in the URI. The full
+	 * presence procedure can be implemented if it is ever needed.
+	 */
+	dpp_start_presence(dpp, &freq, 1);
+
+	dpp_property_changed_notify(dpp);
+}
+
 static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 						struct l_dbus_message *message,
 						void *user_data)
 {
 	struct dpp_sm *dpp = user_data;
-	uint32_t freq = band_channel_to_freq(6, BAND_FREQ_2_4_GHZ);
 	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
 
 	if (dpp->state != DPP_STATE_NOTHING ||
@@ -3949,29 +3971,13 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	} else if (!station)
 		l_debug("No station device, continuing anyways...");
 
-	dpp->uri = dpp_generate_uri(dpp->own_asn1, dpp->own_asn1_len, 2,
-					netdev_get_address(dpp->netdev), &freq,
-					1, NULL, NULL);
-
 	dpp->state = DPP_STATE_PRESENCE;
 	dpp->role = DPP_CAPABILITY_ENROLLEE;
 	dpp->interface = DPP_INTERFACE_DPP;
 
-	l_ecdh_generate_key_pair(dpp->curve, &dpp->proto_private,
-					&dpp->own_proto_public);
-
-	l_debug("DPP Start Enrollee: %s", dpp->uri);
+	dpp_start_enrollee(dpp);
 
 	dpp->pending = l_dbus_message_ref(message);
-
-	/*
-	 * Going off spec here. Select a single channel to send presence
-	 * announcements on. This will be advertised in the URI. The full
-	 * presence procedure can be implemented if it is ever needed.
-	 */
-	dpp_start_presence(dpp, &freq, 1);
-
-	dpp_property_changed_notify(dpp);
 
 	return NULL;
 }
@@ -4246,19 +4252,12 @@ static void dpp_pkex_scan_destroy(void *user_data)
 	dpp->pkex_scan_id = 0;
 }
 
-static bool dpp_start_pkex_enrollee(struct dpp_sm *dpp, const char *key,
-				const char *identifier)
+static bool dpp_start_pkex_enrollee(struct dpp_sm *dpp)
 {
 	_auto_(l_ecc_point_free) struct l_ecc_point *qi = NULL;
 
-	if (identifier)
-		dpp->pkex_id = l_strdup(identifier);
-
-	dpp->pkex_key = l_strdup(key);
 	memcpy(dpp->peer_addr, broadcast, 6);
-	dpp->role = DPP_CAPABILITY_ENROLLEE;
-	dpp->state = DPP_STATE_PKEX_EXCHANGE;
-	dpp->interface = DPP_INTERFACE_PKEX;
+
 	/*
 	 * In theory a driver could support a lesser duration than 200ms. This
 	 * complicates things since we would need to tack on additional
@@ -4376,7 +4375,16 @@ static struct l_dbus_message *dpp_dbus_pkex_start_enrollee(struct l_dbus *dbus,
 	if (!dpp_parse_pkex_args(message, &key, &id))
 		goto invalid_args;
 
-	if (!dpp_start_pkex_enrollee(dpp, key, id))
+	dpp->pkex_key = l_strdup(key);
+
+	if (id)
+		dpp->pkex_id = l_strdup(id);
+
+	dpp->role = DPP_CAPABILITY_ENROLLEE;
+	dpp->state = DPP_STATE_PKEX_EXCHANGE;
+	dpp->interface = DPP_INTERFACE_PKEX;
+
+	if (!dpp_start_pkex_enrollee(dpp))
 		goto invalid_args;
 
 	return l_dbus_message_new_method_return(message);
