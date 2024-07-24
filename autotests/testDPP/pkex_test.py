@@ -160,10 +160,8 @@ class Test(unittest.TestCase):
 
     def test_pkex_iwd_to_iwd(self):
         self.start_iwd_pkex_configurator(self.device[0])
-
-        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
-
         self.device[1].autoconnect = True
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
 
         condition = 'obj.state == DeviceState.connected'
         self.wd.wait_for_object_condition(self.device[1], condition)
@@ -176,10 +174,8 @@ class Test(unittest.TestCase):
 
     def test_pkex_configurator_with_agent(self):
         self.start_iwd_pkex_configurator(self.device[0], agent=True)
-
-        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
-
         self.device[1].autoconnect = True
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
 
         condition = 'obj.state == DeviceState.connected'
         self.wd.wait_for_object_condition(self.device[1], condition)
@@ -198,8 +194,8 @@ class Test(unittest.TestCase):
 
         self.start_iwd_pkex_configurator(self.device[0])
 
-        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
         self.device[1].autoconnect = False
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
 
         condition = 'obj.state == DeviceState.connected'
         self.wd.wait_for_object_condition(self.device[1], condition)
@@ -240,8 +236,9 @@ class Test(unittest.TestCase):
 
         self.start_iwd_pkex_configurator(self.device[0], profile='ssidHidden.psk')
 
-        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
         self.device[1].autoconnect = False
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
+
 
         condition = 'obj.state == DeviceState.connected'
         self.wd.wait_for_object_condition(self.device[1], condition)
@@ -257,8 +254,8 @@ class Test(unittest.TestCase):
         self.hapd_hidden.wait_for_event('AP-ENABLED')
         self.start_iwd_pkex_configurator(self.device[0], profile='ssidHidden.psk')
 
-        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
         self.device[1].autoconnect = False
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
 
         condition = 'obj.state == DeviceState.connected'
         self.wd.wait_for_object_condition(self.device[1], condition)
