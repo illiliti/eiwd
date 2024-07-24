@@ -930,7 +930,7 @@ bool scan_cancel(uint64_t wdev_id, uint32_t id)
 	 * Takes care of the following cases:
 	 * 1. If TRIGGER_SCAN is in flight
 	 * 2. TRIGGER_SCAN sent but bounced with -EBUSY
-	 * 3. Scan request is done but GET_SCAN is still pending
+	 * 3. Scan request is done but GET_SCAN/GET_SURVEY is still pending
 	 *
 	 * For case 3, we can easily cancel the command and proceed with the
 	 * other pending requests.  For case 1 & 2, the subsequent pending
@@ -944,6 +944,9 @@ bool scan_cancel(uint64_t wdev_id, uint32_t id)
 
 		if (sc->start_cmd_id)
 			l_genl_family_cancel(nl80211, sc->start_cmd_id);
+
+		if (sc->get_survey_cmd_id)
+			l_genl_family_cancel(nl80211, sc->get_survey_cmd_id);
 
 		if (sc->get_scan_cmd_id)
 			l_genl_family_cancel(nl80211, sc->get_scan_cmd_id);
@@ -2053,7 +2056,10 @@ static void get_survey_done(void *user_data)
 
 	sc->get_survey_cmd_id = 0;
 
-	get_results(results);
+	if (!results->sr->canceled)
+		get_results(results);
+	else
+		get_scan_done(user_data);
 }
 
 static bool scan_survey(struct scan_results *results)
