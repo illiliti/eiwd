@@ -1726,6 +1726,11 @@ bool station_set_autoconnect(struct station *station, bool autoconnect)
 	return true;
 }
 
+bool station_get_autoconnect(struct station *station)
+{
+	return station->autoconnect;
+}
+
 static void station_roam_state_clear(struct station *station)
 {
 	l_debug("%u", netdev_get_ifindex(station->netdev));
