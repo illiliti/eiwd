@@ -5618,8 +5618,26 @@ static void print_cqm_event(unsigned int level, const char *label,
 	}
 }
 
+static void print_cqm_thresholds(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	const int32_t *thresholds = data;
+	unsigned int i;
+
+	if (size % 4) {
+		printf("malformed packet");
+		return;
+	}
+
+	print_attr(level, "%s:", label);
+
+	for (i = 0; i < size / 4; i++)
+		print_attr(level + 1, "Threshold: %d", thresholds[i]);
+
+}
 static const struct attr_entry cqm_table[] = {
-	{ NL80211_ATTR_CQM_RSSI_THOLD,	"RSSI threshold",	ATTR_U32 },
+	{ NL80211_ATTR_CQM_RSSI_THOLD,	"RSSI thresholds",	ATTR_CUSTOM,
+					{ .function = print_cqm_thresholds } },
 	{ NL80211_ATTR_CQM_RSSI_HYST,	"RSSI hysteresis",	ATTR_U32 },
 	{ NL80211_ATTR_CQM_RSSI_THRESHOLD_EVENT,
 					"RSSI threshold event",	ATTR_CUSTOM,
