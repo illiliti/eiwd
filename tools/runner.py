@@ -414,7 +414,7 @@ class QemuRunner(RunnerAbstract):
 			'-machine', 'type=q35,accel=kvm:tcg',
 			'-nodefaults', '-no-user-config', '-monitor', 'none',
 			'-display', 'none', '-m', '%dM' % ram, '-nographic', '-vga',
-			'none', '-no-acpi', '-no-hpet',
+			'none',
 			'-no-reboot', '-fsdev',
 			'local,id=fsdev-root,path=/,readonly=on,security_model=none,multidevs=remap',
 			'-device',
