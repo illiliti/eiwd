@@ -260,22 +260,6 @@ static struct l_genl *genl_lookup(const char *ifname)
 	return genl;
 }
 
-static size_t rta_add(void *rta_buf, unsigned short type, uint16_t len,
-			const void *data)
-{
-	unsigned short rta_len = RTA_LENGTH(len);
-	struct rtattr *rta = rta_buf;
-
-	memset(RTA_DATA(rta), 0, RTA_SPACE(len));
-
-	rta->rta_len = rta_len;
-	rta->rta_type = type;
-	if (len)
-		memcpy(RTA_DATA(rta), data, len);
-
-	return RTA_SPACE(len);
-}
-
 static bool rta_linkinfo_kind(struct rtattr *rta, unsigned short len,
 			const char* kind)
 {
@@ -304,10 +288,9 @@ static struct l_netlink *rtm_interface_send_message(struct l_netlink *rtnl,
 {
 	size_t nlmon_type_len = strlen(NLMON_TYPE);
 	unsigned short ifname_len = 0;
-	size_t bufsize;
-	struct ifinfomsg *rtmmsg;
-	void *rta_buf;
-	struct rtattr *linkinfo_rta;
+	struct l_netlink_message *nlm;
+	struct ifinfomsg ifi;
+	uint16_t flags = 0;
 
 	if (ifname) {
 		ifname_len = strlen(ifname) + 1;
@@ -316,64 +299,41 @@ static struct l_netlink *rtm_interface_send_message(struct l_netlink *rtnl,
 			return NULL;
 	}
 
+	if (!L_IN_SET(rtm_msg_type, RTM_NEWLINK, RTM_DELLINK, RTM_GETLINK))
+		return NULL;
+
 	if (!rtnl)
 		rtnl = l_netlink_new(NETLINK_ROUTE);
 
 	if (!rtnl)
 		return NULL;
 
-	bufsize = NLMSG_LENGTH(sizeof(struct ifinfomsg)) +
-		RTA_SPACE(ifname_len) + RTA_SPACE(0) +
-		RTA_SPACE(nlmon_type_len);
-
-	rtmmsg = l_malloc(bufsize);
-	memset(rtmmsg, 0, bufsize);
-
-	rtmmsg->ifi_family = AF_UNSPEC;
-	rtmmsg->ifi_change = ~0;
-
-	rta_buf = rtmmsg + 1;
-
-	if (ifname)
-		rta_buf += rta_add(rta_buf, IFLA_IFNAME, ifname_len, ifname);
-
-	linkinfo_rta = rta_buf;
-
-	rta_buf += rta_add(rta_buf, IFLA_LINKINFO, 0, NULL);
-	rta_buf += rta_add(rta_buf, IFLA_INFO_KIND, nlmon_type_len, NLMON_TYPE);
-
-	linkinfo_rta->rta_len = rta_buf - (void *) linkinfo_rta;
+	memset(&ifi, 0, sizeof(ifi));
+	ifi.ifi_family = AF_UNSPEC;
+	ifi.ifi_change = ~0;
 
 	switch (rtm_msg_type) {
 	case RTM_NEWLINK:
-		rtmmsg->ifi_flags = IFF_UP | IFF_ALLMULTI | IFF_NOARP;
-
-		l_netlink_send(rtnl, RTM_NEWLINK, NLM_F_CREATE|NLM_F_EXCL,
-				rtmmsg, rta_buf - (void *) rtmmsg, callback,
-				user_data, destroy);
+		ifi.ifi_flags = IFF_UP | IFF_ALLMULTI | IFF_NOARP;
+		flags = NLM_F_CREATE | NLM_F_EXCL;
 		break;
-
-	case RTM_DELLINK:
-		rta_buf += rta_add(rta_buf, IFLA_IFNAME, ifname_len, ifname);
-
-		l_netlink_send(rtnl, RTM_DELLINK, 0, rtmmsg,
-				rta_buf - (void *)rtmmsg, callback, user_data,
-				destroy);
-		break;
-
 	case RTM_GETLINK:
-		l_netlink_send(rtnl, RTM_GETLINK, NLM_F_DUMP, rtmmsg,
-				rta_buf - (void *)rtmmsg, callback, user_data,
-				destroy);
-		break;
-
-	default:
-		l_netlink_destroy(rtnl);
-		rtnl = NULL;
+		flags = NLM_F_DUMP;
 		break;
 	}
 
-	l_free(rtmmsg);
+	nlm = l_netlink_message_new(rtm_msg_type, flags);;
+	l_netlink_message_add_header(nlm, &ifi, sizeof(ifi));
+
+	if (ifname)
+		l_netlink_message_append(nlm, IFLA_IFNAME, ifname, ifname_len);
+
+	l_netlink_message_enter_nested(nlm, IFLA_LINKINFO);
+	l_netlink_message_append(nlm, IFLA_INFO_KIND,
+						NLMON_TYPE, nlmon_type_len);
+	l_netlink_message_leave_nested(nlm);
+
+	l_netlink_send(rtnl, nlm, callback, user_data, destroy);
 
 	return rtnl;
 }
