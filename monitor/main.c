@@ -224,110 +224,39 @@ struct iwmon_interface {
 	char *ifname;
 	bool exists;
 	struct l_netlink *rtnl;
-	struct l_netlink *genl;
+	struct l_genl *genl;
 	struct l_io *io;
 };
 
 static struct iwmon_interface monitor_interface = { };
 
-static void genl_parse(uint16_t type, const void *data, uint32_t len,
-							const char *ifname)
+static void nl80211_appeared(const struct l_genl_family_info *info,
+					void *user_data)
 {
-	const struct genlmsghdr *genlmsg = data;
-	const struct nlattr *nla;
-	char name[GENL_NAMSIZ];
-	uint16_t id = 0;
-
-	if (nlmon)
-		return;
-
-	if (type != GENL_ID_CTRL)
-		return;
-
-	if (genlmsg->cmd != CTRL_CMD_NEWFAMILY)
-		return;
-
-	for (nla = data + GENL_HDRLEN; NLA_OK(nla, len);
-						nla = NLA_NEXT(nla, len)) {
-		switch (nla->nla_type & NLA_TYPE_MASK) {
-		case CTRL_ATTR_FAMILY_ID:
-			id = *((uint16_t *) NLA_DATA(nla));
-			break;
-		case CTRL_ATTR_FAMILY_NAME:
-			strncpy(name, NLA_DATA(nla), GENL_NAMSIZ - 1);
-			break;
-		}
-	}
-
-	if (id == 0)
-		return;
-
-	if (strcmp(name, NL80211_GENL_NAME))
-		return;
+	const char *ifname = user_data;
 
 	monitor_interface.io = open_packet(ifname);
 	if (!monitor_interface.io)
 		goto failed;
 
-	nlmon = nlmon_open(id, writer_path, &config);
+	nlmon = nlmon_open(l_genl_family_info_get_id(info),
+						writer_path, &config);
 	if (!nlmon)
 		goto failed;
 
 	l_io_set_read_handler(monitor_interface.io, nlmon_receive, nlmon, NULL);
-
 	return;
 
 failed:
 	l_main_quit();
 }
 
-static void genl_notify(uint16_t type, const void *data,
-						uint32_t len, void *user_data)
+static struct l_genl *genl_lookup(const char *ifname)
 {
-	const char *ifname = user_data;
+	struct l_genl *genl = l_genl_new();
 
-	genl_parse(type, data, len, ifname);
-}
-
-static void genl_callback(int error, uint16_t type, const void *data,
-						uint32_t len, void *user_data)
-{
-	const char *ifname = user_data;
-
-	if (error < 0) {
-		fprintf(stderr, "Failed to lookup nl80211 family\n");
-		l_main_quit();
-		return;
-	}
-
-	genl_parse(type, data, len, ifname);
-}
-
-static struct l_netlink *genl_lookup(const char *ifname)
-{
-	struct l_netlink *genl;
-	char buf[GENL_HDRLEN + NLA_HDRLEN + GENL_NAMSIZ];
-	struct genlmsghdr *genlmsg;
-	struct nlattr *nla;
-
-	genl = l_netlink_new(NETLINK_GENERIC);
-
-	l_netlink_register(genl, GENL_ID_CTRL, genl_notify, NULL, NULL);
-
-	genlmsg = (struct genlmsghdr *) buf;
-	genlmsg->cmd = CTRL_CMD_GETFAMILY;
-	genlmsg->version = 0;
-	genlmsg->reserved = 0;
-
-	nla = (struct nlattr *) (buf + GENL_HDRLEN);
-	nla->nla_len = NLA_HDRLEN + GENL_NAMSIZ;
-	nla->nla_type = CTRL_ATTR_FAMILY_NAME;
-	strncpy(buf + GENL_HDRLEN + NLA_HDRLEN,
-					NL80211_GENL_NAME, GENL_NAMSIZ);
-
-	l_netlink_send(genl, GENL_ID_CTRL, 0, buf, sizeof(buf),
-					genl_callback, (char *) ifname, NULL);
-
+	l_genl_request_family(genl, NL80211_GENL_NAME, nl80211_appeared,
+					(char *) ifname, NULL);
 	return genl;
 }
 
@@ -957,7 +886,7 @@ int main(int argc, char *argv[])
 
 	l_io_destroy(monitor_interface.io);
 	l_netlink_destroy(monitor_interface.rtnl);
-	l_netlink_destroy(monitor_interface.genl);
+	l_genl_unref(monitor_interface.genl);
 	l_free(monitor_interface.ifname);
 
 	nlmon_close(nlmon);
