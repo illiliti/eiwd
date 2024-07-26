@@ -6093,23 +6093,19 @@ error:
 
 static void netdev_get_link(struct netdev *netdev)
 {
-	struct ifinfomsg *rtmmsg;
-	size_t bufsize;
+	struct ifinfomsg ifi;
+	struct l_netlink_message *nlm =
+		l_netlink_message_new_sized(RTM_GETLINK, 0, sizeof(ifi));
 
-	/* Query interface flags */
-	bufsize = NLMSG_ALIGN(sizeof(struct ifinfomsg));
-	rtmmsg = l_malloc(bufsize);
-	memset(rtmmsg, 0, bufsize);
+	memset(&ifi, 0, sizeof(ifi));
+	ifi.ifi_family = AF_UNSPEC;
+	ifi.ifi_index = netdev->index;
 
-	rtmmsg->ifi_family = AF_UNSPEC;
-	rtmmsg->ifi_index = netdev->index;
+	l_netlink_message_add_header(nlm, &ifi, sizeof(ifi));
 
-	netdev->get_link_cmd_id = l_netlink_send(rtnl, RTM_GETLINK, 0, rtmmsg,
-						bufsize, netdev_getlink_cb,
+	netdev->get_link_cmd_id = l_netlink_send(rtnl, nlm, netdev_getlink_cb,
 						netdev, NULL);
 	L_WARN_ON(netdev->get_link_cmd_id == 0);
-
-	l_free(rtmmsg);
 }
 
 struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
