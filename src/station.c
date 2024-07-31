@@ -1821,36 +1821,87 @@ static void station_roam_timeout_rearm(struct station *station, int seconds);
 static int station_roam_scan(struct station *station,
 				struct scan_freq_set *freq_set);
 
-static uint32_t station_freq_from_neighbor_report(const uint8_t *country,
-		struct ie_neighbor_report_info *info, enum band_freq *out_band)
+static bool is_freq_band_supported(struct station *station, uint32_t freq,
+					enum band_freq band)
+{
+	const struct band_freq_attrs *attr;
+
+	if (!(band & wiphy_get_supported_bands(station->wiphy)))
+		return false;
+
+	/* Skip if frequency is not supported or disabled */
+	attr = wiphy_get_frequency_info(station->wiphy, freq);
+	if (!attr || attr->disabled)
+		return false;
+
+	return true;
+}
+
+/*
+ * Some Cisco APs report all operating class values as 0 in the Neighbor
+ * Report Responses. Historically we could be very sure what band the
+ * channel was associated with since there was no overlap between 2.4
+ * and 5GHz. With the addition of 6GHz this becomes more difficult as
+ * the 6GHz channel range overlaps both 2.4 and 5ghz.
+ *
+ * To cover all 3 bands, calculate a frequency for each and see what sticks.
+ */
+static void station_parse_zero_oper_class(struct station *station,
+					struct ie_neighbor_report_info *info,
+					struct scan_freq_set *freq_set)
+{
+	uint32_t freq_2g;
+	uint32_t freq_5g;
+	uint32_t freq_6g;
+
+	freq_2g = band_channel_to_freq(info->channel_num, BAND_FREQ_2_4_GHZ);
+	freq_5g = band_channel_to_freq(info->channel_num, BAND_FREQ_5_GHZ);
+	freq_6g = band_channel_to_freq(info->channel_num, BAND_FREQ_6_GHZ);
+
+	if (!freq_2g && !freq_5g && !freq_6g) {
+		l_debug("Ignored: 0 oper class with an unusual "
+				"channel number %u", info->channel_num);
+		return;
+	}
+
+	if (freq_2g && is_freq_band_supported(station, freq_2g,
+						BAND_FREQ_2_4_GHZ)) {
+		l_debug("adding frequency %u from invalid oper class", freq_2g);
+		scan_freq_set_add(freq_set, freq_2g);
+	}
+
+	if (freq_5g && is_freq_band_supported(station, freq_5g,
+						BAND_FREQ_5_GHZ)) {
+		l_debug("adding frequency %u from invalid oper class", freq_5g);
+		scan_freq_set_add(freq_set, freq_5g);
+	}
+
+	if (freq_6g && is_freq_band_supported(station, freq_6g,
+						BAND_FREQ_6_GHZ)) {
+		l_debug("adding frequency %u from invalid oper class", freq_6g);
+		scan_freq_set_add(freq_set, freq_6g);
+	}
+}
+
+static void station_add_neighbor_report_freqs(struct station *station,
+					struct ie_neighbor_report_info *info,
+					struct scan_freq_set *freq_set)
 {
 	enum band_freq band;
 	uint32_t freq;
 
-	if (info->oper_class == 0) {
-		/*
-		 * Some Cisco APs report all operating class values as 0
-		 * in the Neighbor Report Responses.  Work around this by
-		 * using the most likely operating class for the channel
-		 * number as the 2.4GHz and 5GHz bands happen to mostly
-		 * use channels in two disjoint ranges.
-		 */
-		if (info->channel_num >= 1 && info->channel_num <= 14)
-			band = BAND_FREQ_2_4_GHZ;
-		else if (info->channel_num >= 36 && info->channel_num <= 169)
-			band = BAND_FREQ_5_GHZ;
-		else {
-			l_debug("Ignored: 0 oper class with an unusual "
-				"channel number %u", info->channel_num);
+	const uint8_t *country = station->connected_bss->cc_present ?
+					station->connected_bss->cc : NULL;
 
-			return 0;
-		}
+	if (info->oper_class == 0) {
+		station_parse_zero_oper_class(station, info, freq_set);
+		return;
 	} else {
 		band = band_oper_class_to_band(country, info->oper_class);
 		if (!band) {
 			l_debug("Ignored: unsupported oper class");
 
-			return 0;
+			return;
 		}
 	}
 
@@ -1858,13 +1909,14 @@ static uint32_t station_freq_from_neighbor_report(const uint8_t *country,
 	if (!freq) {
 		l_debug("Ignored: unsupported channel");
 
-		return 0;
+		return;
 	}
 
-	if (out_band)
-		*out_band = band;
+	/* Skip if the band/frequency is not supported */
+	if (!is_freq_band_supported(station, freq, band))
+		return;
 
-	return freq;
+	scan_freq_set_add(freq_set, freq);
 }
 
 static void parse_neighbor_report(struct station *station,
@@ -1873,9 +1925,8 @@ static void parse_neighbor_report(struct station *station,
 					struct scan_freq_set **set)
 {
 	struct ie_tlv_iter iter;
-	int count_md = 0, count_no_md = 0;
 	struct scan_freq_set *freq_set_md, *freq_set_no_md;
-	uint32_t current_freq = 0;
+	uint32_t current_freq = station->connected_bss->frequency;
 	struct handshake_state *hs = netdev_get_handshake(station->netdev);
 
 	freq_set_md = scan_freq_set_new();
@@ -1886,10 +1937,6 @@ static void parse_neighbor_report(struct station *station,
 	/* First see if any of the reports contain the MD bit set */
 	while (ie_tlv_iter_next(&iter)) {
 		struct ie_neighbor_report_info info;
-		uint32_t freq;
-		enum band_freq band;
-		const uint8_t *cc = NULL;
-		const struct band_freq_attrs *attr;
 
 		if (ie_tlv_iter_get_tag(&iter) != IE_TYPE_NEIGHBOR_REPORT)
 			continue;
@@ -1903,22 +1950,6 @@ static void parse_neighbor_report(struct station *station,
 				(int) info.channel_num, (int) info.oper_class,
 				info.md ? "MD set" : "MD not set");
 
-		if (station->connected_bss->cc_present)
-			cc = station->connected_bss->cc;
-
-		freq = station_freq_from_neighbor_report(cc, &info, &band);
-		if (!freq)
-			continue;
-
-		/* Skip if the band is not supported */
-		if (!(band & wiphy_get_supported_bands(station->wiphy)))
-			continue;
-
-		/* Skip if frequency is not supported or disabled */
-		attr = wiphy_get_frequency_info(station->wiphy, freq);
-		if (!attr || attr->disabled)
-			continue;
-
 		if (!memcmp(info.addr,
 				station->connected_bss->addr, ETH_ALEN)) {
 			/*
@@ -1927,25 +1958,13 @@ static void parse_neighbor_report(struct station *station,
 			 * its channel because it may still be the best ranked
 			 * or the only visible AP.
 			 */
-			current_freq = freq;
-
 			continue;
 		}
 
-		/* Add the frequency to one of the lists */
-		if (info.md && hs->mde) {
-			scan_freq_set_add(freq_set_md, freq);
-
-			count_md += 1;
-		} else {
-			scan_freq_set_add(freq_set_no_md, freq);
-
-			count_no_md += 1;
-		}
+		station_add_neighbor_report_freqs(station, &info,
+						info.md && hs->mde ?
+						freq_set_md : freq_set_no_md);
 	}
-
-	if (!current_freq)
-		current_freq = station->connected_bss->frequency;
 
 	/*
 	 * If there are neighbor reports with the MD bit set then the bit
@@ -1968,11 +1987,11 @@ static void parse_neighbor_report(struct station *station,
 	 * automatically fall back to the non-FT candidates and then to
 	 * full scan.
 	 */
-	if (count_md) {
+	if (!scan_freq_set_isempty(freq_set_md)) {
 		scan_freq_set_add(freq_set_md, current_freq);
 		*set = freq_set_md;
 		scan_freq_set_free(freq_set_no_md);
-	} else if (count_no_md) {
+	} else if (!scan_freq_set_isempty(freq_set_no_md)) {
 		scan_freq_set_add(freq_set_no_md, current_freq);
 		*set = freq_set_no_md;
 		scan_freq_set_free(freq_set_md);
