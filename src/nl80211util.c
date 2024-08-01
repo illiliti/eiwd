@@ -132,6 +132,14 @@ static bool extract_iovec(const void *data, uint16_t len, void *o)
 	return true;
 }
 
+static bool extract_ssid(const void *data, uint16_t len, void *o)
+{
+	if (!len || len > SSID_MAX_SIZE)
+		return false;
+
+	return extract_iovec(data, len, o);
+}
+
 static bool extract_nested(const void *data, uint16_t len, void *o)
 {
 	const struct l_genl_attr *outer = data;
@@ -170,6 +178,7 @@ static attr_handler handler_for_nl80211(int type)
 	case NL80211_ATTR_REG_ALPHA2:
 		return extract_2_chars;
 	case NL80211_ATTR_MAC:
+	case NL80211_ATTR_BSSID:
 		return extract_mac;
 	case NL80211_ATTR_ACK:
 		return extract_flag;
@@ -179,9 +188,13 @@ static attr_handler handler_for_nl80211(int type)
 	case NL80211_ATTR_CHANNEL_WIDTH:
 	case NL80211_ATTR_CENTER_FREQ1:
 	case NL80211_ATTR_CENTER_FREQ2:
+	case NL80211_ATTR_AKM_SUITES:
+	case NL80211_ATTR_EXTERNAL_AUTH_ACTION:
 		return extract_uint32;
 	case NL80211_ATTR_FRAME:
 		return extract_iovec;
+	case NL80211_ATTR_SSID:
+		return extract_ssid;
 	case NL80211_ATTR_WIPHY_BANDS:
 	case NL80211_ATTR_SURVEY_INFO:
 	case NL80211_ATTR_KEY:
