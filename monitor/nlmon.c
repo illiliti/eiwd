@@ -7597,8 +7597,15 @@ static void flags_str(const struct flag_names *table,
 	pos += sprintf(str + pos, "]");
 }
 
+static struct attr_entry link_info_data_entry[] = {
+	{ IFLA_RMNET_MUX_ID,	"RMNet Mux Id",		ATTR_U16 },
+	{ },
+};
+
 static struct attr_entry link_info_entry[] = {
 	{ IFLA_INFO_KIND,	"Kind",		ATTR_STRING },
+	{ IFLA_INFO_DATA,	"Info Data",
+				ATTR_NESTED, { link_info_data_entry } },
 	{ },
 };
 
