@@ -7762,7 +7762,7 @@ static void print_rtnl_attributes(int indent, const struct attr_entry *table,
 		return;
 
 	for (attr = rt_attr; RTA_OK(attr, len); attr = RTA_NEXT(attr, len)) {
-		uint16_t rta_type = attr->rta_type;
+		uint16_t rta_type = attr->rta_type & NLA_TYPE_MASK;
 		enum attr_type type = ATTR_UNSPEC;
 		attr_func_t function;
 		const struct attr_entry *nested;
