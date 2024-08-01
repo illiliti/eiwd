@@ -141,7 +141,7 @@ struct handshake_state {
 	bool supplicant_ocvc : 1;
 	bool ext_key_id_capable : 1;
 	bool force_default_ecc_group : 1;
-	uint8_t ssid[32];
+	uint8_t ssid[SSID_MAX_SIZE];
 	size_t ssid_len;
 	char *passphrase;
 	char *password_identifier;

@@ -67,7 +67,7 @@ struct ap_state {
 	ap_stopped_func_t stopped_func;
 	void *user_data;
 
-	char ssid[33];
+	char ssid[SSID_MAX_SIZE + 1];
 	char passphrase[64];
 	uint8_t psk[32];
 	enum band_freq band;
@@ -153,7 +153,7 @@ struct ap_wsc_pbc_probe_record {
 };
 
 struct ap_network {
-	char ssid[33];
+	char ssid[SSID_MAX_SIZE + 1];
 	int16_t signal;
 	enum security security;
 };
@@ -181,7 +181,7 @@ static int network_signal_compare(const void *a, const void *b, void *user)
 static struct ap_network *ap_network_find(struct ap_state *ap,
 						struct scan_bss *bss)
 {
-	char ssid[33];
+	char ssid[SSID_MAX_SIZE + 1];
 
 	memcpy(ssid, bss->ssid, bss->ssid_len);
 	ssid[bss->ssid_len] = '\0';
@@ -3629,7 +3629,7 @@ static int ap_load_config(struct ap_state *ap, const struct l_settings *config,
 		return -ENOMSG;
 
 	len = strlen(strval);
-	if (len < 1 || len > 32) {
+	if (len < 1 || len > SSID_MAX_SIZE) {
 		l_error("AP SSID length outside the [1, 32] range");
 		return -EINVAL;
 	}

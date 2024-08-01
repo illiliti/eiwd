@@ -108,8 +108,8 @@ struct rrm_beacon_req_info {
 	uint8_t oper_class;
 	uint8_t channel;	/* The single channel provided in request */
 	uint16_t duration;
-	uint8_t bssid[6];	/* Request filtered by BSSID */
-	char ssid[33];		/* Request filtered by SSID */
+	uint8_t bssid[6];		/* Request filtered by BSSID */
+	char ssid[SSID_MAX_SIZE + 1];	/* Request filtered by SSID */
 	bool has_ssid;
 	uint32_t scan_id;
 	uint64_t scan_start_time;

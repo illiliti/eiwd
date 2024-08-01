@@ -500,7 +500,7 @@ static bool extract_ssid(struct wsc_attr_iter *iter, void *data)
 	unsigned int len;
 
 	len = wsc_attr_iter_get_length(iter);
-	if (len > 32)
+	if (len > SSID_MAX_SIZE)
 		return false;
 
 	ssid->iov_len = len;

@@ -2642,7 +2642,7 @@ int ie_parse_owe_transition(const void *data, size_t len,
 		return -ENOMSG;
 
 	slen = l_get_u8(ie + 12);
-	if (slen > 32)
+	if (slen > SSID_MAX_SIZE)
 		return -ENOMSG;
 
 	/*

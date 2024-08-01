@@ -45,6 +45,7 @@
 #include "ell/useful.h"
 
 #include "src/missing.h"
+#include "src/defs.h"
 #include "src/common.h"
 #include "src/storage.h"
 #include "src/crypto.h"
@@ -315,7 +316,7 @@ const char *storage_network_ssid_from_path(const char *path,
 		return NULL;
 
 	if (filename[0] != '=') {
-		if (end == filename || end - filename > 32)
+		if (end == filename || end - filename > SSID_MAX_SIZE)
 			return NULL;
 
 		for (c = filename; c < end; c++)

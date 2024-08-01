@@ -498,7 +498,7 @@ static struct network *station_add_seen_bss(struct station *station,
 	struct network *network;
 	enum security security;
 	const char *path;
-	char ssid[33];
+	char ssid[SSID_MAX_SIZE + 1];
 
 	station_print_scan_bss(bss);
 
@@ -3916,7 +3916,7 @@ static struct l_dbus_message *station_dbus_connect_hidden_network(
 	if (!l_dbus_message_get_arguments(message, "s", &ssid))
 		return dbus_error_invalid_args(message);
 
-	if (strlen(ssid) > 32)
+	if (strlen(ssid) > SSID_MAX_SIZE)
 		return dbus_error_invalid_args(message);
 
 	if (known_networks_find(ssid, SECURITY_PSK) ||

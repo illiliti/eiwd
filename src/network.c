@@ -63,7 +63,7 @@ static uint32_t known_networks_watch;
 static uint32_t event_watch;
 
 struct network {
-	char ssid[33];
+	char ssid[SSID_MAX_SIZE + 1];
 	enum security security;
 	char *object_path;
 	struct station *station;

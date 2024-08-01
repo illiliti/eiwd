@@ -20,6 +20,8 @@
  *
  */
 
+#include "src/defs.h"
+
 struct iovec;
 
 /* Wi-Fi Simple Configuration Technical Specification v2.0.5, Section 12 */
@@ -330,7 +332,7 @@ static inline unsigned int wsc_attr_iter_get_pos(struct wsc_attr_iter *iter)
 }
 
 struct wsc_credential {
-	uint8_t ssid[32];
+	uint8_t ssid[SSID_MAX_SIZE];
 	uint8_t ssid_len;
 	uint16_t auth_type;
 	uint16_t encryption_type;

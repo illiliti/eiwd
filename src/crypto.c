@@ -35,6 +35,7 @@
 
 #include "ell/useful.h"
 #include "src/missing.h"
+#include "src/defs.h"
 #include "src/crypto.h"
 
 #define ARC4_MIN_KEY_SIZE	1
@@ -567,7 +568,7 @@ int crypto_psk_from_passphrase(const char *passphrase,
 	if (!crypto_passphrase_is_valid(passphrase))
 		return -ERANGE;
 
-	if (ssid_len == 0 || ssid_len > 32)
+	if (ssid_len == 0 || ssid_len > SSID_MAX_SIZE)
 		return -ERANGE;
 
 	result = l_cert_pkcs5_pbkdf2(L_CHECKSUM_SHA1, passphrase,

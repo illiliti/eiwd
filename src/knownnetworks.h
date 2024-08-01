@@ -20,6 +20,8 @@
  *
  */
 
+#include "src/defs.h"
+
 #define SETTINGS "Settings"
 #define NET_HIDDEN SETTINGS, "Hidden"
 #define NET_AUTOCONNECT SETTINGS, "AutoConnect"
@@ -84,7 +86,7 @@ struct network_config {
 
 struct network_info {
 	const struct network_info_ops *ops;
-	char ssid[33];
+	char ssid[SSID_MAX_SIZE + 1];
 	enum security type;
 	struct l_queue *known_frequencies;
 	int seen_count;			/* Ref count for network.info */

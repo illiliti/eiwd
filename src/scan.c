@@ -1325,7 +1325,7 @@ static bool scan_parse_bss_information_elements(struct scan_bss *bss,
 
 		switch (tag) {
 		case IE_TYPE_SSID:
-			if (iter.len > 32)
+			if (iter.len > SSID_MAX_SIZE)
 				return false;
 
 			memcpy(bss->ssid, iter.data, iter.len);

@@ -2067,7 +2067,7 @@ static bool eap_wsc_r_load_settings(struct eap_state *eap,
 
 	str = l_settings_get_string(settings, "WSC", "WPA2-SSID");
 	if (str) {
-		if (strlen(str) > 32)
+		if (strlen(str) > SSID_MAX_SIZE)
 			goto bad_string;
 
 		wsc->m2->auth_type_flags |=
@@ -2113,7 +2113,7 @@ static bool eap_wsc_r_load_settings(struct eap_state *eap,
 
 	str = l_settings_get_string(settings, "WSC", "Open-SSID");
 	if (str) {
-		if (strlen(str) > 32)
+		if (strlen(str) > SSID_MAX_SIZE)
 			goto bad_string;
 
 		wsc->m2->auth_type_flags |= WSC_AUTHENTICATION_TYPE_OPEN;

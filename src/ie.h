@@ -23,6 +23,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <unistd.h>
+#include "src/defs.h"
 
 /*
  * Information elements, IEEE Std 802.11-2012 ch. 8.4.2 and
@@ -565,7 +566,7 @@ struct ie_fils_ip_addr_response_info {
 
 struct ie_owe_transition_info {
 	uint8_t bssid[6];
-	uint8_t ssid[32];
+	uint8_t ssid[SSID_MAX_SIZE];
 	size_t ssid_len;
 	uint8_t oper_class;
 	uint8_t channel;

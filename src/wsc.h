@@ -21,7 +21,7 @@
  */
 
 struct wsc_credentials_info {
-	char ssid[33];
+	char ssid[SSID_MAX_SIZE + 1];
 	enum security security;
 	union {
 		uint8_t psk[32];

@@ -20,6 +20,8 @@
  *
  */
 
+#include "src/defs.h"
+
 struct scan_freq_set;
 struct ie_rsn_info;
 struct ie_owe_transition_info;
@@ -62,7 +64,7 @@ struct scan_bss {
 	};
 	struct ie_owe_transition_info *owe_trans;
 	uint8_t mde[3];
-	uint8_t ssid[32];
+	uint8_t ssid[SSID_MAX_SIZE];
 	uint8_t ssid_len;
 	uint8_t utilization;
 	uint8_t cc[3];

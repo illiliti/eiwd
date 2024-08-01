@@ -31,11 +31,12 @@
 #include <arpa/inet.h>
 #include <ell/ell.h>
 
+#include "src/defs.h"
 #include "src/util.h"
 
 struct ssid_test_data {
 	size_t len;
-	uint8_t ssid[32];
+	uint8_t ssid[SSID_MAX_SIZE];
 	const char *string;
 	bool result;
 };
