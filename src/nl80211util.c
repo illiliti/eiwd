@@ -654,6 +654,21 @@ struct l_genl_msg *nl80211_build_cmd_frame(uint32_t ifindex,
 	return msg;
 }
 
+struct l_genl_msg *nl80211_build_external_auth(uint32_t ifindex,
+					uint16_t status_code,
+					const uint8_t *ssid, size_t ssid_len,
+					const uint8_t bssid[static 6])
+{
+	struct l_genl_msg *msg = l_genl_msg_new(NL80211_CMD_EXTERNAL_AUTH);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &ifindex);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_STATUS_CODE, 2, &status_code);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_SSID, ssid_len, ssid);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_BSSID, 6, bssid);
+
+	return msg;
+}
+
 int nl80211_parse_chandef(struct l_genl_msg *msg, struct band_chandef *out)
 {
 	struct band_chandef t;

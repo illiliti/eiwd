@@ -87,6 +87,11 @@ struct l_genl_msg *nl80211_build_cmd_frame(uint32_t ifindex,
 						struct iovec *iov,
 						size_t iov_len);
 
+struct l_genl_msg *nl80211_build_external_auth(uint32_t ifindex,
+					uint16_t status_code,
+					const uint8_t *ssid, size_t ssid_len,
+					const uint8_t bssid[static 6]);
+
 int nl80211_parse_chandef(struct l_genl_msg *msg, struct band_chandef *out);
 int nl80211_parse_supported_frequencies(struct l_genl_attr *band_freqs,
 					struct scan_freq_set *supported_list,
