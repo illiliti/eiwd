@@ -3826,6 +3826,12 @@ static void netdev_connect_common(struct netdev *netdev,
 	if (!is_rsn)
 		goto build_cmd_connect;
 
+	/* For OWE, always use the CMD_CONNECT path */
+	if (IE_AKM_IS_OWE(hs->akm_suite)) {
+		netdev->owe_sm = owe_sm_new(hs);
+		goto build_cmd_connect;
+	}
+
 	if (nhs->type != CONNECTION_TYPE_SOFTMAC)
 		goto build_cmd_connect;
 
@@ -3848,10 +3854,6 @@ static void netdev_connect_common(struct netdev *netdev,
 		}
 
 		break;
-	case IE_RSN_AKM_SUITE_OWE:
-		netdev->owe_sm = owe_sm_new(hs);
-
-		goto build_cmd_connect;
 	case IE_RSN_AKM_SUITE_FILS_SHA256:
 	case IE_RSN_AKM_SUITE_FILS_SHA384:
 	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
