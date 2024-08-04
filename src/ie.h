@@ -361,6 +361,11 @@ enum ie_rsn_akm_suite {
 	IE_RSN_AKM_SUITE_OSEN			= 0x40000,
 };
 
+static inline bool IE_AKM_IS_OWE(uint32_t akm)
+{
+	return akm & (IE_RSN_AKM_SUITE_OWE);
+}
+
 static inline bool IE_AKM_IS_SAE(uint32_t akm)
 {
 	return akm & (IE_RSN_AKM_SUITE_SAE_SHA256 |
