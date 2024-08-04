@@ -3833,6 +3833,14 @@ static void netdev_connect_common(struct netdev *netdev,
 		goto build_cmd_connect;
 	}
 
+	if (IE_AKM_IS_FILS(hs->akm_suite)) {
+		netdev->ap = fils_sm_new(hs, netdev_fils_tx_authenticate,
+						netdev_fils_tx_associate,
+						netdev_get_oci,
+						netdev);
+		goto done;
+	}
+
 	if (nhs->type != CONNECTION_TYPE_SOFTMAC)
 		goto build_cmd_connect;
 
@@ -3855,15 +3863,6 @@ static void netdev_connect_common(struct netdev *netdev,
 		}
 
 		break;
-	case IE_RSN_AKM_SUITE_FILS_SHA256:
-	case IE_RSN_AKM_SUITE_FILS_SHA384:
-	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
-	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
-		netdev->ap = fils_sm_new(hs, netdev_fils_tx_authenticate,
-						netdev_fils_tx_associate,
-						netdev_get_oci,
-						netdev);
-		break;
 	default:
 build_cmd_connect:
 		cmd_connect = netdev_build_cmd_connect(netdev, hs, prev_bssid);
@@ -3876,6 +3875,7 @@ build_cmd_connect:
 		}
 	}
 
+done:
 	netdev->connect_cmd = cmd_connect;
 	netdev->event_filter = event_filter;
 	netdev->connect_cb = cb;
