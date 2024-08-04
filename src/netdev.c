@@ -3776,7 +3776,8 @@ static int netdev_handshake_state_setup_connection_type(
 	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
 	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
 		/* FILS has no offload in any upstream driver */
-		if (softmac)
+		if (softmac && wiphy_has_ext_feature(wiphy,
+						NL80211_EXT_FEATURE_FILS_STA))
 			goto softmac;
 
 		return -ENOTSUP;

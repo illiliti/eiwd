@@ -277,6 +277,7 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 	 */
 	if (security == SECURITY_8021X) {
 		if (wiphy_has_ext_feature(wiphy, NL80211_EXT_FEATURE_FILS_STA) &&
+				wiphy->support_cmds_auth_assoc &&
 				fils_capable_hint) {
 			if ((info->akm_suites &
 					IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384) &&
