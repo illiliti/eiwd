@@ -319,6 +319,7 @@ client_iwctl_SOURCES = client/main.c \
 			client/daemon.c client/daemon.h \
 			client/dpp.c client/dpp-pkex.c \
 			client/station-debug.c \
+			client/bss.c \
 			src/util.c src/util.h \
 			src/band.c src/band.h
 
