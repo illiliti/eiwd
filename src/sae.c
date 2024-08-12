@@ -152,39 +152,34 @@ static int sae_choose_next_group(struct sae_sm *sm)
 {
 	const unsigned int *ecc_groups = l_ecc_supported_ike_groups();
 	bool reset = sm->group_retry >= 0;
+	unsigned int group;
 
-	/*
-	 * If this is a buggy AP in which group negotiation is broken use the
-	 * default group 19 and fail if this is a retry.
-	 */
-	if (sm->sae_type == CRYPTO_SAE_LOOPING && sm->force_default_group) {
-		if (sm->group_retry != -1) {
-			l_warn("Forced default group but was rejected!");
-			return -ENOENT;
-		}
+	/* Find the next group in the list */
+	while ((group = ecc_groups[++sm->group_retry])) {
+		/*
+		 * Forcing the default group; only choose group 19. If we have
+		 * already passed 19 (due to a retry) we will exhaust all other
+		 * groups and should fail.
+		 */
+		if (sm->force_default_group && group != 19)
+			continue;
 
-		sae_debug("Forcing default SAE group 19");
+		/* Ensure the PT was derived for this group */
+		if (sm->sae_type == CRYPTO_SAE_HASH_TO_ELEMENT &&
+				!sm->handshake->ecc_sae_pts[sm->group_retry])
+			continue;
 
-		sm->group_retry++;
-		sm->group = 19;
-
-		goto get_curve;
+		break;
 	}
 
-	do {
-		sm->group_retry++;
+	if (!group)
+		return -ENOENT;
 
-		if (ecc_groups[sm->group_retry] == 0)
-			return -ENOENT;
-	} while (sm->sae_type != CRYPTO_SAE_LOOPING &&
-			!sm->handshake->ecc_sae_pts[sm->group_retry]);
+	sm->group = group;
 
 	if (reset)
 		sae_reset_state(sm);
 
-	sm->group = ecc_groups[sm->group_retry];
-
-get_curve:
 	sae_debug("Using group %u", sm->group);
 
 	sm->curve = l_ecc_curve_from_ike_group(sm->group);
