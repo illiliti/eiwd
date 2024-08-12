@@ -723,6 +723,55 @@ static enum cmd_status cmd_show(const char *device_name,
 	return CMD_STATUS_TRIGGERED;
 }
 
+
+static enum cmd_status cmd_get_bsses(const char *device_name,
+						char **argv, int argc)
+{
+	const struct proxy_interface *station_i =
+			device_proxy_find(device_name, IWD_STATION_INTERFACE);
+	const struct station *station = proxy_interface_get_data(station_i);
+	struct l_queue *bss_list;
+	const struct l_queue_entry *e;
+	const struct proxy_interface *network_proxy;
+	char header[256];
+
+	if (argc > 0)
+		network_proxy = find_network(device_name, argv[0],
+						argc >= 2 ? argv[1] : NULL);
+	else
+		network_proxy = station->connected_network;
+
+	if (!network_proxy) {
+		display_error("Can't find network");
+		return CMD_STATUS_INVALID_ARGS;
+	}
+
+	bss_list = network_get_bss_list(network_proxy);
+	if (!bss_list) {
+		display_error("No BSS list for network");
+		return CMD_STATUS_FAILED;
+	}
+
+	sprintf(header, "%s BasicServiceSets", network_get_name(network_proxy));
+
+	proxy_properties_display_header(header, MARGIN, 10, 18);
+
+	for (e = l_queue_get_entries(bss_list); e; e = e->next) {
+		const char *path = e->data;
+		const struct proxy_interface *bss_i = proxy_interface_find(
+						IWD_BSS_INTERFACE, path);
+
+		if (!bss_i)
+			continue;
+
+		display_table_row(MARGIN, 1, strlen(path), path);
+		proxy_properties_display_inline(bss_i, MARGIN, 10, 18);
+		display_table_row(MARGIN, 1, 1, "");
+	}
+
+	return CMD_STATUS_DONE;
+}
+
 static const struct command station_commands[] = {
 	{ NULL, "list", NULL, cmd_list, "List devices in Station mode", true },
 	{ "<wlan>", "connect",
@@ -747,6 +796,8 @@ static const struct command station_commands[] = {
 						"Get hidden APs", true },
 	{ "<wlan>", "scan",     NULL,   cmd_scan, "Scan for networks" },
 	{ "<wlan>", "show",     NULL,   cmd_show, "Show station info", true },
+	{ "<wlan>", "get-bsses", "[network] [security]", cmd_get_bsses,
+				"Get BSS's for a network", true },
 	{ }
 };
 
