@@ -35,6 +35,7 @@ struct network {
 	char *identity;
 	char *name;
 	char *type;
+	struct l_queue *bss_list;
 	const struct proxy_interface *device;
 };
 
@@ -146,11 +147,58 @@ static void update_type(void *data, struct l_dbus_message_iter *variant)
 	network->type = l_strdup(value);
 }
 
+static bool match_path(const void *a, const void *user_data)
+{
+	const char *path1 = a;
+	const char *path2 = user_data;
+
+	return !strcmp(path1, path2);
+}
+
+static void update_ess(void *data, struct l_dbus_message_iter *variant)
+{
+	struct network *network = data;
+	struct l_dbus_message_iter array;
+	const char *path;
+
+	if (!network->bss_list)
+		network->bss_list = l_queue_new();
+
+	if (!l_dbus_message_iter_get_variant(variant, "ao", &array))
+		return;
+
+	while (l_dbus_message_iter_next_entry(&array, &path)) {
+		l_free(l_queue_remove_if(network->bss_list, match_path, path));
+		l_queue_push_head(network->bss_list, l_strdup(path));
+	}
+}
+
+static const char *get_ess(const void *data)
+{
+	const struct network *network = data;
+	static char count[10];
+
+	snprintf(count, 10, "Count %u", l_queue_length(network->bss_list));
+
+	return count;
+}
+
+struct l_queue *network_get_bss_list(
+				const struct proxy_interface *network_proxy)
+{
+	const struct network *network = proxy_interface_get_data(network_proxy);
+	if (!network)
+		return NULL;
+
+	return network->bss_list;
+}
+
 static const struct proxy_interface_property network_properties[] = {
 	{ "Name",       "s", update_name, get_name },
 	{ "Connected",  "b", update_connected},
 	{ "Device",     "o", update_device},
 	{ "Type",       "s", update_type},
+	{ "ExtendedServiceSet",  "ao", update_ess, get_ess },
 	{ }
 };
 
@@ -186,6 +234,7 @@ static void network_destroy(void *data)
 	l_free(network->name);
 	l_free(network->type);
 	l_free(network->identity);
+	l_queue_destroy(network->bss_list, l_free);
 
 	network->device = NULL;
 

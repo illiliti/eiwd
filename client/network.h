@@ -37,3 +37,5 @@ char *network_name_completion(const struct proxy_interface *device,
 struct l_queue *network_match_by_device_and_args(
 					const struct proxy_interface *device,
 					const struct network_args *args);
+struct l_queue *network_get_bss_list(
+				const struct proxy_interface *network_proxy);
