@@ -4386,6 +4386,23 @@ static bool station_property_get_connected_network(struct l_dbus *dbus,
 	return true;
 }
 
+static bool station_property_get_connected_ap(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct station *station = user_data;
+
+	if (!station->connected_network)
+		return false;
+
+	l_dbus_message_builder_append_basic(builder, 'o',
+			network_bss_get_path(station->connected_network,
+						station->connected_bss));
+
+	return true;
+}
+
 static bool station_property_get_scanning(struct l_dbus *dbus,
 					struct l_dbus_message *message,
 					struct l_dbus_message_builder *builder,
@@ -4792,6 +4809,9 @@ static void station_setup_interface(struct l_dbus_interface *interface)
 
 	l_dbus_interface_property(interface, "ConnectedNetwork", 0, "o",
 					station_property_get_connected_network,
+					NULL);
+	l_dbus_interface_property(interface, "ConnectedAccessPoint", 0, "o",
+					station_property_get_connected_ap,
 					NULL);
 	l_dbus_interface_property(interface, "Scanning", 0, "b",
 					station_property_get_scanning, NULL);
