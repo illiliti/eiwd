@@ -95,6 +95,13 @@ void proxy_properties_display(const struct proxy_interface *proxy,
 				const char *caption, const char *margin,
 				unsigned int name_column_width,
 				unsigned int value_column_width);
+void proxy_properties_display_inline(const struct proxy_interface *proxy,
+					const char *margin,
+					unsigned int name_column_width,
+					unsigned int value_column_width);
+void proxy_properties_display_header(const char *caption, const char *margin,
+					unsigned int name_column_width,
+					unsigned int value_column_width);
 
 char *proxy_property_str_completion(const struct proxy_interface_type *type,
 					proxy_property_match_func_t function,
