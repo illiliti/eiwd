@@ -8312,7 +8312,8 @@ void nlmon_print_genl(struct nlmon *nlmon, const struct timeval *tv,
 			continue;
 		}
 
-		if (!nlmon->read && nlmsg->nlmsg_type != nlmon->id)
+		if (nlmsg->nlmsg_type >= NLMSG_MIN_TYPE && !nlmon->read &&
+				nlmsg->nlmsg_type != nlmon->id)
 			continue;
 
 		nlmon_message(nlmon, tv, nlmsg);
