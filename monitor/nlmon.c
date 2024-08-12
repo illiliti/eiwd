@@ -7254,8 +7254,10 @@ static void print_message(struct nlmon *nlmon, const struct timeval *tv,
 	if (nlmon->nowiphy && (cmd == NL80211_CMD_NEW_WIPHY))
 		return;
 
-	if (nlmon->noscan && ((cmd == NL80211_CMD_NEW_SCAN_RESULTS) ||
-			(cmd == NL80211_CMD_TRIGGER_SCAN)))
+	if (nlmon->noscan && L_IN_SET(cmd, NL80211_CMD_NEW_SCAN_RESULTS,
+					NL80211_CMD_NEW_SURVEY_RESULTS,
+					NL80211_CMD_TRIGGER_SCAN,
+					NL80211_CMD_GET_SURVEY))
 		return;
 
 	switch (type) {
