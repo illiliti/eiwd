@@ -41,6 +41,7 @@ struct proxy_interface;
 #define IWD_DPP_INTERFACE                "net.connman.iwd.DeviceProvisioning"
 #define IWD_DPP_PKEX_INTERFACE \
 				"net.connman.iwd.SharedCodeDeviceProvisioning"
+#define IWD_BSS_INTERFACE                "net.connman.iwd.BasicServiceSet"
 
 typedef bool (*proxy_property_match_func_t) (const void *a, const void *b);
 
