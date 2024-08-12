@@ -1149,6 +1149,9 @@ static bool network_unregister_bss(void *a, void *user_data)
 	l_dbus_unregister_object(dbus_get_bus(),
 					network_bss_get_path(network, bss));
 
+	l_dbus_property_changed(dbus_get_bus(), network->object_path,
+				IWD_NETWORK_INTERFACE, "ExtendedServiceSet");
+
 	return true;
 }
 
@@ -1173,6 +1176,9 @@ static bool network_register_bss(struct network *network, struct scan_bss *bss)
 	if (!l_dbus_object_add_interface(dbus_get_bus(), path,
 					L_DBUS_INTERFACE_PROPERTIES, bss))
 		return false;
+
+	l_dbus_property_changed(dbus_get_bus(), network->object_path,
+				IWD_NETWORK_INTERFACE, "ExtendedServiceSet");
 
 	return true;
 }
@@ -1960,6 +1966,28 @@ static bool network_property_get_known_network(struct l_dbus *dbus,
 	return true;
 }
 
+static bool network_property_get_extended_service_set(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct network *network = user_data;
+	const struct l_queue_entry *e;
+
+	l_dbus_message_builder_enter_array(builder, "o");
+
+	for (e = l_queue_get_entries(network->bss_list); e; e = e->next) {
+		struct scan_bss *bss = e->data;
+		const char *path = network_bss_get_path(network, bss);
+
+		l_dbus_message_builder_append_basic(builder, 'o', path);
+	}
+
+	l_dbus_message_builder_leave_array(builder);
+
+	return true;
+}
+
 bool network_register(struct network *network, const char *path)
 {
 	if (!l_dbus_object_add_interface(dbus_get_bus(), path,
@@ -2259,6 +2287,9 @@ static void setup_network_interface(struct l_dbus_interface *interface)
 
 	l_dbus_interface_property(interface, "KnownNetwork", 0, "o",
 				network_property_get_known_network, NULL);
+
+	l_dbus_interface_property(interface, "ExtendedServiceSet", 0, "ao",
+				network_property_get_extended_service_set, NULL);
 }
 
 static bool network_bss_property_get_address(struct l_dbus *dbus,
