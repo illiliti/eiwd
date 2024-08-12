@@ -164,6 +164,12 @@ Properties	string State [readonly]
 			for networks.  net.connman.iwd.Network objects are
 			updated when this property goes from true to false.
 
+		object ConnectedAccessPoint [readonly, optional]
+
+			net.connman.iwd.BasicServiceSet object represeting the
+			BSS the device is currently connected to or to which
+			a connection is in progress.
+
 SignalLevelAgent hierarchy
 ==========================
 
