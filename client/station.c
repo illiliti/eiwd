@@ -283,28 +283,26 @@ static char *connect_cmd_arg_completion(const char *text, int state,
 	return network_name_completion(device, text, state);
 }
 
-static enum cmd_status cmd_connect(const char *device_name,
-						char **argv, int argc)
+static const struct proxy_interface *find_network(const char *device_name,
+						const char *name,
+						const char *type)
 {
 	struct network_args network_args;
 	struct l_queue *match;
 	const struct proxy_interface *network_proxy;
 	const struct proxy_interface *device_proxy;
 
-	if (argc < 1)
-		return CMD_STATUS_INVALID_ARGS;
-
 	device_proxy = device_proxy_find_by_name(device_name);
 	if (!device_proxy)
-		return CMD_STATUS_INVALID_VALUE;
+		return NULL;
 
-	network_args.name = argv[0];
-	network_args.type = argc >= 2 ? argv[1] : NULL;
+	network_args.name = name;
+	network_args.type = type;
 
 	match = network_match_by_device_and_args(device_proxy, &network_args);
 	if (!match) {
 		display("Invalid network name '%s'\n", network_args.name);
-		return CMD_STATUS_INVALID_VALUE;
+		return NULL;
 	}
 
 	if (l_queue_length(match) > 1) {
@@ -315,11 +313,28 @@ static enum cmd_status cmd_connect(const char *device_name,
 
 		l_queue_destroy(match, NULL);
 
-		return CMD_STATUS_INVALID_VALUE;
+		return NULL;
 	}
 
 	network_proxy = l_queue_pop_head(match);
 	l_queue_destroy(match, NULL);
+
+	return network_proxy;
+}
+
+static enum cmd_status cmd_connect(const char *device_name,
+						char **argv, int argc)
+{
+	const struct proxy_interface *network_proxy;
+
+	if (argc < 1)
+		return CMD_STATUS_INVALID_ARGS;
+
+	network_proxy = find_network(device_name, argv[0],
+					argc >= 2 ? argv[1] : NULL);
+	if (!network_proxy)
+		return CMD_STATUS_INVALID_VALUE;
+
 	network_connect(network_proxy);
 
 	return CMD_STATUS_TRIGGERED;
