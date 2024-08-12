@@ -339,10 +339,18 @@ static void network_free(void *data)
 	network_remove(network, -ESHUTDOWN);
 }
 
+struct process_network_data {
+	struct station *station;
+	const struct scan_freq_set *freqs;
+};
+
 static bool process_network(const void *key, void *data, void *user_data)
 {
 	struct network *network = data;
-	struct station *station = user_data;
+	struct process_network_data *process_data = user_data;
+	struct station *station = process_data->station;
+
+	network_bss_stop_update(network, process_data->freqs);
 
 	if (!network_bss_list_isempty(network)) {
 		bool connected = network == station->connected_network;
@@ -532,6 +540,7 @@ struct bss_expiration_data {
 	struct scan_bss *connected_bss;
 	uint64_t now;
 	const struct scan_freq_set *freqs;
+	struct l_queue *free_list;
 };
 
 #define SCAN_RESULT_BSS_RETENTION_TIME (30 * 1000000)
@@ -553,18 +562,20 @@ static bool bss_free_if_expired(void *data, void *user_data)
 			bss->time_stamp + SCAN_RESULT_BSS_RETENTION_TIME))
 		return false;
 
-	bss_free(bss);
+	l_queue_push_head(expiration_data->free_list, bss);
 
 	return true;
 }
 
 static void station_bss_list_remove_expired_bsses(struct station *station,
-					const struct scan_freq_set *freqs)
+					const struct scan_freq_set *freqs,
+					struct l_queue *free_list)
 {
 	struct bss_expiration_data data = {
 		.now = l_time_now(),
 		.connected_bss = station->connected_bss,
 		.freqs = freqs,
+		.free_list = free_list,
 	};
 
 	l_queue_foreach_remove(station->bss_list, bss_free_if_expired, &data);
@@ -939,18 +950,20 @@ void station_set_scan_results(struct station *station,
 {
 	const struct l_queue_entry *bss_entry;
 	struct network *network;
+	struct process_network_data data;
+	struct l_queue *free_list = l_queue_new();
 
 	l_queue_foreach_remove(new_bss_list, bss_free_if_ssid_not_utf8, NULL);
 
 	while ((network = l_queue_pop_head(station->networks_sorted)))
-		network_bss_list_clear(network);
+		network_bss_start_update(network);
 
 	l_queue_clear(station->hidden_bss_list_sorted, NULL);
 
 	l_queue_destroy(station->autoconnect_list, NULL);
 	station->autoconnect_list = NULL;
 
-	station_bss_list_remove_expired_bsses(station, freqs);
+	station_bss_list_remove_expired_bsses(station, freqs, free_list);
 
 	for (bss_entry = l_queue_get_entries(station->bss_list); bss_entry;
 						bss_entry = bss_entry->next) {
@@ -962,7 +975,12 @@ void station_set_scan_results(struct station *station,
 			if (old_bss == station->connected_bss)
 				station->connected_bss = new_bss;
 
-			bss_free(old_bss);
+			/*
+			 * The network object is still holding a reference to
+			 * the BSS. Until we tell network to replace the BSS
+			 * with a new object, don't free it.
+			 */
+			l_queue_push_head(free_list, old_bss);
 
 			continue;
 		}
@@ -994,7 +1012,12 @@ void station_set_scan_results(struct station *station,
 
 	station->bss_list = new_bss_list;
 
-	l_hashmap_foreach_remove(station->networks, process_network, station);
+	data.station = station;
+	data.freqs = freqs;
+
+	l_hashmap_foreach_remove(station->networks, process_network, &data);
+
+	l_queue_destroy(free_list, bss_free);
 
 	station->autoconnect_can_start = trigger_autoconnect;
 	station_autoconnect_start(station);
