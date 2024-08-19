@@ -1016,7 +1016,7 @@ void station_set_scan_results(struct station *station,
 	l_queue_foreach_remove(new_bss_list, bss_free_if_ssid_not_utf8, NULL);
 
 	while ((network = l_queue_pop_head(station->networks_sorted)))
-		network_bss_start_update(network);
+		network_bss_list_clear(network);
 
 	l_queue_clear(station->hidden_bss_list_sorted, NULL);
 

@@ -1146,7 +1146,7 @@ const char *network_bss_get_path(const struct network *network,
 	return __network_path_append_bss(network->object_path, bss);
 }
 
-void network_bss_start_update(struct network *network)
+void network_bss_list_clear(struct network *network)
 {
 	l_queue_destroy(network->bss_list, NULL);
 	network->bss_list = l_queue_new();
