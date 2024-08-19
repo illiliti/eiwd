@@ -1130,15 +1130,21 @@ bool network_update_known_frequencies(struct network *network)
 	return true;
 }
 
-const char *network_bss_get_path(const struct network *network,
-						const struct scan_bss *bss)
+const char *__network_path_append_bss(const char *network_path,
+					const struct scan_bss *bss)
 {
 	static char path[256];
 
 	snprintf(path, sizeof(path), "%s/%02x%02x%02x%02x%02x%02x",
-			network->object_path, MAC_STR(bss->addr));
+			network_path, MAC_STR(bss->addr));
 
 	return path;
+}
+
+const char *network_bss_get_path(const struct network *network,
+						const struct scan_bss *bss)
+{
+	return __network_path_append_bss(network->object_path, bss);
 }
 
 static bool network_unregister_bss(void *a, void *user_data)
