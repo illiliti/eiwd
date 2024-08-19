@@ -1033,7 +1033,7 @@ static void eapol_install_igtk(struct eapol_sm *sm, uint16_t igtk_key_index,
 
 static void __send_eapol_start(struct eapol_sm *sm, bool noencrypt)
 {
-	uint8_t buf[sizeof(struct eapol_frame)];
+	uint8_t buf[sizeof(struct eapol_frame)] = {};
 	struct eapol_frame *frame = (struct eapol_frame *) buf;
 
 	frame->header.protocol_version = EAPOL_PROTOCOL_VERSION_2001;
