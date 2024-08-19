@@ -350,8 +350,6 @@ static bool process_network(const void *key, void *data, void *user_data)
 	struct process_network_data *process_data = user_data;
 	struct station *station = process_data->station;
 
-	network_bss_stop_update(network, process_data->freqs);
-
 	if (!network_bss_list_isempty(network)) {
 		bool connected = network == station->connected_network;
 
@@ -429,6 +427,66 @@ static void station_print_scan_bss(const struct scan_bss *bss)
 			bss->frequency, bss->rank, bss->signal_strength,
 			kbps100 / 10, kbps100 % 10,
 			optional);
+}
+
+static const char *station_get_bss_path(struct station *station,
+						struct scan_bss *bss)
+{
+	enum security security;
+	char ssid[33];
+	const char *network_path;
+
+	memcpy(ssid, bss->ssid, bss->ssid_len);
+	ssid[bss->ssid_len] = '\0';
+
+	if (scan_bss_get_security(bss, &security) < 0)
+		return NULL;
+
+	network_path = iwd_network_get_path(station, ssid, security);
+	if (!network_path)
+		return NULL;
+
+	return __network_path_append_bss(network_path, bss);
+}
+
+static bool station_unregister_bss(struct station *station,
+					struct scan_bss *bss)
+{
+	const char *path = station_get_bss_path(station, bss);
+
+	if (L_WARN_ON(!path))
+		return false;
+
+	return l_dbus_unregister_object(dbus_get_bus(), path);
+}
+
+static bool station_register_bss(struct network *network, struct scan_bss *bss)
+{
+	struct scan_bss *old;
+	const char *path = __network_path_append_bss(network_get_path(network),
+							bss);
+
+	if (L_WARN_ON(!path))
+		return false;
+
+	/*
+	 * If we find this path in the object tree update the data to the new
+	 * scan_bss pointer, as this one will be freed soon.
+	 */
+	old = l_dbus_object_get_data(dbus_get_bus(), path, IWD_BSS_INTERFACE);
+	if (old)
+		return l_dbus_object_set_data(dbus_get_bus(), path,
+						IWD_BSS_INTERFACE, bss);
+
+	if (!l_dbus_object_add_interface(dbus_get_bus(), path,
+						IWD_BSS_INTERFACE, bss))
+		return false;
+
+	if (!l_dbus_object_add_interface(dbus_get_bus(), path,
+					L_DBUS_INTERFACE_PROPERTIES, bss))
+		return false;
+
+	return true;
 }
 
 /*
@@ -518,6 +576,7 @@ static struct network *station_add_seen_bss(struct station *station,
 	}
 
 	network_bss_add(network, bss);
+	station_register_bss(network, bss);
 
 	return network;
 }
@@ -540,7 +599,7 @@ struct bss_expiration_data {
 	struct scan_bss *connected_bss;
 	uint64_t now;
 	const struct scan_freq_set *freqs;
-	struct l_queue *free_list;
+	struct station *station;
 };
 
 #define SCAN_RESULT_BSS_RETENTION_TIME (30 * 1000000)
@@ -562,20 +621,21 @@ static bool bss_free_if_expired(void *data, void *user_data)
 			bss->time_stamp + SCAN_RESULT_BSS_RETENTION_TIME))
 		return false;
 
-	l_queue_push_head(expiration_data->free_list, bss);
+	station_unregister_bss(expiration_data->station, bss);
+
+	scan_bss_free(bss);
 
 	return true;
 }
 
 static void station_bss_list_remove_expired_bsses(struct station *station,
-					const struct scan_freq_set *freqs,
-					struct l_queue *free_list)
+					const struct scan_freq_set *freqs)
 {
 	struct bss_expiration_data data = {
 		.now = l_time_now(),
 		.connected_bss = station->connected_bss,
 		.freqs = freqs,
-		.free_list = free_list,
+		.station = station,
 	};
 
 	l_queue_foreach_remove(station->bss_list, bss_free_if_expired, &data);
@@ -823,6 +883,7 @@ static bool station_owe_transition_results(int err, struct l_queue *bss_list,
 
 		l_queue_push_tail(station->bss_list, bss);
 		network_bss_add(network, bss);
+		station_register_bss(network, bss);
 
 		continue;
 
@@ -951,7 +1012,6 @@ void station_set_scan_results(struct station *station,
 	const struct l_queue_entry *bss_entry;
 	struct network *network;
 	struct process_network_data data;
-	struct l_queue *free_list = l_queue_new();
 
 	l_queue_foreach_remove(new_bss_list, bss_free_if_ssid_not_utf8, NULL);
 
@@ -963,7 +1023,7 @@ void station_set_scan_results(struct station *station,
 	l_queue_destroy(station->autoconnect_list, NULL);
 	station->autoconnect_list = NULL;
 
-	station_bss_list_remove_expired_bsses(station, freqs, free_list);
+	station_bss_list_remove_expired_bsses(station, freqs);
 
 	for (bss_entry = l_queue_get_entries(station->bss_list); bss_entry;
 						bss_entry = bss_entry->next) {
@@ -975,12 +1035,7 @@ void station_set_scan_results(struct station *station,
 			if (old_bss == station->connected_bss)
 				station->connected_bss = new_bss;
 
-			/*
-			 * The network object is still holding a reference to
-			 * the BSS. Until we tell network to replace the BSS
-			 * with a new object, don't free it.
-			 */
-			l_queue_push_head(free_list, old_bss);
+			scan_bss_free(old_bss);
 
 			continue;
 		}
@@ -1007,6 +1062,8 @@ void station_set_scan_results(struct station *station,
 		if (!scan_freq_set_contains(freqs, bss->frequency))
 			continue;
 
+		station_register_bss(network, bss);
+
 		station_start_anqp(station, network, bss);
 	}
 
@@ -1016,8 +1073,6 @@ void station_set_scan_results(struct station *station,
 	data.freqs = freqs;
 
 	l_hashmap_foreach_remove(station->networks, process_network, &data);
-
-	l_queue_destroy(free_list, bss_free);
 
 	station->autoconnect_can_start = trigger_autoconnect;
 	station_autoconnect_start(station);
@@ -2652,6 +2707,7 @@ static void station_update_roam_bss(struct station *station,
 		l_queue_remove_if(station->bss_list, bss_match, bss);
 
 	network_bss_update(network, bss);
+	station_register_bss(network, bss);
 	l_queue_push_tail(station->bss_list, bss);
 
 	if (old)
@@ -3160,6 +3216,7 @@ static void station_event_roamed(struct station *station, struct scan_bss *new)
 	struct scan_bss *stale;
 
 	network_bss_update(station->connected_network, new);
+	station_register_bss(station->connected_network, new);
 
 	/* Remove new BSS if it exists in past scan results */
 	stale = l_queue_remove_if(station->bss_list, bss_match, new);
