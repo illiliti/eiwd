@@ -69,8 +69,6 @@ int network_can_connect_bss(struct network *network,
 int network_autoconnect(struct network *network, struct scan_bss *bss);
 void network_connect_failed(struct network *network, bool in_handshake);
 void network_bss_start_update(struct network *network);
-void network_bss_stop_update(struct network *network,
-				const struct scan_freq_set *freqs);
 bool network_bss_add(struct network *network, struct scan_bss *bss);
 bool network_bss_update(struct network *network, struct scan_bss *bss);
 const char *network_bss_get_path(const struct network *network,
