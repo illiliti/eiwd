@@ -975,6 +975,10 @@ class Network(IWDDBusAbstract):
         '''
         return bool(self._properties['Connected'])
 
+    @property
+    def extended_service_set(self):
+        return self._properties['ExtendedServiceSet']
+
     def connect(self, wait=True):
         '''
             Connect to the network. Request the device implied by the object
