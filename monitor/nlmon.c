@@ -37,6 +37,7 @@
 #include <linux/if.h>
 #include <linux/if_packet.h>
 #include <linux/if_ether.h>
+#include <linux/if_link.h>
 #include <linux/netlink.h>
 #include <linux/genetlink.h>
 #include <linux/rtnetlink.h>
@@ -7599,8 +7600,44 @@ static void flags_str(const struct flag_names *table,
 	pos += sprintf(str + pos, "]");
 }
 
+static void print_rmnet_flags(unsigned int indent,
+					const char *label, uint32_t flags)
+{
+	if (flags & RMNET_FLAGS_INGRESS_DEAGGREGATION)
+		print_attr(indent, "%s: %s", label, "deaggregation");
+	if (flags & RMNET_FLAGS_INGRESS_MAP_COMMANDS)
+		print_attr(indent, "%s: %s", label, "map commands");
+	if (flags & RMNET_FLAGS_INGRESS_MAP_CKSUMV4)
+		print_attr(indent, "%s: %s", label, "ingress_mapv4");
+	if (flags & RMNET_FLAGS_EGRESS_MAP_CKSUMV4)
+		print_attr(indent, "%s: %s", label, "egress_mapv4");
+	if (flags & RMNET_FLAGS_INGRESS_MAP_CKSUMV5)
+		print_attr(indent, "%s: %s", label, "ingress_mapv5");
+	if (flags & RMNET_FLAGS_EGRESS_MAP_CKSUMV5)
+		print_attr(indent, "%s: %s", label, "egress_mapv5");
+}
+
+static void print_ifla_rmnet_flags(unsigned int indent, const char *str,
+						const void *buf, uint16_t size)
+{
+	struct ifla_rmnet_flags flags;
+
+	if (size != 8) {
+		printf("malformed packet\n");
+		return;
+	}
+
+	memcpy(&flags, buf, size);
+
+	print_attr(indent, "%s:", str);
+	print_rmnet_flags(indent + 1, "Flags", flags.flags);
+	print_rmnet_flags(indent + 1, "Mask", flags.mask);
+}
+
 static struct attr_entry link_info_data_entry[] = {
 	{ IFLA_RMNET_MUX_ID,	"RMNet Mux Id",		ATTR_U16 },
+	{ IFLA_RMNET_FLAGS,	"RMNet Flags",		ATTR_CUSTOM,
+					{ .function = print_ifla_rmnet_flags } },
 	{ },
 };
 
