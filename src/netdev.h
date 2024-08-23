@@ -29,6 +29,11 @@ struct eapol_sm;
 struct mmpdu_header;
 struct diagnostic_station_info;
 
+#define GENERAL "General"
+#define NETDEV_ADDRESS_RANDOMIZATION GENERAL, "AddressRandomization"
+#define NETDEV_ROAM_THRESHOLD GENERAL, "RoamThreshold"
+#define NETDEV_ROAM_THRESHOLD_5G GENERAL, "RoamThreshold5G"
+
 enum netdev_result {
 	NETDEV_RESULT_OK,
 	NETDEV_RESULT_AUTHENTICATION_FAILED,

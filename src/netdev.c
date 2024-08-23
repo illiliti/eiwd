@@ -6264,16 +6264,16 @@ static int netdev_init(void)
 		goto fail_netlink;
 	}
 
-	if (!l_settings_get_int(settings, "General", "RoamThreshold",
+	if (!l_settings_get_int(settings, NETDEV_ROAM_THRESHOLD,
 					&LOW_SIGNAL_THRESHOLD))
 		LOW_SIGNAL_THRESHOLD = -70;
 
-	if (!l_settings_get_int(settings, "General", "RoamThreshold5G",
+	if (!l_settings_get_int(settings, NETDEV_ROAM_THRESHOLD_5G,
 					&LOW_SIGNAL_THRESHOLD_5GHZ))
 		LOW_SIGNAL_THRESHOLD_5GHZ = -76;
 
-	rand_addr_str = l_settings_get_value(settings, "General",
-						"AddressRandomization");
+	rand_addr_str = l_settings_get_value(settings,
+						NETDEV_ADDRESS_RANDOMIZATION);
 	if (rand_addr_str && !strcmp(rand_addr_str, "network"))
 		mac_per_ssid = true;
 
