@@ -33,6 +33,8 @@ struct diagnostic_station_info;
 #define NETDEV_ADDRESS_RANDOMIZATION GENERAL, "AddressRandomization"
 #define NETDEV_ROAM_THRESHOLD GENERAL, "RoamThreshold"
 #define NETDEV_ROAM_THRESHOLD_5G GENERAL, "RoamThreshold5G"
+#define NETDEV_CRITICAL_ROAM_THRESHOLD GENERAL, "CriticalRoamThreshold"
+#define NETDEV_CRITICAL_ROAM_THRESHOLD_5G GENERAL, "CriticalRoamThreshold5G"
 
 enum netdev_result {
 	NETDEV_RESULT_OK,
@@ -202,6 +204,8 @@ int netdev_neighbor_report_req(struct netdev *netdev,
 
 int netdev_set_rssi_report_levels(struct netdev *netdev, const int8_t *levels,
 					size_t levels_num);
+int netdev_lower_signal_threshold(struct netdev *netdev);
+int netdev_raise_signal_threshold(struct netdev *netdev);
 
 int netdev_get_station(struct netdev *netdev, const uint8_t *mac,
 			netdev_get_station_cb_t cb, void *user_data,
