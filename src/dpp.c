@@ -59,6 +59,7 @@
 #define DPP_FRAME_RETRY_TIMEOUT 1
 #define DPP_AUTH_PROTO_TIMEOUT 10
 #define DPP_PKEX_PROTO_TIMEOUT 120
+#define DPP_PKEX_PROTO_PER_FREQ_TIMEOUT 10
 
 static uint32_t netdev_watch;
 static struct l_genl_family *nl80211;
@@ -4284,7 +4285,8 @@ static void __dpp_pkex_start_enrollee(struct dpp_sm *dpp)
 {
 	dpp->current_freq = dpp->freqs[0];
 
-	dpp_reset_protocol_timer(dpp, DPP_PKEX_PROTO_TIMEOUT);
+	dpp_reset_protocol_timer(dpp,
+			dpp->freqs_len * DPP_PKEX_PROTO_PER_FREQ_TIMEOUT);
 
 	l_debug("PKEX start enrollee (id=%s)", dpp->pkex_id ?: "unset");
 
