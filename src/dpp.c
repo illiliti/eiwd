@@ -4574,11 +4574,9 @@ static struct l_dbus_message *dpp_start_pkex_configurator(struct dpp_sm *dpp,
 				dpp->interface != DPP_INTERFACE_UNBOUND)
 		return dbus_error_busy(message);
 
-	if (!dpp->mcast_support) {
-		l_debug("Multicast frame registration not supported, cannot "
-			"start a configurator");
-		return dbus_error_not_supported(message);
-	}
+	if (!dpp->mcast_support)
+		l_debug("Multicast frame registration not supported, only "
+			"enrollees sending uncast will be supported");
 
 	if (!network || !bss)
 		return dbus_error_not_connected(message);
