@@ -74,7 +74,7 @@ The group ``[General]`` contains general settings.
        ``[Network]`` settings for additional settings related to network
        configuration.
 
-   * - UseDefaultInterface
+   * - UseDefaultInterface (**deprecated**)
      - Values: true, **false**
 
        Do not allow **iwd** to destroy / recreate wireless interfaces at
@@ -83,6 +83,9 @@ The group ``[General]`` contains general settings.
        if you do not want **iwd** to manage netdevs for another reason.  For
        most users with an upstream driver it should be safe to omit/disable
        this setting.
+
+       This setting is deprecated, please use [DriverQuirks].DefaultInterface
+       instead.
 
    * - AddressRandomization
      - Values: **disabled**, once, network
