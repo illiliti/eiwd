@@ -4345,6 +4345,12 @@ static bool dpp_start_pkex_enrollee(struct dpp_sm *dpp)
 {
 	dpp_property_changed_notify(dpp);
 
+	/* Already have a set (or single) frequency */
+	if (dpp->freqs) {
+		__dpp_pkex_start_enrollee(dpp);
+		return true;
+	}
+
 	/*
 	 * The 'dpp_default_freqs' function returns the default frequencies
 	 * outlined in section 5.6.1. For 2.4/5GHz this is only 3 frequencies
@@ -4374,13 +4380,17 @@ failed:
 
 static bool dpp_parse_pkex_args(struct l_dbus_message *message,
 					const char **key_out,
-					const char **id_out)
+					const char **id_out,
+					const char **mac_out,
+					uint32_t *freq_out)
 {
 	struct l_dbus_message_iter iter;
 	struct l_dbus_message_iter variant;
 	const char *dict_key;
 	const char *key = NULL;
 	const char *id = NULL;
+	const char *mac = NULL;
+	uint32_t freq = 0;
 
 	if (!l_dbus_message_get_arguments(message, "a{sv}", &iter))
 		return false;
@@ -4394,6 +4404,14 @@ static bool dpp_parse_pkex_args(struct l_dbus_message *message,
 			if (!l_dbus_message_iter_get_variant(&variant, "s",
 								&id))
 				return false;
+		} else if (!strcmp(dict_key, "Address")) {
+			if (!l_dbus_message_iter_get_variant(&variant, "s",
+								&mac))
+				return false;
+		} else if (!strcmp(dict_key, "Frequency")) {
+			if (!l_dbus_message_iter_get_variant(&variant, "u",
+								&freq))
+				return false;
 		}
 	}
 
@@ -4405,6 +4423,12 @@ static bool dpp_parse_pkex_args(struct l_dbus_message *message,
 
 	*key_out = key;
 	*id_out = id;
+
+	if (mac_out)
+		*mac_out = mac;
+
+	if (freq_out)
+		*freq_out = freq;
 
 	return true;
 }
@@ -4450,6 +4474,8 @@ static struct l_dbus_message *dpp_dbus_pkex_start_enrollee(struct l_dbus *dbus,
 	struct dpp_sm *dpp = user_data;
 	const char *key;
 	const char *id;
+	const char *mac_str;
+	uint32_t freq;
 	bool wait_for_disconnect;
 	int ret;
 
@@ -4459,8 +4485,19 @@ static struct l_dbus_message *dpp_dbus_pkex_start_enrollee(struct l_dbus *dbus,
 				dpp->interface != DPP_INTERFACE_UNBOUND)
 		return dbus_error_busy(message);
 
-	if (!dpp_parse_pkex_args(message, &key, &id))
+	if (!dpp_parse_pkex_args(message, &key, &id, &mac_str, &freq))
 		goto invalid_args;
+
+	if (mac_str && !util_string_to_address(mac_str, dpp->peer_addr))
+		goto invalid_args;
+	else if (!mac_str)
+		memcpy(dpp->peer_addr, broadcast, 6);
+
+	if (freq) {
+		dpp->freqs = l_new(uint32_t, 1);
+		dpp->freqs[0] = freq;
+		dpp->freqs_len = 1;
+	}
 
 	dpp->pkex_key = l_strdup(key);
 
@@ -4595,7 +4632,7 @@ static struct l_dbus_message *dpp_dbus_pkex_configure_enrollee(
 
 	l_debug("");
 
-	if (!dpp_parse_pkex_args(message, &key, &id))
+	if (!dpp_parse_pkex_args(message, &key, &id, NULL, NULL))
 		return dbus_error_invalid_args(message);
 
 	return dpp_start_pkex_configurator(dpp, key, id, NULL, message);
