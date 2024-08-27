@@ -4280,6 +4280,17 @@ static uint32_t *dpp_default_freqs(struct dpp_sm *dpp, size_t *out_len)
 	return freqs_out;
 }
 
+static void __dpp_pkex_start_enrollee(struct dpp_sm *dpp)
+{
+	dpp->current_freq = dpp->freqs[0];
+
+	dpp_reset_protocol_timer(dpp, DPP_PKEX_PROTO_TIMEOUT);
+
+	l_debug("PKEX start enrollee (id=%s)", dpp->pkex_id ?: "unset");
+
+	dpp_start_offchannel(dpp, dpp->current_freq);
+}
+
 static bool dpp_pkex_scan_notify(int err, struct l_queue *bss_list,
 					const struct scan_freq_set *freqs,
 					void *user_data)
@@ -4314,13 +4325,7 @@ static bool dpp_pkex_scan_notify(int err, struct l_queue *bss_list,
 	dpp->freqs = scan_freq_set_to_fixed_array(freq_set, &dpp->freqs_len);
 
 start:
-	dpp->current_freq = dpp->freqs[0];
-
-	dpp_reset_protocol_timer(dpp, DPP_PKEX_PROTO_TIMEOUT);
-
-	l_debug("PKEX start enrollee (id=%s)", dpp->pkex_id ?: "unset");
-
-	dpp_start_offchannel(dpp, dpp->current_freq);
+	__dpp_pkex_start_enrollee(dpp);
 
 	return false;
 
@@ -4338,40 +4343,6 @@ static void dpp_pkex_scan_destroy(void *user_data)
 
 static bool dpp_start_pkex_enrollee(struct dpp_sm *dpp)
 {
-	_auto_(l_ecc_point_free) struct l_ecc_point *qi = NULL;
-
-	memcpy(dpp->peer_addr, broadcast, 6);
-
-	/*
-	 * In theory a driver could support a lesser duration than 200ms. This
-	 * complicates things since we would need to tack on additional
-	 * offchannel requests to meet the 200ms requirement. This could be done
-	 * but for now use max_roc or 200ms, whichever is less.
-	 */
-	dpp->dwell = (dpp->max_roc < 200) ? dpp->max_roc : 200;
-	/* "DPP R2 devices are expected to use PKEXv1 by default" */
-	dpp->pkex_version = 1;
-
-	if (!l_ecdh_generate_key_pair(dpp->curve, &dpp->pkex_private,
-					&dpp->pkex_public))
-		goto failed;
-
-	/*
-	 * "If Qi is the point-at-infinity, the code shall be deleted and the
-	 * user should be notified to provision a new code"
-	 */
-	qi = dpp_derive_qi(dpp->curve, dpp->pkex_key, dpp->pkex_id,
-				netdev_get_address(dpp->netdev));
-	if (!qi || l_ecc_point_is_infinity(qi)) {
-		l_debug("Cannot derive Qi, provision a new code");
-		goto failed;
-	}
-
-	dpp->pkex_m = l_ecc_point_new(dpp->curve);
-
-	if (!l_ecc_point_add(dpp->pkex_m, dpp->pkex_public, qi))
-		goto failed;
-
 	dpp_property_changed_notify(dpp);
 
 	/*
@@ -4438,6 +4409,40 @@ static bool dpp_parse_pkex_args(struct l_dbus_message *message,
 	return true;
 }
 
+static bool dpp_pkex_derive_keys(struct dpp_sm *dpp)
+{
+	_auto_(l_ecc_point_free) struct l_ecc_point *qi = NULL;
+
+	/*
+	 * In theory a driver could support a lesser duration than 200ms. This
+	 * complicates things since we would need to tack on additional
+	 * offchannel requests to meet the 200ms requirement. This could be done
+	 * but for now use max_roc or 200ms, whichever is less.
+	 */
+	dpp->dwell = (dpp->max_roc < 200) ? dpp->max_roc : 200;
+	/* "DPP R2 devices are expected to use PKEXv1 by default" */
+	dpp->pkex_version = 1;
+
+	if (!l_ecdh_generate_key_pair(dpp->curve, &dpp->pkex_private,
+					&dpp->pkex_public))
+		return false;
+
+	/*
+	 * "If Qi is the point-at-infinity, the code shall be deleted and the
+	 * user should be notified to provision a new code"
+	 */
+	qi = dpp_derive_qi(dpp->curve, dpp->pkex_key, dpp->pkex_id,
+				netdev_get_address(dpp->netdev));
+	if (!qi || l_ecc_point_is_infinity(qi)) {
+		l_debug("Cannot derive Qi, provision a new code");
+		return false;
+	}
+
+	dpp->pkex_m = l_ecc_point_new(dpp->curve);
+
+	return l_ecc_point_add(dpp->pkex_m, dpp->pkex_public, qi);
+}
+
 static struct l_dbus_message *dpp_dbus_pkex_start_enrollee(struct l_dbus *dbus,
 						struct l_dbus_message *message,
 						void *user_data)
@@ -4470,6 +4475,11 @@ static struct l_dbus_message *dpp_dbus_pkex_start_enrollee(struct l_dbus *dbus,
 	if (ret < 0) {
 		dpp_reset(dpp);
 		return dbus_error_from_errno(ret, message);
+	}
+
+	if (!dpp_pkex_derive_keys(dpp)) {
+		dpp_reset(dpp);
+		return dbus_error_failed(message);
 	}
 
 	if (!wait_for_disconnect && !dpp_start_pkex_enrollee(dpp))
