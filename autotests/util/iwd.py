@@ -597,6 +597,11 @@ class Device(IWDDBusAbstract):
         return props.get('ConnectedNetwork')
 
     @property
+    def connected_bss(self):
+        props = self._station_properties()
+        return props.get('ConnectedAccessPoint')
+
+    @property
     def powered(self):
         '''
             True if the interface is UP. If false, the device's radio is
@@ -629,6 +634,19 @@ class Device(IWDDBusAbstract):
     def autoconnect(self, value):
         self._station_debug._prop_proxy.Set(IWD_STATION_DEBUG_INTERFACE,
                                             'AutoConnect', value)
+
+    @property
+    def affinities(self):
+        return self._station_properties()['Affinities']
+
+    @affinities.setter
+    def affinities(self, values):
+        self._station_properties()
+        self._station_prop_if.Set(
+            IWD_STATION_INTERFACE, 'Affinities',
+            dbus.Array([dbus.ObjectPath(v) for v in values], signature="o"),
+            reply_handler=self._success, error_handler=self._failure)
+        self._wait_for_async_op()
 
     def scan(self, wait=True):
         '''Schedule a network scan.
