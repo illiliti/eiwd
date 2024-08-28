@@ -82,6 +82,7 @@ struct l_dbus_message *dbus_error_service_set_overlap(
 struct l_dbus_message *dbus_error_already_provisioned(
 						struct l_dbus_message *msg);
 struct l_dbus_message *dbus_error_not_hidden(struct l_dbus_message *msg);
+struct l_dbus_message *dbus_error_permission_denied(struct l_dbus_message *msg);
 
 struct l_dbus_message *dbus_error_from_errno(int err,
 						struct l_dbus_message *msg);
