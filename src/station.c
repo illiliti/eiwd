@@ -4601,6 +4601,9 @@ static void station_affinity_disconnected_cb(struct l_dbus *dbus,
 	station->affinity_watch = 0;
 
 	l_debug("client that set affinity has disconnected");
+
+	/* The client who set the affinity disconnected, raise the threshold */
+	netdev_raise_signal_threshold(station->netdev);
 }
 
 static void station_affinity_watch_destroy(void *user_data)
@@ -4633,6 +4636,7 @@ static struct l_dbus_message *station_property_set_affinities(
 	const char *new_path = NULL;
 	struct scan_bss *new_bss = NULL;
 	struct scan_bss *old_bss = NULL;
+	bool lower_threshold = false;
 
 	if (!station->connected_network)
 		return dbus_error_not_connected(message);
@@ -4686,6 +4690,8 @@ static struct l_dbus_message *station_property_set_affinities(
 	if (new_path) {
 		l_queue_push_head(station->affinities, l_strdup(new_path));
 
+		lower_threshold = true;
+
 		if (!station->affinity_watch) {
 			station->affinity_client = l_strdup(sender);
 			station->affinity_watch = l_dbus_add_disconnect_watch(
@@ -4697,6 +4703,17 @@ static struct l_dbus_message *station_property_set_affinities(
 	/* The list was cleared, remove the watch */
 	} else if (station->affinity_watch)
 		l_dbus_remove_watch(dbus, station->affinity_watch);
+
+	/*
+	 * If affinity was set to the current BSS, lower the roam threshold. If
+	 * the connected BSS was not in the list raise the signal threshold.
+	 * The threshold may already be raised, in which case netdev will detect
+	 * this and do nothing.
+	 */
+	if (lower_threshold)
+		netdev_lower_signal_threshold(station->netdev);
+	else
+		netdev_raise_signal_threshold(station->netdev);
 
 	complete(dbus, message, NULL);
 
