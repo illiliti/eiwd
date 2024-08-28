@@ -127,6 +127,10 @@ struct station {
 
 	uint64_t last_roam_scan;
 
+	struct l_queue *affinities;
+	unsigned int affinity_watch;
+	char *affinity_client;
+
 	bool preparing_roam : 1;
 	bool roam_scan_full : 1;
 	bool signal_low : 1;
@@ -448,6 +452,14 @@ static const char *station_get_bss_path(struct station *station,
 	return __network_path_append_bss(network_path, bss);
 }
 
+static bool match_bss_path(const void *data, const void *user_data)
+{
+	const char *path1 = data;
+	const char *path2 = user_data;
+
+	return !strcmp(path1, path2);
+}
+
 static bool station_unregister_bss(struct station *station,
 					struct scan_bss *bss)
 {
@@ -455,6 +467,8 @@ static bool station_unregister_bss(struct station *station,
 
 	if (L_WARN_ON(!path))
 		return false;
+
+	l_queue_remove_if(station->affinities, match_bss_path, path);
 
 	return l_dbus_unregister_object(dbus_get_bus(), path);
 }
@@ -1739,6 +1753,13 @@ static void station_enter_state(struct station *station,
 		station_set_evict_nocarrier(station, true);
 		station_set_drop_neighbor_discovery(station, false);
 		station_set_drop_unicast_l2_multicast(station, false);
+
+		if (station->affinity_watch) {
+			l_dbus_remove_watch(dbus_get_bus(),
+						station->affinity_watch);
+			station->affinity_watch = 0;
+		}
+
 		break;
 	case STATION_STATE_DISCONNECTING:
 	case STATION_STATE_NETCONFIG:
@@ -1746,6 +1767,12 @@ static void station_enter_state(struct station *station,
 	case STATION_STATE_ROAMING:
 	case STATION_STATE_FT_ROAMING:
 	case STATION_STATE_FW_ROAMING:
+		if (station->affinity_watch) {
+			l_dbus_remove_watch(dbus_get_bus(),
+						station->affinity_watch);
+			station->affinity_watch = 0;
+		}
+
 		station_set_evict_nocarrier(station, false);
 		break;
 	}
@@ -4541,6 +4568,144 @@ static bool station_property_get_state(struct l_dbus *dbus,
 	return true;
 }
 
+static bool station_property_get_affinities(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct station *station = user_data;
+	const struct l_queue_entry *e;
+
+	if (!station->connected_network)
+		return false;
+
+	l_dbus_message_builder_enter_array(builder, "o");
+
+	for (e = l_queue_get_entries(station->affinities); e; e = e->next) {
+		const char *path = e->data;
+
+		l_dbus_message_builder_append_basic(builder, 'o', path);
+	}
+
+	l_dbus_message_builder_leave_array(builder);
+
+	return true;
+}
+
+static void station_affinity_disconnected_cb(struct l_dbus *dbus,
+						void *user_data)
+{
+	struct station *station = user_data;
+
+	l_dbus_remove_watch(dbus_get_bus(), station->affinity_watch);
+	station->affinity_watch = 0;
+
+	l_debug("client that set affinity has disconnected");
+}
+
+static void station_affinity_watch_destroy(void *user_data)
+{
+	struct station *station = user_data;
+	bool empty = l_queue_length(station->affinities) == 0;
+
+	l_free(station->affinity_client);
+	station->affinity_client = NULL;
+
+	l_queue_clear(station->affinities, l_free);
+
+	if (!empty)
+		l_dbus_property_changed(dbus_get_bus(),
+					netdev_get_path(station->netdev),
+					IWD_STATION_INTERFACE, "Affinities");
+}
+
+static struct l_dbus_message *station_property_set_affinities(
+					struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_iter *new_value,
+					l_dbus_property_complete_cb_t complete,
+					void *user_data)
+{
+	struct station *station = user_data;
+	struct l_dbus_message_iter array;
+	const char *sender = l_dbus_message_get_sender(message);
+	char *old_path = l_queue_peek_head(station->affinities);
+	const char *new_path = NULL;
+	struct scan_bss *new_bss = NULL;
+	struct scan_bss *old_bss = NULL;
+
+	if (!station->connected_network)
+		return dbus_error_not_connected(message);
+
+	if (wiphy_supports_firmware_roam(station->wiphy))
+		return dbus_error_not_supported(message);
+
+	if (station->affinity_watch &&
+				strcmp(station->affinity_client, sender)) {
+		l_warn("Only one client may manage Affinities property");
+		return dbus_error_permission_denied(message);
+	}
+
+	if (!l_dbus_message_iter_get_variant(new_value, "ao", &array))
+		return dbus_error_invalid_args(message);
+
+	/* Get first entry, there should be only one */
+	l_dbus_message_iter_next_entry(&array, &new_path);
+
+	if (l_dbus_message_iter_next_entry(&array, &new_path))
+		return dbus_error_invalid_args(message);
+
+	old_path = l_queue_peek_head(station->affinities);
+	if (old_path)
+		old_bss = l_dbus_object_get_data(dbus_get_bus(),
+						old_path, IWD_BSS_INTERFACE);
+	if (new_path)
+		new_bss = l_dbus_object_get_data(dbus,
+						new_path, IWD_BSS_INTERFACE);
+
+	/* Either the same path, or both arrays are empty */
+	if (old_bss == new_bss) {
+		complete(dbus, message, NULL);
+		return NULL;
+	}
+
+	/*
+	 * TODO: For now only allow the affinities array to contain a single
+	 *       value, the connected BSS path. Any other values will be
+	 *       rejected. This could change in the future.
+	 */
+	if (new_bss && new_bss != station->connected_bss)
+		return dbus_error_invalid_args(message);
+
+	l_queue_clear(station->affinities, l_free);
+
+	/*
+	 * Adding a new BSS, create a watch for this DBus client so if it
+	 * disconnects we can clear the affinities list
+	 */
+	if (new_path) {
+		l_queue_push_head(station->affinities, l_strdup(new_path));
+
+		if (!station->affinity_watch) {
+			station->affinity_client = l_strdup(sender);
+			station->affinity_watch = l_dbus_add_disconnect_watch(
+					dbus, sender,
+					station_affinity_disconnected_cb,
+					station,
+					station_affinity_watch_destroy);
+		}
+	/* The list was cleared, remove the watch */
+	} else if (station->affinity_watch)
+		l_dbus_remove_watch(dbus, station->affinity_watch);
+
+	complete(dbus, message, NULL);
+
+	l_dbus_property_changed(dbus, netdev_get_path(station->netdev),
+				IWD_STATION_INTERFACE, "Affinities");
+
+	return NULL;
+}
+
 void station_foreach(station_foreach_func_t func, void *user_data)
 {
 	const struct l_queue_entry *entry;
@@ -4771,6 +4936,7 @@ static struct station *station_create(struct netdev *netdev)
 	station_set_autoconnect(station, autoconnect);
 
 	station->roam_bss_list = l_queue_new();
+	station->affinities = l_queue_new();
 
 	return station;
 }
@@ -4863,6 +5029,11 @@ static void station_free(struct station *station)
 
 	l_queue_destroy(station->roam_bss_list, l_free);
 
+	if (station->affinity_watch)
+		l_dbus_remove_watch(dbus_get_bus(), station->affinity_watch);
+
+	l_queue_destroy(station->affinities, l_free);
+
 	l_free(station);
 }
 
@@ -4899,6 +5070,9 @@ static void station_setup_interface(struct l_dbus_interface *interface)
 					station_property_get_scanning, NULL);
 	l_dbus_interface_property(interface, "State", 0, "s",
 					station_property_get_state, NULL);
+	l_dbus_interface_property(interface, "Affinities", 0, "ao",
+					station_property_get_affinities,
+					station_property_set_affinities);
 }
 
 static void station_destroy_interface(void *user_data)
