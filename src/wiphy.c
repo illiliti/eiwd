@@ -149,6 +149,7 @@ struct wiphy {
 	bool self_managed : 1;
 	bool ap_probe_resp_offload : 1;
 	bool supports_uapsd : 1;
+	bool supports_cmd_offchannel : 1;
 };
 
 static struct l_queue *wiphy_list = NULL;
@@ -939,6 +940,11 @@ bool wiphy_supports_uapsd(const struct wiphy *wiphy)
 	return wiphy->supports_uapsd;
 }
 
+bool wiphy_supports_cmd_offchannel(const struct wiphy *wiphy)
+{
+	return wiphy->supports_cmd_offchannel;
+}
+
 const uint8_t *wiphy_get_ht_capabilities(const struct wiphy *wiphy,
 						enum band_freq band,
 						size_t *size)
@@ -1384,6 +1390,9 @@ static void parse_supported_commands(struct wiphy *wiphy,
 			break;
 		case NL80211_CMD_ASSOCIATE:
 			assoc = true;
+			break;
+		case NL80211_CMD_REMAIN_ON_CHANNEL:
+			wiphy->supports_cmd_offchannel = true;
 			break;
 		}
 	}
