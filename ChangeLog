@@ -1,3 +1,8 @@
+ver 2.20:
+	Fix issue with PKEX timeout and number of frequencies used.
+	Fix issue with handling logic for handshake failures.
+	Fix issue with handling ConnectedAccessPoint signal.
+
 ver 2.19:
 	Fix issue with handling flush flag for external scans.
 	Fix issue with handling SNR calculation in ranking.
