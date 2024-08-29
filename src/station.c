@@ -2105,7 +2105,8 @@ static void station_early_neighbor_report_cb(struct netdev *netdev, int err,
 				&station->roam_freqs);
 }
 
-static bool station_can_fast_transition(struct handshake_state *hs,
+static bool station_can_fast_transition(struct station *station,
+					struct handshake_state *hs,
 					struct scan_bss *bss)
 {
 	uint16_t mdid;
@@ -2131,6 +2132,16 @@ static bool station_can_fast_transition(struct handshake_state *hs,
 
 		if (!IE_AKM_IS_FT(rsn_info.akm_suites))
 			return false;
+	}
+
+	/*
+	 * FT-over-Air in its current form relies on CMD_REMAIN_ON_CHANNEL. Some
+	 * drivers do not support this so only allow over-DS if this is the case
+	 */
+	if (!(hs->mde[4] & 1) &&
+			!wiphy_supports_cmd_offchannel(station->wiphy)) {
+		l_debug("FT-over-Air needs offchannel, using reassociation");
+		return false;
 	}
 
 	return true;
@@ -2596,7 +2607,7 @@ static bool station_try_next_transition(struct station *station,
 	station->ap_directed_roaming = false;
 
 	/* Can we use Fast Transition? */
-	if (station_can_fast_transition(hs, bss) && !no_ft)
+	if (station_can_fast_transition(station, hs, bss) && !no_ft)
 		return station_fast_transition(station, bss);
 
 	/* Non-FT transition */
