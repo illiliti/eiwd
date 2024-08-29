@@ -102,7 +102,6 @@ struct station {
 	struct l_queue *owe_hidden_scan_ids;
 
 	/* Roaming related members */
-	struct timespec roam_min_time;
 	struct l_timeout *roam_trigger_timeout;
 	uint32_t roam_scan_id;
 	uint8_t preauth_bssid[6];
@@ -1820,7 +1819,6 @@ static void station_roam_state_clear(struct station *station)
 	station->preparing_roam = false;
 	station->roam_scan_full = false;
 	station->signal_low = false;
-	station->roam_min_time.tv_sec = 0;
 	station->netconfig_after_roam = false;
 	station->last_roam_scan = 0;
 
@@ -3052,20 +3050,33 @@ static void station_roam_trigger_cb(struct l_timeout *timeout, void *user_data)
 
 static void station_roam_timeout_rearm(struct station *station, int seconds)
 {
-	struct timespec now, min_timeout;
+	uint64_t remaining;
 
-	clock_gettime(CLOCK_MONOTONIC, &now);
+	if (!station->roam_trigger_timeout)
+		goto new_timeout;
 
-	min_timeout = now;
-	min_timeout.tv_sec += seconds;
+	/* If we cant get the remaining time just create a new timer */
+	if (L_WARN_ON(!l_timeout_remaining(station->roam_trigger_timeout,
+						&remaining))) {
+		l_timeout_remove(station->roam_trigger_timeout);
+		goto new_timeout;
+	}
 
-	if (station->roam_min_time.tv_sec < min_timeout.tv_sec ||
-			(station->roam_min_time.tv_sec == min_timeout.tv_sec &&
-			 station->roam_min_time.tv_nsec < min_timeout.tv_nsec))
-		station->roam_min_time = min_timeout;
+	/* Our current timeout is less than the rearm, keep current */
+	if (l_time_before(remaining, seconds * L_USEC_PER_SEC)) {
+		l_debug("Keeping current roam timeout of %lu seconds",
+				l_time_to_secs(remaining));
+		return;
+	}
 
-	seconds = station->roam_min_time.tv_sec - now.tv_sec +
-		(station->roam_min_time.tv_nsec > now.tv_nsec ? 1 : 0);
+	l_debug("Rescheduling roam timeout from %lu to %u seconds",
+			l_time_to_secs(remaining), seconds);
+	l_timeout_modify(station->roam_trigger_timeout, seconds);
+
+	return;
+
+new_timeout:
+	l_debug("Arming new roam timer for %u seconds", seconds);
 
 	station->roam_trigger_timeout =
 		l_timeout_create(seconds, station_roam_trigger_cb,
@@ -3223,7 +3234,6 @@ static void station_ok_rssi(struct station *station)
 	station->roam_trigger_timeout = NULL;
 
 	station->signal_low = false;
-	station->roam_min_time.tv_sec = 0;
 }
 
 static void station_event_roamed(struct station *station, struct scan_bss *new)
@@ -3569,12 +3579,15 @@ static void station_packets_lost(struct station *station, uint32_t num_pkts)
 		l_debug("Too many roam attempts in %u second timeframe, "
 			"delaying roam", LOSS_ROAM_RATE_LIMIT);
 
-		if (station->roam_trigger_timeout)
-			return;
-
 		station_roam_timeout_rearm(station, LOSS_ROAM_RATE_LIMIT);
 
 		return;
+	}
+
+	if (station->roam_trigger_timeout) {
+		l_debug("canceling roam timer to roam immediately");
+		l_timeout_remove(station->roam_trigger_timeout);
+		station->roam_trigger_timeout = NULL;
 	}
 
 	station_start_roam(station);
@@ -3588,9 +3601,6 @@ static void station_beacon_lost(struct station *station)
 		return;
 
 	station_debug_event(station, "beacon-loss-roam");
-
-	if (station->roam_trigger_timeout)
-		return;
 
 	station_roam_timeout_rearm(station, LOSS_ROAM_RATE_LIMIT);
 }
