@@ -3715,6 +3715,9 @@ static int netdev_cqm_rssi_update(struct netdev *netdev)
 
 	l_debug("");
 
+	if (netdev->set_cqm_cmd_id)
+		return -EBUSY;
+
 	if (!wiphy_has_ext_feature(netdev->wiphy,
 					NL80211_EXT_FEATURE_CQM_RSSI_LIST))
 		msg = netdev_build_cmd_cqm_rssi_update(netdev, NULL, 0);
@@ -3752,9 +3755,7 @@ static int netdev_set_signal_thresholds(struct netdev *netdev, int threshold,
 	netdev->low_signal_threshold = threshold;
 	netdev->low_signal_threshold_5ghz = threshold_5ghz;
 
-	netdev_cqm_rssi_update(netdev);
-
-	return 0;
+	return netdev_cqm_rssi_update(netdev);
 }
 
 int netdev_lower_signal_threshold(struct netdev *netdev)
