@@ -48,6 +48,14 @@
 #define ARPHRD_NETLINK	824
 #endif
 
+#ifndef RMNET_FLAGS_INGRESS_MAP_CKSUMV5
+#define RMNET_FLAGS_INGRESS_MAP_CKSUMV5 (1U << 4)
+#endif
+
+#ifndef RMNET_FLAGS_EGRESS_MAP_CKSUMV5
+#define RMNET_FLAGS_EGRESS_MAP_CKSUMV5 (1U << 5)
+#endif
+
 #include "linux/nl80211.h"
 
 #include "ell/useful.h"
