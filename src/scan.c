@@ -2122,6 +2122,22 @@ static void scan_wiphy_watch(struct wiphy *wiphy,
 		return;
 
 	/*
+	 * If the regdom update finished with GET_SCAN/GET_SURVEY in flight
+	 * don't try and get the results again and allow those calls to finish.
+	 * For the non-6ghz case this has no downside as the results should not
+	 * differ.
+	 *
+	 * If 6ghz was enabled by this regdom update there is still not much we
+	 * can do since the scan itself is already completed. Appending to the
+	 * command list won't do anything.
+	 *
+	 * TODO: Handle the 6ghz case by checking for this case in get_scan_done
+	 *       and continuing to iterate the sr->cmds array.
+	 */
+	if (sc->get_scan_cmd_id || sc->get_survey_cmd_id)
+		return;
+
+	/*
 	 * This update did not allow 6GHz, or the original request was
 	 * not expecting 6GHz. The periodic scan should now be ended.
 	 */
