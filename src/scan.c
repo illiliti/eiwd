@@ -2089,9 +2089,10 @@ static void scan_get_results(struct scan_context *sc, struct scan_request *sr,
 	results->bss_list = l_queue_new();
 	results->freqs = freqs;
 
-	if (scan_survey(results))
+	/* If there is no scan request (external scan), just get the results */
+	if (sr && scan_survey(results))
 		return;
-	else
+	else if (sr)
 		l_warn("failed to start a scan survey");
 
 	get_results(results);
