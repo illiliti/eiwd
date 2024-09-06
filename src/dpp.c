@@ -1840,7 +1840,7 @@ static void dpp_send_pkex_exchange_request(struct dpp_sm *dpp)
 
 	l_put_le16(l_ecc_curve_get_ike_group(dpp->curve), &group);
 
-	iov[0].iov_len = dpp_build_header(own_mac, broadcast,
+	iov[0].iov_len = dpp_build_header(own_mac, dpp->peer_addr,
 				DPP_FRAME_PKEX_VERSION1_XCHG_REQUEST, hdr);
 	iov[0].iov_base = hdr;
 
