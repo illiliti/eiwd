@@ -2831,6 +2831,12 @@ static bool dpp_pkex_start_authentication(struct dpp_sm *dpp)
 
 	dpp_property_changed_notify(dpp);
 
+	/*
+	 * No longer waiting for an arbitrary peer to respond, reduce the
+	 * timeout now that we are proceeding to authentication
+	 */
+	dpp_reset_protocol_timer(dpp, DPP_AUTH_PROTO_TIMEOUT);
+
 	if (dpp->role == DPP_CAPABILITY_ENROLLEE) {
 		dpp->new_freq = dpp->current_freq;
 
@@ -4283,10 +4289,11 @@ static uint32_t *dpp_default_freqs(struct dpp_sm *dpp, size_t *out_len)
 
 static void __dpp_pkex_start_enrollee(struct dpp_sm *dpp)
 {
+	uint32_t timeout = minsize(DPP_PKEX_PROTO_TIMEOUT,
+			dpp->freqs_len * DPP_PKEX_PROTO_PER_FREQ_TIMEOUT);
 	dpp->current_freq = dpp->freqs[0];
 
-	dpp_reset_protocol_timer(dpp,
-			dpp->freqs_len * DPP_PKEX_PROTO_PER_FREQ_TIMEOUT);
+	dpp_reset_protocol_timer(dpp, timeout);
 
 	l_debug("PKEX start enrollee (id=%s)", dpp->pkex_id ?: "unset");
 
