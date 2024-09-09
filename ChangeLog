@@ -1,3 +1,11 @@
+ver 2.21:
+	Fix issue with pending scan requests after regdom update.
+	Fix issue with handling the rearming of the roaming timeout.
+	Fix issue with survey request and externally triggered scans.
+	Fix issue with RSSI fallback when setting CQM threshold fails.
+	Fix issue with FT-over-Air without offchannel support.
+	Add support for per station Affinities property.
+
 ver 2.20:
 	Fix issue with PKEX timeout and number of frequencies used.
 	Fix issue with handling logic for handshake failures.
