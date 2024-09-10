@@ -4601,7 +4601,6 @@ static void station_affinity_disconnected_cb(struct l_dbus *dbus,
 	struct station *station = user_data;
 
 	l_dbus_remove_watch(dbus_get_bus(), station->affinity_watch);
-	station->affinity_watch = 0;
 
 	l_debug("client that set affinity has disconnected");
 
@@ -4613,6 +4612,8 @@ static void station_affinity_watch_destroy(void *user_data)
 {
 	struct station *station = user_data;
 	bool empty = l_queue_length(station->affinities) == 0;
+
+	station->affinity_watch = 0;
 
 	l_free(station->affinity_client);
 	station->affinity_client = NULL;
