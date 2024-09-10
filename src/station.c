@@ -1767,6 +1767,9 @@ static void station_enter_state(struct station *station,
 	case STATION_STATE_ROAMING:
 	case STATION_STATE_FT_ROAMING:
 	case STATION_STATE_FW_ROAMING:
+		l_dbus_property_changed(dbus, netdev_get_path(station->netdev),
+				IWD_STATION_INTERFACE, "ConnectedAccessPoint");
+
 		if (station->affinity_watch) {
 			l_dbus_remove_watch(dbus_get_bus(),
 						station->affinity_watch);
