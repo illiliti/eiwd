@@ -1,3 +1,7 @@
+ver 2.22:
+	Fix issue with handling the Affinities property.
+	Fix issue with handling ConnectedAccessPoint signal when roaming.
+
 ver 2.21:
 	Fix issue with pending scan requests after regdom update.
 	Fix issue with handling the rearming of the roaming timeout.
