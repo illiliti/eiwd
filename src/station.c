@@ -3094,19 +3094,19 @@ static void station_roam_timeout_rearm(struct station *station, int seconds)
 
 	/* Our current timeout is less than the rearm, keep current */
 	if (l_time_before(remaining, seconds * L_USEC_PER_SEC)) {
-		l_debug("Keeping current roam timeout of %lu seconds",
+		l_debug("Keeping current roam timeout of %" PRIx64 " seconds",
 				l_time_to_secs(remaining));
 		return;
 	}
 
-	l_debug("Rescheduling roam timeout from %lu to %u seconds",
+	l_debug("Rescheduling roam timeout from %" PRIx64" to %d seconds",
 			l_time_to_secs(remaining), seconds);
 	l_timeout_modify(station->roam_trigger_timeout, seconds);
 
 	return;
 
 new_timeout:
-	l_debug("Arming new roam timer for %u seconds", seconds);
+	l_debug("Arming new roam timer for %d seconds", seconds);
 
 	station->roam_trigger_timeout =
 		l_timeout_create(seconds, station_roam_trigger_cb,
