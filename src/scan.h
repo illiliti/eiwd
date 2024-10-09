@@ -20,6 +20,8 @@
  *
  */
 
+#include "src/defs.h"
+
 struct scan_freq_set;
 struct ie_rsn_info;
 struct ie_owe_transition_info;
@@ -62,7 +64,7 @@ struct scan_bss {
 	};
 	struct ie_owe_transition_info *owe_trans;
 	uint8_t mde[3];
-	uint8_t ssid[32];
+	uint8_t ssid[SSID_MAX_SIZE];
 	uint8_t ssid_len;
 	uint8_t utilization;
 	uint8_t cc[3];
@@ -75,6 +77,7 @@ struct scan_bss {
 	uint64_t parent_tsf;
 	uint8_t *wfd;		/* Concatenated WFD IEs */
 	ssize_t wfd_size;	/* Size of Concatenated WFD IEs */
+	int8_t snr;
 	bool mde_present : 1;
 	bool cc_present : 1;
 	bool cap_rm_neighbor_report : 1;
@@ -82,7 +85,6 @@ struct scan_bss {
 	bool vht_capable : 1;
 	bool anqp_capable : 1;
 	bool hs20_capable : 1;
-	bool force_default_sae_group : 1;
 	bool proxy_arp : 1;
 	bool hs20_dgaf_disable : 1;
 	uint8_t cost_level : 3;
@@ -90,6 +92,8 @@ struct scan_bss {
 	bool dpp_configurator : 1;
 	bool sae_pw_id_used : 1;
 	bool sae_pw_id_exclusive : 1;
+	bool have_snr : 1;
+	bool have_utilization : 1;
 };
 
 struct scan_parameters {

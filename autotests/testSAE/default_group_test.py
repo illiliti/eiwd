@@ -13,7 +13,7 @@ import testutil
 
 class Test(unittest.TestCase):
 
-    def validate_connection(self, wd, rejected=False):
+    def validate_connection(self, wd, hostapd, rejected=False):
         devices = wd.list_devices(1)
         self.assertIsNotNone(devices)
         device = devices[0]
@@ -29,14 +29,14 @@ class Test(unittest.TestCase):
         wd.wait(2)
 
         testutil.test_iface_operstate(intf=device.name)
-        testutil.test_ifaces_connected(if0=device.name, if1=self.hostapd.ifname)
+        testutil.test_ifaces_connected(if0=device.name, if1=hostapd.ifname)
 
         if not rejected:
             self.assertEqual(device.event_ocurred("ecc-group-rejected"), False)
 
-        print(self.hostapd._get_status())
+        print(hostapd._get_status())
 
-        sta_status = self.hostapd.sta_status(device.address)
+        sta_status = hostapd.sta_status(device.address)
 
         print(sta_status)
 
@@ -51,22 +51,27 @@ class Test(unittest.TestCase):
     #   - Connect, try only group 19
     def test_auto_selection(self):
         IWD.copy_to_storage("profiles/ssidSAE.psk.default", name="ssidSAE.psk")
-        self.validate_connection(self.wd, rejected=True)
+        self.validate_connection(self.wd, self.hostapd, rejected=True)
 
-        self.validate_connection(self.wd, rejected=False)
+        self.validate_connection(self.wd, self.hostapd, rejected=False)
 
     # Try group 19 first
     def test_default_group_enabled(self):
         IWD.copy_to_storage("profiles/ssidSAE.psk.default_group", name="ssidSAE.psk")
-        self.validate_connection(self.wd)
+        self.validate_connection(self.wd, self.hostapd)
+
+    # Try group 19 first, with H2E
+    def test_default_group_enabled_h2e(self):
+        IWD.copy_to_storage("profiles/ssidSAE-H2E.psk.default_group", name="ssidSAE-H2E.psk")
+        self.validate_connection(self.wd, self.hostapd_h2e)
 
     # Same as auto-selection but won't retain the default group setting
     def test_default_group_disabled(self):
         IWD.copy_to_storage("profiles/ssidSAE.psk.most_secure", name="ssidSAE.psk")
-        self.validate_connection(self.wd, rejected=True)
+        self.validate_connection(self.wd, self.hostapd, rejected=True)
 
         # IWD should then retry but use only group 19
-        self.validate_connection(self.wd, rejected=True)
+        self.validate_connection(self.wd, self.hostapd, rejected=True)
 
     def setUp(self):
         self.hostapd.default()
@@ -87,6 +92,9 @@ class Test(unittest.TestCase):
     def setUpClass(cls):
         cls.hostapd = HostapdCLI(config='ssidSAE.conf')
         cls.hostapd.default()
+
+        cls.hostapd_h2e = HostapdCLI(config='ssidSAE-H2E.conf')
+        cls.hostapd_h2e.default()
 
     @classmethod
     def tearDownClass(cls):

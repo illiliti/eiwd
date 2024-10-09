@@ -184,8 +184,12 @@ class HostapdCLI(object):
         cmd = self.cmdline + ['wps_pin', 'any', pin]
         ctx.start_process(cmd).wait()
 
-    def deauthenticate(self, client_address):
+    def deauthenticate(self, client_address, reason=None, test=None):
         cmd = self.cmdline + ['deauthenticate', client_address]
+
+        if reason:
+            cmd.append(f"reason={reason} test={test}")
+
         ctx.start_process(cmd).wait()
 
     def eapol_reauth(self, client_address):

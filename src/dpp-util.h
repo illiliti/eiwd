@@ -19,6 +19,9 @@
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  *
  */
+
+#include "src/defs.h"
+
 struct l_ecc_point;
 struct l_ecc_scalar;
 enum ie_rsn_akm_suite;
@@ -112,7 +115,7 @@ enum dpp_attribute_type {
 };
 
 struct dpp_configuration {
-	char ssid[33];
+	char ssid[SSID_MAX_SIZE + 1];
 	size_t ssid_len;
 	uint32_t akm_suites;
 	char *passphrase;

@@ -4,7 +4,7 @@ import unittest
 import sys
 
 sys.path.append('../util')
-from iwd import IWD, SharedCodeAgent
+from iwd import IWD, SharedCodeAgent, DeviceState
 from iwd import DeviceProvisioning
 from wpas import Wpas
 from hostapd import HostapdCLI
@@ -160,10 +160,8 @@ class Test(unittest.TestCase):
 
     def test_pkex_iwd_to_iwd(self):
         self.start_iwd_pkex_configurator(self.device[0])
-
-        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
-
         self.device[1].autoconnect = True
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
 
         condition = 'obj.state == DeviceState.connected'
         self.wd.wait_for_object_condition(self.device[1], condition)
@@ -176,10 +174,8 @@ class Test(unittest.TestCase):
 
     def test_pkex_configurator_with_agent(self):
         self.start_iwd_pkex_configurator(self.device[0], agent=True)
-
-        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
-
         self.device[1].autoconnect = True
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
 
         condition = 'obj.state == DeviceState.connected'
         self.wd.wait_for_object_condition(self.device[1], condition)
@@ -198,8 +194,8 @@ class Test(unittest.TestCase):
 
         self.start_iwd_pkex_configurator(self.device[0])
 
-        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
         self.device[1].autoconnect = False
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
 
         condition = 'obj.state == DeviceState.connected'
         self.wd.wait_for_object_condition(self.device[1], condition)
@@ -209,6 +205,24 @@ class Test(unittest.TestCase):
             settings = f.read()
 
         self.assertIn("SendHostname=true", settings)
+
+    def test_existing_incorrect_profile(self):
+        self.hapd.reload()
+        self.hapd.wait_for_event('AP-ENABLED')
+        IWD.copy_to_storage("existingProfile.psk", "/tmp/ns0/", "ssidCCMP.psk")
+
+        # Start connecting
+        self.device[1].autoconnect = True
+        self.wd.wait_for_object_condition(self.device[1], 'obj.state == DeviceState.connecting')
+
+        # We should be able to start DPP despite the connecting state
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
+
+        self.start_iwd_pkex_configurator(self.device[0])
+        self.assertEqual(self.device[1].state, DeviceState.disconnected)
+
+        condition = 'obj.state == DeviceState.connected'
+        self.wd.wait_for_object_condition(self.device[1], condition)
 
     def test_existing_hidden_network(self):
         self.hapd_hidden.reload()
@@ -222,8 +236,9 @@ class Test(unittest.TestCase):
 
         self.start_iwd_pkex_configurator(self.device[0], profile='ssidHidden.psk')
 
-        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
         self.device[1].autoconnect = False
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
+
 
         condition = 'obj.state == DeviceState.connected'
         self.wd.wait_for_object_condition(self.device[1], condition)
@@ -239,8 +254,8 @@ class Test(unittest.TestCase):
         self.hapd_hidden.wait_for_event('AP-ENABLED')
         self.start_iwd_pkex_configurator(self.device[0], profile='ssidHidden.psk')
 
-        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
         self.device[1].autoconnect = False
+        self.device[1].dpp_pkex_enroll('secret123', identifier="test")
 
         condition = 'obj.state == DeviceState.connected'
         self.wd.wait_for_object_condition(self.device[1], condition)

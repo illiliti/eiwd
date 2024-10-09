@@ -48,6 +48,7 @@
 #define IWD_NETCONFIG_AGENT_INTERFACE \
 	"net.connman.iwd.NetworkConfigurationAgent"
 #define IWD_SHARED_CODE_AGENT_INTERFACE "net.connman.iwd.SharedCodeAgent"
+#define IWD_BSS_INTERFACE "net.connman.iwd.BasicServiceSet"
 
 #define IWD_BASE_PATH "/net/connman/iwd"
 #define IWD_AGENT_MANAGER_PATH IWD_BASE_PATH
@@ -81,6 +82,7 @@ struct l_dbus_message *dbus_error_service_set_overlap(
 struct l_dbus_message *dbus_error_already_provisioned(
 						struct l_dbus_message *msg);
 struct l_dbus_message *dbus_error_not_hidden(struct l_dbus_message *msg);
+struct l_dbus_message *dbus_error_permission_denied(struct l_dbus_message *msg);
 
 struct l_dbus_message *dbus_error_from_errno(int err,
 						struct l_dbus_message *msg);

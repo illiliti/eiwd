@@ -29,6 +29,13 @@ struct eapol_sm;
 struct mmpdu_header;
 struct diagnostic_station_info;
 
+#define GENERAL "General"
+#define NETDEV_ADDRESS_RANDOMIZATION GENERAL, "AddressRandomization"
+#define NETDEV_ROAM_THRESHOLD GENERAL, "RoamThreshold"
+#define NETDEV_ROAM_THRESHOLD_5G GENERAL, "RoamThreshold5G"
+#define NETDEV_CRITICAL_ROAM_THRESHOLD GENERAL, "CriticalRoamThreshold"
+#define NETDEV_CRITICAL_ROAM_THRESHOLD_5G GENERAL, "CriticalRoamThreshold5G"
+
 enum netdev_result {
 	NETDEV_RESULT_OK,
 	NETDEV_RESULT_AUTHENTICATION_FAILED,
@@ -36,6 +43,7 @@ enum netdev_result {
 	NETDEV_RESULT_HANDSHAKE_FAILED,
 	NETDEV_RESULT_KEY_SETTING_FAILED,
 	NETDEV_RESULT_ABORTED,
+	NETDEV_RESULT_DISCONNECTED,
 };
 
 enum netdev_event {
@@ -86,6 +94,7 @@ typedef void (*netdev_command_cb_t)(struct netdev *netdev, int result,
  * NETDEV_RESULT_HANDSHAKE_FAILED - MMPDU_REASON_CODE
  * NETDEV_RESULT_KEY_SETTING_FAILED - unused
  * NETDEV_RESULT_ABORTED - unused.
+ * NETDEV_RESULT_DISCONNECTED - MMPDU_REASON_CODE
  */
 typedef void (*netdev_connect_cb_t)(struct netdev *netdev,
 					enum netdev_result result,
@@ -195,6 +204,8 @@ int netdev_neighbor_report_req(struct netdev *netdev,
 
 int netdev_set_rssi_report_levels(struct netdev *netdev, const int8_t *levels,
 					size_t levels_num);
+int netdev_lower_signal_threshold(struct netdev *netdev);
+int netdev_raise_signal_threshold(struct netdev *netdev);
 
 int netdev_get_station(struct netdev *netdev, const uint8_t *mac,
 			netdev_get_station_cb_t cb, void *user_data,

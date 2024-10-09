@@ -59,6 +59,7 @@
 #define DPP_FRAME_RETRY_TIMEOUT 1
 #define DPP_AUTH_PROTO_TIMEOUT 10
 #define DPP_PKEX_PROTO_TIMEOUT 120
+#define DPP_PKEX_PROTO_PER_FREQ_TIMEOUT 10
 
 static uint32_t netdev_watch;
 static struct l_genl_family *nl80211;
@@ -193,6 +194,7 @@ struct dpp_sm {
 	bool roc_started : 1;
 	bool channel_switch : 1;
 	bool mutual_auth : 1;
+	bool autoconnect : 1;
 };
 
 static const char *dpp_role_to_string(enum dpp_capability role)
@@ -469,6 +471,8 @@ static void dpp_free_auth_data(struct dpp_sm *dpp)
 
 static void dpp_reset(struct dpp_sm *dpp)
 {
+	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+
 	if (dpp->uri) {
 		l_free(dpp->uri);
 		dpp->uri = NULL;
@@ -549,12 +553,19 @@ static void dpp_reset(struct dpp_sm *dpp)
 	dpp_property_changed_notify(dpp);
 
 	dpp->interface = DPP_INTERFACE_UNBOUND;
+
+	if (station) {
+		if (dpp->station_watch)
+			station_remove_state_watch(station, dpp->station_watch);
+
+		/* Set the old autoconnect state back to what it was */
+		if (dpp->role == DPP_CAPABILITY_ENROLLEE)
+			station_set_autoconnect(station, dpp->autoconnect);
+	}
 }
 
 static void dpp_free(struct dpp_sm *dpp)
 {
-	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
-
 	dpp_reset(dpp);
 
 	if (dpp->own_asn1) {
@@ -571,13 +582,6 @@ static void dpp_free(struct dpp_sm *dpp)
 		l_ecc_scalar_free(dpp->boot_private);
 		dpp->boot_private = NULL;
 	}
-
-	/*
-	 * Since this is called when the netdev goes down, station may already
-	 * be gone in which case the state watch will automatically go away.
-	 */
-	if (station)
-		station_remove_state_watch(station, dpp->station_watch);
 
 	known_networks_watch_remove(dpp->known_network_watch);
 
@@ -1836,7 +1840,7 @@ static void dpp_send_pkex_exchange_request(struct dpp_sm *dpp)
 
 	l_put_le16(l_ecc_curve_get_ike_group(dpp->curve), &group);
 
-	iov[0].iov_len = dpp_build_header(own_mac, broadcast,
+	iov[0].iov_len = dpp_build_header(own_mac, dpp->peer_addr,
 				DPP_FRAME_PKEX_VERSION1_XCHG_REQUEST, hdr);
 	iov[0].iov_base = hdr;
 
@@ -2368,7 +2372,7 @@ static void authenticate_response(struct dpp_sm *dpp, const uint8_t *from,
 		}
 	}
 
-	if (status != DPP_STATUS_OK || !r_boot_hash || !r_proto ) {
+	if (status != DPP_STATUS_OK || !r_boot_hash || !r_proto || !wrapped) {
 		l_debug("Auth response bad status or missing attributes");
 		return;
 	}
@@ -2826,6 +2830,12 @@ static bool dpp_pkex_start_authentication(struct dpp_sm *dpp)
 	dpp->mutual_auth = true;
 
 	dpp_property_changed_notify(dpp);
+
+	/*
+	 * No longer waiting for an arbitrary peer to respond, reduce the
+	 * timeout now that we are proceeding to authentication
+	 */
+	dpp_reset_protocol_timer(dpp, DPP_AUTH_PROTO_TIMEOUT);
 
 	if (dpp->role == DPP_CAPABILITY_ENROLLEE) {
 		dpp->new_freq = dpp->current_freq;
@@ -3721,6 +3731,9 @@ static void dpp_frame_watch(struct dpp_sm *dpp, uint16_t frame_type,
 					L_UINT_TO_PTR(frame_type), NULL);
 }
 
+static void dpp_start_enrollee(struct dpp_sm *dpp);
+static bool dpp_start_pkex_enrollee(struct dpp_sm *dpp);
+
 /*
  * Station is unaware of DPP's state so we need to handle a few cases here so
  * weird stuff doesn't happen:
@@ -3734,27 +3747,50 @@ static void dpp_frame_watch(struct dpp_sm *dpp, uint16_t frame_type,
  *     DPP finishes.
  *
  * Other conditions shouldn't ever happen i.e. configuring and going into a
- * connecting state or enrolling and going to a disconnected/roaming state.
+ * connecting state or enrolling and going to a roaming state.
  */
 static void dpp_station_state_watch(enum station_state state, void *user_data)
 {
 	struct dpp_sm *dpp = user_data;
 
-	if (dpp->state == DPP_STATE_NOTHING)
+	if (dpp->state == DPP_STATE_NOTHING ||
+					dpp->interface == DPP_INTERFACE_UNBOUND)
 		return;
 
 	switch (state) {
 	case STATION_STATE_DISCONNECTED:
+		/* DPP-initiated disconnect, the enrollee can now start */
+		if (dpp->role == DPP_CAPABILITY_ENROLLEE) {
+			l_debug("Starting enrollee after disconnect");
+
+			if (dpp->interface == DPP_INTERFACE_DPP)
+				dpp_start_enrollee(dpp);
+			else
+				dpp_start_pkex_enrollee(dpp);
+
+			return;
+		}
+
+		break;
 	case STATION_STATE_DISCONNECTING:
+		/* Normal part of disconnecting prior to enrolling */
+		if (dpp->role == DPP_CAPABILITY_ENROLLEE)
+			return;
+
+		/* fall through */
 	case STATION_STATE_ROAMING:
 	case STATION_STATE_FT_ROAMING:
 	case STATION_STATE_FW_ROAMING:
+		/*
+		 * An enrollee will always be disconnected prior to starting
+		 * so a roaming condition should never happen.
+		 */
 		if (L_WARN_ON(dpp->role == DPP_CAPABILITY_ENROLLEE))
-			dpp_reset(dpp);
+			goto reset;
 
 		if (dpp->role == DPP_CAPABILITY_CONFIGURATOR) {
 			l_debug("Disconnected while configuring, stopping DPP");
-			dpp_reset(dpp);
+			goto reset;
 		}
 
 		break;
@@ -3762,28 +3798,22 @@ static void dpp_station_state_watch(enum station_state state, void *user_data)
 	case STATION_STATE_CONNECTED:
 	case STATION_STATE_CONNECTING_AUTO:
 	case STATION_STATE_NETCONFIG:
-		if (L_WARN_ON(dpp->role == DPP_CAPABILITY_CONFIGURATOR))
-			dpp_reset(dpp);
-
-		if (dpp->role == DPP_CAPABILITY_ENROLLEE) {
-			l_debug("Connecting while enrolling, stopping DPP");
-			dpp_reset(dpp);
-		}
-
-		break;
-
-	/*
-	 * Autoconnect states are fine for enrollees. This makes it nicer for
-	 * the user since they don't need to explicity Disconnect() to disable
-	 * autoconnect, then re-enable it if DPP fails.
-	 */
 	case STATION_STATE_AUTOCONNECT_FULL:
 	case STATION_STATE_AUTOCONNECT_QUICK:
-		if (L_WARN_ON(dpp->role == DPP_CAPABILITY_CONFIGURATOR))
-			dpp_reset(dpp);
+		/*
+		 * The user could have issued a connection request during
+		 * enrolling, in which case DPP should be canceled. We should
+		 * never hit this case as a configurator as a disconnect would
+		 * need to come prior.
+		 */
+		L_WARN_ON(dpp->role == DPP_CAPABILITY_CONFIGURATOR);
 
-		break;
+		goto reset;
 	}
+
+reset:
+	l_debug("Resetting DPP after station state change (state=%u)", state);
+	dpp_reset(dpp);
 }
 
 static void dpp_create(struct netdev *netdev)
@@ -3793,7 +3823,6 @@ static void dpp_create(struct netdev *netdev)
 	uint8_t dpp_conf_response_prefix[] = { 0x04, 0x0b };
 	uint8_t dpp_conf_request_prefix[] = { 0x04, 0x0a };
 	uint64_t wdev_id = netdev_get_wdev_id(netdev);
-	struct station *station = station_find(netdev_get_ifindex(netdev));
 
 	dpp->netdev = netdev;
 	dpp->state = DPP_STATE_NOTHING;
@@ -3839,8 +3868,6 @@ static void dpp_create(struct netdev *netdev)
 				sizeof(dpp_conf_request_prefix),
 				dpp_handle_config_request_frame, dpp, NULL);
 
-	dpp->station_watch = station_add_state_watch(station,
-					dpp_station_state_watch, dpp, NULL);
 	dpp->known_network_watch = known_networks_watch_add(
 					dpp_known_network_watch, dpp, NULL);
 
@@ -3927,42 +3954,76 @@ static void dpp_start_presence(struct dpp_sm *dpp, uint32_t *limit_freqs,
 	dpp_start_offchannel(dpp, dpp->current_freq);
 }
 
-static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
-						struct l_dbus_message *message,
-						void *user_data)
+static int dpp_try_disconnect_station(struct dpp_sm *dpp,
+					bool *out_disconnect_started)
 {
-	struct dpp_sm *dpp = user_data;
-	uint32_t freq = band_channel_to_freq(6, BAND_FREQ_2_4_GHZ);
 	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+	int ret;
+	bool started = false;
 
-	if (dpp->state != DPP_STATE_NOTHING ||
-				dpp->interface != DPP_INTERFACE_UNBOUND)
-		return dbus_error_busy(message);
+	/* Unusual case, but an enrollee could still be started */
+	if (!station)
+		goto done;
 
-	/*
-	 * Station isn't actually required for DPP itself, although this will
-	 * prevent connecting to the network once configured.
-	 */
-	if (station && station_get_connected_network(station)) {
-		l_warn("cannot be enrollee while connected, please disconnect");
-		return dbus_error_busy(message);
-	} else if (!station)
-		l_debug("No station device, continuing anyways...");
+	dpp->autoconnect = station_get_autoconnect(station);
+	station_set_autoconnect(station, false);
+
+	switch (station_get_state(station)) {
+	case STATION_STATE_AUTOCONNECT_QUICK:
+	case STATION_STATE_AUTOCONNECT_FULL:
+		/* Should never happen since we just set autoconnect false */
+		l_warn("Still in autoconnect state after setting false!");
+
+		/* fall through */
+	case STATION_STATE_DISCONNECTED:
+		break;
+	case STATION_STATE_ROAMING:
+	case STATION_STATE_FT_ROAMING:
+	case STATION_STATE_FW_ROAMING:
+	case STATION_STATE_CONNECTING:
+	case STATION_STATE_CONNECTING_AUTO:
+	case STATION_STATE_CONNECTED:
+	case STATION_STATE_NETCONFIG:
+		/*
+		 * For any connected or connection in progress state, start a
+		 * disconnect
+		 */
+		ret = station_disconnect(station);
+		if (ret < 0) {
+			l_warn("failed to start disconnecting (%d)", ret);
+			station_set_autoconnect(station, dpp->autoconnect);
+
+			return ret;
+		}
+		/* fall through */
+	case STATION_STATE_DISCONNECTING:
+		l_debug("Delaying DPP start until after disconnect");
+		started = true;
+
+		break;
+	}
+
+	dpp->station_watch = station_add_state_watch(station,
+						dpp_station_state_watch,
+						dpp, NULL);
+done:
+	*out_disconnect_started = started;
+
+	return 0;
+}
+
+static void dpp_start_enrollee(struct dpp_sm *dpp)
+{
+	uint32_t freq = band_channel_to_freq(6, BAND_FREQ_2_4_GHZ);
 
 	dpp->uri = dpp_generate_uri(dpp->own_asn1, dpp->own_asn1_len, 2,
 					netdev_get_address(dpp->netdev), &freq,
 					1, NULL, NULL);
 
-	dpp->state = DPP_STATE_PRESENCE;
-	dpp->role = DPP_CAPABILITY_ENROLLEE;
-	dpp->interface = DPP_INTERFACE_DPP;
-
 	l_ecdh_generate_key_pair(dpp->curve, &dpp->proto_private,
 					&dpp->own_proto_public);
 
 	l_debug("DPP Start Enrollee: %s", dpp->uri);
-
-	dpp->pending = l_dbus_message_ref(message);
 
 	/*
 	 * Going off spec here. Select a single channel to send presence
@@ -3972,6 +4033,39 @@ static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
 	dpp_start_presence(dpp, &freq, 1);
 
 	dpp_property_changed_notify(dpp);
+}
+
+static struct l_dbus_message *dpp_dbus_start_enrollee(struct l_dbus *dbus,
+						struct l_dbus_message *message,
+						void *user_data)
+{
+	struct dpp_sm *dpp = user_data;
+	bool wait_for_disconnect;
+	int ret;
+
+	if (dpp->state != DPP_STATE_NOTHING ||
+				dpp->interface != DPP_INTERFACE_UNBOUND)
+		return dbus_error_busy(message);
+
+	dpp->state = DPP_STATE_PRESENCE;
+	dpp->role = DPP_CAPABILITY_ENROLLEE;
+	dpp->interface = DPP_INTERFACE_DPP;
+
+	ret = dpp_try_disconnect_station(dpp, &wait_for_disconnect);
+	if (ret < 0) {
+		dpp_reset(dpp);
+		return dbus_error_from_errno(ret, message);
+	}
+
+	if (!wait_for_disconnect)
+		dpp_start_enrollee(dpp);
+
+	/*
+	 * If a disconnect was started/in progress the enrollee will start once
+	 * that has finished
+	 */
+
+	dpp->pending = l_dbus_message_ref(message);
 
 	return NULL;
 }
@@ -4105,6 +4199,9 @@ static struct l_dbus_message *dpp_start_configurator_common(
 
 	dpp_property_changed_notify(dpp);
 
+	dpp->station_watch = station_add_state_watch(station,
+					dpp_station_state_watch, dpp, NULL);
+
 	l_debug("DPP Start Configurator: %s", dpp->uri);
 
 	reply = l_dbus_message_new_method_return(message);
@@ -4190,6 +4287,19 @@ static uint32_t *dpp_default_freqs(struct dpp_sm *dpp, size_t *out_len)
 	return freqs_out;
 }
 
+static void __dpp_pkex_start_enrollee(struct dpp_sm *dpp)
+{
+	uint32_t timeout = minsize(DPP_PKEX_PROTO_TIMEOUT,
+			dpp->freqs_len * DPP_PKEX_PROTO_PER_FREQ_TIMEOUT);
+	dpp->current_freq = dpp->freqs[0];
+
+	dpp_reset_protocol_timer(dpp, timeout);
+
+	l_debug("PKEX start enrollee (id=%s)", dpp->pkex_id ?: "unset");
+
+	dpp_start_offchannel(dpp, dpp->current_freq);
+}
+
 static bool dpp_pkex_scan_notify(int err, struct l_queue *bss_list,
 					const struct scan_freq_set *freqs,
 					void *user_data)
@@ -4224,13 +4334,7 @@ static bool dpp_pkex_scan_notify(int err, struct l_queue *bss_list,
 	dpp->freqs = scan_freq_set_to_fixed_array(freq_set, &dpp->freqs_len);
 
 start:
-	dpp->current_freq = dpp->freqs[0];
-
-	dpp_reset_protocol_timer(dpp, DPP_PKEX_PROTO_TIMEOUT);
-
-	l_debug("PKEX start enrollee (id=%s)", dpp->pkex_id ?: "unset");
-
-	dpp_start_offchannel(dpp, dpp->current_freq);
+	__dpp_pkex_start_enrollee(dpp);
 
 	return false;
 
@@ -4246,50 +4350,15 @@ static void dpp_pkex_scan_destroy(void *user_data)
 	dpp->pkex_scan_id = 0;
 }
 
-static bool dpp_start_pkex_enrollee(struct dpp_sm *dpp, const char *key,
-				const char *identifier)
+static bool dpp_start_pkex_enrollee(struct dpp_sm *dpp)
 {
-	_auto_(l_ecc_point_free) struct l_ecc_point *qi = NULL;
-
-	if (identifier)
-		dpp->pkex_id = l_strdup(identifier);
-
-	dpp->pkex_key = l_strdup(key);
-	memcpy(dpp->peer_addr, broadcast, 6);
-	dpp->role = DPP_CAPABILITY_ENROLLEE;
-	dpp->state = DPP_STATE_PKEX_EXCHANGE;
-	dpp->interface = DPP_INTERFACE_PKEX;
-	/*
-	 * In theory a driver could support a lesser duration than 200ms. This
-	 * complicates things since we would need to tack on additional
-	 * offchannel requests to meet the 200ms requirement. This could be done
-	 * but for now use max_roc or 200ms, whichever is less.
-	 */
-	dpp->dwell = (dpp->max_roc < 200) ? dpp->max_roc : 200;
-	/* "DPP R2 devices are expected to use PKEXv1 by default" */
-	dpp->pkex_version = 1;
-
-	if (!l_ecdh_generate_key_pair(dpp->curve, &dpp->pkex_private,
-					&dpp->pkex_public))
-		goto failed;
-
-	/*
-	 * "If Qi is the point-at-infinity, the code shall be deleted and the
-	 * user should be notified to provision a new code"
-	 */
-	qi = dpp_derive_qi(dpp->curve, dpp->pkex_key, dpp->pkex_id,
-				netdev_get_address(dpp->netdev));
-	if (!qi || l_ecc_point_is_infinity(qi)) {
-		l_debug("Cannot derive Qi, provision a new code");
-		goto failed;
-	}
-
-	dpp->pkex_m = l_ecc_point_new(dpp->curve);
-
-	if (!l_ecc_point_add(dpp->pkex_m, dpp->pkex_public, qi))
-		goto failed;
-
 	dpp_property_changed_notify(dpp);
+
+	/* Already have a set (or single) frequency */
+	if (dpp->freqs) {
+		__dpp_pkex_start_enrollee(dpp);
+		return true;
+	}
 
 	/*
 	 * The 'dpp_default_freqs' function returns the default frequencies
@@ -4320,13 +4389,17 @@ failed:
 
 static bool dpp_parse_pkex_args(struct l_dbus_message *message,
 					const char **key_out,
-					const char **id_out)
+					const char **id_out,
+					const char **mac_out,
+					uint32_t *freq_out)
 {
 	struct l_dbus_message_iter iter;
 	struct l_dbus_message_iter variant;
 	const char *dict_key;
 	const char *key = NULL;
 	const char *id = NULL;
+	const char *mac = NULL;
+	uint32_t freq = 0;
 
 	if (!l_dbus_message_get_arguments(message, "a{sv}", &iter))
 		return false;
@@ -4340,6 +4413,14 @@ static bool dpp_parse_pkex_args(struct l_dbus_message *message,
 			if (!l_dbus_message_iter_get_variant(&variant, "s",
 								&id))
 				return false;
+		} else if (!strcmp(dict_key, "Address")) {
+			if (!l_dbus_message_iter_get_variant(&variant, "s",
+								&mac))
+				return false;
+		} else if (!strcmp(dict_key, "Frequency")) {
+			if (!l_dbus_message_iter_get_variant(&variant, "u",
+								&freq))
+				return false;
 		}
 	}
 
@@ -4352,7 +4433,47 @@ static bool dpp_parse_pkex_args(struct l_dbus_message *message,
 	*key_out = key;
 	*id_out = id;
 
+	if (mac_out)
+		*mac_out = mac;
+
+	if (freq_out)
+		*freq_out = freq;
+
 	return true;
+}
+
+static bool dpp_pkex_derive_keys(struct dpp_sm *dpp)
+{
+	_auto_(l_ecc_point_free) struct l_ecc_point *qi = NULL;
+
+	/*
+	 * In theory a driver could support a lesser duration than 200ms. This
+	 * complicates things since we would need to tack on additional
+	 * offchannel requests to meet the 200ms requirement. This could be done
+	 * but for now use max_roc or 200ms, whichever is less.
+	 */
+	dpp->dwell = (dpp->max_roc < 200) ? dpp->max_roc : 200;
+	/* "DPP R2 devices are expected to use PKEXv1 by default" */
+	dpp->pkex_version = 1;
+
+	if (!l_ecdh_generate_key_pair(dpp->curve, &dpp->pkex_private,
+					&dpp->pkex_public))
+		return false;
+
+	/*
+	 * "If Qi is the point-at-infinity, the code shall be deleted and the
+	 * user should be notified to provision a new code"
+	 */
+	qi = dpp_derive_qi(dpp->curve, dpp->pkex_key, dpp->pkex_id,
+				netdev_get_address(dpp->netdev));
+	if (!qi || l_ecc_point_is_infinity(qi)) {
+		l_debug("Cannot derive Qi, provision a new code");
+		return false;
+	}
+
+	dpp->pkex_m = l_ecc_point_new(dpp->curve);
+
+	return l_ecc_point_add(dpp->pkex_m, dpp->pkex_public, qi);
 }
 
 static struct l_dbus_message *dpp_dbus_pkex_start_enrollee(struct l_dbus *dbus,
@@ -4362,7 +4483,10 @@ static struct l_dbus_message *dpp_dbus_pkex_start_enrollee(struct l_dbus *dbus,
 	struct dpp_sm *dpp = user_data;
 	const char *key;
 	const char *id;
-	struct station *station = station_find(netdev_get_ifindex(dpp->netdev));
+	const char *mac_str;
+	uint32_t freq;
+	bool wait_for_disconnect;
+	int ret;
 
 	l_debug("");
 
@@ -4370,14 +4494,47 @@ static struct l_dbus_message *dpp_dbus_pkex_start_enrollee(struct l_dbus *dbus,
 				dpp->interface != DPP_INTERFACE_UNBOUND)
 		return dbus_error_busy(message);
 
-	if (station && station_get_connected_network(station))
-		return dbus_error_busy(message);
-
-	if (!dpp_parse_pkex_args(message, &key, &id))
+	if (!dpp_parse_pkex_args(message, &key, &id, &mac_str, &freq))
 		goto invalid_args;
 
-	if (!dpp_start_pkex_enrollee(dpp, key, id))
+	if (mac_str && !util_string_to_address(mac_str, dpp->peer_addr))
 		goto invalid_args;
+	else if (!mac_str)
+		memcpy(dpp->peer_addr, broadcast, 6);
+
+	if (freq) {
+		dpp->freqs = l_new(uint32_t, 1);
+		dpp->freqs[0] = freq;
+		dpp->freqs_len = 1;
+	}
+
+	dpp->pkex_key = l_strdup(key);
+
+	if (id)
+		dpp->pkex_id = l_strdup(id);
+
+	dpp->role = DPP_CAPABILITY_ENROLLEE;
+	dpp->state = DPP_STATE_PKEX_EXCHANGE;
+	dpp->interface = DPP_INTERFACE_PKEX;
+
+	ret = dpp_try_disconnect_station(dpp, &wait_for_disconnect);
+	if (ret < 0) {
+		dpp_reset(dpp);
+		return dbus_error_from_errno(ret, message);
+	}
+
+	if (!dpp_pkex_derive_keys(dpp)) {
+		dpp_reset(dpp);
+		return dbus_error_failed(message);
+	}
+
+	if (!wait_for_disconnect && !dpp_start_pkex_enrollee(dpp))
+		goto invalid_args;
+
+	/*
+	 * If a disconnect was started/in progress the PKEX enrollee will start
+	 * once that has finished
+	 */
 
 	return l_dbus_message_new_method_return(message);
 
@@ -4426,11 +4583,9 @@ static struct l_dbus_message *dpp_start_pkex_configurator(struct dpp_sm *dpp,
 				dpp->interface != DPP_INTERFACE_UNBOUND)
 		return dbus_error_busy(message);
 
-	if (!dpp->mcast_support) {
-		l_debug("Multicast frame registration not supported, cannot "
-			"start a configurator");
-		return dbus_error_not_supported(message);
-	}
+	if (!dpp->mcast_support)
+		l_debug("Multicast frame registration not supported, only "
+			"enrollees sending uncast will be supported");
 
 	if (!network || !bss)
 		return dbus_error_not_connected(message);
@@ -4462,6 +4617,9 @@ static struct l_dbus_message *dpp_start_pkex_configurator(struct dpp_sm *dpp,
 	dpp_reset_protocol_timer(dpp, DPP_PKEX_PROTO_TIMEOUT);
 	dpp_property_changed_notify(dpp);
 
+	dpp->station_watch = station_add_state_watch(station,
+					dpp_station_state_watch, dpp, NULL);
+
 	if (dpp->pkex_key)
 		l_debug("Starting PKEX configurator for single enrollee");
 	else
@@ -4481,7 +4639,7 @@ static struct l_dbus_message *dpp_dbus_pkex_configure_enrollee(
 
 	l_debug("");
 
-	if (!dpp_parse_pkex_args(message, &key, &id))
+	if (!dpp_parse_pkex_args(message, &key, &id, NULL, NULL))
 		return dbus_error_invalid_args(message);
 
 	return dpp_start_pkex_configurator(dpp, key, id, NULL, message);

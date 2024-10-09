@@ -52,12 +52,6 @@ class Test(unittest.TestCase):
         self.hostapd.wait_for_event("AP-ENABLED")
         self.validate_connection(self.wd, "ssidSAE", self.hostapd, 19)
 
-    def test_SAE_force_group_19(self):
-        # Vendor data from APs which require group 19 be used first
-        self.hostapd.reload()
-        self.hostapd.wait_for_event("AP-ENABLED")
-        self.validate_connection(self.wd, "ssidSAE-default-group", self.hostapd_defgroup, 19)
-
     def test_SAE_Group20(self):
         self.hostapd.set_value('sae_groups', '20')
         self.hostapd.reload()
@@ -88,7 +82,6 @@ class Test(unittest.TestCase):
     def setUpClass(cls):
         cls.hostapd = HostapdCLI(config='ssidSAE.conf')
         cls.hostapd_h2e = HostapdCLI(config='ssidSAE-H2E.conf')
-        cls.hostapd_defgroup = HostapdCLI(config='ssidSAE-default-group.conf')
 
     @classmethod
     def tearDownClass(cls):

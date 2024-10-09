@@ -723,7 +723,8 @@ static void setup_adapter_interface(struct l_dbus_interface *interface)
 
 bool ethdev_init(const char *whitelist, const char *blacklist)
 {
-	struct ifinfomsg msg;
+	struct ifinfomsg ifi;
+	struct l_netlink_message *nlm;
 
 	if (rtnl)
 		return false;
@@ -760,10 +761,11 @@ bool ethdev_init(const char *whitelist, const char *blacklist)
 	if (blacklist)
 		blacklist_filter = l_strsplit(blacklist, ',');
 
-	memset(&msg, 0, sizeof(msg));
+	memset(&ifi, 0, sizeof(ifi));
+	nlm = l_netlink_message_new_sized(RTM_GETLINK, NLM_F_DUMP, sizeof(ifi));
+	l_netlink_message_add_header(nlm, &ifi, sizeof(ifi));
 
-	l_netlink_send(rtnl, RTM_GETLINK, NLM_F_DUMP, &msg, sizeof(msg),
-						getlink_callback, NULL, NULL);
+	l_netlink_send(rtnl, nlm, getlink_callback, NULL, NULL);
 
 	return true;
 }

@@ -34,6 +34,7 @@
 #include <ell/ell.h>
 
 #include "ell/useful.h"
+#include "src/defs.h"
 #include "src/util.h"
 #include "src/band.h"
 
@@ -45,7 +46,7 @@ const char *util_ssid_to_utf8(size_t len, const uint8_t *ssid)
 
 	memset(buf, 0, sizeof(buf));
 
-	if (len > 32)
+	if (len > SSID_MAX_SIZE)
 		goto no_ssid;
 
 	while (i < len && !ssid[i])
@@ -84,7 +85,7 @@ no_ssid:
 
 bool util_ssid_is_utf8(size_t len, const uint8_t *ssid)
 {
-	if (len > 32)
+	if (len > SSID_MAX_SIZE)
 		return false;
 
 	return l_utf8_validate((const char *)ssid, len, NULL);

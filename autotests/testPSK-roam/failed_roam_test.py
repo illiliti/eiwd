@@ -149,6 +149,21 @@ class Test(unittest.TestCase):
         condition = 'obj.state == DeviceState.disconnected'
         self.wd.wait_for_object_condition(device, condition)
 
+    def test_ft_deauth_before_association(self):
+        self.rule2.enabled = True
+        self.rule3.enabled = True
+
+        device = self.wd.list_devices(1)[0]
+
+        self.connect(self.wd, device, self.bss_hostapd[0])
+
+        device.wait_for_event('ft-authenticating', timeout=60)
+
+        self.bss_hostapd[1].deauthenticate(device.address)
+
+        condition = 'obj.state == DeviceState.disconnected'
+        self.wd.wait_for_object_condition(device, condition)
+
     def setUp(self):
         self.wd = IWD(True)
 
@@ -232,6 +247,9 @@ class Test(unittest.TestCase):
         cls.rule2.remove()
         cls.rule3.remove()
         cls.assoc_rule.remove()
+        cls.rule_bss0.remove()
+        cls.rule_bss1.remove()
+        cls.rule_bss2.remove()
 
 if __name__ == '__main__':
     unittest.main(exit=True)

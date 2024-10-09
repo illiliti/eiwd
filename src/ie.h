@@ -23,6 +23,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <unistd.h>
+#include "src/defs.h"
 
 /*
  * Information elements, IEEE Std 802.11-2012 ch. 8.4.2 and
@@ -361,6 +362,11 @@ enum ie_rsn_akm_suite {
 	IE_RSN_AKM_SUITE_OSEN			= 0x40000,
 };
 
+static inline bool IE_AKM_IS_OWE(uint32_t akm)
+{
+	return akm & (IE_RSN_AKM_SUITE_OWE);
+}
+
 static inline bool IE_AKM_IS_SAE(uint32_t akm)
 {
 	return akm & (IE_RSN_AKM_SUITE_SAE_SHA256 |
@@ -560,7 +566,7 @@ struct ie_fils_ip_addr_response_info {
 
 struct ie_owe_transition_info {
 	uint8_t bssid[6];
-	uint8_t ssid[32];
+	uint8_t ssid[SSID_MAX_SIZE];
 	size_t ssid_len;
 	uint8_t oper_class;
 	uint8_t channel;
@@ -634,7 +640,6 @@ int ie_parse_wpa_from_data(const uint8_t *data, size_t len,
 						struct ie_rsn_info *info);
 bool is_ie_wfa_ie(const uint8_t *data, uint8_t len, uint8_t oi_type);
 bool is_ie_wpa_ie(const uint8_t *data, uint8_t len);
-bool is_ie_default_sae_group_oui(const uint8_t *data, uint16_t len);
 
 bool ie_build_wpa(const struct ie_rsn_info *info, uint8_t *to);
 

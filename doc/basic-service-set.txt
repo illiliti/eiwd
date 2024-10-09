@@ -1,0 +1,10 @@
+Basic service set hierarchy
+=================
+
+Service		net.connman.iwd
+Interface	net.connman.iwd.BasicServiceSet
+Object path	/net/connman/iwd/{phy0,phy1,...}/{1,2,...}/Xxx
+
+Properties	string Address [readonly]
+
+			MAC address of BSS

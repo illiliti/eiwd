@@ -1,3 +1,35 @@
+ver 2.22:
+	Fix issue with handling the Affinities property.
+	Fix issue with handling ConnectedAccessPoint signal when roaming.
+
+ver 2.21:
+	Fix issue with pending scan requests after regdom update.
+	Fix issue with handling the rearming of the roaming timeout.
+	Fix issue with survey request and externally triggered scans.
+	Fix issue with RSSI fallback when setting CQM threshold fails.
+	Fix issue with FT-over-Air without offchannel support.
+	Add support for per station Affinities property.
+
+ver 2.20:
+	Fix issue with PKEX timeout and number of frequencies used.
+	Fix issue with handling logic for handshake failures.
+	Fix issue with handling ConnectedAccessPoint signal.
+
+ver 2.19:
+	Fix issue with handling flush flag for external scans.
+	Fix issue with handling SNR calculation in ranking.
+
+ver 2.18:
+	Fix issue with handling BSS with invalid HE capabilities.
+	Fix issue with neighbor reports with invalid country codes.
+	Fix issue with EAP-TTLS Start packets with L flag set.
+	Add support for enabling SAE for AP mode operation.
+
+ver 2.17:
+	Fix issue with handling deauthenticate on disconnect.
+	Fix issue with handling of rate estimation errors.
+	Fix issue with handling EAPOL frame listeners.
+
 ver 2.16:
 	Fix issue with uninitialized variable and DPP encrypt.
 	Fix issue with Access Point mode and ATTR_MAC validation.

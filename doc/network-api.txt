@@ -50,3 +50,8 @@ Properties	string Name [readonly]
 			corresponding to this Network.  If the network
 			is not provisioned or has not been connected to
 			before, the property is omitted.
+
+		array(object) ExtendedServiceSet [readonly]
+
+			Contains a list of paths of each individual
+			BasicServiceSet object.

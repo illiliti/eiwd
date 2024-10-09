@@ -444,7 +444,7 @@ const struct he_test_data he_all_mcs_unsupported = {
 	.freq = BAND_FREQ_5_GHZ,
 	.rssi = -20,
 	.expected_rate = 1201000000ULL * 8ULL,
-	.expected_return = -EBADMSG,
+	.expected_return = -ENETUNREACH,
 	.capabilities = {
 		.he_mcs_set = { MCS_UNSUP, MCS_UNSUP,
 				MCS_UNSUP, MCS_UNSUP,
@@ -670,6 +670,19 @@ static void test_conversions(const void *data)
 	assert(!band_channel_to_freq(192, BAND_FREQ_5_GHZ));
 }
 
+static void test_conversion_fallback(const void *data)
+{
+	enum band_freq band;
+	const uint8_t cc[] = {'E', 'S', 0x04};
+
+	/*
+	 * Without a fallback, this would fail. There is no operclass 3 in the
+	 * global operating table (E-4)
+	 */
+	band = band_oper_class_to_band(cc, 3);
+	assert(band == BAND_FREQ_5_GHZ);
+}
+
 int main(int argc, char *argv[])
 {
 	l_test_init(&argc, &argv);
@@ -736,6 +749,7 @@ int main(int argc, char *argv[])
 	l_test_add("/band/6ghz/freq", test_6ghz_freqs, NULL);
 
 	l_test_add("/band/conversions", test_conversions, NULL);
+	l_test_add("/band/conversion fallback", test_conversion_fallback, NULL);
 
 	return l_test_run();
 }

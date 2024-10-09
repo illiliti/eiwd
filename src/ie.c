@@ -1178,9 +1178,6 @@ static int build_ciphers_common(const struct ie_rsn_info *info, uint8_t *to,
 	countptr = to + pos;
 	pos += 2;
 
-	akm_suite = IE_RSN_AKM_SUITE_8021X;
-	count = 0;
-
 	for (count = 0, akm_suite = IE_RSN_AKM_SUITE_8021X;
 			akm_suite <= IE_RSN_AKM_SUITE_OSEN;
 				akm_suite <<= 1) {
@@ -1508,32 +1505,6 @@ bool is_ie_wpa_ie(const uint8_t *data, uint8_t len)
 	if ((!memcmp(data, microsoft_oui, 3) && data[3] == 1 &&
 						l_get_le16(data + 4) == 1))
 		return true;
-
-	return false;
-}
-
-/*
- * List of vendor OUIs (prefixed with a length byte) which require forcing
- * the default SAE group.
- */
-static const uint8_t use_default_sae_group_ouis[][5] = {
-	{ 0x04, 0xf4, 0xf5, 0xe8, 0x05 },
-};
-
-bool is_ie_default_sae_group_oui(const uint8_t *data, uint16_t len)
-{
-	unsigned int i;
-	const uint8_t *oui;
-
-	for (i = 0; i < L_ARRAY_SIZE(use_default_sae_group_ouis); i++) {
-		oui = use_default_sae_group_ouis[i];
-
-		if (len < oui[0])
-			continue;
-
-		if (!memcmp(oui + 1, data, oui[0]))
-			return true;
-	}
 
 	return false;
 }
@@ -2671,7 +2642,7 @@ int ie_parse_owe_transition(const void *data, size_t len,
 		return -ENOMSG;
 
 	slen = l_get_u8(ie + 12);
-	if (slen > 32)
+	if (slen > SSID_MAX_SIZE)
 		return -ENOMSG;
 
 	/*

@@ -47,10 +47,10 @@ static struct l_dbus *dbus;
 static struct l_queue *proxy_interfaces;
 static struct l_queue *proxy_interface_types;
 
-void proxy_properties_display(const struct proxy_interface *proxy,
-				const char *caption, const char *margin,
-				unsigned int name_column_width,
-				unsigned int value_column_width)
+void proxy_properties_display_inline(const struct proxy_interface *proxy,
+					const char *margin,
+					unsigned int name_column_width,
+					unsigned int value_column_width)
 {
 	const void *data;
 	const struct proxy_interface_property *properties;
@@ -58,11 +58,6 @@ void proxy_properties_display(const struct proxy_interface *proxy,
 
 	if (!proxy->type->properties)
 		return;
-
-	display_table_header(caption, "%s%-*s  %-*s  %-*s", margin,
-				8, "Settable",
-				name_column_width, "Property",
-				value_column_width, "Value");
 
 	data = proxy_interface_get_data(proxy);
 	properties = proxy->type->properties;
@@ -80,6 +75,31 @@ void proxy_properties_display(const struct proxy_interface *proxy,
 				name_column_width, properties[i].name,
 				value_column_width, str ? : "");
 	}
+}
+
+void proxy_properties_display_header(const char *caption, const char *margin,
+					unsigned int name_column_width,
+					unsigned int value_column_width)
+{
+	display_table_header(caption, "%s%-*s  %-*s  %-*s", margin,
+				8, "Settable",
+				name_column_width, "Property",
+				value_column_width, "Value");
+}
+
+void proxy_properties_display(const struct proxy_interface *proxy,
+				const char *caption, const char *margin,
+				unsigned int name_column_width,
+				unsigned int value_column_width)
+{
+	if (!proxy->type->properties)
+		return;
+
+	proxy_properties_display_header(caption, margin, name_column_width,
+					value_column_width);
+
+	proxy_properties_display_inline(proxy, margin, name_column_width,
+					value_column_width);
 }
 
 static const void *proxy_interface_property_tostr(

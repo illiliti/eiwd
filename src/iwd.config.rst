@@ -74,7 +74,7 @@ The group ``[General]`` contains general settings.
        ``[Network]`` settings for additional settings related to network
        configuration.
 
-   * - UseDefaultInterface
+   * - UseDefaultInterface (**deprecated**)
      - Values: true, **false**
 
        Do not allow **iwd** to destroy / recreate wireless interfaces at
@@ -83,6 +83,9 @@ The group ``[General]`` contains general settings.
        if you do not want **iwd** to manage netdevs for another reason.  For
        most users with an upstream driver it should be safe to omit/disable
        this setting.
+
+       This setting is deprecated, please use [DriverQuirks].DefaultInterface
+       instead.
 
    * - AddressRandomization
      - Values: **disabled**, once, network
@@ -129,6 +132,22 @@ The group ``[General]`` contains general settings.
 
        This value can be used to control how aggressively **iwd** roams when
        connected to a 5GHz access point.
+
+   * - CriticalRoamThreshold
+     - Value: rssi dBm value, from -100 to -1, default: **-80**
+
+       The threshold (for 2.4GHz) at which IWD will roam regardless of the
+       affinity set to the current BSS. If the connected BSS has affinity
+       (set in Station's Affinities list) the roam threshold will be lowed to
+       this value and IWD will not attempt to roam (or roam scan) until either
+       the affinity is cleared, or the signal drops below this threshold.
+
+
+   * - CriticalRoamThreshold5G
+     - Value: rssi dBm value, from -100 to -1, default: **-82**
+
+       This has the same effect as ``CriticalRoamThreshold``, but for the 5GHz
+       band.
 
    * - RoamRetryInterval
      - Value: unsigned int value in seconds (default: **60**)

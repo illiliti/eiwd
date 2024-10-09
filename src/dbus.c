@@ -134,6 +134,12 @@ struct l_dbus_message *dbus_error_not_hidden(struct l_dbus_message *msg)
 					"Not hidden");
 }
 
+struct l_dbus_message *dbus_error_permission_denied(struct l_dbus_message *msg)
+{
+	return l_dbus_message_new_error(msg, IWD_SERVICE ".PermissionDenied",
+					"Permission Denied");
+}
+
 struct l_dbus_message *dbus_error_from_errno(int err,
 						struct l_dbus_message *msg)
 {

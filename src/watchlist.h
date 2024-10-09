@@ -42,7 +42,6 @@ struct watchlist {
 	const struct watchlist_ops *ops;
 };
 
-struct watchlist *watchlist_new(const struct watchlist_ops *ops);
 void watchlist_init(struct watchlist *watchlist,
 					const struct watchlist_ops *ops);
 unsigned int watchlist_add(struct watchlist *watchlist, void *notify,
@@ -54,7 +53,6 @@ unsigned int watchlist_link(struct watchlist *watchlist,
 					watchlist_item_destroy_func_t destroy);
 bool watchlist_remove(struct watchlist *watchlist, unsigned int id);
 void watchlist_destroy(struct watchlist *watchlist);
-void watchlist_free(struct watchlist *watchlist);
 
 void __watchlist_prune_stale(struct watchlist *watchlist);
 

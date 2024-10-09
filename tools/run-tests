@@ -899,12 +899,18 @@ def post_test(ctx, to_copy):
 
 	if ctx.args.valgrind:
 		for f in os.listdir('/tmp'):
-			if f.startswith("valgrind.log."):
-				dbg(f)
-				with open('/tmp/' + f, 'r') as v:
-					dbg(v.read())
+			if not f.startswith("valgrind.log."):
+				continue
+
+			with open('/tmp/' + f, 'r') as v:
+				result = v.read()
+
+			# Don't print out the result if there were no issues
+			if "0 errors from 0 contexts" not in result:
+				dbg(result)
 				dbg("\n")
-				os.remove('/tmp/' + f)
+
+			os.remove('/tmp/' + f)
 
 	# Special case for when logging is enabled
 	if os.path.isfile('/tmp/iwd-tls-debug-server-cert.pem'):

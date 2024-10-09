@@ -37,6 +37,7 @@
 #include "src/util.h"
 
 typedef bool (*attr_handler)(const void *data, uint16_t len, void *o);
+typedef attr_handler (*handler_for_type)(int type);
 
 static bool extract_ifindex(const void *data, uint16_t len, void *o)
 {
@@ -131,6 +132,14 @@ static bool extract_iovec(const void *data, uint16_t len, void *o)
 	return true;
 }
 
+static bool extract_ssid(const void *data, uint16_t len, void *o)
+{
+	if (!len || len > SSID_MAX_SIZE)
+		return false;
+
+	return extract_iovec(data, len, o);
+}
+
 static bool extract_nested(const void *data, uint16_t len, void *o)
 {
 	const struct l_genl_attr *outer = data;
@@ -150,7 +159,7 @@ static bool extract_u8(const void *data, uint16_t len, void *o)
 	return true;
 }
 
-static attr_handler handler_for_type(enum nl80211_attrs type)
+static attr_handler handler_for_nl80211(int type)
 {
 	switch (type) {
 	case NL80211_ATTR_IFINDEX:
@@ -158,6 +167,7 @@ static attr_handler handler_for_type(enum nl80211_attrs type)
 	case NL80211_ATTR_WIPHY:
 	case NL80211_ATTR_IFTYPE:
 	case NL80211_ATTR_KEY_TYPE:
+	case NL80211_ATTR_SCAN_FLAGS:
 		return extract_uint32;
 	case NL80211_ATTR_WDEV:
 	case NL80211_ATTR_COOKIE:
@@ -168,6 +178,7 @@ static attr_handler handler_for_type(enum nl80211_attrs type)
 	case NL80211_ATTR_REG_ALPHA2:
 		return extract_2_chars;
 	case NL80211_ATTR_MAC:
+	case NL80211_ATTR_BSSID:
 		return extract_mac;
 	case NL80211_ATTR_ACK:
 		return extract_flag;
@@ -177,13 +188,45 @@ static attr_handler handler_for_type(enum nl80211_attrs type)
 	case NL80211_ATTR_CHANNEL_WIDTH:
 	case NL80211_ATTR_CENTER_FREQ1:
 	case NL80211_ATTR_CENTER_FREQ2:
+	case NL80211_ATTR_AKM_SUITES:
+	case NL80211_ATTR_EXTERNAL_AUTH_ACTION:
 		return extract_uint32;
 	case NL80211_ATTR_FRAME:
 		return extract_iovec;
+	case NL80211_ATTR_SSID:
+		return extract_ssid;
 	case NL80211_ATTR_WIPHY_BANDS:
+	case NL80211_ATTR_SURVEY_INFO:
+	case NL80211_ATTR_KEY:
 		return extract_nested;
 	case NL80211_ATTR_KEY_IDX:
 		return extract_u8;
+	default:
+		break;
+	}
+
+	return NULL;
+}
+
+static attr_handler handler_for_survey_info(int type)
+{
+	switch (type) {
+	case NL80211_SURVEY_INFO_NOISE:
+		return extract_u8;
+	case NL80211_SURVEY_INFO_FREQUENCY:
+		return extract_uint32;
+	default:
+		break;
+	}
+
+	return NULL;
+}
+
+static attr_handler handler_for_key(int type)
+{
+	switch (type) {
+	case NL80211_KEY_SEQ:
+		return extract_iovec;
 	default:
 		break;
 	}
@@ -198,10 +241,9 @@ struct attr_entry {
 	bool present : 1;
 };
 
-int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
+static int parse_attrs(struct l_genl_attr *attr, handler_for_type handler,
+			int tag, va_list args)
 {
-	struct l_genl_attr attr;
-	va_list args;
 	struct l_queue *entries;
 	const struct l_queue_entry *e;
 	struct attr_entry *entry;
@@ -210,10 +252,6 @@ int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
 	const void *data;
 	int ret;
 
-	if (!l_genl_attr_init(&attr, msg))
-		return -EINVAL;
-
-	va_start(args, tag);
 	entries = l_queue_new();
 	ret = -ENOSYS;
 
@@ -222,7 +260,7 @@ int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
 
 		entry->type = tag;
 		entry->data = va_arg(args, void *);
-		entry->handler = handler_for_type(tag);
+		entry->handler = handler(tag);
 		l_queue_push_tail(entries, entry);
 
 		if (!entry->handler)
@@ -231,9 +269,7 @@ int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
 		tag = va_arg(args, enum nl80211_attrs);
 	}
 
-	va_end(args);
-
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
+	while (l_genl_attr_next(attr, &type, &len, &data)) {
 		for (e = l_queue_get_entries(entries); e; e = e->next) {
 			entry = e->data;
 
@@ -251,7 +287,7 @@ int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
 
 		/* For nested attributes use the outer attribute as data */
 		if (entry->handler == extract_nested)
-			data = &attr;
+			data = attr;
 
 		if (!entry->handler(data, len, entry->data)) {
 			ret = -EINVAL;
@@ -281,6 +317,50 @@ int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
 
 done:
 	l_queue_destroy(entries, l_free);
+	return ret;
+}
+
+int nl80211_parse_attrs(struct l_genl_msg *msg, int tag, ...)
+{
+	struct l_genl_attr attr;
+	va_list args;
+	int ret;
+
+	if (!l_genl_attr_init(&attr, msg))
+		return -EINVAL;
+
+	va_start(args, tag);
+
+	ret = parse_attrs(&attr, handler_for_nl80211, tag, args);
+
+	va_end(args);
+
+	return ret;
+}
+
+int nl80211_parse_nested(struct l_genl_attr *attr, int type, int tag, ...)
+{
+	handler_for_type handler;
+	va_list args;
+	int ret;
+
+	switch (type) {
+	case NL80211_ATTR_SURVEY_INFO:
+		handler = handler_for_survey_info;
+		break;
+	case NL80211_ATTR_KEY:
+		handler = handler_for_key;
+		break;
+	default:
+		return -ENOTSUP;
+	}
+
+	va_start(args, tag);
+
+	ret = parse_attrs(attr, handler, tag, args);
+
+	va_end(args);
+
 	return ret;
 }
 
@@ -517,46 +597,29 @@ struct l_genl_msg *nl80211_build_get_key(uint32_t ifindex, uint8_t key_index)
 
 const void *nl80211_parse_get_key_seq(struct l_genl_msg *msg)
 {
-	struct l_genl_attr attr, nested;
-	uint16_t type, len;
-	const void *data;
+	struct l_genl_attr nested;
+	struct iovec iov;
 
-	if (l_genl_msg_get_error(msg) < 0 || !l_genl_attr_init(&attr, msg)) {
+	if (l_genl_msg_get_error(msg) < 0 ||
+			nl80211_parse_attrs(msg, NL80211_ATTR_KEY, &nested,
+						NL80211_ATTR_UNSPEC) < 0) {
 		l_error("GET_KEY failed for the GTK: %i",
 			l_genl_msg_get_error(msg));
 		return NULL;
 	}
 
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
-		if (type != NL80211_ATTR_KEY)
-			continue;
-
-		break;
-	}
-
-	if (type != NL80211_ATTR_KEY || !l_genl_attr_recurse(&attr, &nested)) {
+	if (nl80211_parse_nested(&nested, NL80211_ATTR_KEY, NL80211_KEY_SEQ,
+					&iov, NL80211_ATTR_UNSPEC)) {
 		l_error("Can't recurse into ATTR_KEY in GET_KEY reply");
 		return NULL;
 	}
 
-	while (l_genl_attr_next(&nested, &type, &len, &data)) {
-		if (type != NL80211_KEY_SEQ)
-			continue;
-
-		break;
-	}
-
-	if (type != NL80211_KEY_SEQ) {
-		l_error("KEY_SEQ not returned in GET_KEY reply");
-		return NULL;
-	}
-
-	if (len != 6) {
+	if (iov.iov_len != 6) {
 		l_error("KEY_SEQ length != 6 in GET_KEY reply");
 		return NULL;
 	}
 
-	return data;
+	return iov.iov_base;
 }
 
 struct l_genl_msg *nl80211_build_cmd_frame(uint32_t ifindex,
@@ -587,6 +650,21 @@ struct l_genl_msg *nl80211_build_cmd_frame(uint32_t ifindex,
 	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &ifindex);
 	l_genl_msg_append_attr(msg, NL80211_ATTR_WIPHY_FREQ, 4, &freq);
 	l_genl_msg_append_attrv(msg, NL80211_ATTR_FRAME, iovs, iov_len + 1);
+
+	return msg;
+}
+
+struct l_genl_msg *nl80211_build_external_auth(uint32_t ifindex,
+					uint16_t status_code,
+					const uint8_t *ssid, size_t ssid_len,
+					const uint8_t bssid[static 6])
+{
+	struct l_genl_msg *msg = l_genl_msg_new(NL80211_CMD_EXTERNAL_AUTH);
+
+	l_genl_msg_append_attr(msg, NL80211_ATTR_IFINDEX, 4, &ifindex);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_STATUS_CODE, 2, &status_code);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_SSID, ssid_len, ssid);
+	l_genl_msg_append_attr(msg, NL80211_ATTR_BSSID, 6, bssid);
 
 	return msg;
 }

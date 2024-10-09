@@ -2638,7 +2638,7 @@ void p2p_get_random_string(char *buf, size_t len)
 {
 #define CHARSET "ABCDEFGHIJKLMNOPQRSTUVWXYZ" "abcdefghijklmnopqrstuvwxyz" \
 		"0123456789"
-	static const int set_size = strlen(CHARSET);
+	const int set_size = strlen(CHARSET);
 
 	l_getrandom(buf, len);
 

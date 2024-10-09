@@ -1370,6 +1370,7 @@ static void p2p_netdev_connect_cb(struct netdev *netdev,
 	case NETDEV_RESULT_ASSOCIATION_FAILED:
 	case NETDEV_RESULT_HANDSHAKE_FAILED:
 	case NETDEV_RESULT_KEY_SETTING_FAILED:
+	case NETDEV_RESULT_DISCONNECTED:
 		/*
 		 * In the AUTHENTICATION_FAILED and ASSOCIATION_FAILED
 		 * cases there's nothing to disconnect.  In the
@@ -2314,6 +2315,9 @@ static void p2p_device_go_negotiation_req_cb(const struct mmpdu_header *mpdu,
 	if (!peer)
 		return;
 
+	if (!dev->conn_peer)
+		return;
+
 	if (body_len < 8)
 		return;
 
@@ -2442,7 +2446,7 @@ static void p2p_device_go_negotiation_req_cb(const struct mmpdu_header *mpdu,
 	memcpy(dev->conn_peer_interface_addr, req_info.intended_interface_addr,
 		6);
 
-	if (dev->is_go && dev->conn_peer) {
+	if (dev->is_go) {
 		p2p_set_group_id(dev);
 
 		dev->conn_config_delay =

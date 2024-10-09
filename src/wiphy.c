@@ -149,6 +149,7 @@ struct wiphy {
 	bool self_managed : 1;
 	bool ap_probe_resp_offload : 1;
 	bool supports_uapsd : 1;
+	bool supports_cmd_offchannel : 1;
 };
 
 static struct l_queue *wiphy_list = NULL;
@@ -276,7 +277,8 @@ enum ie_rsn_akm_suite wiphy_select_akm(struct wiphy *wiphy,
 	 * for fast transitions.  Otherwise use SHA256 version if present.
 	 */
 	if (security == SECURITY_8021X) {
-		if (wiphy_has_feature(wiphy, NL80211_EXT_FEATURE_FILS_STA) &&
+		if (wiphy_has_ext_feature(wiphy, NL80211_EXT_FEATURE_FILS_STA) &&
+				wiphy->support_cmds_auth_assoc &&
 				fils_capable_hint) {
 			if ((info->akm_suites &
 					IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384) &&
@@ -938,6 +940,11 @@ bool wiphy_supports_uapsd(const struct wiphy *wiphy)
 	return wiphy->supports_uapsd;
 }
 
+bool wiphy_supports_cmd_offchannel(const struct wiphy *wiphy)
+{
+	return wiphy->supports_cmd_offchannel;
+}
+
 const uint8_t *wiphy_get_ht_capabilities(const struct wiphy *wiphy,
 						enum band_freq band,
 						size_t *size)
@@ -989,6 +996,7 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 	const void *he_capabilities = NULL;
 	const struct band *bandp;
 	enum band_freq band;
+	int ret;
 
 	if (band_freq_to_channel(bss->frequency, &band) == 0)
 		return -ENOTSUP;
@@ -1005,7 +1013,7 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 		switch (tag) {
 		case IE_TYPE_SUPPORTED_RATES:
 			if (iter.len > 8)
-				return -EBADMSG;
+				continue;
 
 			supported_rates = iter.data - 2;
 			break;
@@ -1014,31 +1022,34 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 			break;
 		case IE_TYPE_HT_CAPABILITIES:
 			if (iter.len != 26)
-				return -EBADMSG;
+				continue;
 
 			ht_capabilities = iter.data - 2;
 			break;
 		case IE_TYPE_HT_OPERATION:
 			if (iter.len != 22)
-				return -EBADMSG;
+				continue;
 
 			ht_operation = iter.data - 2;
 			break;
 		case IE_TYPE_VHT_CAPABILITIES:
 			if (iter.len != 12)
-				return -EBADMSG;
+				continue;
 
 			vht_capabilities = iter.data - 2;
 			break;
 		case IE_TYPE_VHT_OPERATION:
 			if (iter.len != 5)
-				return -EBADMSG;
+				continue;
 
 			vht_operation = iter.data - 2;
 			break;
 		case IE_TYPE_HE_CAPABILITIES:
-			if (!ie_validate_he_capabilities(iter.data, iter.len))
-				return -EBADMSG;
+			if (!ie_validate_he_capabilities(iter.data, iter.len)) {
+				l_warn("invalid HE capabilities for "MAC,
+					MAC_STR(bss->addr));
+				continue;
+			}
 
 			he_capabilities = iter.data;
 			break;
@@ -1047,26 +1058,39 @@ int wiphy_estimate_data_rate(struct wiphy *wiphy,
 		}
 	}
 
-	if (!band_estimate_he_rx_rate(bandp, he_capabilities,
+	ret = band_estimate_he_rx_rate(bandp, he_capabilities,
 					bss->signal_strength / 100,
-					out_data_rate))
+					out_data_rate);
+	if (!ret)
 		return 0;
+	else if (ret != -ENOTSUP && ret != -ENETUNREACH)
+		l_warn("error parsing HE capabilities");
 
-	if (!band_estimate_vht_rx_rate(bandp, vht_capabilities, vht_operation,
+	ret = band_estimate_vht_rx_rate(bandp, vht_capabilities, vht_operation,
 					ht_capabilities, ht_operation,
 					bss->signal_strength / 100,
-					out_data_rate))
+					out_data_rate);
+	if (!ret)
 		return 0;
+	else if (ret != -ENOTSUP && ret != -ENETUNREACH)
+		l_warn("error parsing VHT capabilities");
 
-	if (!band_estimate_ht_rx_rate(bandp, ht_capabilities, ht_operation,
+	ret = band_estimate_ht_rx_rate(bandp, ht_capabilities, ht_operation,
 					bss->signal_strength / 100,
-					out_data_rate))
+					out_data_rate);
+	if (!ret)
 		return 0;
+	else if (ret != -ENOTSUP && ret != -ENETUNREACH)
+		l_warn("error parsing HT capabilities");
 
-	return band_estimate_nonht_rate(bandp, supported_rates,
+	ret = band_estimate_nonht_rate(bandp, supported_rates,
 						ext_supported_rates,
 						bss->signal_strength / 100,
 						out_data_rate);
+	if (ret != 0 && ret != -ENOTSUP && ret != -ENETUNREACH)
+		l_warn("error parsing non-HT rates");
+
+	return ret;
 }
 
 bool wiphy_regdom_is_updating(struct wiphy *wiphy)
@@ -1366,6 +1390,9 @@ static void parse_supported_commands(struct wiphy *wiphy,
 			break;
 		case NL80211_CMD_ASSOCIATE:
 			assoc = true;
+			break;
+		case NL80211_CMD_REMAIN_ON_CHANNEL:
+			wiphy->supports_cmd_offchannel = true;
 			break;
 		}
 	}

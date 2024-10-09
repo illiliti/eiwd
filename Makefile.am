@@ -64,7 +64,8 @@ ell_headers = ell/util.h \
 			ell/acd.h \
 			ell/cleanup.h \
 			ell/netconfig.h \
-			ell/sysctl.h
+			ell/sysctl.h \
+			ell/notifylist.h
 
 ell_sources = ell/private.h \
 			ell/missing.h \
@@ -145,7 +146,8 @@ ell_sources = ell/private.h \
 			ell/dhcp6-transport.c \
 			ell/acd.c \
 			ell/netconfig.c \
-			ell/sysctl.c
+			ell/sysctl.c \
+			ell/notifylist.c
 
 ell_shared = ell/useful.h ell/asn1-private.h
 
@@ -213,7 +215,8 @@ eap_sources = src/eap.c src/eap.h src/eap-private.h \
 if DAEMON
 libexec_PROGRAMS += src/iwd
 
-src_iwd_SOURCES = src/main.c linux/nl80211.h src/iwd.h src/missing.h \
+src_iwd_SOURCES = src/main.c linux/nl80211.h src/iwd.h \
+					src/missing.h src/defs.h \
 					src/netdev.h src/netdev.c \
 					src/wiphy.h src/wiphy.c \
 					src/device.c \
@@ -266,6 +269,7 @@ src_iwd_SOURCES = src/main.c linux/nl80211.h src/iwd.h src/missing.h \
 					src/dpp-util.h src/dpp-util.c \
 					src/json.h src/json.c \
 					src/dpp.c \
+					src/udev.c \
 					$(eap_sources) \
 					$(builtin_sources)
 
@@ -317,6 +321,7 @@ client_iwctl_SOURCES = client/main.c \
 			client/daemon.c client/daemon.h \
 			client/dpp.c client/dpp-pkex.c \
 			client/station-debug.c \
+			client/bss.c \
 			src/util.c src/util.h \
 			src/band.c src/band.h
 
@@ -433,7 +438,7 @@ unit_tests += unit/test-cmac-aes \
 		unit/test-ie unit/test-util unit/test-ssid-security \
 		unit/test-arc4 unit/test-wsc unit/test-eap-mschapv2 \
 		unit/test-eap-sim unit/test-sae unit/test-p2p unit/test-band \
-		unit/test-dpp unit/test-json
+		unit/test-dpp unit/test-json unit/test-nl80211util
 endif
 
 if CLIENT
@@ -582,6 +587,13 @@ unit_test_dpp_LDADD = $(ell_ldadd)
 
 unit_test_json_SOURCES = unit/test-json.c src/json.h src/json.c shared/jsmn.h
 unit_test_json_LDADD = $(ell_ldadd)
+
+unit_test_nl80211util_SOURCES = unit/test-nl80211util.c \
+				src/nl80211util.h src/nl80211util.c \
+				src/band.h src/band.c \
+				src/ie.h src/ie.c \
+				src/util.h src/util.c
+unit_test_nl80211util_LDADD = $(ell_ldadd)
 endif
 
 if CLIENT
@@ -717,6 +729,7 @@ ell/internal: Makefile
 	done > $@
 
 ell/ell.h: Makefile
+	$(AM_V_at)$(MKDIR_P) ell
 	$(AM_V_at)echo -n > $@
 	$(AM_V_GEN)for f in $(ell_headers) ; do \
 		echo "#include <$$f>" >> $@ ; \

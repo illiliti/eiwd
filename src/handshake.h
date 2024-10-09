@@ -141,7 +141,7 @@ struct handshake_state {
 	bool supplicant_ocvc : 1;
 	bool ext_key_id_capable : 1;
 	bool force_default_ecc_group : 1;
-	uint8_t ssid[32];
+	uint8_t ssid[SSID_MAX_SIZE];
 	size_t ssid_len;
 	char *passphrase;
 	char *password_identifier;
@@ -150,8 +150,11 @@ struct handshake_state {
 	uint8_t r1khid[6];
 	uint8_t gtk[32];
 	uint8_t gtk_rsc[6];
+	uint8_t igtk[32];
+	uint8_t igtk_rsc[6];
 	uint8_t proto_version : 2;
 	unsigned int gtk_index;
+	unsigned int igtk_index;
 	uint8_t active_tk_index;
 	struct erp_cache_entry *erp_cache;
 	bool support_ip_allocation : 1;
@@ -288,6 +291,9 @@ bool handshake_decode_fte_key(struct handshake_state *s, const uint8_t *wrapped,
 void handshake_state_set_gtk(struct handshake_state *s, const uint8_t *key,
 				unsigned int key_index, const uint8_t *rsc);
 
+void handshake_state_set_igtk(struct handshake_state *s, const uint8_t *key,
+				unsigned int key_index, const uint8_t *rsc);
+
 void handshake_state_set_chandef(struct handshake_state *s,
 					struct band_chandef *chandef);
 int handshake_state_verify_oci(struct handshake_state *s, const uint8_t *oci,
@@ -306,6 +312,8 @@ const uint8_t *handshake_util_find_igtk_kde(const uint8_t *data,
 const uint8_t *handshake_util_find_pmkid_kde(const uint8_t *data,
 					size_t data_len);
 void handshake_util_build_gtk_kde(enum crypto_cipher cipher, const uint8_t *key,
+					unsigned int key_index, uint8_t *to);
+void handshake_util_build_igtk_kde(enum crypto_cipher cipher, const uint8_t *key,
 					unsigned int key_index, uint8_t *to);
 
 DEFINE_CLEANUP_FUNC(handshake_state_free);

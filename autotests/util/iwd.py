@@ -299,6 +299,9 @@ class StationDebug(IWDDBusAbstract):
 
         return False
 
+    def clear_events(self):
+        self._events = []
+
     def wait_for_event(self, event, timeout=10):
         return ctx.non_block_wait(self._poll_event, timeout, event,
                                     exception=TimeoutError("waiting for event"))
@@ -594,6 +597,11 @@ class Device(IWDDBusAbstract):
         return props.get('ConnectedNetwork')
 
     @property
+    def connected_bss(self):
+        props = self._station_properties()
+        return props.get('ConnectedAccessPoint')
+
+    @property
     def powered(self):
         '''
             True if the interface is UP. If false, the device's radio is
@@ -626,6 +634,19 @@ class Device(IWDDBusAbstract):
     def autoconnect(self, value):
         self._station_debug._prop_proxy.Set(IWD_STATION_DEBUG_INTERFACE,
                                             'AutoConnect', value)
+
+    @property
+    def affinities(self):
+        return self._station_properties()['Affinities']
+
+    @affinities.setter
+    def affinities(self, values):
+        self._station_properties()
+        self._station_prop_if.Set(
+            IWD_STATION_INTERFACE, 'Affinities',
+            dbus.Array([dbus.ObjectPath(v) for v in values], signature="o"),
+            reply_handler=self._success, error_handler=self._failure)
+        self._wait_for_async_op()
 
     def scan(self, wait=True):
         '''Schedule a network scan.
@@ -859,6 +880,9 @@ class Device(IWDDBusAbstract):
     def wait_for_event(self, event, timeout=10):
         self._station_debug.wait_for_event(event, timeout)
 
+    def clear_events(self):
+        self._station_debug.clear_events()
+
     def event_ocurred(self, event):
         return self._station_debug.event_ocurred(event)
 
@@ -968,6 +992,10 @@ class Network(IWDDBusAbstract):
             @rtype: boolean
         '''
         return bool(self._properties['Connected'])
+
+    @property
+    def extended_service_set(self):
+        return self._properties['ExtendedServiceSet']
 
     def connect(self, wait=True):
         '''

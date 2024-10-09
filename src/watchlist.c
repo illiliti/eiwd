@@ -48,16 +48,6 @@ static void watchlist_item_free(struct watchlist *watchlist,
 		l_free(item);
 }
 
-struct watchlist *watchlist_new(const struct watchlist_ops *ops)
-{
-	struct watchlist *watchlist;
-
-	watchlist = l_new(struct watchlist, 1);
-	watchlist->items = l_queue_new();
-	watchlist->ops = ops;
-	return watchlist;
-}
-
 void watchlist_init(struct watchlist *watchlist,
 					const struct watchlist_ops *ops)
 {
@@ -135,13 +125,6 @@ void watchlist_destroy(struct watchlist *watchlist)
 	watchlist_clear(watchlist);
 	l_queue_destroy(watchlist->items, NULL);
 	watchlist->items = NULL;
-}
-
-void watchlist_free(struct watchlist *watchlist)
-{
-	watchlist_clear(watchlist);
-	l_queue_destroy(watchlist->items, NULL);
-	l_free(watchlist);
 }
 
 void __watchlist_prune_stale(struct watchlist *watchlist)

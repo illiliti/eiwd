@@ -156,6 +156,7 @@ static void usage(void)
 		"\t-p, --phys             Phys to manage\n"
 		"\t-P, --nophys           Phys to ignore\n"
 		"\t-d, --debug            Enable debug output\n"
+		"\t-l, --logger           Override default stderr logging\n"
 		"\t-v, --version          Show version\n"
 		"\t-h, --help             Show help options\n");
 }
@@ -534,6 +535,8 @@ int main(int argc, char *argv[])
 		l_log_set_journal();
 	else
 		l_log_set_stderr();
+
+	l_log_set_ident("iwd");
 
 	if (check_crypto() < 0)
 		return EXIT_FAILURE;

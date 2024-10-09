@@ -133,6 +133,7 @@ struct netdev {
 	uint32_t get_oci_cmd_id;
 	uint32_t get_link_cmd_id;
 	uint32_t power_save_cmd_id;
+	uint32_t set_cqm_cmd_id;
 	enum netdev_result result;
 	uint16_t last_code; /* reason or status, depending on result */
 	struct l_timeout *neighbor_report_timeout;
@@ -172,6 +173,9 @@ struct netdev {
 
 	struct netdev_ext_key_info *ext_key_info;
 
+	int low_signal_threshold;
+	int low_signal_threshold_5ghz;
+
 	bool connected : 1;
 	bool associated : 1;
 	bool operational : 1;
@@ -187,6 +191,7 @@ struct netdev {
 	bool retry_auth : 1;
 	bool in_reassoc : 1;
 	bool privacy : 1;
+	bool cqm_poll_fallback : 1;
 };
 
 struct netdev_preauth_state {
@@ -206,6 +211,11 @@ static struct l_genl_family *nl80211;
 static struct l_queue *netdev_list;
 static struct watchlist netdev_watches;
 static bool mac_per_ssid;
+/* Threshold RSSI for roaming to trigger, configurable in main.conf */
+static int LOW_SIGNAL_THRESHOLD;
+static int LOW_SIGNAL_THRESHOLD_5GHZ;
+static int CRITICAL_SIGNAL_THRESHOLD;
+static int CRITICAL_SIGNAL_THRESHOLD_5GHZ;
 
 static unsigned int iov_ie_append(struct iovec *iov,
 					unsigned int n_iov, unsigned int c,
@@ -642,6 +652,47 @@ static void netdev_set_rssi_level_idx(struct netdev *netdev)
 	netdev->cur_rssi_level_idx = new_level;
 }
 
+static void netdev_cqm_event_rssi_value(struct netdev *netdev, int rssi_val)
+{
+	bool new_rssi_low;
+	uint8_t prev_rssi_level_idx = netdev->cur_rssi_level_idx;
+	int threshold = netdev->frequency > 4000 ?
+					netdev->low_signal_threshold_5ghz :
+					netdev->low_signal_threshold;
+
+	if (!netdev->connected)
+		return;
+
+	if (rssi_val > 127)
+		rssi_val = 127;
+	else if (rssi_val < -127)
+		rssi_val = -127;
+
+	netdev->cur_rssi = rssi_val;
+
+	if (!netdev->event_filter)
+		return;
+
+	new_rssi_low = rssi_val < threshold;
+	if (netdev->cur_rssi_low != new_rssi_low) {
+		int event = new_rssi_low ?
+			NETDEV_EVENT_RSSI_THRESHOLD_LOW :
+			NETDEV_EVENT_RSSI_THRESHOLD_HIGH;
+
+		netdev->cur_rssi_low = new_rssi_low;
+		netdev->event_filter(netdev, event, NULL, netdev->user_data);
+	}
+
+	if (!netdev->rssi_levels_num)
+		return;
+
+	netdev_set_rssi_level_idx(netdev);
+	if (netdev->cur_rssi_level_idx != prev_rssi_level_idx)
+		netdev->event_filter(netdev, NETDEV_EVENT_RSSI_LEVEL_NOTIFY,
+					&netdev->cur_rssi_level_idx,
+					netdev->user_data);
+}
+
 static void netdev_rssi_poll_cb(struct l_genl_msg *msg, void *user_data)
 {
 	struct netdev *netdev = user_data;
@@ -678,11 +729,16 @@ static void netdev_rssi_poll_cb(struct l_genl_msg *msg, void *user_data)
 	netdev->cur_rssi = info.cur_rssi;
 
 	/*
-	 * Note we don't have to handle LOW_SIGNAL_THRESHOLD here.  The
-	 * CQM single threshold RSSI monitoring should work even if the
-	 * kernel driver doesn't support multiple thresholds.  So the
-	 * polling only handles the client-supplied threshold list.
+	 * If the CMD_SET_CQM call failed RSSI polling was started. In this case
+	 * we should behave just like its a CQM event and check both the RSSI
+	 * level indexes and the HIGH/LOW thresholds.
 	 */
+	if (netdev->cqm_poll_fallback) {
+		netdev_cqm_event_rssi_value(netdev, info.cur_rssi);
+		goto done;
+	}
+
+	/* Otherwise just update the level notifications, CQM events work */
 	netdev_set_rssi_level_idx(netdev);
 	if (netdev->cur_rssi_level_idx != prev_rssi_level_idx)
 		netdev->event_filter(netdev, NETDEV_EVENT_RSSI_LEVEL_NOTIFY,
@@ -835,6 +891,10 @@ static void netdev_connect_free(struct netdev *netdev)
 		l_genl_family_cancel(nl80211, netdev->get_oci_cmd_id);
 		netdev->get_oci_cmd_id = 0;
 	}
+
+	/* Reset thresholds back to default */
+	netdev->low_signal_threshold = LOW_SIGNAL_THRESHOLD;
+	netdev->low_signal_threshold_5ghz = LOW_SIGNAL_THRESHOLD_5GHZ;
 }
 
 static void netdev_connect_failed(struct netdev *netdev,
@@ -1019,6 +1079,11 @@ static void netdev_free(void *data)
 		netdev->get_station_cmd_id = 0;
 	}
 
+	if (netdev->set_cqm_cmd_id) {
+		l_genl_family_cancel(nl80211, netdev->set_cqm_cmd_id);
+		netdev->set_cqm_cmd_id = 0;
+	}
+
 	if (netdev->fw_roam_bss)
 		scan_bss_free(netdev->fw_roam_bss);
 
@@ -1026,6 +1091,9 @@ static void netdev_free(void *data)
 		l_netlink_cancel(rtnl, netdev->get_link_cmd_id);
 		netdev->get_link_cmd_id = 0;
 	}
+
+	if (netdev->rssi_poll_timeout)
+		l_timeout_remove(netdev->rssi_poll_timeout);
 
 	scan_wdev_remove(netdev->wdev_id);
 
@@ -1058,10 +1126,6 @@ struct netdev *netdev_find(int ifindex)
 	return l_queue_find(netdev_list, netdev_match, L_UINT_TO_PTR(ifindex));
 }
 
-/* Threshold RSSI for roaming to trigger, configurable in main.conf */
-static int LOW_SIGNAL_THRESHOLD;
-static int LOW_SIGNAL_THRESHOLD_5GHZ;
-
 static void netdev_cqm_event_rssi_threshold(struct netdev *netdev,
 						uint32_t rssi_event)
 {
@@ -1083,46 +1147,6 @@ static void netdev_cqm_event_rssi_threshold(struct netdev *netdev,
 		NETDEV_EVENT_RSSI_THRESHOLD_HIGH;
 
 	netdev->event_filter(netdev, event, NULL, netdev->user_data);
-}
-
-static void netdev_cqm_event_rssi_value(struct netdev *netdev, int rssi_val)
-{
-	bool new_rssi_low;
-	uint8_t prev_rssi_level_idx = netdev->cur_rssi_level_idx;
-	int threshold = netdev->frequency > 4000 ? LOW_SIGNAL_THRESHOLD_5GHZ :
-						LOW_SIGNAL_THRESHOLD;
-
-	if (!netdev->connected)
-		return;
-
-	if (rssi_val > 127)
-		rssi_val = 127;
-	else if (rssi_val < -127)
-		rssi_val = -127;
-
-	netdev->cur_rssi = rssi_val;
-
-	if (!netdev->event_filter)
-		return;
-
-	new_rssi_low = rssi_val < threshold;
-	if (netdev->cur_rssi_low != new_rssi_low) {
-		int event = new_rssi_low ?
-			NETDEV_EVENT_RSSI_THRESHOLD_LOW :
-			NETDEV_EVENT_RSSI_THRESHOLD_HIGH;
-
-		netdev->cur_rssi_low = new_rssi_low;
-		netdev->event_filter(netdev, event, NULL, netdev->user_data);
-	}
-
-	if (!netdev->rssi_levels_num)
-		return;
-
-	netdev_set_rssi_level_idx(netdev);
-	if (netdev->cur_rssi_level_idx != prev_rssi_level_idx)
-		netdev->event_filter(netdev, NETDEV_EVENT_RSSI_LEVEL_NOTIFY,
-					&netdev->cur_rssi_level_idx,
-					netdev->user_data);
 }
 
 static void netdev_cqm_event(struct l_genl_msg *msg, struct netdev *netdev)
@@ -1243,8 +1267,7 @@ static void netdev_disconnect_event(struct l_genl_msg *msg,
 	const void *data;
 	uint16_t reason_code = 0;
 	bool disconnect_by_ap = false;
-	netdev_event_func_t event_filter;
-	void *event_data;
+	enum netdev_event event;
 
 	l_debug("");
 
@@ -1282,19 +1305,11 @@ static void netdev_disconnect_event(struct l_genl_msg *msg,
 	l_info("Received Deauthentication event, reason: %hu, from_ap: %s",
 			reason_code, disconnect_by_ap ? "true" : "false");
 
-	event_filter = netdev->event_filter;
-	event_data = netdev->user_data;
-	netdev_connect_free(netdev);
+	event = disconnect_by_ap ? NETDEV_EVENT_DISCONNECT_BY_AP :
+				NETDEV_EVENT_DISCONNECT_BY_SME;
 
-	if (!event_filter)
-		return;
-
-	if (disconnect_by_ap)
-		event_filter(netdev, NETDEV_EVENT_DISCONNECT_BY_AP,
-						&reason_code, event_data);
-	else
-		event_filter(netdev, NETDEV_EVENT_DISCONNECT_BY_SME,
-						&reason_code, event_data);
+	netdev_disconnected(netdev, NETDEV_RESULT_DISCONNECTED,
+				event, reason_code);
 }
 
 static void netdev_cmd_disconnect_cb(struct l_genl_msg *msg, void *user_data)
@@ -1328,12 +1343,10 @@ static void netdev_cmd_disconnect_cb(struct l_genl_msg *msg, void *user_data)
 static void netdev_deauthenticate_event(struct l_genl_msg *msg,
 							struct netdev *netdev)
 {
-	struct l_genl_attr attr;
-	uint16_t type, len;
-	const void *data;
 	const struct mmpdu_header *hdr = NULL;
 	const struct mmpdu_deauthentication *deauth;
 	uint16_t reason_code;
+	struct iovec iov;
 
 	l_debug("");
 
@@ -1349,17 +1362,11 @@ static void netdev_deauthenticate_event(struct l_genl_msg *msg,
 	 * deauthenticating immediately afterwards
 	 */
 
-	if (L_WARN_ON(!l_genl_attr_init(&attr, msg)))
+	if (L_WARN_ON(nl80211_parse_attrs(msg, NL80211_ATTR_FRAME, &iov,
+						NL80211_ATTR_UNSPEC) < 0))
 		return;
 
-	while (l_genl_attr_next(&attr, &type, &len, &data)) {
-		switch (type) {
-		case NL80211_ATTR_FRAME:
-			hdr = mpdu_validate(data, len);
-			break;
-		}
-	}
-
+	hdr = mpdu_validate(iov.iov_base, iov.iov_len);
 	if (L_WARN_ON(!hdr))
 		return;
 
@@ -2430,10 +2437,6 @@ static void netdev_driver_connected(struct netdev *netdev)
 {
 	netdev->connected = true;
 
-	if (netdev->event_filter)
-		netdev->event_filter(netdev, NETDEV_EVENT_ASSOCIATING, NULL,
-					netdev->user_data);
-
 	/*
 	 * We register the eapol state machine here, in case the PAE
 	 * socket receives EAPoL packets before the nl80211 socket
@@ -2896,6 +2899,15 @@ static bool kernel_will_retry_auth(uint16_t status_code,
 	return false;
 }
 
+static void netdev_ensure_eapol_registered(struct netdev *netdev)
+{
+	if (netdev->sm)
+		return;
+
+	netdev->sm = eapol_sm_new(netdev->handshake);
+	eapol_register(netdev->sm);
+}
+
 static void netdev_authenticate_event(struct l_genl_msg *msg,
 							struct netdev *netdev)
 {
@@ -2917,6 +2929,10 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 				"is another supplicant running?");
 		return;
 	}
+
+	if (netdev->event_filter)
+		netdev->event_filter(netdev, NETDEV_EVENT_AUTHENTICATING,
+					NULL, netdev->user_data);
 
 	/*
 	 * During Fast Transition we use the authenticate event to start the
@@ -2982,7 +2998,12 @@ static void netdev_authenticate_event(struct l_genl_msg *msg,
 						NULL, netdev->user_data);
 
 		/* We have sent another CMD_AUTHENTICATE / CMD_ASSOCIATE */
-		if (ret == 0 || ret == -EAGAIN)
+		if (ret == 0) {
+			netdev_ensure_eapol_registered(netdev);
+			return;
+		}
+
+		if (ret == -EAGAIN)
 			return;
 
 		retry = kernel_will_retry_auth(status_code,
@@ -3033,6 +3054,10 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 
 	if (!netdev->connected || netdev->aborting)
 		return;
+
+	if (netdev->event_filter)
+		netdev->event_filter(netdev, NETDEV_EVENT_ASSOCIATING,
+					NULL, netdev->user_data);
 
 	if (!netdev->ap && !netdev->in_ft) {
 		netdev->associated = true;
@@ -3098,9 +3123,6 @@ static void netdev_associate_event(struct l_genl_msg *msg,
 			auth_proto_free(netdev->ap);
 			netdev->ap = NULL;
 		}
-
-		netdev->sm = eapol_sm_new(netdev->handshake);
-		eapol_register(netdev->sm);
 
 		/* Just in case this was a retry */
 		netdev->ignore_connect_event = false;
@@ -3587,8 +3609,9 @@ static struct l_genl_msg *netdev_build_cmd_cqm_rssi_update(
 	uint32_t hyst = 5;
 	int thold_count;
 	int32_t thold_list[levels_num + 2];
-	int threshold = netdev->frequency > 4000 ? LOW_SIGNAL_THRESHOLD_5GHZ :
-						LOW_SIGNAL_THRESHOLD;
+	int threshold = netdev->frequency > 4000 ?
+					netdev->low_signal_threshold_5ghz :
+					netdev->low_signal_threshold;
 
 	if (levels_num == 0) {
 		thold_list[0] = threshold;
@@ -3636,11 +3659,50 @@ static struct l_genl_msg *netdev_build_cmd_cqm_rssi_update(
 
 static void netdev_cmd_set_cqm_cb(struct l_genl_msg *msg, void *user_data)
 {
+	struct netdev *netdev = user_data;
 	int err = l_genl_msg_get_error(msg);
 	const char *ext_error;
 
-	if (err >= 0)
+	netdev->set_cqm_cmd_id = 0;
+
+	if (err >= 0) {
+		/*
+		 * Looking at some driver code it appears that the -ENOTSUP CQM
+		 * failure could be transient. Just in case, reset the fallback
+		 * flag if CQM happens to start working again.
+		 */
+		if (netdev->cqm_poll_fallback) {
+			l_debug("CMD_SET_CQM succeeded, stop polling fallback");
+
+			if (netdev->rssi_poll_timeout) {
+				l_timeout_remove(netdev->rssi_poll_timeout);
+				netdev->rssi_poll_timeout = NULL;
+			}
+
+			netdev->cqm_poll_fallback = false;
+		}
+
 		return;
+	}
+
+	/*
+	 * Some drivers enable beacon filtering but also use software CQM which
+	 * mac80211 detects and returns -ENOTSUP. There is no way to check this
+	 * ahead of time so if we see this start polling in order to get RSSI
+	 * updates.
+	 */
+	if (err == -ENOTSUP) {
+		l_debug("CMD_SET_CQM not supported, falling back to polling");
+		netdev->cqm_poll_fallback = true;
+
+		if (netdev->rssi_poll_timeout)
+			return;
+
+		netdev->rssi_poll_timeout = l_timeout_create(1,
+						netdev_rssi_poll, netdev, NULL);
+
+		return;
+	}
 
 	ext_error = l_genl_msg_get_extended_error(msg);
 	l_error("CMD_SET_CQM failed: %s",
@@ -3653,6 +3715,9 @@ static int netdev_cqm_rssi_update(struct netdev *netdev)
 
 	l_debug("");
 
+	if (netdev->set_cqm_cmd_id)
+		return -EBUSY;
+
 	if (!wiphy_has_ext_feature(netdev->wiphy,
 					NL80211_EXT_FEATURE_CQM_RSSI_LIST))
 		msg = netdev_build_cmd_cqm_rssi_update(netdev, NULL, 0);
@@ -3663,13 +3728,46 @@ static int netdev_cqm_rssi_update(struct netdev *netdev)
 	if (!msg)
 		return -EINVAL;
 
-	if (!l_genl_family_send(nl80211, msg, netdev_cmd_set_cqm_cb,
-				NULL, NULL)) {
+	netdev->set_cqm_cmd_id = l_genl_family_send(nl80211, msg,
+						netdev_cmd_set_cqm_cb,
+						netdev, NULL);
+	if (!netdev->set_cqm_cmd_id) {
 		l_genl_msg_unref(msg);
 		return -EIO;
 	}
 
 	return 0;
+}
+
+static int netdev_set_signal_thresholds(struct netdev *netdev, int threshold,
+					int threshold_5ghz)
+{
+	int current = netdev->frequency > 4000 ?
+					netdev->low_signal_threshold_5ghz :
+					netdev->low_signal_threshold;
+	int new = netdev->frequency > 4000 ? threshold_5ghz : threshold;
+
+	if (current == new)
+		return -EALREADY;
+
+	l_debug("changing low signal threshold to %d", new);
+
+	netdev->low_signal_threshold = threshold;
+	netdev->low_signal_threshold_5ghz = threshold_5ghz;
+
+	return netdev_cqm_rssi_update(netdev);
+}
+
+int netdev_lower_signal_threshold(struct netdev *netdev)
+{
+	return netdev_set_signal_thresholds(netdev, CRITICAL_SIGNAL_THRESHOLD,
+						CRITICAL_SIGNAL_THRESHOLD_5GHZ);
+}
+
+int netdev_raise_signal_threshold(struct netdev *netdev)
+{
+	return netdev_set_signal_thresholds(netdev, LOW_SIGNAL_THRESHOLD,
+						LOW_SIGNAL_THRESHOLD_5GHZ);
 }
 
 static bool netdev_connection_work_ready(struct wiphy_radio_work_item *item)
@@ -3778,7 +3876,8 @@ static int netdev_handshake_state_setup_connection_type(
 	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
 	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
 		/* FILS has no offload in any upstream driver */
-		if (softmac)
+		if (softmac && wiphy_has_ext_feature(wiphy,
+						NL80211_EXT_FEATURE_FILS_STA))
 			goto softmac;
 
 		return -ENOTSUP;
@@ -3828,6 +3927,20 @@ static void netdev_connect_common(struct netdev *netdev,
 	if (!is_rsn)
 		goto build_cmd_connect;
 
+	/* For OWE, always use the CMD_CONNECT path */
+	if (IE_AKM_IS_OWE(hs->akm_suite)) {
+		netdev->owe_sm = owe_sm_new(hs);
+		goto build_cmd_connect;
+	}
+
+	if (IE_AKM_IS_FILS(hs->akm_suite)) {
+		netdev->ap = fils_sm_new(hs, netdev_fils_tx_authenticate,
+						netdev_fils_tx_associate,
+						netdev_get_oci,
+						netdev);
+		goto done;
+	}
+
 	if (nhs->type != CONNECTION_TYPE_SOFTMAC)
 		goto build_cmd_connect;
 
@@ -3850,19 +3963,6 @@ static void netdev_connect_common(struct netdev *netdev,
 		}
 
 		break;
-	case IE_RSN_AKM_SUITE_OWE:
-		netdev->owe_sm = owe_sm_new(hs);
-
-		goto build_cmd_connect;
-	case IE_RSN_AKM_SUITE_FILS_SHA256:
-	case IE_RSN_AKM_SUITE_FILS_SHA384:
-	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA256:
-	case IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384:
-		netdev->ap = fils_sm_new(hs, netdev_fils_tx_authenticate,
-						netdev_fils_tx_associate,
-						netdev_get_oci,
-						netdev);
-		break;
 	default:
 build_cmd_connect:
 		cmd_connect = netdev_build_cmd_connect(netdev, hs, prev_bssid);
@@ -3875,6 +3975,7 @@ build_cmd_connect:
 		}
 	}
 
+done:
 	netdev->connect_cmd = cmd_connect;
 	netdev->event_filter = event_filter;
 	netdev->connect_cb = cb;
@@ -3882,6 +3983,8 @@ build_cmd_connect:
 	netdev->handshake = hs;
 	netdev->sm = sm;
 	netdev->cur_rssi = bss->signal_strength / 100;
+	netdev->low_signal_threshold = LOW_SIGNAL_THRESHOLD;
+	netdev->low_signal_threshold_5ghz = LOW_SIGNAL_THRESHOLD_5GHZ;
 
 	if (netdev->rssi_levels_num)
 		netdev_set_rssi_level_idx(netdev);
@@ -3935,6 +4038,8 @@ int netdev_disconnect(struct netdev *netdev,
 {
 	struct l_genl_msg *disconnect;
 	bool send_disconnect = true;
+	bool deauth = false;
+	uint8_t aa[6];
 
 	if (!(netdev->ifi_flags & IFF_UP))
 		return -ENETDOWN;
@@ -3953,8 +4058,8 @@ int netdev_disconnect(struct netdev *netdev,
 		 * 1. We do not actually have a connect in progress (work.id
 		 *    is zero), then we can bail out early with an error.
 		 * 2. We have sent CMD_CONNECT but not fully connected. The
-		 *    CMD_CONNECT needs to be canceled and a disconnect should
-		 *    be sent.
+		 *    CMD_CONNECT needs to be canceled and a disconnect or
+		 *    deauth should be sent.
 		 * 3. Queued up the connect work, but haven't sent CMD_CONNECT
 		 *    to the kernel. This case we do not need to send a
 		 *    disconnect.
@@ -3969,6 +4074,11 @@ int netdev_disconnect(struct netdev *netdev,
 							netdev->work.id))
 			send_disconnect = false;
 
+		if (netdev->handshake && !netdev->associated) {
+			memcpy(aa, netdev->handshake->aa, 6);
+			deauth = true;
+		}
+
 		netdev_connect_failed(netdev, NETDEV_RESULT_ABORTED,
 					MMPDU_REASON_CODE_UNSPECIFIED);
 	} else {
@@ -3976,8 +4086,14 @@ int netdev_disconnect(struct netdev *netdev,
 	}
 
 	if (send_disconnect) {
-		disconnect = nl80211_build_disconnect(netdev->index,
+		if (deauth)
+			disconnect = nl80211_build_deauthenticate(
+					netdev->index, aa,
 					MMPDU_REASON_CODE_DEAUTH_LEAVING);
+		else
+			disconnect = nl80211_build_disconnect(netdev->index,
+					MMPDU_REASON_CODE_DEAUTH_LEAVING);
+
 		netdev->disconnect_cmd_id = l_genl_family_send(nl80211,
 					disconnect, netdev_cmd_disconnect_cb,
 					netdev, NULL);
@@ -4242,6 +4358,8 @@ int netdev_ft_reassociate(struct netdev *netdev,
 	netdev->event_filter = event_filter;
 	netdev->connect_cb = cb;
 	netdev->user_data = user_data;
+	netdev->low_signal_threshold = LOW_SIGNAL_THRESHOLD;
+	netdev->low_signal_threshold_5ghz = LOW_SIGNAL_THRESHOLD_5GHZ;
 
 	/*
 	 * Cancel commands that could be running because of EAPoL activity
@@ -4279,6 +4397,8 @@ int netdev_ft_reassociate(struct netdev *netdev,
 	if (netdev->sm) {
 		eapol_sm_free(netdev->sm);
 		netdev->sm = NULL;
+
+		netdev_ensure_eapol_registered(netdev);
 	}
 
 	msg = netdev_build_cmd_associate_common(netdev);
@@ -5246,8 +5366,10 @@ int netdev_set_rssi_report_levels(struct netdev *netdev, const int8_t *levels,
 	if (!cmd_set_cqm)
 		return -EINVAL;
 
-	if (!l_genl_family_send(nl80211, cmd_set_cqm, netdev_cmd_set_cqm_cb,
-				NULL, NULL)) {
+	netdev->set_cqm_cmd_id = l_genl_family_send(nl80211, cmd_set_cqm,
+							netdev_cmd_set_cqm_cb,
+							netdev, NULL);
+	if (!netdev->set_cqm_cmd_id) {
 		l_genl_msg_unref(cmd_set_cqm);
 		return -EIO;
 	}
@@ -6080,23 +6202,19 @@ error:
 
 static void netdev_get_link(struct netdev *netdev)
 {
-	struct ifinfomsg *rtmmsg;
-	size_t bufsize;
+	struct ifinfomsg ifi;
+	struct l_netlink_message *nlm =
+		l_netlink_message_new_sized(RTM_GETLINK, 0, sizeof(ifi));
 
-	/* Query interface flags */
-	bufsize = NLMSG_ALIGN(sizeof(struct ifinfomsg));
-	rtmmsg = l_malloc(bufsize);
-	memset(rtmmsg, 0, bufsize);
+	memset(&ifi, 0, sizeof(ifi));
+	ifi.ifi_family = AF_UNSPEC;
+	ifi.ifi_index = netdev->index;
 
-	rtmmsg->ifi_family = AF_UNSPEC;
-	rtmmsg->ifi_index = netdev->index;
+	l_netlink_message_add_header(nlm, &ifi, sizeof(ifi));
 
-	netdev->get_link_cmd_id = l_netlink_send(rtnl, RTM_GETLINK, 0, rtmmsg,
-						bufsize, netdev_getlink_cb,
+	netdev->get_link_cmd_id = l_netlink_send(rtnl, nlm, netdev_getlink_cb,
 						netdev, NULL);
 	L_WARN_ON(netdev->get_link_cmd_id == 0);
-
-	l_free(rtmmsg);
 }
 
 struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
@@ -6151,6 +6269,8 @@ struct netdev *netdev_create_from_genl(struct l_genl_msg *msg,
 	l_strlcpy(netdev->name, ifname, IFNAMSIZ);
 	netdev->wiphy = wiphy;
 	netdev->pae_over_nl80211 = pae_io == NULL;
+	netdev->low_signal_threshold = LOW_SIGNAL_THRESHOLD;
+	netdev->low_signal_threshold_5ghz = LOW_SIGNAL_THRESHOLD_5GHZ;
 
 	if (set_mac)
 		memcpy(netdev->set_mac_once, set_mac, 6);
@@ -6252,16 +6372,24 @@ static int netdev_init(void)
 		goto fail_netlink;
 	}
 
-	if (!l_settings_get_int(settings, "General", "RoamThreshold",
+	if (!l_settings_get_int(settings, NETDEV_ROAM_THRESHOLD,
 					&LOW_SIGNAL_THRESHOLD))
 		LOW_SIGNAL_THRESHOLD = -70;
 
-	if (!l_settings_get_int(settings, "General", "RoamThreshold5G",
+	if (!l_settings_get_int(settings, NETDEV_ROAM_THRESHOLD_5G,
 					&LOW_SIGNAL_THRESHOLD_5GHZ))
 		LOW_SIGNAL_THRESHOLD_5GHZ = -76;
 
-	rand_addr_str = l_settings_get_value(settings, "General",
-						"AddressRandomization");
+	if (!l_settings_get_int(settings, NETDEV_CRITICAL_ROAM_THRESHOLD,
+					&CRITICAL_SIGNAL_THRESHOLD))
+		CRITICAL_SIGNAL_THRESHOLD = -80;
+
+	if (!l_settings_get_int(settings, NETDEV_CRITICAL_ROAM_THRESHOLD_5G,
+					&CRITICAL_SIGNAL_THRESHOLD_5GHZ))
+		CRITICAL_SIGNAL_THRESHOLD_5GHZ = -82;
+
+	rand_addr_str = l_settings_get_value(settings,
+						NETDEV_ADDRESS_RANDOMIZATION);
 	if (rand_addr_str && !strcmp(rand_addr_str, "network"))
 		mac_per_ssid = true;
 

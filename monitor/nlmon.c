@@ -37,6 +37,7 @@
 #include <linux/if.h>
 #include <linux/if_packet.h>
 #include <linux/if_ether.h>
+#include <linux/if_link.h>
 #include <linux/netlink.h>
 #include <linux/genetlink.h>
 #include <linux/rtnetlink.h>
@@ -45,6 +46,14 @@
 
 #ifndef ARPHRD_NETLINK
 #define ARPHRD_NETLINK	824
+#endif
+
+#ifndef RMNET_FLAGS_INGRESS_MAP_CKSUMV5
+#define RMNET_FLAGS_INGRESS_MAP_CKSUMV5 (1U << 4)
+#endif
+
+#ifndef RMNET_FLAGS_EGRESS_MAP_CKSUMV5
+#define RMNET_FLAGS_EGRESS_MAP_CKSUMV5 (1U << 5)
 #endif
 
 #include "linux/nl80211.h"
@@ -1689,7 +1698,7 @@ static void print_ie_he_capabilities(unsigned int level,
 {
 	const uint8_t *ptr = data;
 	uint8_t width_set = bit_field((ptr + 6)[0], 1, 7);
-	uint8_t mask = 0xff;
+	uint8_t mask = 0x3f;
 
 	const char *he_channel_width_bitfield[] = {
 		[0] = "40MHz supported (2.4GHz)",
@@ -2452,6 +2461,86 @@ static void print_reduced_neighbor_report(unsigned int level, const char *label,
 	}
 }
 
+static void print_neighbor_report(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	struct ie_tlv_iter iter;
+	struct ie_neighbor_report_info info;
+
+	const char *phy_type_table[] = {
+		[0] = NULL,
+		[1] = NULL,
+		[2] = "DSSS",
+		[3] = NULL,
+		[4] = "OFDM",
+		[5] = "HDRSSS",
+		[6] = "ERP",
+		[7] = "HT",
+		[8] = "DMG",
+		[9] = "VHT",
+		[10] = "TVHT",
+		[11] = "S1G",
+		[12] = "CDMG",
+		[13] = "CMMG",
+		[14] = "HE"
+	};
+
+	ie_tlv_iter_init(&iter, data - 2, size + 2);
+
+	if (!ie_tlv_iter_next(&iter))
+		return;
+
+	if (ie_parse_neighbor_report(&iter, &info) < 0) {
+		print_attr(level, "Invalid Neighbor report");
+		return;
+	}
+
+	print_attr(level, "Neighbor Report for "MAC, MAC_STR(info.addr));
+	print_attr(level + 1, "Operating Class: %u", info.oper_class);
+	print_attr(level + 1, "Channel Number: %u", info.channel_num);
+
+	if (info.phy_type <= 14 && phy_type_table[info.phy_type])
+		print_attr(level + 1, "Phy Type: %s",
+				phy_type_table[info.phy_type]);
+	else
+		print_attr(level + 1, "Phy Type: Unknown (%u)", info.phy_type);
+
+	if (info.bss_transition_pref_present)
+		print_attr(level + 1, "BSS Transition Preference: %u",
+				info.bss_transition_pref);
+
+	switch (info.reachable) {
+	case 1:
+		print_attr(level + 1, "Reachability: Not Reachable");
+		break;
+	case 2:
+		print_attr(level + 1, "Reachability: Unknown");
+		break;
+	case 3:
+		print_attr(level + 1, "Reachability: Reachable");
+		break;
+	default:
+		break;
+	}
+
+	print_attr(level + 1, "BSSID Information");
+
+	if (info.security)
+		print_attr(level + 2, "Security bit set");
+	if (info.key_scope)
+		print_attr(level + 2, "Key scope bit set");
+	if (info.spectrum_mgmt)
+		print_attr(level + 2, "Spectrum Mgmt bit set");
+	if (info.qos)
+		print_attr(level + 2, "QoS bit set");
+	if (info.apsd)
+		print_attr(level + 2, "APSD bit set");
+	if (info.md)
+		print_attr(level + 2, "MD bit set");
+	if (info.ht)
+		print_attr(level + 2, "HT bit set");
+}
+
 static struct attr_entry ie_entry[] = {
 	{ IE_TYPE_SSID,				"SSID",
 		ATTR_CUSTOM,	{ .function = print_ie_ssid } },
@@ -2520,6 +2609,8 @@ static struct attr_entry ie_entry[] = {
 		ATTR_CUSTOM,	{ .function = print_reduced_neighbor_report } },
 	{ IE_TYPE_RSNX,				"RSNX",
 		ATTR_CUSTOM,	{ .function = print_rsnx } },
+	{ IE_TYPE_NEIGHBOR_REPORT,		"Neighbor Report",
+		ATTR_CUSTOM,	{ .function = print_neighbor_report } },
 	{ },
 };
 
@@ -4979,6 +5070,7 @@ static void print_rm_action_frame(unsigned int level, const uint8_t *body,
 		print_rm_request(level + 1, body + 1, body_len - 1);
 		break;
 	case 1:
+	case 5:
 		print_rm_report(level + 1, body + 1, body_len - 1);
 		break;
 	}
@@ -5535,8 +5627,26 @@ static void print_cqm_event(unsigned int level, const char *label,
 	}
 }
 
+static void print_cqm_thresholds(unsigned int level, const char *label,
+					const void *data, uint16_t size)
+{
+	const int32_t *thresholds = data;
+	unsigned int i;
+
+	if (size % 4) {
+		printf("malformed packet");
+		return;
+	}
+
+	print_attr(level, "%s:", label);
+
+	for (i = 0; i < size / 4; i++)
+		print_attr(level + 1, "Threshold: %d", thresholds[i]);
+
+}
 static const struct attr_entry cqm_table[] = {
-	{ NL80211_ATTR_CQM_RSSI_THOLD,	"RSSI threshold",	ATTR_U32 },
+	{ NL80211_ATTR_CQM_RSSI_THOLD,	"RSSI thresholds",	ATTR_CUSTOM,
+					{ .function = print_cqm_thresholds } },
 	{ NL80211_ATTR_CQM_RSSI_HYST,	"RSSI hysteresis",	ATTR_U32 },
 	{ NL80211_ATTR_CQM_RSSI_THRESHOLD_EVENT,
 					"RSSI threshold event",	ATTR_CUSTOM,
@@ -7153,8 +7263,10 @@ static void print_message(struct nlmon *nlmon, const struct timeval *tv,
 	if (nlmon->nowiphy && (cmd == NL80211_CMD_NEW_WIPHY))
 		return;
 
-	if (nlmon->noscan && ((cmd == NL80211_CMD_NEW_SCAN_RESULTS) ||
-			(cmd == NL80211_CMD_TRIGGER_SCAN)))
+	if (nlmon->noscan && L_IN_SET(cmd, NL80211_CMD_NEW_SCAN_RESULTS,
+					NL80211_CMD_NEW_SURVEY_RESULTS,
+					NL80211_CMD_TRIGGER_SCAN,
+					NL80211_CMD_GET_SURVEY))
 		return;
 
 	switch (type) {
@@ -7496,8 +7608,51 @@ static void flags_str(const struct flag_names *table,
 	pos += sprintf(str + pos, "]");
 }
 
+static void print_rmnet_flags(unsigned int indent,
+					const char *label, uint32_t flags)
+{
+	if (flags & RMNET_FLAGS_INGRESS_DEAGGREGATION)
+		print_attr(indent, "%s: %s", label, "deaggregation");
+	if (flags & RMNET_FLAGS_INGRESS_MAP_COMMANDS)
+		print_attr(indent, "%s: %s", label, "map commands");
+	if (flags & RMNET_FLAGS_INGRESS_MAP_CKSUMV4)
+		print_attr(indent, "%s: %s", label, "ingress_mapv4");
+	if (flags & RMNET_FLAGS_EGRESS_MAP_CKSUMV4)
+		print_attr(indent, "%s: %s", label, "egress_mapv4");
+	if (flags & RMNET_FLAGS_INGRESS_MAP_CKSUMV5)
+		print_attr(indent, "%s: %s", label, "ingress_mapv5");
+	if (flags & RMNET_FLAGS_EGRESS_MAP_CKSUMV5)
+		print_attr(indent, "%s: %s", label, "egress_mapv5");
+}
+
+static void print_ifla_rmnet_flags(unsigned int indent, const char *str,
+						const void *buf, uint16_t size)
+{
+	struct ifla_rmnet_flags flags;
+
+	if (size != 8) {
+		printf("malformed packet\n");
+		return;
+	}
+
+	memcpy(&flags, buf, size);
+
+	print_attr(indent, "%s:", str);
+	print_rmnet_flags(indent + 1, "Flags", flags.flags);
+	print_rmnet_flags(indent + 1, "Mask", flags.mask);
+}
+
+static struct attr_entry link_info_data_entry[] = {
+	{ IFLA_RMNET_MUX_ID,	"RMNet Mux Id",		ATTR_U16 },
+	{ IFLA_RMNET_FLAGS,	"RMNet Flags",		ATTR_CUSTOM,
+					{ .function = print_ifla_rmnet_flags } },
+	{ },
+};
+
 static struct attr_entry link_info_entry[] = {
 	{ IFLA_INFO_KIND,	"Kind",		ATTR_STRING },
+	{ IFLA_INFO_DATA,	"Info Data",
+				ATTR_NESTED, { link_info_data_entry } },
 	{ },
 };
 
@@ -7654,7 +7809,7 @@ static void print_rtnl_attributes(int indent, const struct attr_entry *table,
 		return;
 
 	for (attr = rt_attr; RTA_OK(attr, len); attr = RTA_NEXT(attr, len)) {
-		uint16_t rta_type = attr->rta_type;
+		uint16_t rta_type = attr->rta_type & NLA_TYPE_MASK;
 		enum attr_type type = ATTR_UNSPEC;
 		attr_func_t function;
 		const struct attr_entry *nested;
@@ -8202,7 +8357,8 @@ void nlmon_print_genl(struct nlmon *nlmon, const struct timeval *tv,
 			continue;
 		}
 
-		if (!nlmon->read && nlmsg->nlmsg_type != nlmon->id)
+		if (nlmsg->nlmsg_type >= NLMSG_MIN_TYPE && !nlmon->read &&
+				nlmsg->nlmsg_type != nlmon->id)
 			continue;
 
 		nlmon_message(nlmon, tv, nlmsg);

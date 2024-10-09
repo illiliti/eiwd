@@ -489,7 +489,7 @@ static int fils_rx_associate(struct auth_proto *driver, const uint8_t *frame,
 	bool sha384 = (fils->hs->akm_suite & (IE_RSN_AKM_SUITE_FILS_SHA384 |
 			IE_RSN_AKM_SUITE_FT_OVER_FILS_SHA384));
 	uint8_t data[44];
-	uint8_t *ptr = data;
+	uint8_t *ptr;
 
 	if (assoc->status_code != 0)
 		return L_CPU_TO_LE16(assoc->status_code);

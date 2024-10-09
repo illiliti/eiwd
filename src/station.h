@@ -88,6 +88,7 @@ uint32_t station_add_event_watch(station_event_watch_func_t func,
 void station_remove_event_watch(uint32_t id);
 
 bool station_set_autoconnect(struct station *station, bool autoconnect);
+bool station_get_autoconnect(struct station *station);
 
 int __station_connect_network(struct station *station, struct network *network,
 				struct scan_bss *bss, enum station_state state);

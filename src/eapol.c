@@ -387,6 +387,23 @@ error:
 	return NULL;
 }
 
+static int padded_aes_wrap(const uint8_t *kek, uint8_t *key_data,
+				size_t *key_data_len,
+				struct eapol_key *out_frame, size_t mic_len)
+{
+	if (*key_data_len < 16 || *key_data_len % 8)
+		key_data[(*key_data_len)++] = 0xdd;
+	while (*key_data_len < 16 || *key_data_len % 8)
+		key_data[(*key_data_len)++] = 0x00;
+
+	if (!aes_wrap(kek, key_data, *key_data_len,
+				EAPOL_KEY_DATA(out_frame, mic_len)))
+		return -ENOPROTOOPT;
+
+	*key_data_len += 8;
+	return 0;
+}
+
 /*
  * Pad and encrypt the plaintext Key Data contents in @key_data using
  * the encryption scheme required by @out_frame->key_descriptor_version,
@@ -395,12 +412,12 @@ error:
  * Note that for efficiency @key_data is being modified, including in
  * case of failure, so it must be sufficiently larger than @key_data_len.
  */
-static int eapol_encrypt_key_data(const uint8_t *kek, uint8_t *key_data,
-				size_t key_data_len,
+static int eapol_encrypt_key_data(enum ie_rsn_akm_suite akm, const uint8_t *kek,
+				uint8_t *key_data, size_t key_data_len,
 				struct eapol_key *out_frame, size_t mic_len)
 {
 	uint8_t key[32];
-	bool ret;
+	int ret;
 
 	switch (out_frame->key_descriptor_version) {
 	case EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_MD5_ARC4:
@@ -426,18 +443,23 @@ static int eapol_encrypt_key_data(const uint8_t *kek, uint8_t *key_data,
 		break;
 	case EAPOL_KEY_DESCRIPTOR_VERSION_HMAC_SHA1_AES:
 	case EAPOL_KEY_DESCRIPTOR_VERSION_AES_128_CMAC_AES:
-		if (key_data_len < 16 || key_data_len % 8)
-			key_data[key_data_len++] = 0xdd;
-		while (key_data_len < 16 || key_data_len % 8)
-			key_data[key_data_len++] = 0x00;
-
-		if (!aes_wrap(kek, key_data, key_data_len,
-					EAPOL_KEY_DATA(out_frame, mic_len)))
-			return -ENOPROTOOPT;
-
-		key_data_len += 8;
+		ret = padded_aes_wrap(kek, key_data, &key_data_len,
+					out_frame, mic_len);
+		if (ret < 0)
+			return ret;
 
 		break;
+	case EAPOL_KEY_DESCRIPTOR_VERSION_AKM_DEFINED:
+		switch (akm) {
+		case IE_RSN_AKM_SUITE_SAE_SHA256:
+			ret = padded_aes_wrap(kek, key_data, &key_data_len,
+						out_frame, mic_len);
+			if (ret < 0)
+				return ret;
+			break;
+		default:
+			return -ENOTSUP;
+		}
 	}
 
 	l_put_be16(key_data_len, EAPOL_KEY_DATA(out_frame, mic_len) - 2);
@@ -1011,10 +1033,8 @@ static void eapol_install_igtk(struct eapol_sm *sm, uint16_t igtk_key_index,
 
 static void __send_eapol_start(struct eapol_sm *sm, bool noencrypt)
 {
-	uint8_t buf[sizeof(struct eapol_frame)];
+	uint8_t buf[sizeof(struct eapol_frame)] = {};
 	struct eapol_frame *frame = (struct eapol_frame *) buf;
-
-	handshake_event(sm->handshake, HANDSHAKE_EVENT_STARTED);
 
 	frame->header.protocol_version = EAPOL_PROTOCOL_VERSION_2001;
 	frame->header.packet_type = 1;
@@ -1434,6 +1454,19 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 		key_data_len += gtk_kde[1] + 2;
 	}
 
+	if (sm->handshake->mfp) {
+		enum crypto_cipher group_management_cipher =
+			ie_rsn_cipher_suite_to_cipher(
+				sm->handshake->group_management_cipher);
+		uint8_t *igtk_kde = key_data_buf + key_data_len;
+
+		handshake_util_build_igtk_kde(group_management_cipher,
+						sm->handshake->igtk,
+						sm->handshake->igtk_index,
+						igtk_kde);
+		key_data_len += igtk_kde[1] + 2;
+	}
+
 	if (sm->handshake->support_ip_allocation &&
 			!sm->handshake->client_ip_addr) {
 		handshake_event(sm->handshake, HANDSHAKE_EVENT_P2P_IP_REQUEST);
@@ -1467,8 +1500,9 @@ static void eapol_send_ptk_3_of_4(struct eapol_sm *sm)
 	}
 
 	kek = handshake_state_get_kek(sm->handshake);
-	key_data_len = eapol_encrypt_key_data(kek, key_data_buf,
-						key_data_len, ek, sm->mic_len);
+	key_data_len = eapol_encrypt_key_data(sm->handshake->akm_suite, kek,
+						key_data_buf, key_data_len, ek,
+						sm->mic_len);
 	explicit_bzero(key_data_buf, sizeof(key_data_buf));
 
 	if (key_data_len < 0)
@@ -1560,6 +1594,7 @@ static void eapol_handle_ptk_2_of_4(struct eapol_sm *sm,
 	size_t ptk_size;
 	const uint8_t *kck;
 	const uint8_t *aa = sm->handshake->aa;
+	enum l_checksum_type type;
 
 	l_debug("ifindex=%u", sm->handshake->ifindex);
 
@@ -1571,12 +1606,16 @@ static void eapol_handle_ptk_2_of_4(struct eapol_sm *sm,
 
 	ptk_size = handshake_state_get_ptk_size(sm->handshake);
 
+	type = L_CHECKSUM_SHA1;
+	if (sm->handshake->akm_suite == IE_RSN_AKM_SUITE_SAE_SHA256)
+		type = L_CHECKSUM_SHA256;
+
 	if (!crypto_derive_pairwise_ptk(sm->handshake->pmk,
 					sm->handshake->pmk_len,
 					sm->handshake->spa, aa,
 					sm->handshake->anonce, ek->key_nonce,
 					sm->handshake->ptk, ptk_size,
-					L_CHECKSUM_SHA1))
+					type))
 		return;
 
 	kck = handshake_state_get_kck(sm->handshake);
@@ -2816,6 +2855,8 @@ bool eapol_start(struct eapol_sm *sm)
 						sm->handshake->ssid_len);
 		eap_set_peer_id(sm->eap, network_id);
 	}
+
+	handshake_event(sm->handshake, HANDSHAKE_EVENT_STARTED);
 
 	sm->started = true;
 

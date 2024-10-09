@@ -224,127 +224,40 @@ struct iwmon_interface {
 	char *ifname;
 	bool exists;
 	struct l_netlink *rtnl;
-	struct l_netlink *genl;
+	struct l_genl *genl;
 	struct l_io *io;
 };
 
 static struct iwmon_interface monitor_interface = { };
 
-static void genl_parse(uint16_t type, const void *data, uint32_t len,
-							const char *ifname)
+static void nl80211_appeared(const struct l_genl_family_info *info,
+					void *user_data)
 {
-	const struct genlmsghdr *genlmsg = data;
-	const struct nlattr *nla;
-	char name[GENL_NAMSIZ];
-	uint16_t id = 0;
-
-	if (nlmon)
-		return;
-
-	if (type != GENL_ID_CTRL)
-		return;
-
-	if (genlmsg->cmd != CTRL_CMD_NEWFAMILY)
-		return;
-
-	for (nla = data + GENL_HDRLEN; NLA_OK(nla, len);
-						nla = NLA_NEXT(nla, len)) {
-		switch (nla->nla_type & NLA_TYPE_MASK) {
-		case CTRL_ATTR_FAMILY_ID:
-			id = *((uint16_t *) NLA_DATA(nla));
-			break;
-		case CTRL_ATTR_FAMILY_NAME:
-			strncpy(name, NLA_DATA(nla), GENL_NAMSIZ - 1);
-			break;
-		}
-	}
-
-	if (id == 0)
-		return;
-
-	if (strcmp(name, NL80211_GENL_NAME))
-		return;
+	const char *ifname = user_data;
 
 	monitor_interface.io = open_packet(ifname);
 	if (!monitor_interface.io)
 		goto failed;
 
-	nlmon = nlmon_open(id, writer_path, &config);
+	nlmon = nlmon_open(l_genl_family_info_get_id(info),
+						writer_path, &config);
 	if (!nlmon)
 		goto failed;
 
 	l_io_set_read_handler(monitor_interface.io, nlmon_receive, nlmon, NULL);
-
 	return;
 
 failed:
 	l_main_quit();
 }
 
-static void genl_notify(uint16_t type, const void *data,
-						uint32_t len, void *user_data)
+static struct l_genl *genl_lookup(const char *ifname)
 {
-	const char *ifname = user_data;
+	struct l_genl *genl = l_genl_new();
 
-	genl_parse(type, data, len, ifname);
-}
-
-static void genl_callback(int error, uint16_t type, const void *data,
-						uint32_t len, void *user_data)
-{
-	const char *ifname = user_data;
-
-	if (error < 0) {
-		fprintf(stderr, "Failed to lookup nl80211 family\n");
-		l_main_quit();
-		return;
-	}
-
-	genl_parse(type, data, len, ifname);
-}
-
-static struct l_netlink *genl_lookup(const char *ifname)
-{
-	struct l_netlink *genl;
-	char buf[GENL_HDRLEN + NLA_HDRLEN + GENL_NAMSIZ];
-	struct genlmsghdr *genlmsg;
-	struct nlattr *nla;
-
-	genl = l_netlink_new(NETLINK_GENERIC);
-
-	l_netlink_register(genl, GENL_ID_CTRL, genl_notify, NULL, NULL);
-
-	genlmsg = (struct genlmsghdr *) buf;
-	genlmsg->cmd = CTRL_CMD_GETFAMILY;
-	genlmsg->version = 0;
-	genlmsg->reserved = 0;
-
-	nla = (struct nlattr *) (buf + GENL_HDRLEN);
-	nla->nla_len = NLA_HDRLEN + GENL_NAMSIZ;
-	nla->nla_type = CTRL_ATTR_FAMILY_NAME;
-	strncpy(buf + GENL_HDRLEN + NLA_HDRLEN,
-					NL80211_GENL_NAME, GENL_NAMSIZ);
-
-	l_netlink_send(genl, GENL_ID_CTRL, 0, buf, sizeof(buf),
-					genl_callback, (char *) ifname, NULL);
-
+	l_genl_request_family(genl, NL80211_GENL_NAME, nl80211_appeared,
+					(char *) ifname, NULL);
 	return genl;
-}
-
-static size_t rta_add(void *rta_buf, unsigned short type, uint16_t len,
-			const void *data)
-{
-	unsigned short rta_len = RTA_LENGTH(len);
-	struct rtattr *rta = rta_buf;
-
-	memset(RTA_DATA(rta), 0, RTA_SPACE(len));
-
-	rta->rta_len = rta_len;
-	rta->rta_type = type;
-	if (len)
-		memcpy(RTA_DATA(rta), data, len);
-
-	return RTA_SPACE(len);
 }
 
 static bool rta_linkinfo_kind(struct rtattr *rta, unsigned short len,
@@ -375,10 +288,9 @@ static struct l_netlink *rtm_interface_send_message(struct l_netlink *rtnl,
 {
 	size_t nlmon_type_len = strlen(NLMON_TYPE);
 	unsigned short ifname_len = 0;
-	size_t bufsize;
-	struct ifinfomsg *rtmmsg;
-	void *rta_buf;
-	struct rtattr *linkinfo_rta;
+	struct l_netlink_message *nlm;
+	struct ifinfomsg ifi;
+	uint16_t flags = 0;
 
 	if (ifname) {
 		ifname_len = strlen(ifname) + 1;
@@ -387,64 +299,41 @@ static struct l_netlink *rtm_interface_send_message(struct l_netlink *rtnl,
 			return NULL;
 	}
 
+	if (!L_IN_SET(rtm_msg_type, RTM_NEWLINK, RTM_DELLINK, RTM_GETLINK))
+		return NULL;
+
 	if (!rtnl)
 		rtnl = l_netlink_new(NETLINK_ROUTE);
 
 	if (!rtnl)
 		return NULL;
 
-	bufsize = NLMSG_LENGTH(sizeof(struct ifinfomsg)) +
-		RTA_SPACE(ifname_len) + RTA_SPACE(0) +
-		RTA_SPACE(nlmon_type_len);
-
-	rtmmsg = l_malloc(bufsize);
-	memset(rtmmsg, 0, bufsize);
-
-	rtmmsg->ifi_family = AF_UNSPEC;
-	rtmmsg->ifi_change = ~0;
-
-	rta_buf = rtmmsg + 1;
-
-	if (ifname)
-		rta_buf += rta_add(rta_buf, IFLA_IFNAME, ifname_len, ifname);
-
-	linkinfo_rta = rta_buf;
-
-	rta_buf += rta_add(rta_buf, IFLA_LINKINFO, 0, NULL);
-	rta_buf += rta_add(rta_buf, IFLA_INFO_KIND, nlmon_type_len, NLMON_TYPE);
-
-	linkinfo_rta->rta_len = rta_buf - (void *) linkinfo_rta;
+	memset(&ifi, 0, sizeof(ifi));
+	ifi.ifi_family = AF_UNSPEC;
+	ifi.ifi_change = ~0;
 
 	switch (rtm_msg_type) {
 	case RTM_NEWLINK:
-		rtmmsg->ifi_flags = IFF_UP | IFF_ALLMULTI | IFF_NOARP;
-
-		l_netlink_send(rtnl, RTM_NEWLINK, NLM_F_CREATE|NLM_F_EXCL,
-				rtmmsg, rta_buf - (void *) rtmmsg, callback,
-				user_data, destroy);
+		ifi.ifi_flags = IFF_UP | IFF_ALLMULTI | IFF_NOARP;
+		flags = NLM_F_CREATE | NLM_F_EXCL;
 		break;
-
-	case RTM_DELLINK:
-		rta_buf += rta_add(rta_buf, IFLA_IFNAME, ifname_len, ifname);
-
-		l_netlink_send(rtnl, RTM_DELLINK, 0, rtmmsg,
-				rta_buf - (void *)rtmmsg, callback, user_data,
-				destroy);
-		break;
-
 	case RTM_GETLINK:
-		l_netlink_send(rtnl, RTM_GETLINK, NLM_F_DUMP, rtmmsg,
-				rta_buf - (void *)rtmmsg, callback, user_data,
-				destroy);
-		break;
-
-	default:
-		l_netlink_destroy(rtnl);
-		rtnl = NULL;
+		flags = NLM_F_DUMP;
 		break;
 	}
 
-	l_free(rtmmsg);
+	nlm = l_netlink_message_new(rtm_msg_type, flags);;
+	l_netlink_message_add_header(nlm, &ifi, sizeof(ifi));
+
+	if (ifname)
+		l_netlink_message_append(nlm, IFLA_IFNAME, ifname, ifname_len);
+
+	l_netlink_message_enter_nested(nlm, IFLA_LINKINFO);
+	l_netlink_message_append(nlm, IFLA_INFO_KIND,
+						NLMON_TYPE, nlmon_type_len);
+	l_netlink_message_leave_nested(nlm);
+
+	l_netlink_send(rtnl, nlm, callback, user_data, destroy);
 
 	return rtnl;
 }
@@ -957,7 +846,7 @@ int main(int argc, char *argv[])
 
 	l_io_destroy(monitor_interface.io);
 	l_netlink_destroy(monitor_interface.rtnl);
-	l_netlink_destroy(monitor_interface.genl);
+	l_genl_unref(monitor_interface.genl);
 	l_free(monitor_interface.ifname);
 
 	nlmon_close(nlmon);

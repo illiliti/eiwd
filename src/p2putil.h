@@ -22,6 +22,7 @@
 
 #include <stdint.h>
 
+#include "src/defs.h"
 #include "src/wscutil.h"
 
 struct l_queue;
@@ -285,7 +286,7 @@ struct p2p_client_info_descriptor {
 
 struct p2p_group_id_attr {
 	uint8_t device_addr[6];
-	char ssid[33];
+	char ssid[SSID_MAX_SIZE + 1];
 };
 
 struct p2p_interface_attr {

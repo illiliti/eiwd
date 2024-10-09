@@ -81,11 +81,20 @@ class Test(unittest.TestCase):
         cls.bss_hostapd[0].set_value('ocv', '0')
         cls.bss_hostapd[0].set_value('ieee80211w', '0')
 
+        rad0 = hwsim.get_radio('rad0')
+        rad1 = hwsim.get_radio('rad1')
+
         cls.rule0 = hwsim.rules.create()
-        cls.rule0.source = 'any'
+        cls.rule0.source = rad0.addresses[0]
         cls.rule0.bidirectional = True
         cls.rule0.signal = -8000
         cls.rule0.enabled = True
+
+        cls.rule1 = hwsim.rules.create()
+        cls.rule1.source = rad1.addresses[0]
+        cls.rule1.bidirectional = True
+        cls.rule1.signal = -8500
+        cls.rule1.enabled = True
 
         cls.bss_hostapd[0].set_address('12:00:00:00:00:01')
         cls.bss_hostapd[1].set_address('12:00:00:00:00:02')
@@ -95,6 +104,7 @@ class Test(unittest.TestCase):
         IWD.clear_storage()
         cls.bss_hostapd = None
         cls.rule0.remove()
+        cls.rule1.remove()
 
 if __name__ == '__main__':
     unittest.main(exit=True)

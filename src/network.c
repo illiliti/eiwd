@@ -63,7 +63,7 @@ static uint32_t known_networks_watch;
 static uint32_t event_watch;
 
 struct network {
-	char ssid[33];
+	char ssid[SSID_MAX_SIZE + 1];
 	enum security security;
 	char *object_path;
 	struct station *station;
@@ -556,8 +556,7 @@ int network_handshake_setup(struct network *network, struct scan_bss *bss,
 		handshake_state_set_protocol_version(hs, eapol_proto_version);
 	}
 
-	hs->force_default_ecc_group = network->force_default_ecc_group ||
-						bss->force_default_sae_group;
+	hs->force_default_ecc_group = network->force_default_ecc_group;
 
 	/*
 	 * The randomization options in the provisioning file are dependent on
@@ -1132,11 +1131,37 @@ bool network_update_known_frequencies(struct network *network)
 	return true;
 }
 
+const char *__network_path_append_bss(const char *network_path,
+					const struct scan_bss *bss)
+{
+	static char path[256];
+
+	snprintf(path, sizeof(path), "%s/%02x%02x%02x%02x%02x%02x",
+			network_path, MAC_STR(bss->addr));
+
+	return path;
+}
+
+const char *network_bss_get_path(const struct network *network,
+						const struct scan_bss *bss)
+{
+	return __network_path_append_bss(network->object_path, bss);
+}
+
+void network_bss_list_clear(struct network *network)
+{
+	l_queue_destroy(network->bss_list, NULL);
+	network->bss_list = l_queue_new();
+}
+
 bool network_bss_add(struct network *network, struct scan_bss *bss)
 {
 	if (!l_queue_insert(network->bss_list, bss, scan_bss_rank_compare,
 									NULL))
 		return false;
+
+	l_dbus_property_changed(dbus_get_bus(), network->object_path,
+				IWD_NETWORK_INTERFACE, "ExtendedServiceSet");
 
 	/* Done if BSS is not HS20 or we already have network_info set */
 	if (!bss->hs20_capable)
@@ -1183,12 +1208,6 @@ bool network_bss_update(struct network *network, struct scan_bss *bss)
 bool network_bss_list_isempty(struct network *network)
 {
 	return l_queue_isempty(network->bss_list);
-}
-
-void network_bss_list_clear(struct network *network)
-{
-	l_queue_destroy(network->bss_list, NULL);
-	network->bss_list = l_queue_new();
 }
 
 struct scan_bss *network_bss_list_pop(struct network *network)
@@ -1866,6 +1885,28 @@ static bool network_property_get_known_network(struct l_dbus *dbus,
 	return true;
 }
 
+static bool network_property_get_extended_service_set(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct network *network = user_data;
+	const struct l_queue_entry *e;
+
+	l_dbus_message_builder_enter_array(builder, "o");
+
+	for (e = l_queue_get_entries(network->bss_list); e; e = e->next) {
+		struct scan_bss *bss = e->data;
+		const char *path = network_bss_get_path(network, bss);
+
+		l_dbus_message_builder_append_basic(builder, 'o', path);
+	}
+
+	l_dbus_message_builder_leave_array(builder);
+
+	return true;
+}
+
 bool network_register(struct network *network, const char *path)
 {
 #ifdef HAVE_DBUS
@@ -2172,6 +2213,27 @@ static void setup_network_interface(struct l_dbus_interface *interface)
 
 	l_dbus_interface_property(interface, "KnownNetwork", 0, "o",
 				network_property_get_known_network, NULL);
+
+	l_dbus_interface_property(interface, "ExtendedServiceSet", 0, "ao",
+				network_property_get_extended_service_set, NULL);
+}
+
+static bool network_bss_property_get_address(struct l_dbus *dbus,
+					struct l_dbus_message *message,
+					struct l_dbus_message_builder *builder,
+					void *user_data)
+{
+	struct scan_bss *bss = user_data;
+
+	l_dbus_message_builder_append_basic(builder, 's',
+					util_address_to_string(bss->addr));
+	return true;
+}
+
+static void setup_bss_interface(struct l_dbus_interface *interface)
+{
+	l_dbus_interface_property(interface, "Address", 0, "s",
+					network_bss_property_get_address, NULL);
 }
 
 static int network_init(void)
@@ -2182,6 +2244,11 @@ static int network_init(void)
 		l_error("Unable to register %s interface",
 						IWD_NETWORK_INTERFACE);
 #endif
+
+	if (!l_dbus_register_interface(dbus_get_bus(), IWD_BSS_INTERFACE,
+					setup_bss_interface, NULL, false))
+		l_error("Unable to register %s interface",
+						IWD_BSS_INTERFACE);
 
 	known_networks_watch =
 		known_networks_watch_add(known_networks_changed, NULL, NULL);
@@ -2201,6 +2268,7 @@ static void network_exit(void)
 
 #ifdef HAVE_DBUS
 	l_dbus_unregister_interface(dbus_get_bus(), IWD_NETWORK_INTERFACE);
+	l_dbus_unregister_interface(dbus_get_bus(), IWD_BSS_INTERFACE);
 #endif
 }
 
