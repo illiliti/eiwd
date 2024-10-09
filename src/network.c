@@ -1160,8 +1160,10 @@ bool network_bss_add(struct network *network, struct scan_bss *bss)
 									NULL))
 		return false;
 
+#ifdef HAVE_DBUS
 	l_dbus_property_changed(dbus_get_bus(), network->object_path,
 				IWD_NETWORK_INTERFACE, "ExtendedServiceSet");
+#endif
 
 	/* Done if BSS is not HS20 or we already have network_info set */
 	if (!bss->hs20_capable)
