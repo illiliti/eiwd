@@ -245,7 +245,7 @@ The group ``[Network]`` contains network configuration related settings.
        by default.  This setting can also be overridden on a per-network basis.
 
    * - NameResolvingService
-     - Values: resolvconf, **systemd**, none
+     - Values: **resolvconf**, systemd, none
 
        Configures a DNS resolution method used by the system.
 
@@ -253,7 +253,7 @@ The group ``[Network]`` contains network configuration related settings.
        ``EnableNetworkConfiguration`` and provides the choice of system
        resolver integration.
 
-       If not specified, ``systemd`` is used as default.
+       If not specified, ``resolvconf`` is used as default.
 
        If ``none`` is specified, then DNS and domain name information is
        ignored.
